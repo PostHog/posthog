@@ -36,6 +36,7 @@ export async function runAgent(
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
+        posthogProjectId,
         debug: true,
         onEvent: (event) => {
             if (event.type !== 'token') {
