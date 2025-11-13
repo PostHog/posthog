@@ -154,3 +154,36 @@ class TestMaxToolErrorHierarchy(BaseTest):
         # Adjusted retry should suggest adjusting inputs
         self.assertIn("adjusted", adjusted_error.retry_hint.lower())
         self.assertIn("inputs", adjusted_error.retry_hint.lower())
+
+    def test_to_summary_formats_error_correctly(self):
+        """to_summary() should format error with class name and message."""
+        error = MaxToolFatalError("Something went wrong")
+        summary = error.to_summary()
+
+        self.assertEqual(summary, "MaxToolFatalError: Something went wrong")
+
+    def test_to_summary_truncates_long_messages(self):
+        """to_summary() should truncate messages longer than max_length."""
+        long_message = "a" * 600
+        error = MaxToolRetryableError(long_message)
+        summary = error.to_summary(max_length=500)
+
+        self.assertEqual(len(summary), 524)  # "MaxToolRetryableError: " (24) + 500 + "…" (1) = 525
+        self.assertTrue(summary.startswith("MaxToolRetryableError: " + "a" * 500))
+        self.assertTrue(summary.endswith("…"))
+
+    def test_to_summary_respects_custom_max_length(self):
+        """to_summary() should respect custom max_length parameter."""
+        error = MaxToolTransientError("This is a medium length error message")
+        summary = error.to_summary(max_length=20)
+
+        self.assertTrue(summary.startswith("MaxToolTransientError: This is a medium len"))
+        self.assertTrue(summary.endswith("…"))
+        self.assertEqual(len(summary), 44)  # "MaxToolTransientError: " (23) + 20 + "…" (1) = 44
+
+    def test_to_summary_strips_whitespace(self):
+        """to_summary() should strip leading/trailing whitespace from messages."""
+        error = MaxToolFatalError("  \n  Error with whitespace  \n  ")
+        summary = error.to_summary()
+
+        self.assertEqual(summary, "MaxToolFatalError: Error with whitespace")

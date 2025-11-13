@@ -46,6 +46,22 @@ class MaxToolError(Exception):
         }
         return retry_hints[self.retry_strategy]
 
+    def to_summary(self, max_length: int = 500) -> str:
+        """
+        Create a truncated summary for context management.
+
+        Args:
+            max_length: Maximum length of the error message before truncation
+
+        Returns:
+            Formatted string with exception class name and truncated message
+        """
+        exception_name = self.__class__.__name__
+        exception_msg = str(self).strip()
+        if len(exception_msg) > max_length:
+            exception_msg = exception_msg[:max_length] + "…"
+        return f"{exception_name}: {exception_msg}"
+
 
 class MaxToolFatalError(MaxToolError):
     """

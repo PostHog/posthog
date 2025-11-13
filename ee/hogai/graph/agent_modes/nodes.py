@@ -480,14 +480,7 @@ class AgentToolsExecutable(BaseAgentExecutable):
                 },
             )
 
-            # Summarize the exception for context management
-            exception_name = e.__class__.__name__
-            exception_msg = str(e).strip()
-            if len(exception_msg) > 500:
-                exception_msg = exception_msg[:500] + "…"
-            summary = f"{exception_name}: {exception_msg}"
-
-            content = f"Tool failed: {summary}.{e.retry_hint}"
+            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
