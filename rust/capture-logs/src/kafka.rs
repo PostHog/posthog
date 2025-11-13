@@ -226,6 +226,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "bytes_compressed",
                         value: Some(&payload.len().to_string()),
+                    })
+                    .insert(Header {
+                        key: "record_count",
+                        value: Some(&rows.len().to_string()),
                     }),
             ),
         }) {
