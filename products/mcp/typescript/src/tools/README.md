@@ -41,11 +41,10 @@ export const FeatureFlagCreateSchema = z.object({
 ### 2. Create Tool Handler (`tools/featureFlags/create.ts`)
 
 ```typescript
-
 import type { z } from 'zod'
 
-import { FeatureFlagCreateSchema } from '@/schema/tool-inputs'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
+import { FeatureFlagCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = FeatureFlagCreateSchema

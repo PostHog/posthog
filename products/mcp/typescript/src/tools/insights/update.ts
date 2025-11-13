@@ -1,10 +1,10 @@
 import type { z } from 'zod'
 
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { InsightUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { resolveInsightId } from './utils'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = InsightUpdateSchema
 
