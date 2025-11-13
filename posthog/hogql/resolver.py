@@ -698,7 +698,13 @@ class Resolver(CloningVisitor):
 
                 assert isinstance(cte.type, ast.CTETableType)
 
-                if cte.cte_type == "column":
+                # Check if the CTE expression is actually a SELECT query, regardless of cte_type
+                # (The grammar allows (SELECT ...) AS name, which gets parsed as cte_type="column")
+                if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
+                    # For subquery CTEs, they should only be used in FROM clauses (handled in visit_join_expr)
+                    # If we get here, it means someone is trying to use a subquery CTE as a value
+                    raise QueryError(f"Cannot use subquery CTE {cte.name} as a value. Use it in a FROM clause instead.")
+                elif cte.cte_type == "column":
                     # Try to extract the actual return type from the scalar CTE's SELECT query
                     # Scalar CTEs should return a single column, so we get the type of the first selected column
                     inner_type: ast.Type = ast.StringType()
@@ -712,9 +718,7 @@ class Resolver(CloningVisitor):
 
                     return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
                 else:
-                    # For subquery CTEs, they should only be used in FROM clauses (handled in visit_join_expr)
-                    # If we get here, it means someone is trying to use a subquery CTE as a value
-                    raise QueryError(f"Cannot use subquery CTE {cte.name} as a value. Use it in a FROM clause instead.")
+                    raise ImpossibleASTError(f"Cannot use CTE {cte.name} as a value. Use it in a FROM clause instead.")
 
         if not type:
             if self.context.globals is not None and name in self.context.globals:

@@ -315,7 +315,8 @@ class _Printer(Visitor[str]):
         return response
 
     def visit_cte(self, node: ast.CTE):
-        if node.cte_type == "subquery":
+        # Special case: if a column CTE contains a SELECT query, treat it as a subquery CTE
+        if node.cte_type == "subquery" or isinstance(node.expr, ast.SelectQuery | ast.SelectSetQuery):
             return f"{node.name} AS {self.visit(node.expr)}"
 
         return f"{self.visit(node.expr)} AS {node.name}"
