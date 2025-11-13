@@ -1,10 +1,9 @@
+import type { z } from 'zod'
 
-
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { DashboardAddInsightSchema } from '@/schema/tool-inputs'
 import { resolveInsightId } from '@/tools/insights/utils'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = DashboardAddInsightSchema
 

@@ -1,10 +1,9 @@
+import type { z } from 'zod'
 
-
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { SurveyGetSchema } from '@/schema/tool-inputs'
 import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = SurveyGetSchema
 type Params = z.infer<typeof schema>

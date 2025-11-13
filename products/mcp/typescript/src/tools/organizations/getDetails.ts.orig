@@ -1,10 +1,12 @@
 import { OrganizationGetDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-<<<<<<< HEAD
+<<<<<<< LEFT
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
+||||||| BASE
+import type { z } from 'zod'
 =======
->>>>>>> master
+>>>>>>> RIGHT
 
 const schema = OrganizationGetDetailsSchema
 

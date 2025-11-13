@@ -1,10 +1,9 @@
+import type { z } from 'zod'
 
-
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentResultsResponseSchema } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentResultsGetSchema
 

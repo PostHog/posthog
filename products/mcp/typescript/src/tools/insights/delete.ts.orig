@@ -1,14 +1,10 @@
-import type { z } from 'zod'
+
 
 import { InsightDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-
 import { resolveInsightId } from './utils'
-<<<<<<< HEAD
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
-=======
->>>>>>> master
 
 const schema = InsightDeleteSchema
 

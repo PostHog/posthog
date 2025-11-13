@@ -1,13 +1,10 @@
-import type { z } from 'zod'
+
 
 import { PropertyDefinitionSchema } from '@/schema/properties'
 import { ProjectPropertyDefinitionsInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-<<<<<<< HEAD
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
-=======
->>>>>>> master
 
 const schema = ProjectPropertyDefinitionsInputSchema
 

@@ -1,11 +1,10 @@
+import type { z } from 'zod'
 
-
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentUpdateTransformSchema } from '@/schema/experiments'
 import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, Tool, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentUpdateSchema
 

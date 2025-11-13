@@ -1,12 +1,9 @@
-import type { z } from 'zod'
+
 
 import { SurveyGlobalStatsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-<<<<<<< HEAD
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
-=======
->>>>>>> master
 
 const schema = SurveyGlobalStatsSchema
 type Params = z.infer<typeof schema>
