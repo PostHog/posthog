@@ -502,6 +502,26 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             SideBarTab.Series as SideBarTab,
             {
                 setSideBarTab: (_state, { tab }) => tab,
+                setVisualizationType: (state, { visualizationType }) => {
+                    // Ensure the active tab is valid for the new visualization type
+                    // If switching to a table, ConditionalFormatting or Series are valid
+                    if (visualizationType === ChartDisplayType.ActionsTable) {
+                        // Display tab is not available for tables
+                        if (state === SideBarTab.Display) {
+                            return SideBarTab.Series
+                        }
+                        return state
+                    }
+                    // If switching to BoldNumber, only Series is valid
+                    if (visualizationType === ChartDisplayType.BoldNumber) {
+                        return SideBarTab.Series
+                    }
+                    // For all chart types (including new ones), ConditionalFormatting is not available
+                    if (state === SideBarTab.ConditionalFormatting) {
+                        return SideBarTab.Display
+                    }
+                    return state
+                },
             },
         ],
         chartSettings: [
