@@ -8,6 +8,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyAppearance, SurveyPosition, SurveySchedule, SurveyTabPosition, SurveyWidgetType } from '~/types'
 
 import { SurveyTabPositionSelector } from './survey-appearance/SurveyTabPositionSelector'
+import { surveysLogic } from './surveysLogic'
 
 const tabGridPositions: SurveyTabPosition[] = [
     SurveyTabPosition.Top,
@@ -26,6 +27,7 @@ const tabPositionDisplayNames: Record<SurveyTabPosition, string> = {
 export function SurveyWidgetCustomization(): JSX.Element {
     const { survey, surveyErrors } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
+    const { surveysStylingAvailable } = useValues(surveysLogic)
 
     const validationErrors = surveyErrors?.appearance
 
@@ -95,6 +97,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                             onAppearanceChange={(update) =>
                                                 onAppearanceChange({ ...appearance, ...update })
                                             }
+                                            disabled={!surveysStylingAvailable}
                                         />
                                         <LemonSelect
                                             value={appearance.tabPosition ?? SurveyTabPosition.Right}
@@ -105,6 +108,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                                 label: tabPositionDisplayNames[position],
                                                 value: position,
                                             }))}
+                                            disabled={!surveysStylingAvailable}
                                         />
                                     </div>
                                 </LemonField.Pure>
