@@ -423,7 +423,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             if has_existing_data and can_query_only_new_recordings:
                 query.date_from = existing_value["refreshed_at"]
 
-            (recordings, more_recordings_available, _) = list_recordings_from_query(
+            (recordings, more_recordings_available, _, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
 

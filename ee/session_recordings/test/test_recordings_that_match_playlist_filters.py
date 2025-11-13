@@ -47,7 +47,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_count_recordings_that_match_no_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -79,6 +79,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
                 )
             ],
             True,
+            None,
             None,
         )
         playlist = SessionRecordingPlaylist.objects.create(
@@ -112,6 +113,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
             ],
             True,
             None,
+            None,
         )
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -138,7 +140,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_count_recordings_that_match_recordings_skips_cooldown(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -176,7 +178,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
             name="test",
             filters=legacy_filters,
         )
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
 
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
@@ -313,7 +315,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
             },
         )
 
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
 
@@ -355,7 +357,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_count_recordings_with_too_many_errors_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -377,7 +379,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_count_recordings_with_too_recent_error_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        mock_list_recordings_from_query.return_value = ([], False, None)
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -431,6 +433,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
                 )
             ],
             False,
+            None,
             None,
         )
 

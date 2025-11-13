@@ -1,4 +1,3 @@
-import abc
 import typing
 import datetime as dt
 import functools
@@ -14,7 +13,6 @@ _T = typing.TypeVar("_T")
 EPOCH = dt.datetime(1970, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 EPOCH_SECONDS = pa.scalar(EPOCH, type=pa.timestamp("s", tz="UTC"))
 EPOCH_MILLISECONDS = pa.scalar(EPOCH, type=pa.timestamp("ms", tz="UTC"))
-EPOCH_MICROSECONDS = pa.scalar(EPOCH, type=pa.timestamp("us", tz="UTC"))
 
 
 def _noop_cast(arr: pa.Array) -> pa.Array:
@@ -50,6 +48,13 @@ def _make_ensure_array(
     return f
 
 
+# Not offering this one as a default compatible type as it can result in data loss
+# (truncation of the microsecond part). Leaving it up to specific destinations to decide
+# whether to use it.
+TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH = _make_ensure_array(
+    functools.partial(pa.compute.seconds_between, EPOCH_MILLISECONDS)
+)
+
 TypeTupleToCastMapping = dict[tuple[pa.DataType, pa.DataType], collections.abc.Callable[[pa.Array], pa.Array]]
 
 # I played around with the idea of making this a proper graph and then using DFS/BFS to
@@ -59,12 +64,6 @@ TypeTupleToCastMapping = dict[tuple[pa.DataType, pa.DataType], collections.abc.C
 COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     (pa.timestamp("s", tz="UTC"), pa.int64()): _make_ensure_array(
         functools.partial(pa.compute.seconds_between, EPOCH_SECONDS)
-    ),
-    (pa.timestamp("ms", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.milliseconds_between, EPOCH_MILLISECONDS)
-    ),
-    (pa.timestamp("us", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.microseconds_between, EPOCH_MICROSECONDS)
     ),
     (pa.string(), JsonType()): _make_ensure_array(functools.partial(pa.compute.cast, target_type=JsonType())),
 }
@@ -220,24 +219,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         self.fields: list[FieldType] = list(fields)
 
     @classmethod
-    @abc.abstractmethod
-    def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-        """Sub-classes should implement how to create a Table from an arrow schema.
-
-        The body of this method should just be a call to from_arrow_schema_full.
-
-        This method offers a relaxed signature via kwargs to allow sub-classes some
-        flexibility in figuring out how to:
-        * Pass their concrete Field implementation as field_type.
-            * Unfortunately, generic types are not available at runtime, so we need this
-              to be passed as an argument, even if the class definition already displays
-              the concrete Field type.
-        * Obtain name and parents.
-        """
-        raise NotImplementedError()
-
-    @classmethod
-    def from_arrow_schema_full(
+    def from_arrow_schema_with_field_type(
         cls,
         schema: pa.Schema,
         field_type: type[FieldType],
@@ -246,6 +228,23 @@ class Table(TableBase, typing.Generic[FieldType]):
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
     ) -> typing.Self:
+        """Sub-classes should implement how to create a Table from an arrow schema.
+
+        However, different sub-classes have different requirements, so we cannot have a
+        signature that fits all.
+
+        We offer this method as a way for sub-classes to figure out:
+        * Their concrete Field implementation.
+            * This should be known for concrete sub-classes.
+            * Unfortunately, generic types are not available at runtime, so we need this
+              to be passed as an argument, even if the class definition already displays
+              the concrete Field type.
+        * Obtain name and parents.
+        * Set anything else that they wish to set.
+
+        And then call this.
+        """
+
         return cls(
             name=name,
             fields=(field_type.from_arrow_field(field) for field in schema),
