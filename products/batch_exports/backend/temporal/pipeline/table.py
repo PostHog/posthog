@@ -66,6 +66,15 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
         functools.partial(pa.compute.seconds_between, EPOCH_SECONDS)
     ),
     (pa.string(), JsonType()): _make_ensure_array(functools.partial(pa.compute.cast, target_type=JsonType())),
+    # We assume this is a destination field created from a ClickHouse `DateTime` that
+    # has  been updated to `DateTime64(3)`.
+    # This would mean the field would have been created as a BigQuery 'INT64', but we
+    # are now receiving a `pa.timestamp("ms", tz="UTC")`.
+    # So, since `DateTime` is seconds since the EPOCH, we maintain that here.
+    # This technically truncates the millisecond part of the value, but if it came from
+    # a `DateTime` then we assume it is empty (as it would have been empty before).
+    (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 
