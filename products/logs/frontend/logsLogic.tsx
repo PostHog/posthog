@@ -1,3 +1,4 @@
+import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -13,10 +14,11 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
+import { ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
@@ -70,7 +72,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                actions.runQuery(debounce)
+                actions.runQuery()
                 return params
             })
         }
@@ -109,6 +111,11 @@ export const logsLogic = kea<logsLogicType>([
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
         setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
+        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+            key,
+            value,
+            operator,
+        }),
     }),
 
     reducers({
@@ -295,6 +302,21 @@ export const logsLogic = kea<logsLogicType>([
                 explicitDate: dateRange.explicitDate,
             }),
         ],
+        parsedLogs: [
+            (s) => [s.logs],
+            (logs: LogMessage[]): ParsedLogMessage[] => {
+                return logs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
+        ],
         sparklineData: [
             (s) => [s.sparkline],
             (sparkline) => {
@@ -382,6 +404,24 @@ export const logsLogic = kea<logsLogicType>([
                 date_to: dateTo,
             }
             actions.setDateRange(newDateRange)
+        },
+        addFilter: ({ key, value, operator }) => {
+            const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: [
+                    ...currentGroup.values,
+                    {
+                        key,
+                        value: [value],
+                        operator,
+                        type: PropertyFilterType.Log,
+                    },
+                ],
+            }
+
+            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
     })),
 ])

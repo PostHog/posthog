@@ -20,6 +20,116 @@ Dagster is an open-source data orchestration tool designed to help you define an
 - Individual DAG files (e.g., `exchange_rate.py`, `deletes.py`, `person_overrides.py`)
 - `tests/`: Tests for the DAGs
 
+### Cloud access for posthog employees
+
+Ask someone on the #team-infrastructure or #team-clickhouse to add you to Dagster Cloud. You might also want to join the #dagster-posthog slack channel.
+
+### Adding a New Team
+
+To set up a new team with their own Dagster definitions and Slack alerts, follow these steps:
+
+1. **Create a new definitions file** in `locations/<team_name>.py`:
+
+   ```python
+   import dagster
+
+   from dags import my_module  # Import your DAGs
+
+   from . import resources  # Import shared resources (if needed)
+
+   defs = dagster.Definitions(
+       assets=[
+           # List your assets here
+           my_module.my_asset,
+       ],
+       jobs=[
+           # List your jobs here
+           my_module.my_job,
+       ],
+       schedules=[
+           # List your schedules here
+           my_module.my_schedule,
+       ],
+       resources=resources,  # Include shared resources (ClickHouse, S3, Slack, etc.)
+   )
+   ```
+
+   **Examples**: See `locations/analytics_platform.py` (simple) or `locations/web_analytics.py` (complex with conditional schedules)
+
+2. **Register the location in the workspace** (for local development):
+
+   Add your module to `.dagster_home/workspace.yaml`:
+
+   ```yaml
+   load_from:
+     - python_module: dags.locations.your_team
+   ```
+
+   **Note**: Only add locations that should run locally. Heavy operations should remain commented out.
+
+3. **Configure production deployment**:
+
+   For PostHog employees, add the new location to the Dagster configuration in the [charts repository](https://github.com/PostHog/charts) (see `config/dagster/`).
+
+   Sample PR: https://github.com/PostHog/charts/pull/6366
+
+4. **Add team to the `JobOwners` enum** in `common/common.py`:
+
+   ```python
+   class JobOwners(str, Enum):
+       TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
+       TEAM_YOUR_TEAM = "team-your-team"  # Add your team here (alphabetically sorted)
+       # ... other teams
+   ```
+
+5. **Add Slack channel mapping** in `slack_alerts.py`:
+
+   ```python
+   notification_channel_per_team = {
+       JobOwners.TEAM_ANALYTICS_PLATFORM.value: "#alerts-analytics-platform",
+       JobOwners.TEAM_YOUR_TEAM.value: "#alerts-your-team",  # Add mapping here (alphabetically sorted)
+       # ... other teams
+   }
+   ```
+
+6. **Create the Slack channel** (if it doesn't exist) and ensure the Alertmanager/Max Slack bot is invited to the channel
+
+7. **Apply owner tags to your team's assets and jobs** (see next section)
+
+### How slack alerts works
+
+- The `notify_slack_on_failure` sensor (defined in `slack_alerts.py`) monitors all job failures across all code locations
+- Alerts are only sent in production (when `CLOUD_DEPLOYMENT` environment variable is set)
+- Each team has a dedicated Slack channel where their alerts are routed based on job ownership
+- Failed jobs send a message to the appropriate team channel with a link to the Dagster run
+
+#### Consecutive Failure Thresholds
+
+Some jobs are configured to only alert after multiple consecutive failures to avoid alert fatigue. Configure this in `slack_alerts.py`:
+
+```python
+CONSECUTIVE_FAILURE_THRESHOLDS = {
+    "web_pre_aggregate_current_day_hourly_job": 3,  # Alert after 3 consecutive failures
+    "your_job_name": 2,  # Add your threshold here
+}
+```
+
+#### Disabling Notifications
+
+To disable Slack notifications for a specific job, add the `disable_slack_notifications` tag:
+
+```python
+@dagster.job(tags={"disable_slack_notifications": "true"})
+def quiet_job():
+    pass
+```
+
+#### Testing Alerts Locally
+
+When running Dagster locally (with `DEBUG=1`), the Slack resource is replaced with a dummy resource, so no actual notifications are sent. This prevents test alerts from being sent to production Slack channels during development.
+
+To test the alert routing logic, write unit tests in `tests/test_slack_alerts.py`.
+
 ## Local Development
 
 ### Environment Setup

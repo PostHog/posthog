@@ -70,6 +70,7 @@ export type LogEntryParams = {
     dateTo?: string
     order: 'ASC' | 'DESC'
     instanceId?: string
+    limit?: number
 }
 
 const toKey = (log: LogEntry): string => {
@@ -112,7 +113,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         ${hogql.raw(buildBoundaryFilters(request))}
         ${hogql.raw(buildSearchFilters(request))}
         ORDER BY timestamp ${hogql.raw(request.order)}
-        LIMIT ${LOG_VIEWER_LIMIT}`
+        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
@@ -288,6 +289,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        limit: values.unGroupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
                     const results = await loadLogs(logParams)
@@ -323,6 +325,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        limit: values.groupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
                     const results = await loadGroupedLogs(logParams)

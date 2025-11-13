@@ -1,19 +1,20 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
+import { OrderByErrors, OrderDirectionErrors, StatusErrors } from '@/schema/errors'
 import {
-    validateEnvironmentVariables,
+    type CreatedResources,
+    TEST_ORG_ID,
+    TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
-    setActiveProjectAndOrg,
-    cleanupResources,
-    TEST_PROJECT_ID,
-    TEST_ORG_ID,
-    type CreatedResources,
     parseToolResponse,
+    setActiveProjectAndOrg,
+    validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import listErrorsTool from '@/tools/errorTracking/listErrors'
 import errorDetailsTool from '@/tools/errorTracking/errorDetails'
+import listErrorsTool from '@/tools/errorTracking/listErrors'
 import type { Context } from '@/tools/types'
-import { OrderByErrors, OrderDirectionErrors, StatusErrors } from '@/schema/errors'
 
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context

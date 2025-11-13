@@ -29,12 +29,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'something'), ''), 'null'), '^"|"$', '')), '%paul.com%'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -76,12 +76,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -123,12 +123,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -170,12 +170,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -217,12 +217,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -264,12 +264,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''))), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -311,12 +311,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING and(ifNull(equals(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-one'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-two'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 0), 0))
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -358,12 +358,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'something'), ''), 'null'), '^"|"$', '')), '%paul.com%'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -405,12 +405,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -452,12 +452,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -499,12 +499,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -546,12 +546,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -593,12 +593,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/target-flag'), ''), 'null'), '^"|"$', ''))), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -640,12 +640,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING and(ifNull(equals(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-one'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 0), 0), ifNull(equals(countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'probe-two'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 0), 0))
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
