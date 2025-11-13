@@ -242,7 +242,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(warnings).toEqual([
                 expect.objectContaining({
                     type: 'client_ingestion_warning',
-                    team_id: team.id.toString(),
+                    team_id: team.id,
                     details: expect.objectContaining({ message: 'test message' }),
                 }),
             ])
@@ -259,7 +259,7 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toBe(1)
-            expect(events[0].team_id).toBe(team.id.toString())
+            expect(events[0].team_id).toBe(team.id)
         })
     })
 

@@ -263,8 +263,8 @@ class ClickHouseClient:
             **kwargs,
         )
 
-    async def is_alive(self) -> bool:
-        """Check if the connection is alive by sending a SELECT 1 query.
+    async def is_alive(self, timeout: float = 30.0) -> bool:
+        """Check if the connection is alive by sending a ping request.
 
         Returns:
             A boolean indicating whether the connection is alive.
@@ -279,9 +279,13 @@ class ClickHouseClient:
                 url=ping_url,
                 headers=self.headers,
                 raise_for_status=True,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             )
         except aiohttp.ClientResponseError as exc:
             self.logger.exception("Failed ClickHouse liveness check", exc_info=exc)
+            return False
+        except TimeoutError:
+            self.logger.exception("ClickHouse liveness check timed out after %s seconds", timeout)
             return False
         return True
 

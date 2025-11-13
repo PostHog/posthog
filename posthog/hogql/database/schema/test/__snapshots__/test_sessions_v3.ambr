@@ -4,7 +4,7 @@
   SELECT sessions.`$is_bounce` AS `$is_bounce`,
          sessions.session_id AS session_id
   FROM
-    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
@@ -111,7 +111,7 @@
   SELECT sessions.`$is_bounce` AS `$is_bounce`,
          sessions.session_id AS session_id
   FROM
-    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
@@ -135,7 +135,7 @@
   SELECT sessions.`$is_bounce` AS `$is_bounce`,
          sessions.session_id AS session_id
   FROM
-    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10.0)))) AS `$is_bounce`,
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10.0)))) AS `$is_bounce`,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
@@ -159,7 +159,7 @@
   SELECT sessions.`$is_bounce` AS `$is_bounce`,
          sessions.session_id AS session_id
   FROM
-    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 30.0)))) AS `$is_bounce`,
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 30.0)))) AS `$is_bounce`,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
@@ -303,9 +303,11 @@
 # ---
 # name: TestSessionsV3.test_page_screen_autocapture_count_up_to
   '''
-  SELECT sessions.`$page_screen_autocapture_count_up_to` AS `$page_screen_autocapture_count_up_to`
+  SELECT sessions.`$page_screen_count_up_to` AS `$page_screen_count_up_to`,
+         sessions.`$has_autocapture` AS `$has_autocapture`
   FROM
-    (SELECT uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to) AS `$page_screen_autocapture_count_up_to`,
+    (SELECT uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to) AS `$page_screen_count_up_to`,
+            max(raw_sessions_v3.has_autocapture) AS `$has_autocapture`,
             toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
@@ -385,6 +387,7 @@
          toTimeZone(raw_sessions_v3.max_timestamp, 'UTC') AS max_timestamp,
          toTimeZone(raw_sessions_v3.max_inserted_at, 'UTC') AS max_inserted_at,
          raw_sessions_v3.urls AS urls,
+         raw_sessions_v3.has_autocapture AS has_autocapture,
          raw_sessions_v3.has_replay_events AS has_replay_events
   FROM raw_sessions_v3
   WHERE equals(raw_sessions_v3.team_id, 99999)
@@ -493,7 +496,7 @@
             uniqExactMerge(raw_sessions_v3.screen_uniq) AS `$screen_count`,
             multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'paid'), tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 5), isNotNull(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Paid Video', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null'))), or(isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null'))), in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'push$'), 'Push', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Organic Social', ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), 'Direct', isNotNull(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4)), 'Referral', 'Unknown'))) AS `$channel_type`,
             dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS `$session_duration`,
-            if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+            if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
             max(raw_sessions_v3.has_replay_events) AS `$has_replay_events`,
             arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'gclsrc') AS `$entry_gclsrc`,
             has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'gclsrc') AS `$entry_has_gclsrc`,

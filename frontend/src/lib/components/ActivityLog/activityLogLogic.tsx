@@ -42,6 +42,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
+
 import type { activityLogLogicType } from './activityLogLogicType'
 
 // Define which scopes should be expanded to include multiple scopes
@@ -118,6 +120,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return flagActivityDescriber
         case ActivityScope.HOG_FUNCTION:
             return hogFunctionActivityDescriber
+        case ActivityScope.HOG_FLOW:
+            return workflowActivityDescriber
         case ActivityScope.COHORT:
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:

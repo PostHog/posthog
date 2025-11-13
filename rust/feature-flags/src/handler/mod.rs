@@ -95,9 +95,12 @@ async fn process_request_inner(
         let flag_service = FlagService::new(
             context.state.redis_reader.clone(),
             context.state.redis_writer.clone(),
+            context.state.dedicated_redis_reader.clone(),
+            context.state.dedicated_redis_writer.clone(),
             context.state.database_pools.non_persons_reader.clone(),
             context.state.config.team_cache_ttl_seconds,
             context.state.config.flags_cache_ttl_seconds,
+            context.state.config.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =
@@ -145,7 +148,7 @@ async fn process_request_inner(
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+            let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
                 team.project_id(),
                 &context.meta,
@@ -160,7 +163,7 @@ async fn process_request_inner(
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let mut response = flags::evaluate_for_request(
+            let response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
                 team.project_id(),
@@ -175,11 +178,6 @@ async fn process_request_inner(
                 request.flag_keys.clone(),
             )
             .await;
-
-            // Set error flag if there were deserialization errors
-            if had_flag_errors {
-                response.errors_while_computing_flags = true;
-            }
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

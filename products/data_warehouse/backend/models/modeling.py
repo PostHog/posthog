@@ -416,6 +416,15 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             saved_query_id=saved_query.id,
         )
 
+    def create_or_update_from_saved_query(
+        self, saved_query: DataWarehouseSavedQuery
+    ) -> "list[DataWarehouseModelPath] | None":
+        """Create or update model paths from a `DataWarehouseSavedQuery`."""
+        if self.filter(team=saved_query.team, saved_query=saved_query).exists():
+            self.update_from_saved_query(saved_query)
+            return None
+        return self.create_from_saved_query(saved_query)
+
     def update_paths_from_query(
         self,
         query: str,

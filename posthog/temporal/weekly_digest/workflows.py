@@ -60,7 +60,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
-            key=f"weekly-digest-{year}-{week}",
+            key=input.digest_key_override or f"weekly-digest-{year}-{week}",
             period_start=period_start,
             period_end=period_end,
         )

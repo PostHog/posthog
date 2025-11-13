@@ -1,12 +1,9 @@
 import { ProjectGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = ProjectGetAllSchema
 
-type Params = z.infer<typeof schema>
-
-export const getProjectsHandler = async (context: Context, _params: Params) => {
+export const getProjectsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgId = await context.stateManager.getOrgID()
 
     if (!orgId) {

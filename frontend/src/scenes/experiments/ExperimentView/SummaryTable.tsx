@@ -47,7 +47,6 @@ export function SummaryTable({
     isSecondary?: boolean
 }): JSX.Element {
     const {
-        experimentId,
         experiment,
         legacyPrimaryMetricsResults,
         legacySecondaryMetricsResults,
@@ -72,7 +71,7 @@ export function SummaryTable({
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <VariantTag experimentId={experimentId} variantKey={item.key} />
+                        <VariantTag variantKey={item.key} />
                     </div>
                 )
             },

@@ -256,9 +256,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
