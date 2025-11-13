@@ -14,6 +14,7 @@ from posthog.api.file_system.deletion import (
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.models.user import User
 from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 
@@ -98,6 +99,15 @@ def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
     )
 
 
+def _experiment_post_delete(context: DeletionContext, experiment: Any) -> None:
+    _log_deletion_activity(
+        context,
+        scope="Experiment",
+        item_id=experiment.id,
+        name=experiment.name or "Untitled experiment",
+    )
+
+
 def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
     _log_deletion_activity(
         context,
@@ -133,15 +143,24 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
     organization = context.organization
     if not organization:
         return
-    team_id = getattr(context.team, "id", None)
+    team = context.team
+    team_id = getattr(team, "id", None) if team is not None else None
+    if not isinstance(team_id, int):
+        return
+    user = context.user
+    if not isinstance(user, User):
+        return
+    short_id = getattr(playlist, "short_id", None)
+    if short_id is None:
+        return
     log_playlist_activity(
         activity="restored",
         playlist=playlist,
         playlist_id=playlist.id,
-        playlist_short_id=getattr(playlist, "short_id", None),
+        playlist_short_id=str(short_id),
         organization_id=organization.id,
         team_id=team_id,
-        user=context.user,
+        user=user,
         was_impersonated=is_impersonated_session(context.request) if context.request else False,
         changes=[
             Change(
@@ -240,6 +259,7 @@ def register_core_file_system_types() -> None:
         "Experiment",
         undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
     )
+    register_post_delete_hook("experiment", _experiment_post_delete)
     register_post_restore_hook("experiment", _experiment_post_restore)
 
     register_file_system_type(

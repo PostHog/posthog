@@ -179,7 +179,7 @@ def _get_object(
     return queryset.get(**filters)
 
 
-def _detect_soft_delete_field(model_class: type, preferred: str | None) -> str | None:
+def _detect_soft_delete_field(model_class: type[Any], preferred: str | None) -> str | None:
     if preferred:
         return preferred
 
