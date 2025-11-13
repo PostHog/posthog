@@ -13,6 +13,36 @@ interface TraceTreeNode {
     children?: TraceTreeNode[]
 }
 
+interface ConvertedTreeNode {
+    event: LLMTraceEvent
+    children: ConvertedTreeNode[]
+}
+
+interface TextReprOptions {
+    truncated: boolean
+    include_markers: boolean
+    include_line_numbers: boolean
+}
+
+type TextReprRequest =
+    | {
+          event_type: '$ai_trace'
+          data: {
+              trace: {
+                  trace_id: string
+                  name: string
+                  [key: string]: unknown
+              }
+              hierarchy: ConvertedTreeNode[]
+          }
+          options: TextReprOptions
+      }
+    | {
+          event_type: string
+          data: LLMTraceEvent
+          options: TextReprOptions
+      }
+
 export interface TextViewLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
@@ -50,12 +80,12 @@ export const textViewLogic = kea<textViewLogicType>([
                 }
 
                 // Prepare request based on what data we have
-                let requestData: any
+                let requestData: TextReprRequest
 
                 if (props.trace && props.tree) {
                     // Full trace view - need to send tree structure with children
                     // Recursively convert tree nodes to { event, children } format
-                    const convertTreeNode = (node: TraceTreeNode): any => ({
+                    const convertTreeNode = (node: TraceTreeNode): ConvertedTreeNode => ({
                         event: node.event,
                         children: node.children ? node.children.map(convertTreeNode) : [],
                     })

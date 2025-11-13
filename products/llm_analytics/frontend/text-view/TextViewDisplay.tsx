@@ -18,7 +18,7 @@ import { calculateLineNumberPadding, getExpandedTreeText, getPlainText, parseTex
 import { textViewLogic } from './textViewLogic'
 
 interface TraceTreeNode {
-    event: any
+    event: LLMTraceEvent
     children?: TraceTreeNode[]
 }
 
