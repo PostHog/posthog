@@ -45,7 +45,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.table import Field, Table, TableReference
+from products.batch_exports.backend.temporal.pipeline.table import Field, Table
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     ParquetStreamTransformer,
     PipelineTransformer,
@@ -77,12 +77,12 @@ CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised when we cannot connect to Snowflake.
-    # "DatabaseError",
+    "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
     # Usually this means we don't have table permissions or something doesn't exist (db, schema).
-    # "ProgrammingError",
+    "ProgrammingError",
     # Raised by Snowflake with an incorrect account name.
-    # "ForbiddenError",
+    "ForbiddenError",
     # Our own exception when we can't connect to Snowflake, usually due to invalid parameters.
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
@@ -254,7 +254,7 @@ class SnowflakeType(typing.NamedTuple):
 
 class SnowflakeDestinationField(typing.NamedTuple):
     name: str
-    type: str
+    type: SnowflakeTypeName
     is_nullable: bool
 
 
@@ -263,7 +263,7 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     repeated = False
 
     if pa.types.is_string(data_type):
-        snowflake_type_name = "STRING"
+        snowflake_type_name: SnowflakeTypeName = "STRING"
 
     elif isinstance(data_type, JsonType):
         snowflake_type_name = "VARIANT"
@@ -289,7 +289,7 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
 
     elif pa.types.is_list(data_type):
         repeated = True
-        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name
+        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name  # type: ignore[attr-defined]
 
     else:
         raise TypeError(f"Unsupported type: '{data_type}'")
@@ -362,7 +362,7 @@ class SnowflakeTable(Table):
         self,
         name: str,
         fields: collections.abc.Iterable[SnowflakeField],
-        parents: tuple[str, ...] = (),
+        parents: collections.abc.Iterable[str] = (),
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
         stage_prefix: str = "",
@@ -380,10 +380,15 @@ class SnowflakeTable(Table):
         version_key: collections.abc.Iterable[str] = (),
         stage_prefix: str = "",
     ) -> typing.Self:
-        fields = [SnowflakeField.from_destination_field(field) for field in fields]
+        snow_fields = [SnowflakeField.from_destination_field(field) for field in fields]
 
         return cls(
-            name, fields, parents=parents, primary_key=primary_key, version_key=version_key, stage_prefix=stage_prefix
+            name,
+            snow_fields,
+            parents=parents,
+            primary_key=primary_key,
+            version_key=version_key,
+            stage_prefix=stage_prefix,
         )
 
     @classmethod
@@ -751,7 +756,7 @@ class SnowflakeClient:
 
         return results, description
 
-    async def get_or_create_table(self, table: SnowflakeTable | TableReference) -> SnowflakeTable:
+    async def get_or_create_table(self, table: SnowflakeTable) -> SnowflakeTable:
         try:
             table = await self.get_table(table)
         except SnowflakeTableNotFoundError:
@@ -761,7 +766,7 @@ class SnowflakeClient:
             await self.remove_internal_stage_files(table)
             return table
 
-    async def get_table(self, table: SnowflakeTable | TableReference) -> SnowflakeTable:
+    async def get_table(self, table: SnowflakeTable) -> SnowflakeTable:
         """Get a table in Snowflake.
 
         Arguments:
@@ -785,7 +790,7 @@ class SnowflakeClient:
         return SnowflakeTable.from_snowflake_table(
             table.name,
             fields=(
-                SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)
+                SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
                 for metadata in metadata
             ),
             parents=table.parents,
@@ -1211,56 +1216,6 @@ class SnowflakeConsumer(Consumer):
     async def finalize(self):
         """Finalize by uploading any remaining data."""
         await self._upload_current_buffer()
-
-
-def get_snowflake_fields_from_record_schema(
-    record_schema: pa.Schema, known_variant_columns: list[str]
-) -> list[SnowflakeField]:
-    """Generate a list of supported Snowflake fields from PyArrow schema.
-    This function is used to map custom schemas to Snowflake-supported types. Some loss
-    of precision is expected.
-
-    Arguments:
-        record_schema: The schema of a PyArrow RecordBatch from which we'll attempt to
-            derive Snowflake-supported types.
-        known_variant_columns: If a string type field is a known VARIANT column then use VARIANT
-            as its Snowflake type.
-    """
-    snowflake_schema: list[SnowflakeField] = []
-
-    for name in record_schema.names:
-        pa_field = record_schema.field(name)
-
-        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
-            if pa_field.name in known_variant_columns:
-                snowflake_type = "VARIANT"
-            else:
-                snowflake_type = "STRING"
-
-        elif pa.types.is_binary(pa_field.type):
-            snowflake_type = "BINARY"
-
-        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
-            snowflake_type = "INTEGER"
-
-        elif pa.types.is_floating(pa_field.type):
-            snowflake_type = "FLOAT"
-
-        elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOLEAN"
-
-        elif pa.types.is_timestamp(pa_field.type):
-            snowflake_type = "TIMESTAMP"
-
-        elif pa.types.is_list(pa_field.type):
-            snowflake_type = "ARRAY"
-
-        else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
-
-        snowflake_schema.append((name, snowflake_type))
-
-    return snowflake_schema
 
 
 @activity.defn
