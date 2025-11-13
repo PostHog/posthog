@@ -7,8 +7,10 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb, ChartDisplayType, EntityTypes, FilterType, InsightType } from '~/types'
+
+import { InsightDefinition } from 'products/customer_analytics/frontend/insightDefinitions'
 
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
@@ -45,7 +47,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     }),
     selectors({
-        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp) => tabIdProp],
+        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -76,42 +78,42 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         customerAnalyticsEvents: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.extra_settings?.customer_analytics_events || {},
+            (currentTeam): Record<string, string> => currentTeam?.extra_settings?.customer_analytics_events || {},
         ],
         activityEvent: [
             (s) => [s.customerAnalyticsEvents],
-            (customerAnalyticsEvents) => customerAnalyticsEvents?.activity_event || '$pageview',
+            (customerAnalyticsEvents): string => (customerAnalyticsEvents as any)?.activity_event || '$pageview',
         ],
         dauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent) => ({
+            (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'dau',
+                math: 'dau' as any,
                 event: activityEvent || null,
                 properties: [],
             }),
         ],
         wauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent) => ({
+            (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'weekly_active',
+                math: 'weekly_active' as any,
                 event: activityEvent || null,
                 properties: [],
             }),
         ],
         mauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent) => ({
+            (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'monthly_active',
+                math: 'monthly_active' as any,
                 event: activityEvent || null,
                 properties: [],
             }),
         ],
         activeUsersInsights: [
             (s) => [s.dauSeries, s.wauSeries, s.mauSeries],
-            (dauSeries, wauSeries, mauSeries) => [
+            (dauSeries, wauSeries, mauSeries): InsightDefinition[] => [
                 {
                     name: 'Active Users (DAU/WAU/MAU)',
                     needsConfig: false,
