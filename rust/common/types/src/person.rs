@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::Postgres;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 pub type PersonId = i64;
@@ -19,14 +19,11 @@ pub struct Person {
 }
 
 impl Person {
-    pub async fn from_distinct_id<'c, E>(
-        e: E,
+    pub async fn from_distinct_id(
+        e: &mut PgConnection,
         team_id: i32,
         distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = Postgres> + Clone,
-    {
+    ) -> Result<Option<Person>, sqlx::Error> {
         if let Some(res) = sqlx::query_as!(
             Person,
             r#"
@@ -43,7 +40,7 @@ impl Person {
             distinct_id,
             team_id
         )
-        .fetch_optional(e.clone())
+        .fetch_optional(&mut *e)
         .await? {
             return Ok(Some(res));
         }
@@ -51,14 +48,11 @@ impl Person {
         Self::from_distinct_id_legacy(e, team_id, distinct_id).await
     }
 
-    pub async fn from_distinct_id_no_props<'c, E>(
-        e: E,
+    pub async fn from_distinct_id_no_props(
+        e: &mut PgConnection,
         team_id: i32,
         distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = Postgres> + Clone,
-    {
+    ) -> Result<Option<Person>, sqlx::Error> {
         if let Some(res) = sqlx::query_as!(
             Person,
             r#"
@@ -75,7 +69,7 @@ impl Person {
             distinct_id,
             team_id
         )
-        .fetch_optional(e.clone())
+        .fetch_optional(&mut *e)
         .await? {
             return Ok(Some(res));
         }
@@ -83,14 +77,11 @@ impl Person {
         Self::from_distinct_id_no_props_legacy(e, team_id, distinct_id).await
     }
 
-    async fn from_distinct_id_legacy<'c, E>(
-        e: E,
+    async fn from_distinct_id_legacy(
+        e: &mut PgConnection,
         team_id: i32,
         distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = Postgres>,
-    {
+    ) -> Result<Option<Person>, sqlx::Error> {
         sqlx::query_as!(
             Person,
             r#"
@@ -111,14 +102,11 @@ impl Person {
         .await
     }
 
-    async fn from_distinct_id_no_props_legacy<'c, E>(
-        e: E,
+    async fn from_distinct_id_no_props_legacy(
+        e: &mut PgConnection,
         team_id: i32,
         distinct_id: &str,
-    ) -> Result<Option<Person>, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = Postgres>,
-    {
+    ) -> Result<Option<Person>, sqlx::Error> {
         sqlx::query_as!(
             Person,
             r#"

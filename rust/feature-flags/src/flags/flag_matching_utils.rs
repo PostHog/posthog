@@ -11,7 +11,7 @@ use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
 };
 use common_database::PostgresReader;
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
@@ -150,25 +150,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
     // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
     // That's fine though, we shouldn't error out just because we can't find a person ID.
-    let person_query = r#"
-        SELECT DISTINCT ON (ppd.distinct_id)
-            p.id as person_id,
-            p.properties as person_properties
-        FROM posthog_persondistinctid ppd
-        INNER JOIN posthog_person p
-            ON p.id = ppd.person_id
-            AND p.team_id = ppd.team_id
-        WHERE ppd.distinct_id = $1
-            AND ppd.team_id = $2
-    "#;
-
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .fetch_optional(&mut *conn)
-        .await?
+    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
+    let (person_id, person_props) = person
+        .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
 
