@@ -43,7 +43,9 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
+import time
 import random
+import statistics
 from typing import Any
 
 from django.conf import settings
@@ -195,8 +197,6 @@ def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
         ttl_seconds: TTL in seconds from now
     """
     try:
-        import time
-
         redis_client = get_client()
 
         # Get team token for tracking
@@ -305,8 +305,6 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     Returns:
         True if cache update succeeded, False otherwise
     """
-    import time
-
     start = time.time()
     success = team_metadata_hypercache.update_cache(team, ttl=ttl)
     duration = time.time() - start
@@ -402,8 +400,6 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24) -> list[Team]:
         List of Team objects whose caches need refresh
     """
     try:
-        import time
-
         redis_client = get_client()
 
         # Query sorted set for teams expiring within threshold
@@ -670,8 +666,6 @@ def get_cache_stats() -> dict[str, Any]:
 
         size_stats = {}
         if sample_sizes:
-            import statistics
-
             avg_size = statistics.mean(sample_sizes)
             estimated_total_bytes = avg_size * total_keys
 

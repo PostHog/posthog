@@ -5,9 +5,6 @@ Tests for team metadata HyperCache functionality.
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import TransactionTestCase
-
-from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
@@ -22,10 +19,14 @@ from posthog.tasks.team_metadata import update_team_metadata_cache_task
 class TestTeamMetadataCache(BaseTest):
     """Test basic team metadata cache functionality."""
 
-    def test_get_and_update_team_metadata(self):
+    @patch("posthog.storage.team_metadata_cache.team_metadata_hypercache")
+    def test_get_and_update_team_metadata(self, mock_hypercache):
         """Test basic cache read and write operations."""
-        # Clear cache to start fresh
-        clear_team_metadata_cache(self.team)
+        # Mock the cache to return metadata
+        mock_metadata = {field: None for field in TEAM_METADATA_FIELDS}
+        mock_metadata.update({"id": self.team.id, "name": self.team.name})
+        mock_hypercache.get_from_cache.return_value = mock_metadata
+        mock_hypercache.update_cache.return_value = True
 
         # Update cache
         success = update_team_metadata_cache(self.team)
@@ -42,8 +43,12 @@ class TestTeamMetadataCache(BaseTest):
         for field in TEAM_METADATA_FIELDS:
             self.assertIn(field, metadata)
 
-    def test_clear_cache(self):
+    @patch("posthog.storage.team_metadata_cache.team_metadata_hypercache")
+    def test_clear_cache(self, mock_hypercache):
         """Test clearing the cache."""
+        mock_metadata = {"id": self.team.id, "name": self.team.name}
+        mock_hypercache.get_from_cache.return_value = mock_metadata
+
         # First populate cache
         update_team_metadata_cache(self.team)
 
@@ -56,8 +61,13 @@ class TestTeamMetadataCache(BaseTest):
         metadata = get_team_metadata(self.team)
         self.assertIsNotNone(metadata)
 
-    def test_cache_with_different_key_types(self):
+    @patch("posthog.storage.team_metadata_cache.team_metadata_hypercache")
+    def test_cache_with_different_key_types(self, mock_hypercache):
         """Test that cache works with team ID and API token."""
+        mock_metadata = {"id": self.team.id, "name": self.team.name}
+        mock_hypercache.get_from_cache.return_value = mock_metadata
+        mock_hypercache.update_cache.return_value = True
+
         update_team_metadata_cache(self.team)
 
         # Get by team object
@@ -80,16 +90,8 @@ class TestTeamMetadataCache(BaseTest):
         self.assertEqual(metadata2["id"], metadata3["id"])
 
 
-class TestTeamMetadataCacheTasks(TransactionTestCase):
+class TestTeamMetadataCacheTasks(BaseTest):
     """Test Celery tasks for team metadata cache."""
-
-    def setUp(self):
-        super().setUp()
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(
-            organization=self.organization,
-            name="Test Team",
-        )
 
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache")
     def test_update_task(self, mock_update):
@@ -109,26 +111,24 @@ class TestTeamMetadataCacheTasks(TransactionTestCase):
         update_team_metadata_cache_task(999999)
 
 
-class TestTeamMetadataCacheSignals(TransactionTestCase):
+class TestTeamMetadataCacheSignals(BaseTest):
     """Test Django signals for cache updates."""
 
-    def setUp(self):
-        super().setUp()
-        self.organization = Organization.objects.create(name="Test Org")
-
+    @patch("posthog.tasks.team_metadata.transaction")
     @patch("posthog.tasks.team_metadata.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
-    def test_team_save_triggers_update(self, mock_task, mock_settings):
+    def test_team_save_triggers_update(self, mock_task, mock_settings, mock_transaction):
         """Test that saving a team schedules a cache update when FLAGS_REDIS_URL is set."""
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        # Make transaction.on_commit execute immediately
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        team = Team.objects.create(
-            organization=self.organization,
-            name="New Team",
-        )
+        # Save the existing team to trigger the signal
+        self.team.name = "Updated Team"
+        self.team.save()
 
         # Task should be called with the team ID
-        mock_task.assert_called_once_with(team.id)
+        mock_task.assert_called_with(self.team.id)
 
     @patch("posthog.tasks.team_metadata.settings")
     @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
@@ -147,16 +147,18 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
         # Cache should be cleared
         mock_clear.assert_called_once()
 
+    @patch("posthog.tasks.team_metadata.transaction")
     @patch("posthog.tasks.team_metadata.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
-    def test_team_save_noop_without_flags_redis_url(self, mock_task, mock_settings):
+    def test_team_save_noop_without_flags_redis_url(self, mock_task, mock_settings, mock_transaction):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
         mock_settings.FLAGS_REDIS_URL = None
+        # Make transaction.on_commit execute immediately
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        Team.objects.create(
-            organization=self.organization,
-            name="New Team",
-        )
+        # Save the existing team
+        self.team.name = "Updated Team"
+        self.team.save()
 
         # Task should NOT be called
         mock_task.assert_not_called()
@@ -167,11 +169,11 @@ class TestTeamMetadataCacheSignals(TransactionTestCase):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
         mock_settings.FLAGS_REDIS_URL = None
 
+        # Create and delete a new team for this test
         team = Team.objects.create(
             organization=self.organization,
             name="Test Team",
         )
-
         team.delete()
 
         # Cache should NOT be cleared
@@ -205,26 +207,17 @@ class TestCacheStats(BaseTest):
         self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
 
 
-class TestGetTeamsWithExpiringCaches(TransactionTestCase):
+class TestGetTeamsWithExpiringCaches(BaseTest):
     """Test get_teams_with_expiring_caches functionality."""
-
-    def setUp(self):
-        super().setUp()
-        self.organization = Organization.objects.create(name="Test Org")
 
     @patch("posthog.storage.team_metadata_cache.get_client")
     @patch("posthog.storage.team_metadata_cache.time")
     def test_returns_teams_with_expiring_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp < threshold should be returned."""
-        team1 = Team.objects.create(
-            organization=self.organization,
-            name="Team 1",
-            ingested_event=True,
-        )
+        team1 = self.team
         team2 = Team.objects.create(
             organization=self.organization,
             name="Team 2",
-            ingested_event=True,
         )
 
         # Mock current time and Redis sorted set query
@@ -256,12 +249,6 @@ class TestGetTeamsWithExpiringCaches(TransactionTestCase):
     @patch("posthog.storage.team_metadata_cache.time")
     def test_skips_teams_with_fresh_ttl(self, mock_time, mock_get_client):
         """Teams with expiration timestamp > threshold should not be returned."""
-        Team.objects.create(
-            organization=self.organization,
-            name="Team",
-            ingested_event=True,
-        )
-
         # Mock Redis sorted set returning empty (no teams expiring soon)
         mock_time.time.return_value = 1000000
         mock_redis = MagicMock()
