@@ -11,6 +11,10 @@ import { Breadcrumb, ChartDisplayType, EntityTypes, FilterType, InsightType } fr
 
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
+export interface CustomerAnalyticsSceneLogicProps {
+    tabId: string
+}
+
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
     tabAwareScene(),
@@ -40,6 +44,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     }),
     selectors({
+        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabId) => tabId],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [

@@ -18,7 +18,7 @@ import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { EventConfigModal } from './EventConfigModal'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activeEvent, activeEventSelectionWithDefault, activeUsersInsights, hasActiveEventChanged } =
+    const { activeEvent, activeEventSelectionWithDefault, activeUsersInsights, hasActiveEventChanged, tabId } =
         useValues(customerAnalyticsSceneLogic)
     const { setActiveEventSelection, saveActiveEvent, toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
     const isActiveEventPageview = activeEvent === '$pageview'
@@ -67,7 +67,9 @@ export function ActiveUsersInsights(): JSX.Element {
             </div>
             <div className="grid grid-cols-[3fr_1fr] gap-2">
                 {activeUsersInsights.map((insight, index) => {
-                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
+                    return (
+                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
+                    )
                 })}
             </div>
             <h2 className="ml-1 -mb-2">Power Users</h2>
@@ -78,7 +80,7 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { activeEvent } = useValues(customerAnalyticsSceneLogic)
+    const { activeEvent, tabId } = useValues(customerAnalyticsSceneLogic)
     const query = {
         kind: NodeKind.DataTableNode,
         source: {
@@ -100,6 +102,7 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <Query
+            uniqueKey={`power-users-${tabId}`}
             attachTo={customerAnalyticsSceneLogic}
             query={{ ...query, showTimings: false, showOpenEditorButton: false }}
             context={{

@@ -12,7 +12,11 @@ export const scene: SceneExport = {
     logic: customerAnalyticsSceneLogic,
 }
 
-export function CustomerAnalyticsScene(): JSX.Element {
+export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    if (!tabId) {
+        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
