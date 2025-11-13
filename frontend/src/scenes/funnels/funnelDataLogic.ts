@@ -153,8 +153,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         results: [
             (s) => [s.insightData, s.querySource],
             (insightData, querySource): FunnelResultType => {
-                // Only process results for funnel queries
-                // TODO: Ideally we don't check filters anymore, but tests are still using this
+                // TODO: after hooking up data manager, check that we have a funnels result here
+                // We check both the legacy filter approach (insightData.filters.insight) and the new
+                // query-based approach (querySource.kind) because tests still use the legacy approach.
+                // This pattern matches the checks in the 'steps' and 'hasFunnelResults' selectors.
                 if (
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
                     (!querySource || querySource.kind !== NodeKind.FunnelsQuery)
