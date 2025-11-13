@@ -377,6 +377,7 @@ export interface HogQLQueryModifiers {
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
     optimizeProjections?: boolean
+    sessionsOnEventsMode?: 'disabled' | 'v3'
 }
 
 export interface DataWarehouseEventsModifier {

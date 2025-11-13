@@ -24,6 +24,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
+    SessionsOnEventsMode,
     SessionTableVersion,
 )
 
@@ -667,11 +668,25 @@ class Database(BaseModel):
                 database.tables.add_child(TableNode(name="sessions", table=sessions), table_conflict_mode="override")
 
                 events_table = database.get_table("events")
-                events_table.fields["session"] = LazyJoin(
-                    from_field=["$session_id"],
-                    join_table=sessions,
-                    join_function=join_events_table_to_sessions_table_v3,
-                )
+
+                if modifiers.sessionsOnEventsMode == SessionsOnEventsMode.V3:
+                    from posthog.hogql.database.schema.sessions_on_events_overrides import (
+                        SessionsOnEventsOverridesTable,
+                        use_session_properties_from_events_with_overrides,
+                    )
+
+                    raw_sessions_overrides = SessionsOnEventsOverridesTable()
+                    database.tables.add_child(
+                        TableNode(name="raw_sessions_overrides_v3", table=raw_sessions_overrides),
+                        table_conflict_mode="override",
+                    )
+                    use_session_properties_from_events_with_overrides(events_table)
+                else:
+                    events_table.fields["session"] = LazyJoin(
+                        from_field=["$session_id"],
+                        join_table=sessions,
+                        join_function=join_events_table_to_sessions_table_v3,
+                    )
 
                 replay_events = database.get_table("session_replay_events")
                 replay_events.fields["session"] = LazyJoin(

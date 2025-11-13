@@ -1771,6 +1771,11 @@ class SessionTableVersion(StrEnum):
     V3 = "v3"
 
 
+class SessionsOnEventsMode(StrEnum):
+    DISABLED = "disabled"
+    V3 = "v3"
+
+
 class SessionsV2JoinMode(StrEnum):
     STRING = "string"
     UUID = "uuid"
@@ -4311,6 +4316,7 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    sessionsOnEventsMode: Optional[SessionsOnEventsMode] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None

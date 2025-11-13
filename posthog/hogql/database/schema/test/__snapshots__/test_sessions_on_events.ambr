@@ -1,0 +1,232 @@
+# serializer version: 1
+# name: TestSessionsOnEvents.test_can_alias_table
+  '''
+  SELECT dateDiff('second', if(isNotNull(e__session_overrides.min_timestamp), least(toTimeZone(e.soe_min_timestamp, 'UTC'), e__session_overrides.min_timestamp), toTimeZone(e.soe_min_timestamp, 'UTC')), if(isNotNull(e__session_overrides.max_timestamp), greatest(toTimeZone(e.soe_max_timestamp, 'UTC'), e__session_overrides.max_timestamp), toTimeZone(e.soe_max_timestamp, 'UTC'))) AS duration
+  FROM events AS e
+  LEFT JOIN
+    (SELECT min(toTimeZone(raw_sessions_overrides_v3.min_timestamp, 'UTC')) AS min_timestamp,
+            max(toTimeZone(raw_sessions_overrides_v3.max_timestamp, 'UTC')) AS max_timestamp,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS e__session_overrides ON equals(e.`$session_id_uuid`, e__session_overrides.session_id_v7)
+  WHERE and(equals(e.team_id, 99999), equals(e.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_can_use_session_on_events_and_person_overrides_together
+  '''
+  SELECT dateDiff('second', if(isNotNull(events__session_overrides.min_timestamp), least(toTimeZone(events.soe_min_timestamp, 'UTC'), events__session_overrides.min_timestamp), toTimeZone(events.soe_min_timestamp, 'UTC')), if(isNotNull(events__session_overrides.max_timestamp), greatest(toTimeZone(events.soe_max_timestamp, 'UTC'), events__session_overrides.max_timestamp), toTimeZone(events.soe_max_timestamp, 'UTC'))) AS duration,
+         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
+  FROM events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  LEFT JOIN
+    (SELECT min(toTimeZone(raw_sessions_overrides_v3.min_timestamp, 'UTC')) AS min_timestamp,
+            max(toTimeZone(raw_sessions_overrides_v3.max_timestamp, 'UTC')) AS max_timestamp,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_multiple_session_properties
+  '''
+  SELECT if(isNotNull(events__session_overrides.entry_url), events__session_overrides.entry_url, events.soe_entry_url) AS `$entry_current_url`,
+         if(isNotNull(events__session_overrides.end_url), events__session_overrides.end_url, events.soe_end_url) AS `$end_current_url`,
+         if(isNotNull(events__session_overrides.entry_utm_source), events__session_overrides.entry_utm_source, events.soe_entry_utm_source) AS `$entry_utm_source`
+  FROM events
+  LEFT JOIN
+    (SELECT argMinMerge(raw_sessions_overrides_v3.entry_url) AS entry_url,
+            argMaxMerge(raw_sessions_overrides_v3.end_url) AS end_url,
+            argMinMerge(raw_sessions_overrides_v3.entry_utm_source) AS entry_utm_source,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_attribution_fields
+  '''
+  SELECT if(isNotNull(events__session_overrides.entry_utm_source), events__session_overrides.entry_utm_source, events.soe_entry_utm_source) AS `$entry_utm_source`,
+         if(isNotNull(events__session_overrides.entry_utm_campaign), events__session_overrides.entry_utm_campaign, events.soe_entry_utm_campaign) AS `$entry_utm_campaign`,
+         if(isNotNull(events__session_overrides.entry_utm_medium), events__session_overrides.entry_utm_medium, events.soe_entry_utm_medium) AS `$entry_utm_medium`
+  FROM events
+  LEFT JOIN
+    (SELECT argMinMerge(raw_sessions_overrides_v3.entry_utm_source) AS entry_utm_source,
+            argMinMerge(raw_sessions_overrides_v3.entry_utm_campaign) AS entry_utm_campaign,
+            argMinMerge(raw_sessions_overrides_v3.entry_utm_medium) AS entry_utm_medium,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_duration
+  '''
+  SELECT dateDiff('second', if(isNotNull(events__session_overrides.min_timestamp), least(toTimeZone(events.soe_min_timestamp, 'UTC'), events__session_overrides.min_timestamp), toTimeZone(events.soe_min_timestamp, 'UTC')), if(isNotNull(events__session_overrides.max_timestamp), greatest(toTimeZone(events.soe_max_timestamp, 'UTC'), events__session_overrides.max_timestamp), toTimeZone(events.soe_max_timestamp, 'UTC'))) AS duration
+  FROM events
+  LEFT JOIN
+    (SELECT min(toTimeZone(raw_sessions_overrides_v3.min_timestamp, 'UTC')) AS min_timestamp,
+            max(toTimeZone(raw_sessions_overrides_v3.max_timestamp, 'UTC')) AS max_timestamp,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_duration_aggregation
+  '''
+  SELECT avg(dateDiff('second', if(isNotNull(events__session_overrides.min_timestamp), least(toTimeZone(events.soe_min_timestamp, 'UTC'), events__session_overrides.min_timestamp), toTimeZone(events.soe_min_timestamp, 'UTC')), if(isNotNull(events__session_overrides.max_timestamp), greatest(toTimeZone(events.soe_max_timestamp, 'UTC'), events__session_overrides.max_timestamp), toTimeZone(events.soe_max_timestamp, 'UTC')))) AS `avg(dateDiff('second', if(isNotNull(session_overrides.min_timestamp), least(toTimeZone(soe_min_timestamp, 'UTC'), session_overrides.min_timestamp), toTimeZone(soe_min_timestamp, 'UTC')), if(isNotNull(session_overrides.max_timestamp), greatest(toTimeZone(soe_max_timestamp, 'UTC'), session_overrides.max_timestamp), toTimeZone(soe_max_timestamp, 'UTC'))))`
+  FROM events
+  LEFT JOIN
+    (SELECT min(toTimeZone(raw_sessions_overrides_v3.min_timestamp, 'UTC')) AS min_timestamp,
+            max(toTimeZone(raw_sessions_overrides_v3.max_timestamp, 'UTC')) AS max_timestamp,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE equals(events.team_id, 99999)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_entry_url
+  '''
+  SELECT if(isNotNull(events__session_overrides.entry_url), events__session_overrides.entry_url, events.soe_entry_url) AS `$entry_current_url`
+  FROM events
+  LEFT JOIN
+    (SELECT argMinMerge(raw_sessions_overrides_v3.entry_url) AS entry_url,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_property_in_where_clause
+  '''
+  SELECT events.event AS event
+  FROM events
+  LEFT JOIN
+    (SELECT argMinMerge(raw_sessions_overrides_v3.entry_utm_source) AS entry_utm_source,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNotNull(events__session_overrides.entry_utm_source), events__session_overrides.entry_utm_source, events.soe_entry_utm_source), 'google'), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsOnEvents.test_session_timestamps
+  '''
+  SELECT if(isNotNull(events__session_overrides.min_timestamp), least(toTimeZone(events.soe_min_timestamp, 'UTC'), events__session_overrides.min_timestamp), toTimeZone(events.soe_min_timestamp, 'UTC')) AS `$start_timestamp`,
+         if(isNotNull(events__session_overrides.max_timestamp), greatest(toTimeZone(events.soe_max_timestamp, 'UTC'), events__session_overrides.max_timestamp), toTimeZone(events.soe_max_timestamp, 'UTC')) AS `$end_timestamp`
+  FROM events
+  LEFT JOIN
+    (SELECT min(toTimeZone(raw_sessions_overrides_v3.min_timestamp, 'UTC')) AS min_timestamp,
+            max(toTimeZone(raw_sessions_overrides_v3.max_timestamp, 'UTC')) AS max_timestamp,
+            raw_sessions_overrides_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_overrides_v3
+     WHERE equals(raw_sessions_overrides_v3.team_id, 99999)
+     GROUP BY raw_sessions_overrides_v3.session_id_v7) AS events__session_overrides ON equals(events.`$session_id_uuid`, events__session_overrides.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1
+  '''
+# ---
