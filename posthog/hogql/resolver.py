@@ -351,21 +351,28 @@ class Resolver(CloningVisitor):
             cte_table = self.ctes.get(".".join(table_name_chain))
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType)
-                node.type = cte_table.expr.type
+                node_type = cte_table.expr.type
                 if table_alias != table_name_alias:
-                    node.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=cte_table.expr.type)
+                    node_type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=cte_table.expr.type)
 
+                node = cast(ast.JoinExpr, clone_expr(node))
                 if node.constraint and node.constraint.constraint_type == "USING":
                     # visit USING constraint before adding the table to avoid ambiguous names
                     node.constraint = self.visit_join_constraint(node.constraint)
 
-                scope.tables[table_alias or cte_table.name] = node.type
+                scope.tables[table_alias or cte_table.name] = node_type
+
+                # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+                node.type = node_type
+                node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = ast.CTETableType(
                     name=table_alias or cte_table.name, select_query_type=cte_table.expr.type
                 )
+                node.next_join = self.visit(node.next_join)
 
                 if node.constraint and node.constraint.constraint_type == "ON":
                     node.constraint = self.visit_join_constraint(node.constraint)
+                node.sample = self.visit(node.sample)
 
                 return node
             else:
