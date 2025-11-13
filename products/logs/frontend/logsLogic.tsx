@@ -78,7 +78,7 @@ export const logsLogic = kea<logsLogicType>([
         return {
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(300),
+            setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
             setOrderBy: () => buildURL(),
