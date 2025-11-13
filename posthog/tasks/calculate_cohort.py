@@ -391,15 +391,6 @@ def collect_cohort_query_stats(
         query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
 
         if query_stats:
-            # Skip if stats already collected (check if queries field is non-empty)
-            if history.queries:
-                logger.warning(
-                    "Query stats already collected, skipping duplicate collection",
-                    history_id=history_id,
-                    cohort_id=cohort_id,
-                )
-                return
-
             update_fields = []
 
             # Only update history if it's still in progress (no finished_at)
