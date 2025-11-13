@@ -13,7 +13,7 @@ SQL_DIR = Path(__file__).parent / "sql"
 
 # Metric types to include (matches SQL filenames without .sql extension)
 # Set to None to include all, or list specific ones to include
-ENABLED_METRICS = None  # or ["event_counts", "error_rates"]
+ENABLED_METRICS: list[str] | None = None  # or ["event_counts", "error_rates"]
 
 
 def get_insert_query(date_start: str, date_end: str) -> str:

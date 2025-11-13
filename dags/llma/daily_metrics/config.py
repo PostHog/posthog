@@ -35,12 +35,12 @@ class LLMADailyMetricsConfig:
 
     # AI event types to track
     # Add new event types here to automatically include them in daily aggregations
-    ai_event_types: list[str] = None
+    ai_event_types: list[str] | None = None
 
     # Pageview URL path to metric name mappings
     # Maps URL patterns to metric names for tracking pageviews
     # Order matters: more specific patterns should come before general ones
-    pageview_mappings: list[tuple[str, str]] = None
+    pageview_mappings: list[tuple[str, str]] | None = None
 
     def __post_init__(self):
         """Set default values for list fields."""
