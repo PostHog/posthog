@@ -35,7 +35,3 @@ const meta: Meta<typeof EditCustomProductsModal> = {
     ],
 }
 export default meta
-
-export const Default = (): JSX.Element => {
-    return <EditCustomProductsModal isOpen onClose={() => {}} />
-}

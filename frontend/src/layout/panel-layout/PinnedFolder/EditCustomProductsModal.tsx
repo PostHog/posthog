@@ -1,113 +1,49 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
-import api from 'lib/api'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
-import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-export interface EditCustomProductsModalProps {
-    isOpen: boolean
-    onClose: () => void
-}
+import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 
-export function EditCustomProductsModal({ isOpen, onClose }: EditCustomProductsModalProps): JSX.Element {
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { loadCustomProducts } = useActions(customProductsLogic)
-    const { user } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+export function EditCustomProductsModal(): JSX.Element {
+    const {
+        isOpen,
+        customProductsLoading,
+        selectedPaths,
+        allowSidebarSuggestions,
+        saving,
+        categories,
+        productsByCategory,
+    } = useValues(editCustomProductsModalLogic)
+    const { toggleProduct, setAllowSidebarSuggestions, save, closeModal } = useActions(editCustomProductsModalLogic)
 
-    const allProducts = getDefaultTreeProducts().sort((a, b) => a.path.localeCompare(b.path || 'b'))
-
-    // Filter products by feature flags (same logic as sidebar)
-    const filteredProducts = allProducts.filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-    const productsByCategory = new Map<string, FileSystemImport[]>()
-
-    for (const product of filteredProducts) {
-        const category = product.category || 'Other'
-        if (!productsByCategory.has(category)) {
-            productsByCategory.set(category, [])
-        }
-        productsByCategory.get(category)!.push(product)
+    const handleSave = (): void => {
+        save()
+        closeModal()
     }
-
-    const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
-    const [allowSidebarSuggestions, setAllowSidebarSuggestions] = useState(user?.allow_sidebar_suggestions ?? false)
-    const [saving, setSaving] = useState(false)
-
-    useEffect(() => {
-        if (isOpen) {
-            loadCustomProducts()
-        }
-    }, [isOpen, loadCustomProducts])
-
-    useEffect(() => {
-        if (customProducts.length > 0) {
-            setSelectedPaths(new Set(customProducts.map((item) => item.product_path)))
-        }
-    }, [customProducts])
-
-    useEffect(() => {
-        if (user) {
-            setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
-        }
-    }, [user])
-
-    const handleToggleProduct = (productPath: string): void => {
-        const newSelected = new Set(selectedPaths)
-        if (newSelected.has(productPath)) {
-            newSelected.delete(productPath)
-        } else {
-            newSelected.add(productPath)
-        }
-        setSelectedPaths(newSelected)
-    }
-
-    const handleSave = async (): Promise<void> => {
-        setSaving(true)
-        try {
-            const products = Array.from(selectedPaths).map((path) => ({
-                product_path: path,
-            }))
-
-            await api.userProductList.bulkUpdate({ products })
-
-            if (user && user.allow_sidebar_suggestions !== allowSidebarSuggestions) {
-                updateUser({ allow_sidebar_suggestions: allowSidebarSuggestions })
-            }
-
-            loadCustomProducts()
-            onClose()
-        } catch (error) {
-            console.error('Failed to save custom products:', error)
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    const categories = Array.from(productsByCategory.keys()).sort()
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={closeModal}
             title="Edit my sidebar apps"
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onClose} disabled={saving}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeModal}
+                        disabledReason={saving ? 'Saving...' : undefined}
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSave} loading={saving}>
+                    <LemonButton type="primary" onClick={handleSave} loading={saving || customProductsLoading}>
                         Save
                     </LemonButton>
                 </>
@@ -127,27 +63,30 @@ export function EditCustomProductsModal({ isOpen, onClose }: EditCustomProductsM
                     </div>
                 ) : (
                     <ScrollableShadows direction="vertical" className="max-h-[300px]" innerClassName="space-y-4 px-2">
-                        {categories.map((category) => {
+                        {categories.map((category: string) => {
                             const products = productsByCategory.get(category) || []
 
                             return (
                                 <div key={category}>
                                     <h3 className="text-xs font-semibold text-tertiary mb-2 pl-6">{category}</h3>
                                     <div className="space-y-1">
-                                        {products.map((product) => {
-                                            const icon = iconForType(product.iconType, product.iconColor)
+                                        {products.map((product: FileSystemImport) => {
+                                            const icon = iconForType(
+                                                (product.iconType ?? undefined) as any,
+                                                product.iconColor
+                                            )
                                             return (
                                                 <LemonCheckbox
                                                     key={product.path}
                                                     checked={selectedPaths.has(product.path)}
-                                                    onChange={() => handleToggleProduct(product.path)}
+                                                    onChange={() => toggleProduct(product.path)}
                                                     label={
                                                         <span className="flex items-center gap-2">
                                                             {icon}
                                                             <span>{product.path}</span>
                                                             {product.tags?.length && (
                                                                 <>
-                                                                    {product.tags.map((tag) => (
+                                                                    {product.tags.map((tag: string) => (
                                                                         <LemonTag
                                                                             key={tag}
                                                                             type={

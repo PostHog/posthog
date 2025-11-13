@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCheck, IconGear, IconPencil, IconPlusSmall } from '@posthog/icons'
 
@@ -24,6 +23,8 @@ import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
+
 const SelectedIcon = ({ checked }: { checked: boolean }): JSX.Element => {
     return checked ? <IconCheck /> : <IconBlank />
 }
@@ -32,12 +33,11 @@ export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { setPinnedFolder } = useActions(pinnedFolderLogic)
+    const { openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isCustomProductsSidebarEnabled =
         featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] || pinnedFolder === 'custom-products://'
-
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
     const showDefaultHeader = !['products://', 'data://', 'custom-products://'].includes(pinnedFolder)
 
@@ -59,7 +59,7 @@ export function PinnedFolder(): JSX.Element {
                     iconOnly
                     tooltip="Edit my sidebar apps"
                     tooltipPlacement="top"
-                    onClick={() => setIsEditModalOpen(true)}
+                    onClick={openEditCustomProductsModal}
                     size="xs"
                 >
                     <IconPencil className="size-3 text-secondary" />
@@ -144,7 +144,7 @@ export function PinnedFolder(): JSX.Element {
             <div className="flex flex-col mt-[-0.5rem] h-full group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
-            <EditCustomProductsModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} />
+            <EditCustomProductsModal />
         </>
     )
 }
