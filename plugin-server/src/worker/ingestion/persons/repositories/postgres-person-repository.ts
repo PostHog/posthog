@@ -529,9 +529,28 @@ export class PostgresPersonRepository
                 'uuid',
                 'version',
             ]
-            const columns = forcedId ? ['id', ...baseColumns] : baseColumns
 
-            const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+            // When cutover is enabled and no forcedId, we need to explicitly call nextval() for id
+            // because partitioned tables don't automatically apply DEFAULT values when the column is omitted
+            const useDefaultId = this.options.tableCutoverEnabled && !forcedId
+
+            let columns: string[]
+            let valuePlaceholders: string
+
+            if (useDefaultId) {
+                // Include 'id' in columns but use nextval() to explicitly get next sequence value
+                // We need this for partitioned tables which don't properly inherit DEFAULT constraints
+                columns = ['id', ...baseColumns]
+                valuePlaceholders = `nextval('posthog_person_id_seq'), ${baseColumns.map((_, i) => `$${i + 1}`).join(', ')}`
+            } else if (forcedId) {
+                // Include 'id' in columns and use $1 for its value
+                columns = ['id', ...baseColumns]
+                valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+            } else {
+                // Don't include 'id' - let the table's DEFAULT handle it
+                columns = baseColumns
+                valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+            }
 
             // Sanitize and measure JSON field sizes
             const sanitizedProperties = sanitizeJsonbValue(properties)
@@ -570,7 +589,9 @@ export class PostgresPersonRepository
 
             // Find the actual index of team_id in the personParams array (1-indexed for SQL)
             const teamIdParamIndex = personParams.indexOf(teamId) + 1
-            const distinctIdVersionStartIndex = columns.length + 1
+            // Use personParams.length instead of columns.length because when useDefaultId is true,
+            // columns includes 'id' but personParams doesn't include an id value
+            const distinctIdVersionStartIndex = personParams.length + 1
             const distinctIdStartIndex = distinctIdVersionStartIndex + distinctIds.length
 
             const distinctIdsCTE =
@@ -605,6 +626,17 @@ export class PostgresPersonRepository
                     )` +
                 distinctIdsCTE +
                 ` SELECT * FROM inserted_person;`
+
+            // Debug logging for cutover
+            if (useDefaultId) {
+                console.log('DEBUG createPerson with DEFAULT:', {
+                    tableName,
+                    columns,
+                    valuePlaceholders,
+                    personParamsLength: personParams.length,
+                    query: query.substring(0, 300),
+                })
+            }
 
             const { rows } = await this.postgres.query<RawPerson>(
                 tx ?? PostgresUse.PERSONS_WRITE,

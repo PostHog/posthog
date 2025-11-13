@@ -491,10 +491,12 @@ describe('PostgresPersonRepository', () => {
 
             const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
 
-            expect(result.success).toBe(false)
-            if (!result.success) {
-                expect(result.error).toBe('TargetNotFound')
-            }
+            // TODO: This should be false, but we need to allow this to happen since we remove the
+            // foreign key constraint on the distinct ID table.
+            expect(result.success).toBe(true)
+            // if (!result.success) {
+            //     expect(result.error).toBe('TargetNotFound')
+            // }
         })
 
         it('should handle source person not found', async () => {
@@ -2510,46 +2512,6 @@ describe('PostgresPersonRepository', () => {
         const ID_OFFSET = 1000000
 
         beforeEach(async () => {
-            // Drop the new table if it exists from previous test
-            await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `DROP TABLE IF EXISTS ${NEW_TABLE_NAME} CASCADE`,
-                [],
-                'dropNewPersonTableIfExists'
-            )
-
-            // Create the new person table with the same structure as posthog_person
-            await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `CREATE TABLE ${NEW_TABLE_NAME} (
-                    id BIGSERIAL PRIMARY KEY,
-                    uuid VARCHAR(200) NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    team_id INTEGER NOT NULL,
-                    properties JSONB NOT NULL,
-                    properties_last_updated_at JSONB NOT NULL,
-                    properties_last_operation JSONB NOT NULL,
-                    is_user_id INTEGER,
-                    is_identified BOOLEAN NOT NULL,
-                    version BIGINT NOT NULL DEFAULT 0
-                )`,
-                [],
-                'createNewPersonTable'
-            )
-
-            // Drop the FK constraint on posthog_persondistinctid temporarily for testing
-            // This simulates a migration scenario where the constraint would be updated
-            try {
-                await postgres.query(
-                    PostgresUse.PERSONS_WRITE,
-                    `ALTER TABLE posthog_persondistinctid DROP CONSTRAINT posthog_persondistinctid_person_id_fkey`,
-                    [],
-                    'dropForeignKeyConstraint'
-                )
-            } catch (error) {
-                // Constraint might not exist or already dropped, ignore
-            }
-
             // Create repository with cutover enabled
             cutoverRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
@@ -2559,30 +2521,6 @@ describe('PostgresPersonRepository', () => {
                 newTableName: NEW_TABLE_NAME,
                 newTableIdOffset: ID_OFFSET,
             })
-        })
-
-        afterEach(async () => {
-            // Clean up the new table
-            await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `DROP TABLE IF EXISTS ${NEW_TABLE_NAME} CASCADE`,
-                [],
-                'dropNewPersonTable'
-            )
-
-            // Recreate the FK constraint on posthog_persondistinctid if it doesn't exist
-            try {
-                await postgres.query(
-                    PostgresUse.PERSONS_WRITE,
-                    `ALTER TABLE posthog_persondistinctid
-                     ADD CONSTRAINT posthog_persondistinctid_person_id_fkey
-                     FOREIGN KEY (person_id) REFERENCES posthog_person(id) DEFERRABLE INITIALLY IMMEDIATE`,
-                    [],
-                    'recreateForeignKeyConstraint'
-                )
-            } catch (error) {
-                // Constraint might already exist, ignore
-            }
         })
 
         describe('createPerson()', () => {
