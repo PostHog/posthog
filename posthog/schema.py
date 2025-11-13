@@ -2564,6 +2564,16 @@ class QueryTiming(BaseModel):
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
+class QuickFilterContext(StrEnum):
+    ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
+    LOGS_FILTERS = "logs-filters"
+
+
+class QuickFilterType(StrEnum):
+    MANUAL_OPTIONS = "manual-options"
+    AUTO_DISCOVERY = "auto-discovery"
+
+
 class ReasoningMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
