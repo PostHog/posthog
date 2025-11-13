@@ -3,7 +3,7 @@
  * Handles parsing of TRUNCATED, GEN_EXPANDABLE, and TOOLS_EXPANDABLE markers
  */
 import { decodeBase64Utf8 } from './textHelpers'
-import { TextSegment } from './types'
+import { SegmentMatch, TextSegment } from './types'
 
 /**
  * Parse text for TRUNCATED and TOOLS_EXPANDABLE markers (used for nested content)
@@ -13,12 +13,7 @@ export function parseTruncatedSegments(text: string): TextSegment[] {
     const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
     const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
 
-    const allMatches: Array<{
-        index: number
-        length: number
-        type: 'truncated' | 'tools_expandable'
-        data: any
-    }> = []
+    const allMatches: Array<Extract<SegmentMatch, { type: 'truncated' | 'tools_expandable' }>> = []
 
     // Find all truncated markers
     let truncMatch: RegExpExecArray | null
@@ -116,12 +111,7 @@ export function parseTextSegments(text: string): TextSegment[] {
     const genExpandableRegex = /<<<GEN_EXPANDABLE\|([^|]+)\|([^|]+)\|([^>]+)>>>/g
     const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
 
-    const allMatches: Array<{
-        index: number
-        length: number
-        type: 'truncated' | 'gen_expandable' | 'tools_expandable'
-        data: any
-    }> = []
+    const allMatches: SegmentMatch[] = []
 
     // Find all truncated markers
     let truncMatch: RegExpExecArray | null

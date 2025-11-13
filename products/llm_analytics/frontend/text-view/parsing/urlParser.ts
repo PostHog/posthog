@@ -1,7 +1,7 @@
 /**
  * URL and event link parsing utilities
  */
-import { EventLinkPart, TextPart } from './types'
+import { EventLinkPart, TextPart, UrlMatch } from './types'
 
 /**
  * Parse text to find URLs and event links, split into parts
@@ -14,7 +14,7 @@ export function parseUrls(text: string, traceId?: string): Array<TextPart | Even
     const urlRegex = /(https?:\/\/[^\s]+)/g
 
     let lastIndex = 0
-    const matches: Array<{ index: number; length: number; type: 'url' | 'event_link'; data: any }> = []
+    const matches: UrlMatch[] = []
 
     // Find all event links
     let eventMatch: RegExpExecArray | null

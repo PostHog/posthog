@@ -20,3 +20,43 @@ export interface EventLinkPart {
     eventId: string
     displayText: string
 }
+
+/**
+ * Internal types for parsing segment markers
+ */
+export type SegmentMatch =
+    | {
+          index: number
+          length: number
+          type: 'truncated'
+          data: { encodedContent: string; charCount: number }
+      }
+    | {
+          index: number
+          length: number
+          type: 'gen_expandable'
+          data: { eventId: string; displayText: string; encodedContent: string }
+      }
+    | {
+          index: number
+          length: number
+          type: 'tools_expandable'
+          data: { displayText: string; encodedContent: string }
+      }
+
+/**
+ * Internal types for parsing URL and event link markers
+ */
+export type UrlMatch =
+    | {
+          index: number
+          length: number
+          type: 'url'
+          data: { content: string }
+      }
+    | {
+          index: number
+          length: number
+          type: 'event_link'
+          data: { eventId: string; displayText: string }
+      }
