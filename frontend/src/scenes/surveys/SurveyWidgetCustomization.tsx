@@ -5,7 +5,14 @@ import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import { SurveyAppearance, SurveyPosition, SurveySchedule, SurveyTabPosition, SurveyWidgetType } from '~/types'
+import {
+    AvailableFeature,
+    SurveyAppearance,
+    SurveyPosition,
+    SurveySchedule,
+    SurveyTabPosition,
+    SurveyWidgetType,
+} from '~/types'
 
 import { SurveyTabPositionSelector } from './survey-appearance/SurveyTabPositionSelector'
 import { surveysLogic } from './surveysLogic'
@@ -90,7 +97,11 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                         placeholder="#e0a045"
                                     />
                                 </LemonField.Pure>
-                                <LemonField.Pure label="Button position" className="gap-1 col-span-2">
+                                <LemonField.Pure
+                                    label="Button position"
+                                    className="gap-1 col-span-2"
+                                    premiumFeature={AvailableFeature.SURVEYS_STYLING}
+                                >
                                     <div className="flex items-center gap-2">
                                         <SurveyTabPositionSelector
                                             currentPosition={appearance.tabPosition ?? SurveyTabPosition.Right}
