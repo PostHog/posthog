@@ -21,8 +21,8 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
     useEffect(() => {
-        if (localMin !== undefined && localMax !== undefined && localMin >= localMax) {
-            setErrorMessage('Min must be less than max')
+        if (localMin !== undefined && localMax !== undefined && localMin > localMax) {
+            setErrorMessage('Min must be less than or equal to max')
         } else {
             setErrorMessage(null)
         }
@@ -38,7 +38,7 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                     setLocalMin(val)
                     if (localMax === undefined || val === undefined) {
                         onSet(null)
-                    } else if (val < localMax) {
+                    } else if (val <= localMax) {
                         onSet([val, localMax])
                     }
                 }}
@@ -55,7 +55,7 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                     setLocalMax(val)
                     if (localMin === undefined || val === undefined) {
                         onSet(null)
-                    } else if (localMin < val) {
+                    } else if (localMin <= val) {
                         onSet([localMin, val])
                     }
                 }}
