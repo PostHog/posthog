@@ -21,7 +21,12 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
         click.echo(f"🚀 {display}")
     elif "\n" not in command:
         # Only show single-line commands
+        display = command
         click.echo(f"🚀 {command}")
+    else:
+        # Multiline command - no display
+        display = "<multiline command>"
+
     try:
         subprocess.run(
             command,
