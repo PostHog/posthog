@@ -114,11 +114,11 @@ class TestAnthropicConversationCompactionManager(BaseTest):
     @parameterized.expand(
         [
             # (num_human_messages, token_count, should_compact)
-            [1, 70000, False],  # Only 1 human message
-            [2, 70000, False],  # Only 2 human messages
-            [3, 50000, False],  # 3 human messages but under token limit
-            [3, 70000, True],  # 3 human messages and over token limit
-            [5, 70000, True],  # Many messages over limit
+            [1, 90000, False],  # Only 1 human message, under limit
+            [2, 90000, False],  # Only 2 human messages, under limit
+            [3, 80000, False],  # 3 human messages but under token limit
+            [3, 110000, True],  # 3 human messages and over token limit
+            [5, 110000, True],  # Many messages over limit
         ]
     )
     async def test_should_compact_conversation(self, num_human_messages, token_count, should_compact):
@@ -136,19 +136,57 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             result = await self.window_manager.should_compact_conversation(mock_model, messages)
             self.assertEqual(result, should_compact)
 
-    def test_get_estimated_tokens_human_message(self):
+    async def test_should_compact_conversation_with_tools_under_limit(self):
+        """Test that tools are accounted for when estimating tokens with 2 or fewer human messages"""
+        from langchain_core.tools import tool
+
+        @tool
+        def test_tool(query: str) -> str:
+            """A test tool"""
+            return f"Result for {query}"
+
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 1000),  # ~250 tokens
+            LangchainAIMessage(content="B" * 1000),  # ~250 tokens
+        ]
+        tools = [test_tool]
+
+        mock_model = MagicMock()
+        # With 2 human messages, should use estimation and not call _get_token_count
+        result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
+
+        # Total should be well under 100k limit
+        self.assertFalse(result)
+
+    async def test_should_compact_conversation_with_tools_over_limit(self):
+        """Test that tools push estimation over limit with 2 or fewer human messages"""
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 200000),  # ~50k tokens
+            LangchainAIMessage(content="B" * 200000),  # ~50k tokens
+        ]
+
+        # Create large tool schemas to push over 100k limit
+        tools = [{"type": "function", "function": {"name": f"tool_{i}", "description": "X" * 1000}} for i in range(100)]
+
+        mock_model = MagicMock()
+        result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
+
+        # Should be over the 100k limit
+        self.assertTrue(result)
+
+    def test_get_estimated_assistant_message_tokens_human_message(self):
         """Test token estimation for human messages"""
         message = HumanMessage(content="A" * 100, id="1")  # 100 chars = ~25 tokens
-        tokens = self.window_manager._get_estimated_tokens(message)
+        tokens = self.window_manager._get_estimated_assistant_message_tokens(message)
         self.assertEqual(tokens, 25)
 
-    def test_get_estimated_tokens_assistant_message(self):
+    def test_get_estimated_assistant_message_tokens_assistant_message(self):
         """Test token estimation for assistant messages without tool calls"""
         message = AssistantMessage(content="A" * 100, id="1")  # 100 chars = ~25 tokens
-        tokens = self.window_manager._get_estimated_tokens(message)
+        tokens = self.window_manager._get_estimated_assistant_message_tokens(message)
         self.assertEqual(tokens, 25)
 
-    def test_get_estimated_tokens_assistant_message_with_tool_calls(self):
+    def test_get_estimated_assistant_message_tokens_assistant_message_with_tool_calls(self):
         """Test token estimation for assistant messages with tool calls"""
         message = AssistantMessage(
             content="A" * 100,  # 100 chars
@@ -162,16 +200,116 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             ],
         )
         # Should count content + JSON serialized args
-        tokens = self.window_manager._get_estimated_tokens(message)
+        tokens = self.window_manager._get_estimated_assistant_message_tokens(message)
         # 100 chars content + ~15 chars for args = ~29 tokens
         self.assertGreater(tokens, 25)
         self.assertLess(tokens, 35)
 
-    def test_get_estimated_tokens_tool_call_message(self):
+    def test_get_estimated_assistant_message_tokens_tool_call_message(self):
         """Test token estimation for tool call messages"""
         message = AssistantToolCallMessage(content="A" * 200, id="1", tool_call_id="t1")
-        tokens = self.window_manager._get_estimated_tokens(message)
+        tokens = self.window_manager._get_estimated_assistant_message_tokens(message)
         self.assertEqual(tokens, 50)
+
+    def test_get_estimated_langchain_message_tokens_string_content(self):
+        """Test token estimation for langchain messages with string content"""
+        message = LangchainHumanMessage(content="A" * 100)
+        tokens = self.window_manager._get_estimated_langchain_message_tokens(message)
+        self.assertEqual(tokens, 25)
+
+    def test_get_estimated_langchain_message_tokens_list_content_with_strings(self):
+        """Test token estimation for langchain messages with list of string content"""
+        message = LangchainHumanMessage(content=["A" * 100, "B" * 100])
+        tokens = self.window_manager._get_estimated_langchain_message_tokens(message)
+        self.assertEqual(tokens, 50)
+
+    def test_get_estimated_langchain_message_tokens_list_content_with_dicts(self):
+        """Test token estimation for langchain messages with dict content"""
+        message = LangchainHumanMessage(content=[{"type": "text", "text": "A" * 100}])
+        tokens = self.window_manager._get_estimated_langchain_message_tokens(message)
+        # 100 chars for text + overhead for JSON structure
+        self.assertGreater(tokens, 25)
+        self.assertLess(tokens, 40)
+
+    def test_get_estimated_langchain_message_tokens_ai_message_with_tool_calls(self):
+        """Test token estimation for AI messages with tool calls"""
+        message = LangchainAIMessage(
+            content="A" * 100,
+            tool_calls=[
+                {"id": "t1", "name": "test_tool", "args": {"key": "value"}},
+                {"id": "t2", "name": "another_tool", "args": {"foo": "bar"}},
+            ],
+        )
+        tokens = self.window_manager._get_estimated_langchain_message_tokens(message)
+        # Content + tool calls JSON
+        self.assertGreater(tokens, 25)
+        self.assertLess(tokens, 70)
+
+    def test_get_estimated_langchain_message_tokens_ai_message_without_tool_calls(self):
+        """Test token estimation for AI messages without tool calls"""
+        message = LangchainAIMessage(content="A" * 100)
+        tokens = self.window_manager._get_estimated_langchain_message_tokens(message)
+        self.assertEqual(tokens, 25)
+
+    def test_count_json_tokens(self):
+        """Test JSON token counting helper"""
+        json_data = {"key": "value", "nested": {"foo": "bar"}}
+        char_count = self.window_manager._count_json_tokens(json_data)
+        # Should match length of compact JSON
+        import json
+
+        expected = len(json.dumps(json_data, separators=(",", ":")))
+        self.assertEqual(char_count, expected)
+
+    def test_get_estimated_tools_tokens_empty(self):
+        """Test tool token estimation with no tools"""
+        tokens = self.window_manager._get_estimated_tools_tokens([])
+        self.assertEqual(tokens, 0)
+
+    def test_get_estimated_tools_tokens_with_dict_tools(self):
+        """Test tool token estimation with dict tools"""
+        tools = [
+            {"type": "function", "function": {"name": "test_tool", "description": "A test tool"}},
+        ]
+        tokens = self.window_manager._get_estimated_tools_tokens(tools)
+        # Should be positive and reasonable
+        self.assertGreater(tokens, 0)
+        self.assertLess(tokens, 100)
+
+    def test_get_estimated_tools_tokens_with_base_tool(self):
+        """Test tool token estimation with BaseTool"""
+        from langchain_core.tools import tool
+
+        @tool
+        def sample_tool(query: str) -> str:
+            """A sample tool for testing"""
+            return f"Result for {query}"
+
+        tools = [sample_tool]
+        tokens = self.window_manager._get_estimated_tools_tokens(tools)
+        # Should count the tool schema
+        self.assertGreater(tokens, 0)
+        self.assertLess(tokens, 200)
+
+    def test_get_estimated_tools_tokens_multiple_tools(self):
+        """Test tool token estimation with multiple tools"""
+        from langchain_core.tools import tool
+
+        @tool
+        def tool1(x: int) -> int:
+            """First tool"""
+            return x * 2
+
+        @tool
+        def tool2(y: str) -> str:
+            """Second tool"""
+            return y.upper()
+
+        tools = [tool1, tool2]
+        tokens = self.window_manager._get_estimated_tools_tokens(tools)
+        # Should count both tool schemas
+        self.assertGreater(tokens, 0)
+        self.assertLess(tokens, 400)
 
     async def test_get_token_count_calls_model(self):
         """Test that _get_token_count properly calls the model's token counting"""

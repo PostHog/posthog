@@ -144,6 +144,17 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        const currentInputValue = inputRef.current?.value ?? inputValue
+
+        if (e.metaKey && e.key === 'ArrowLeft') {
+            if (currentInputValue === '') {
+                e.preventDefault()
+                e.stopPropagation()
+                window.history.back()
+            }
+            return
+        }
+
         const isModKeyPressed = e.metaKey || e.ctrlKey
 
         // Allow browser navigation keys with modifier

@@ -668,8 +668,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
-        return await this.personRepository.personPropertiesSize(personId)
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        return await this.personRepository.personPropertiesSize(personId, teamId)
     }
 
     reportBatch(): void {
