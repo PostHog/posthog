@@ -200,7 +200,6 @@ export function StepTriggerConfiguration({
                                   : value === 'batch'
                                     ? setWorkflowActionConfig(node.id, {
                                           type: 'batch',
-                                          template_id: 'template-source-webhook-batch',
                                           filters: {
                                               properties: [],
                                               cohorts: [],

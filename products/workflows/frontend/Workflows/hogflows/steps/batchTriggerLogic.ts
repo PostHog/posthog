@@ -4,15 +4,12 @@ import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 
-import { FeatureFlagFilters } from '~/types'
-
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
 export interface BatchTriggerLogicProps {
     id?: number | 'new'
     filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-    onChange?: (filters: FeatureFlagFilters, errors: Record<number, any>) => void
 }
 
 export const batchTriggerLogic = kea<batchTriggerLogicType>([
