@@ -299,8 +299,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DISABLED: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
-        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 72, // 72 hours
-        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 72, // 72 hours
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
         COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
         COOKIELESS_IDENTIFIES_TTL_SECONDS:
             (72 + // max supported ingestion lag in hours
