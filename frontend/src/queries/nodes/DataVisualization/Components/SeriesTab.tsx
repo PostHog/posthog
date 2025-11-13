@@ -132,10 +132,12 @@ export const SeriesTab = (): JSX.Element => {
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number }): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings, visualizationType } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+
+    const isPieChart = visualizationType === ChartDisplayType.ActionsPie
 
     const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
@@ -144,7 +146,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
-    const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
+    const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn && !isPieChart
 
     const columnsInOptions = showTableSettings ? columns : numericalColumns
     const options = columnsInOptions.map(({ name, type }) => ({
@@ -174,36 +176,38 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
                     }
                 }}
             />
-            <Popover
-                overlay={
-                    <div className="m-2">
-                        <LemonTabs
-                            activeKey={activeSettingsTab}
-                            barClassName="justify-around"
-                            onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
-                            tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-                                label: label,
-                                key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-                                content: <Component ySeriesLogicProps={seriesLogicProps} />,
-                            }))}
-                        />
-                    </div>
-                }
-                visible={isSettingsOpen}
-                placement="bottom"
-                onClickOutside={() => {
-                    submitFormatting()
-                    submitDisplay()
-                }}
-            >
-                <LemonButton
-                    key="seriesSettings"
-                    icon={<IconGear />}
-                    noPadding
-                    onClick={() => setSettingsOpen(true)}
-                    disabledReason={!canOpenSettings && 'Select a column first'}
-                />
-            </Popover>
+            {!isPieChart && (
+                <Popover
+                    overlay={
+                        <div className="m-2">
+                            <LemonTabs
+                                activeKey={activeSettingsTab}
+                                barClassName="justify-around"
+                                onChange={(tab) => setSettingsTab(tab as YSeriesSettingsTab)}
+                                tabs={Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+                                    label: label,
+                                    key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+                                    content: <Component ySeriesLogicProps={seriesLogicProps} />,
+                                }))}
+                            />
+                        </div>
+                    }
+                    visible={isSettingsOpen}
+                    placement="bottom"
+                    onClickOutside={() => {
+                        submitFormatting()
+                        submitDisplay()
+                    }}
+                >
+                    <LemonButton
+                        key="seriesSettings"
+                        icon={<IconGear />}
+                        noPadding
+                        onClick={() => setSettingsOpen(true)}
+                        disabledReason={!canOpenSettings && 'Select a column first'}
+                    />
+                </Popover>
+            )}
             {!showTableSettings && (
                 <LemonButton
                     key="delete"
