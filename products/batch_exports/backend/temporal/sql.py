@@ -964,7 +964,6 @@ SELECT
 FROM (
     with new_persons as (
         select
-            team_id,
             id,
             max(version) as version,
             argMax(_timestamp, person.version) AS _timestamp2
@@ -976,7 +975,6 @@ FROM (
                 _timestamp >= {interval_start}::DateTime64
                 AND _timestamp < {interval_end}::DateTime64
         group by
-            team_id,
             id
         having
             (
@@ -1008,7 +1006,6 @@ FROM (
     ),
     latest_persons_for_distinct_ids as (
         select
-            team_id,
             id,
             max(version) as version
         from
@@ -1022,7 +1019,6 @@ FROM (
                     new_distinct_ids
             )
         group by
-            team_id,
             id
     )
     select
@@ -1058,10 +1054,11 @@ FROM (
     from
         person p
         INNER JOIN person_distinct_id2 pd
-            ON p.id = pd.person_id AND pd.team_id = {team_id}::Int64
-            AND (p.team_id, p.id, p.version) in (
+            ON p.id = pd.person_id
+            AND pd.team_id = {team_id}::Int64
+            AND p.team_id = {team_id}::Int64
+            AND (p.id, p.version) in (
                 select
-                    team_id,
                     id,
                     version
                 from
@@ -1102,10 +1099,11 @@ FROM (
         ) AS _inserted_at
     from
         new_distinct_ids pd
-        INNER JOIN person p ON p.id = pd.person_id AND p.team_id = {team_id}::Int64
-        AND (p.team_id, p.id, p.version) in (
+        INNER JOIN person p
+            ON p.id = pd.person_id
+            AND p.team_id = {team_id}::Int64
+        AND (p.id, p.version) in (
             select
-                team_id,
                 id,
                 version
             from
