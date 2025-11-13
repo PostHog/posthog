@@ -3451,6 +3451,7 @@ export interface DashboardFilter {
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
+    explicitDate?: boolean
 }
 
 export interface TileFilters {

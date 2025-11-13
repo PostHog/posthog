@@ -292,6 +292,7 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
             const value = (filter as Record<string, any>)[key]
+            // console.log('combining...', key, value)
             if (value !== undefined) {
                 ;(combined as Record<string, any>)[key] = value
             }

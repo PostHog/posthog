@@ -84,11 +84,12 @@ export function DashboardEditBar(): JSX.Element {
                         showCustom
                         dateFrom={effectiveEditBarFilters.date_from}
                         dateTo={effectiveEditBarFilters.date_to}
-                        onChange={(from_date, to_date) => {
+                        explicitDate={effectiveEditBarFilters.explicitDate}
+                        onChange={(from_date, to_date, explicitDate) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
-                            setDates(from_date, to_date)
+                            setDates(from_date, to_date, explicitDate)
                         }}
                         makeLabel={(key) => (
                             <>

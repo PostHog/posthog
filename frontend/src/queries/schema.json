@@ -8195,6 +8195,9 @@
                 "date_to": {
                     "type": ["string", "null"]
                 },
+                "explicitDate": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "anyOf": [
                         {
