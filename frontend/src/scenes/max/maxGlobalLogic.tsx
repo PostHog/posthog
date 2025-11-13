@@ -8,8 +8,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { routes } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
@@ -17,45 +15,9 @@ import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { maxLogic, mergeConversationHistory } from './maxLogic'
-import { buildSceneDescriptionsContext } from './utils/sceneDescriptionsContext'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
-    {
-        identifier: 'navigate' as const,
-        name: TOOL_DEFINITIONS['navigate'].name,
-        description: TOOL_DEFINITIONS['navigate'].description,
-        context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
-        callback: async (toolOutput, conversationId) => {
-            const { page_key: pageKey } = toolOutput
-            if (!(pageKey in urls)) {
-                throw new Error(`${pageKey} not in urls`)
-            }
-            // @ts-expect-error - we can ignore the error about expecting more than 0 args
-            const url = urls[pageKey as keyof typeof urls]()
-            // Include the conversation ID and panel to ensure the side panel is open
-            // (esp. when the navigate tool is used from the full-page Max)
-
-            maxGlobalLogic.findMounted()?.actions.openSidePanelMax(conversationId)
-            router.actions.push(url)
-
-            // First wait for navigation to complete
-            await new Promise<void>((resolve, reject) => {
-                const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
-                const startTime = performance.now()
-                const checkPathname = (): void => {
-                    if (sceneLogic.values.activeSceneId === routes[url]?.[0]) {
-                        resolve()
-                    } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
-                        reject(new Error('Navigation timeout'))
-                    } else {
-                        setTimeout(checkPathname, 50)
-                    }
-                }
-                checkPathname()
-            })
-        },
-    },
     {
         identifier: 'create_dashboard' as const,
         name: TOOL_DEFINITIONS['create_dashboard'].name,
@@ -145,19 +107,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
-            })
-        },
-        locationChanged: ({ pathname }) => {
-            if (
-                values.registeredToolMap.navigate &&
-                pathname === values.registeredToolMap.navigate.context?.current_page
-            ) {
-                return // No change to path
-            }
-            // Update navigation tool with the current page
-            actions.registerTool({
-                ...values.toolMap.navigate,
-                context: { current_page: pathname, scene_descriptions: buildSceneDescriptionsContext() },
             })
         },
         askSidePanelMax: ({ prompt }) => {
