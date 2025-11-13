@@ -29,7 +29,7 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -79,7 +79,7 @@
                                                                                                                                                                                                                                                                                  GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                  HAVING 1
                                                                                                                                                                                                                                                                                  ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_17)s)) DESC
-                                                                                                                                                                                                                                                                                 LIMIT 10000)))
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -129,7 +129,7 @@
                                                                                                                                                                                                                                                                                  GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                  HAVING 1
                                                                                                                                                                                                                                                                                  ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_17)s)) DESC
-                                                                                                                                                                                                                                                                                 LIMIT 10000)))
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -167,7 +167,7 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -205,7 +205,7 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -283,7 +283,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -370,7 +370,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -457,7 +457,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -544,7 +544,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -646,7 +646,7 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -748,7 +748,7 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -850,7 +850,7 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -952,7 +952,7 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -1039,7 +1039,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -1126,7 +1126,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -1213,7 +1213,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
@@ -1300,7 +1300,7 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   ORDER BY start_time DESC,
