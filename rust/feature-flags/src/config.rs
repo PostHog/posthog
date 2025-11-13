@@ -478,7 +478,7 @@ impl Config {
         let mut fixed = false;
 
         // Note: Zero values are now valid - they mean "no timeout" (blocks indefinitely)
-        // The RedisClient will convert Duration::ZERO to None internally
+        // The RedisClient will skip setting the timeout when Duration::ZERO is provided
 
         // Fix excessive values
         if self.redis_response_timeout_ms > Self::MAX_RESPONSE_TIMEOUT_MS {
