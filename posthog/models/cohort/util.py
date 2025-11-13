@@ -70,17 +70,16 @@ def run_cohort_query(
     # Store the start time before running the query
     start_time = timezone.now()
 
-    # Track that a calculation is starting (before it runs, so we catch OOMs)
-    from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER
-
-    COHORT_CALCULATION_STARTED_COUNTER.inc()
-
     # Tag the query for tracking
     tag_queries(kind="cohort_calculation", id=cohort_tag)
 
     delayed_task = None
-    try:
-        from posthog.tasks.calculate_cohort import collect_cohort_query_stats
+    # Use tags_context to protect tags during import (circular import resolution can corrupt context)
+    with tags_context():
+        from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER, collect_cohort_query_stats
+
+        # Track that a calculation is starting (before it runs, so we catch OOMs)
+        COHORT_CALCULATION_STARTED_COUNTER.inc()
 
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update
@@ -90,6 +89,7 @@ def run_cohort_query(
                 countdown=600,
             )
 
+    try:
         result = fn(*args, **kwargs)
         end_time = timezone.now()  # Capture when query actually finished
 
