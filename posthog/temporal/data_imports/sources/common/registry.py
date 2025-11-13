@@ -3,16 +3,16 @@ from typing import TYPE_CHECKING
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.temporal.data_imports.sources.common.base import BaseSource
+    from posthog.temporal.data_imports.sources.common.base import AnySource
 
 
 class SourceRegistry:
     """Registry for all available data warehouse sources"""
 
-    _sources: dict[ExternalDataSourceType, "BaseSource"] = {}
+    _sources: dict[ExternalDataSourceType, "AnySource"] = {}
 
     @classmethod
-    def register(cls, source_class: type["BaseSource"]):
+    def register(cls, source_class: type["AnySource"]):
         source_class_instance = source_class()
         source_type = source_class_instance.source_type
 
@@ -21,7 +21,7 @@ class SourceRegistry:
         return source_class
 
     @classmethod
-    def get_source(cls, source_type: ExternalDataSourceType) -> "BaseSource":
+    def get_source(cls, source_type: ExternalDataSourceType) -> "AnySource":
         """Get a source instance by type"""
 
         if source_type not in cls._sources:
@@ -29,7 +29,7 @@ class SourceRegistry:
         return cls._sources[source_type]
 
     @classmethod
-    def get_all_sources(cls) -> dict[ExternalDataSourceType, "BaseSource"]:
+    def get_all_sources(cls) -> dict[ExternalDataSourceType, "AnySource"]:
         """Get all registered sources"""
 
         return cls._sources

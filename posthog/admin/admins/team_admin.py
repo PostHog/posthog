@@ -1,9 +1,13 @@
 from django.contrib import admin
-from django.urls import reverse
-from django.utils.html import format_html
+from django.core.cache import cache
+from django.http import HttpResponseNotAllowed, JsonResponse
+from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.html import escapejs, format_html
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.models import Team
+from posthog.models.remote_config import cache_key_for_team_token
 
 
 class TeamAdmin(admin.ModelAdmin):
@@ -39,6 +43,7 @@ class TeamAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "internal_properties",
+        "remote_config_cache_actions",
     ]
 
     inlines = [TeamMarketingAnalyticsConfigInline]
@@ -46,7 +51,15 @@ class TeamAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ["name", "id", "uuid", "organization", "project", "internal_properties"],
+                "fields": [
+                    "name",
+                    "id",
+                    "uuid",
+                    "organization",
+                    "project",
+                    "internal_properties",
+                    "remote_config_cache_actions",
+                ],
             },
         ),
         (
@@ -149,3 +162,70 @@ class TeamAdmin(admin.ModelAdmin):
         if team_is_allowed_to_bypass_throttle(team.id):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
+
+    @admin.display(description="Remote config cache actions")
+    def remote_config_cache_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+
+        view_url = reverse("admin:posthog_team_view_cache", args=[team.pk])
+        delete_url = reverse("admin:posthog_team_delete_cache", args=[team.pk])
+
+        return format_html(
+            '<div style="margin: 10px 0;">'
+            '<a class="button" href="{}" target="_blank" style="margin-right: 10px;">View cached config JSON</a>'
+            '<button type="submit" name="_delete_cache" class="button" '
+            'formmethod="post" formaction="{}" formnovalidate '
+            "onclick=\"return confirm('Delete cache for team {}? This will force a rebuild on next request.');\">"
+            "Delete cache</button>"
+            '<p style="margin-top: 8px; color: #666; font-size: 12px;">'
+            "Cache key: <code>{}</code>"
+            "</p>"
+            "</div>",
+            view_url,
+            delete_url,
+            escapejs(team.name),
+            cache_key_for_team_token(team.api_token),
+        )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view-cache/",
+                self.admin_site.admin_view(self.view_cache),
+                name="posthog_team_view_cache",
+            ),
+            path(
+                "<path:object_id>/delete-cache/",
+                self.admin_site.admin_view(self.delete_cache),
+                name="posthog_team_delete_cache",
+            ),
+        ]
+        return custom_urls + urls
+
+    def view_cache(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        cache_key = cache_key_for_team_token(team.api_token)
+        cached_data = cache.get(cache_key)
+
+        if cached_data == "404":
+            return JsonResponse({"error": "Team not found (404 cached)"}, status=404)
+
+        if cached_data is None:
+            return JsonResponse({"cached": False, "message": "No cached config found"})
+
+        return JsonResponse(
+            {"cached": True, "cache_key": cache_key, "data": cached_data}, json_dumps_params={"indent": 2}
+        )
+
+    def delete_cache(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        cache_key = cache_key_for_team_token(team.api_token)
+        cache.delete(cache_key)
+
+        self.message_user(request, f"Cache deleted for team '{team.name}' (token: {team.api_token})")
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))

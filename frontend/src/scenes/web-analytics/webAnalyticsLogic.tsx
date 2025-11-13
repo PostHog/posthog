@@ -1190,13 +1190,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
                                     interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).flatMap((metric) =>
-                                        [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) =>
-                                            createSeries(metric, math)
-                                        )
+                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                        createSeries(metric, webVitalsPercentile)
                                     ),
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                                    compareFilter,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
