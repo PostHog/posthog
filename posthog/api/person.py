@@ -404,7 +404,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
+            # Use dual-table-aware helper instead of filter() which returns list
+            from posthog.models.person.util import get_persons_by_uuids
+
+            persons = get_persons_by_uuids(
+                team_id=self.team_id,
+                uuids=ids,
+                only_fields=["id", "uuid", "team_id", "version", "created_at"],
+            )
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
