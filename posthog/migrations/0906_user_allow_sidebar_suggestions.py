@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0904_alter_dashboard_creation_mode"),
+        ("posthog", "0905_alter_person_table"),
     ]
 
     operations = [

@@ -541,6 +541,14 @@ export class ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
     }
 
+    // # User product list
+    public userProductList(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
+    }
+    public userProductListDetail(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.userProductList(teamId).addPathComponent(id)
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -1920,6 +1928,31 @@ const api = {
         },
         async delete(id: PersistedFolder['id']): Promise<void> {
             return await new ApiRequest().persistedFolderDetail(id).delete()
+        },
+    },
+
+    userProductList: {
+        async list(): Promise<
+            CountedPaginatedResponse<{ id: string; product_path: string; created_at: string; updated_at: string }>
+        > {
+            return await new ApiRequest().userProductList().get()
+        },
+        async create(data: {
+            product_path: string
+        }): Promise<{ id: string; product_path: string; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductList().create({ data })
+        },
+        async update(
+            id: string,
+            data: { product_path?: string }
+        ): Promise<{ id: string; product_path: string; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductListDetail(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().userProductListDetail(id).delete()
+        },
+        async bulkUpdate(data: { products: Array<{ product_path: string }> }): Promise<void> {
+            return await new ApiRequest().userProductList().withAction('bulk_update').create({ data })
         },
     },
 

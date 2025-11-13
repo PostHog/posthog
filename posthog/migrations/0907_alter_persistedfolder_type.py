@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0905_user_allow_sidebar_suggestions"),
+        ("posthog", "0906_user_allow_sidebar_suggestions"),
     ]
 
     operations = [
