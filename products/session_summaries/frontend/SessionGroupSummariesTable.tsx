@@ -22,15 +22,15 @@ export const scene: SceneExport = {
     component: SessionGroupSummariesTable,
 }
 
-function nameColumn(): LemonTableColumn<SessionGroupSummaryListItemType, 'name'> {
+function titleColumn(): LemonTableColumn<SessionGroupSummaryListItemType, 'title'> {
     return {
-        title: 'Name',
-        dataIndex: 'name',
+        title: 'Title',
+        dataIndex: 'title',
         width: '100%',
-        render: function Render(name, { id }) {
+        render: function Render(title, { id }) {
             return (
-                <Link data-attr="session-group-summary-name" to={urls.sessionSummary(id)} className="font-semibold">
-                    {name || 'Untitled'}
+                <Link data-attr="session-group-summary-title" to={urls.sessionSummary(id)} className="font-semibold">
+                    {title || 'Untitled'}
                 </Link>
             )
         },
@@ -57,7 +57,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
     )
     useOnMountEffect(loadSessionGroupSummaries)
     const columns: LemonTableColumns<SessionGroupSummaryListItemType> = [
-        nameColumn() as LemonTableColumn<
+        titleColumn() as LemonTableColumn<
             SessionGroupSummaryListItemType,
             keyof SessionGroupSummaryListItemType | undefined
         >,

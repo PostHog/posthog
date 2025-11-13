@@ -293,39 +293,28 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-
-    # User-facing name for the summary
-    name = models.CharField(max_length=2048, help_text="Name of the group session summary")
-
+    # User-facing title for the summary
+    title = models.CharField(max_length=2048, help_text="Title of the group session summary", default="Group summary")
     # List of session IDs that were analyzed together in this group
     session_ids = ArrayField(
         models.CharField(max_length=10000),
         help_text="List of session replay IDs included in this group summary",
     )
-
-    # Summary content - format may evolve
+    # Summary content
     summary = models.JSONField(
-        help_text="Group summary in JSON format (currently EnrichedSessionGroupSummaryPatternsList schema)"
+        help_text="Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema)"
     )
-
     # Context and metadata (stored for reference, not used for matching/caching)
     extra_summary_context = models.JSONField(
         null=True,
         blank=True,
         help_text="Additional context passed to the summary (ExtraSummaryContext schema)",
     )
-    extra_input_context = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Custom JSON field for additional input context (no schema validation)",
-    )
     run_metadata = models.JSONField(
         null=True,
         blank=True,
         help_text="Summary run metadata (SessionSummaryRunMeta schema)",
     )
-
-    # TODO: Implement background job to delete summaries older than 1 year
 
     class Meta:
         db_table = "ee_group_session_summary"

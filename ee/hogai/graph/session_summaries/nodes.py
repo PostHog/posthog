@@ -476,6 +476,7 @@ class _SessionSummarizer:
             team=self._node._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
+            summary_title=summary_title,
             extra_summary_context=None,
             video_validation_enabled=video_validation_enabled,
         ):

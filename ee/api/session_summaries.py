@@ -122,6 +122,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             team=team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
+            summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
             video_validation_enabled=video_validation_enabled,
             extra_summary_context=extra_summary_context,
         ):
@@ -280,7 +281,7 @@ class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
         model = SessionGroupSummary
         fields = [
             "id",
-            "name",
+            "title",
             "session_count",
             "created_at",
             "created_by",
@@ -298,7 +299,7 @@ class SessionGroupSummarySerializer(serializers.ModelSerializer):
         model = SessionGroupSummary
         fields = [
             "id",
-            "name",
+            "title",
             "session_ids",
             "summary",
             "extra_summary_context",

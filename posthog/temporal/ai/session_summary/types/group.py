@@ -30,6 +30,7 @@ class SessionGroupSummaryInputs:
     user_id: int
     team_id: int
     redis_key_base: str
+    summary_title: str | None
     # Timestamps required to avoid reading too many days from ClickHouse
     min_timestamp_str: str
     max_timestamp_str: str
@@ -54,6 +55,7 @@ class SessionGroupSummaryOfSummariesInputs:
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     team_id: int
+    summary_title: str | None
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None

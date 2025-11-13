@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import json
 import asyncio
 from math import ceil
@@ -9,6 +10,8 @@ from redis import asyncio as aioredis
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
 
+from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
+from posthog.models import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
@@ -416,6 +419,21 @@ async def assign_events_to_patterns_activity(
         session_ids=session_ids,
         user_id=inputs.user_id,
     )
+    # Store data in DB to be able to display in the UI
+    user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
+    if not user:
+        raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
+    await SessionGroupSummary.objects.acreate(
+        team_id=inputs.team_id,
+        title=inputs.summary_title,  # Use default, if not provided
+        session_ids=inputs.single_session_summaries_inputs,
+        summary=patterns_with_events_context.model_dump_json(exclude_none=True),
+        extra_summary_context=inputs.extra_summary_context,
+        # We don't do visual confirmation on the patterns assignments level, only on single session level
+        run_metadata=asdict(SessionSummaryRunMeta(model_used=inputs.model_to_use, visual_confirmation=False)),
+        created_by=user,
+    )
+    # Store data in Redis to load it without procesing, if the activity is retried
     patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
     await store_data_in_redis(
         redis_client=redis_client,

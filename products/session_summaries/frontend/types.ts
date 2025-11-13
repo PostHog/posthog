@@ -2,7 +2,7 @@ import { UserBasicType } from '~/types'
 
 export type SessionGroupSummaryListItemType = {
     id: string
-    name: string
+    title: string
     session_count: number
     created_at: string
     created_by: UserBasicType | null
