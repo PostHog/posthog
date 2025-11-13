@@ -142,6 +142,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "allow_sidebar_suggestions",
             "role_at_organization",
         ]
 
@@ -419,7 +420,7 @@ class UserViewSet(
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
     ]
-    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization"]
+    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization", "allow_sidebar_suggestions"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
