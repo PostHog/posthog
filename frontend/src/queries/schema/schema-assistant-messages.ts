@@ -287,6 +287,7 @@ export type AssistantTool =
     | 'todo_write'
     | 'filter_revenue_analytics'
     | 'create_feature_flag'
+    | 'create_experiment'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
