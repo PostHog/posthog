@@ -16,6 +16,9 @@ export const DisplayTab = (): JSX.Element => {
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
+    const isPieChart = visualizationType === ChartDisplayType.ActionsPie
+    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
+    const isTotalValueChart = isPieChart || isBarValue
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         return (
@@ -84,96 +87,119 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show total row"
-                                    checked={chartSettings.showTotalRow ?? true}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showTotalRow: value })
-                                    }}
-                                />
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show X-axis labels"
-                                    checked={chartSettings.showXAxisTicks ?? true}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showXAxisTicks: value })
-                                    }}
-                                />
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show X-axis border"
-                                    checked={chartSettings.showXAxisBorder ?? true}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showXAxisBorder: value })
-                                    }}
-                                />
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show Y-axis border"
-                                    checked={chartSettings.showYAxisBorder ?? true}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showYAxisBorder: value })
-                                    }}
-                                />
+                                {!isTotalValueChart && (
+                                    <>
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show total row"
+                                            checked={chartSettings.showTotalRow ?? true}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showTotalRow: value })
+                                            }}
+                                        />
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show X-axis labels"
+                                            checked={chartSettings.showXAxisTicks ?? true}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showXAxisTicks: value })
+                                            }}
+                                        />
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show X-axis border"
+                                            checked={chartSettings.showXAxisBorder ?? true}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showXAxisBorder: value })
+                                            }}
+                                        />
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show Y-axis border"
+                                            checked={chartSettings.showYAxisBorder ?? true}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showYAxisBorder: value })
+                                            }}
+                                        />
+                                    </>
+                                )}
                             </>
                         ),
                     },
-                    {
-                        key: 'left-y-axis',
-                        header: 'Left Y-axis',
-                        className: 'p-2 flex flex-col gap-2',
-                        content: renderYAxisSettings('leftYAxisSettings'),
-                    },
-                    {
-                        key: 'right-y-axis',
-                        header: 'Right Y-axis',
-                        className: 'p-2 flex flex-col gap-2',
-                        content: renderYAxisSettings('rightYAxisSettings'),
-                    },
-                    isStackedBarChart
-                        ? {
-                              key: 'stacked-bar-chart',
-                              header: 'Stack bars',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: (
-                                  <LemonSwitch
-                                      className="flex-1"
-                                      label="Stack bars 100%"
-                                      checked={chartSettings.stackBars100 ?? false}
-                                      onChange={(value) => {
-                                          updateChartSettings({ stackBars100: value })
-                                      }}
-                                  />
-                              ),
-                          }
-                        : null,
-                    {
-                        key: 'goals',
-                        header: {
-                            children: (
-                                <div className="flex items-center gap-1 flex-1">
-                                    <span className="flex-1">Goals</span>
-                                    {goalLines.length > 0 && (
-                                        <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                    )}
-                                </div>
-                            ),
-                        },
-                        className: 'p-2',
-                        content: (
-                            <>
-                                <GoalLinesList
-                                    goalLines={goalLines}
-                                    removeGoalLine={removeGoalLine}
-                                    updateGoalLine={updateGoalLine}
-                                />
-                                <LemonButton className="mt-1" onClick={addGoalLine} icon={<IconPlusSmall />} fullWidth>
-                                    Add goal line
-                                </LemonButton>
-                            </>
-                        ),
-                    },
+                    ...(isTotalValueChart
+                        ? []
+                        : [
+                              {
+                                  key: 'left-y-axis',
+                                  header: isBarValue ? 'X-axis' : 'Left Y-axis',
+                                  className: 'p-2 flex flex-col gap-2',
+                                  content: renderYAxisSettings('leftYAxisSettings'),
+                              },
+                              {
+                                  key: 'right-y-axis',
+                                  header: 'Right Y-axis',
+                                  className: 'p-2 flex flex-col gap-2',
+                                  content: renderYAxisSettings('rightYAxisSettings'),
+                              },
+                          ]),
+                    ...(isStackedBarChart
+                        ? [
+                              {
+                                  key: 'stacked-bar-chart',
+                                  header: 'Stack bars',
+                                  className: 'p-2 flex flex-col gap-2',
+                                  content: (
+                                      <LemonSwitch
+                                          className="flex-1"
+                                          label="Stack bars 100%"
+                                          checked={chartSettings.stackBars100 ?? false}
+                                          onChange={(value) => {
+                                              updateChartSettings({ stackBars100: value })
+                                          }}
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
+                    ...(isTotalValueChart
+                        ? []
+                        : [
+                              {
+                                  key: 'goals',
+                                  header: {
+                                      children: (
+                                          <div className="flex items-center gap-1 flex-1">
+                                              <span className="flex-1">Goals</span>
+                                              {goalLines.length > 0 && (
+                                                  <LemonBadge.Number
+                                                      status="muted"
+                                                      size="small"
+                                                      count={goalLines.length}
+                                                  />
+                                              )}
+                                          </div>
+                                      ),
+                                  },
+                                  className: 'p-2',
+                                  content: (
+                                      <>
+                                          <GoalLinesList
+                                              goalLines={goalLines}
+                                              removeGoalLine={removeGoalLine}
+                                              updateGoalLine={updateGoalLine}
+                                          />
+                                          <LemonButton
+                                              className="mt-1"
+                                              onClick={addGoalLine}
+                                              icon={<IconPlusSmall />}
+                                              fullWidth
+                                          >
+                                              Add goal line
+                                          </LemonButton>
+                                      </>
+                                  ),
+                              },
+                          ]),
                 ]}
             />
         </div>
