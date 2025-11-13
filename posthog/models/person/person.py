@@ -58,7 +58,13 @@ class PersonNew(models.Model):
 
 
 class DualPersonManager(models.Manager):
-    """Manager that reads from both person tables based on ID cutoff."""
+    """Manager that reads from both person tables based on ID cutoff.
+
+    For now, this primarily provides helper methods for ID-based routing.
+    The default queryset continues to use the Person model (pointing to
+    posthog_person table) to maintain compatibility with existing code
+    that relies on reverse relations like persondistinctid_set.
+    """
 
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, routing to correct table based on ID cutoff."""
@@ -70,30 +76,21 @@ class DualPersonManager(models.Manager):
         if team_id is not None:
             query = query.filter(team_id=team_id)
 
-        return query.first()
+        result = query.first()
+        # Convert to Person instance for compatibility with FK relations
+        if result:
+            result.__class__ = Person
+        return result
 
     def get_by_uuid(self, team_id: int, uuid: str):
         """Get person by UUID, trying new table first then falling back to old."""
         person = PersonNew.objects.filter(team_id=team_id, uuid=uuid).first()
         if not person:
             person = PersonOld.objects.filter(team_id=team_id, uuid=uuid).first()
-        return person
-
-    def get_queryset(self):
-        """Default queryset points to new table for .filter() calls."""
-        return PersonNew.objects.all()
-
-    def create(self, *args: Any, **kwargs: Any):
-        """Create person in new table by default."""
-        with transaction.atomic(using=self.db):
-            if not kwargs.get("distinct_ids"):
-                return PersonNew.objects.create(*args, **kwargs)
-            distinct_ids = kwargs.pop("distinct_ids")
-            person = PersonNew.objects.create(*args, **kwargs)
-            # Convert to Person instance for _add_distinct_ids compatibility
+        # Convert to Person instance for compatibility with FK relations
+        if person:
             person.__class__ = Person
-            person._add_distinct_ids(distinct_ids)
-            return person
+        return person
 
 
 class PersonManager(models.Manager):
@@ -136,7 +133,7 @@ class Person(models.Model):
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
-        db_table = "posthog_person_new"  # Default table for ORM, actual queries route via DualPersonManager
+        db_table = "posthog_person"  # Default table, DualPersonManager routes reads based on ID
 
     @property
     def distinct_ids(self) -> list[str]:
