@@ -1,15 +1,25 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 
-import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorTrackingStackFrame, ExceptionAttributes } from 'lib/components/Errors/types'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { ErrorEventProperties, ErrorTrackingStackFrame, ExceptionAttributes } from 'lib/components/Errors/types'
 
 import type { codeVariablesBannerLogicType } from './codeVariablesBannerLogicType'
+
+export interface CodeVariablesBannerLogicProps {
+    properties: ErrorEventProperties
+    id: string
+}
 
 export const codeVariablesBannerLogic = kea<codeVariablesBannerLogicType>([
     path(['error-tracking', 'components', 'banners', 'codeVariablesBannerLogic']),
 
-    connect((props: ErrorPropertiesLogicProps) => ({
-        values: [errorPropertiesLogic(props), ['exceptionAttributes', 'frames']],
+    props({} as CodeVariablesBannerLogicProps),
+
+    connect((props: CodeVariablesBannerLogicProps) => ({
+        values: [
+            errorPropertiesLogic({ properties: props.properties, id: props.id }),
+            ['exceptionAttributes', 'frames'],
+        ],
     })),
 
     selectors({
