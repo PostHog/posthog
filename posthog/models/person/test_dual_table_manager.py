@@ -17,33 +17,9 @@ class TestDualTablePersonManager(BaseTest):
     - .filter() UNION behavior
     - ID cutoff routing logic
     - Helper methods (get_by_id, get_by_uuid)
+
+    NOTE: posthog_person_new table is created by sqlx migrations in conftest.py
     """
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        # Create posthog_person_new table for testing
-        # Since PersonNew has managed=False, Django won't create it
-        with connection.cursor() as cursor:
-            # Create table with same structure as posthog_person
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS posthog_person_new (
-                    LIKE posthog_person INCLUDING DEFAULTS
-                )
-            """)
-            # Drop FK constraint to allow distinct IDs pointing to persons in both tables
-            # (mirrors production migration rust/persons_migrations/20251113000001_add_partitioned_person_table.sql)
-            cursor.execute("""
-                ALTER TABLE posthog_persondistinctid
-                DROP CONSTRAINT IF EXISTS posthog_persondistinctid_person_id_5d655bba_fk
-            """)
-
-    @classmethod
-    def tearDownClass(cls):
-        # Clean up the test table
-        with connection.cursor() as cursor:
-            cursor.execute("DROP TABLE IF EXISTS posthog_person_new CASCADE")
-        super().tearDownClass()
 
     def setUp(self):
         self.team = Team.objects.create(organization=self.organization)
