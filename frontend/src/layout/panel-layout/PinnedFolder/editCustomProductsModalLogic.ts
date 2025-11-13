@@ -91,14 +91,9 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
                 },
             },
         ],
+        allProducts: [getDefaultTreeProducts().sort((a, b) => a.path.localeCompare(b.path || 'b')), {}],
     }),
     selectors({
-        allProducts: [
-            () => [],
-            () => {
-                return getDefaultTreeProducts().sort((a, b) => a.path.localeCompare(b.path || 'b'))
-            },
-        ],
         filteredProducts: [
             (s) => [s.allProducts, s.featureFlags],
             (allProducts: FileSystemImport[], featureFlags: Record<string, boolean>): FileSystemImport[] => {
