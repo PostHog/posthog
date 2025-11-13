@@ -133,7 +133,7 @@ export function ProjectTree({
                 name: 'Example apps',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
                         This list will display your more frequently used apps. You can configure what items show up in
                         here by clicking on the{' '}
                         <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
