@@ -1,4 +1,3 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -26,10 +25,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
+
 import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { SearchTermFilter } from './filters/SearchTermFilter'
 import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
@@ -39,7 +39,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, prettifyJson, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
         useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
@@ -89,11 +89,17 @@ export function LogsScene(): JSX.Element {
             <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
-                    dataSource={logs}
+                    dataSource={parsedLogs}
                     loading={logsLoading}
                     size="small"
                     embedded
                     columns={[
+                        {
+                            title: '',
+                            key: 'actions',
+                            width: 0,
+                            render: (_, record) => <LogsTableRowActions log={record} />,
+                        },
                         {
                             title: 'Timestamp',
                             key: 'timestamp',
@@ -112,19 +118,11 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (_, { body }) => {
-                                const cleanBody = colors.unstyle(body)
-                                let parsed: any = null
-                                try {
-                                    parsed = JSON.parse(cleanBody)
-                                } catch {
-                                    // Not JSON, that's fine
-                                }
-
-                                if (parsed && prettifyJson) {
+                            render: (_, { cleanBody, parsedBody }) => {
+                                if (parsedBody && prettifyJson) {
                                     return (
                                         <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                            {JSON.stringify(parsed, null, 2)}
+                                            {JSON.stringify(parsedBody, null, 2)}
                                         </pre>
                                     )
                                 }
@@ -245,7 +243,6 @@ const Filters = (): JSX.Element => {
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
-                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <LemonButton
@@ -272,7 +269,7 @@ const Filters = (): JSX.Element => {
                     </LemonButton>
                 </div>
             </div>
-            <SearchTermFilter />
+            <LogsFilterGroup />
         </div>
     )
 }

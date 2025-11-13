@@ -64,6 +64,7 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
             disable_streaming=True,
             user=self._user,
             team=self._team,
+            billable=True,
         )
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):

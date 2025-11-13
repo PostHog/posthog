@@ -942,13 +942,14 @@ describe('BatchWritingPersonStore', () => {
                     prop_from_distinctId2: 'value2',
                 },
             }),
+            // Only mutable fields should be in the update object
             expect.objectContaining({
-                id: sharedPerson.id,
                 properties: {
                     initial_prop: 'initial_value',
                     prop_from_distinctId1: 'value1',
                     prop_from_distinctId2: 'value2',
                 },
+                is_identified: expect.any(Boolean),
             }),
             'updatePersonNoAssert'
         )
