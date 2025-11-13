@@ -8,7 +8,7 @@ import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
 export interface BatchTriggerLogicProps {
-    id?: number | 'new'
+    id?: string | 'new'
     filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
 }
 
