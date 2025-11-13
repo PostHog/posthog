@@ -13,7 +13,7 @@ from django.db.models import Prefetch, Q, QuerySet, deletion
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, inline_serializer
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -25,6 +25,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
@@ -1025,6 +1026,24 @@ def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> N
     update_feature_flag_dashboard(feature_flag, old_key)
 
 
+class MyFlagsQuerySerializer(serializers.Serializer):
+    groups = serializers.JSONField(required=False, default=dict, help_text="Groups for feature flag evaluation")
+
+
+class LocalEvaluationQuerySerializer(serializers.Serializer):
+    send_cohorts = serializers.BooleanField(required=False, help_text="Include cohorts in response")
+
+
+class EvaluationReasonsQuerySerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
+    groups = serializers.JSONField(required=False, default=dict, help_text="Groups for feature flag evaluation")
+
+
+class ActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_tags = serializers.SerializerMethodField()
@@ -1055,6 +1074,11 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return names or []
         except Exception:
             return []
+
+
+class MyFlagsResponseSerializer(serializers.Serializer):
+    feature_flag = MinimalFeatureFlagSerializer()
+    value = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
 
 
 class FeatureFlagViewSet(
@@ -1400,6 +1424,21 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
+    @validated_request(
+        query_serializer=MyFlagsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="MyFlagsResponse",
+                    fields={
+                        "feature_flag": MinimalFeatureFlagSerializer(),
+                        "value": serializers.JSONField(),
+                    },
+                    many=True,
+                ),
+            ),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
@@ -1476,6 +1515,26 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    @validated_request(
+        query_serializer=LocalEvaluationQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="LocalEvaluationResponse",
+                    fields={
+                        "flags": serializers.ListSerializer(child=MinimalFeatureFlagSerializer()),
+                        "group_type_mapping": serializers.DictField(child=serializers.CharField()),
+                        "cohorts": serializers.DictField(
+                            child=serializers.JSONField(),
+                            help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
+                        ),
+                    },
+                )
+            ),
+            402: OpenApiResponse(response=serializers.DictField()),
+            500: OpenApiResponse(response=serializers.DictField()),
+        },
+    )
     @action(
         methods=["GET"],
         detail=False,
@@ -1601,6 +1660,26 @@ class FeatureFlagViewSet(
                         )
                         continue
 
+    @validated_request(
+        query_serializer=EvaluationReasonsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="EvaluationReasonsResponse",
+                    fields={
+                        "value": serializers.JSONField(),
+                        "evaluation": inline_serializer(
+                            name="EvaluationReason",
+                            fields={
+                                "reason": serializers.CharField(),
+                                "condition_index": serializers.IntegerField(allow_null=True),
+                            },
+                        ),
+                    },
+                )
+            ),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.query_params.get("distinct_id", None)
@@ -1675,6 +1754,22 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @validated_request(
+        query_serializer=ActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="ActivityPageResponse",
+                    fields={
+                        "results": serializers.ListSerializer(child=serializers.DictField()),
+                        "next": serializers.URLField(allow_null=True),
+                        "previous": serializers.URLField(allow_null=True),
+                        "total_count": serializers.IntegerField(),
+                    },
+                )
+            ),
+        },
+    )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -1735,6 +1830,23 @@ class FeatureFlagViewSet(
 
         return Response(decrypted_flag_payloads["true"] or None)
 
+    @validated_request(
+        query_serializer=ActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer(
+                    name="ActivityPageResponse",
+                    fields={
+                        "results": serializers.ListSerializer(child=serializers.DictField()),
+                        "next": serializers.URLField(allow_null=True),
+                        "previous": serializers.URLField(allow_null=True),
+                        "total_count": serializers.IntegerField(),
+                    },
+                )
+            ),
+            404: OpenApiResponse(response=None),
+        },
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
