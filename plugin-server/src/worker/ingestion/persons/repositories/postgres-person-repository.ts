@@ -60,7 +60,7 @@ const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
     tableCutoverEnabled: false,
     newTableName: 'posthog_person_new',
-    newTableIdOffset: 0,
+    newTableIdOffset: Number.MAX_SAFE_INTEGER,
 }
 
 export class PostgresPersonRepository

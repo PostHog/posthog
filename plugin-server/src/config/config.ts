@@ -338,7 +338,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         // New person table name for cutover migration
         PERSON_NEW_TABLE_NAME: 'posthog_person_new',
         // Person ID offset threshold - person IDs >= this value route to new table
-        PERSON_NEW_TABLE_ID_OFFSET: 0,
+        // Default is max safe integer to ensure cutover doesn't activate accidentally
+        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
