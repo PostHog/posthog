@@ -7,6 +7,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { formatType } from 'lib/components/Errors/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
@@ -18,18 +19,17 @@ import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from '
 export function StacktraceGenericDisplay({
     className,
     truncateMessage,
-    renderLoading,
     renderEmpty,
 }: StacktraceBaseDisplayProps): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { issueId, loading, showAllFrames } = useValues(exceptionCardLogic)
     const { runtime } = exceptionAttributes || {}
+
     const renderExceptionHeader = useCallback(
-        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
+        ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
                 <StacktraceGenericExceptionHeader
-                    type={type}
-                    value={value}
+                    exception={exception}
                     part={part}
                     runtime={runtime}
                     loading={loading}
@@ -42,31 +42,36 @@ export function StacktraceGenericDisplay({
     return (
         <div className={className}>
             {loading ? (
-                renderLoading(renderExceptionHeader)
+                <div className="flex flex-col gap-y-1">
+                    <LemonSkeleton className="h-6 w-1/2" />
+                    <LemonSkeleton className="h-4 w-full" />
+                </div>
             ) : (
-                <ChainedStackTraces
-                    showAllFrames={showAllFrames}
-                    renderExceptionHeader={renderExceptionHeader}
-                    onFrameContextClick={(_, e) => cancelEvent(e)}
-                    onFirstFrameExpanded={() => {
-                        posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
-                    }}
-                />
+                <>
+                    <ChainedStackTraces
+                        showAllFrames={showAllFrames}
+                        renderExceptionHeader={renderExceptionHeader}
+                        onFrameContextClick={(_, e) => cancelEvent(e)}
+                        onFirstFrameExpanded={() => {
+                            posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
+                        }}
+                    />
+                    {!hasStacktrace && renderEmpty()}
+                </>
             )}
-            {!loading && !hasStacktrace && renderEmpty()}
         </div>
     )
 }
 
 export function StacktraceGenericExceptionHeader({
-    type,
-    value,
+    exception,
     runtime,
     part,
     loading,
     truncate,
 }: StacktraceBaseExceptionHeaderProps): JSX.Element {
-    const isScriptError = value === 'Script error' && runtime === 'web' && type === 'Error'
+    const { type, value } = exception
+    const isScriptError = type === 'Error' && runtime === 'web' && value === 'Script error'
 
     return (
         <div className="pb-1">
@@ -76,7 +81,7 @@ export function StacktraceGenericExceptionHeader({
                 ) : (
                     <>
                         {runtime && <RuntimeIcon runtime={runtime} fontSize="0.9rem" className="ml-1" />}
-                        <div className="font-semibold text-[1rem]">{type || 'Unknown type'}</div>
+                        <div className="font-semibold text-[1rem]">{formatType(exception)}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}
