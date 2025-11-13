@@ -26,6 +26,7 @@ from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSu
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
@@ -41,9 +42,9 @@ from ee.hogai.utils.types.base import NodePath
 
 from .compaction_manager import AnthropicConversationCompactionManager
 from .prompts import (
+    AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
     BASIC_FUNCTIONALITY_PROMPT,
-    CORE_MEMORY_INSTRUCTIONS_PROMPT,
     DOING_TASKS_PROMPT,
     PROACTIVENESS_PROMPT,
     ROLE_PROMPT,
@@ -186,12 +187,18 @@ class AgentExecutable(BaseAgentExecutable):
         start_id = state.start_id
 
         # Summarize the conversation if it's too long.
-        if await self._window_manager.should_compact_conversation(
+        current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
-        ):
+        )
+        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
-            summary = await AnthropicConversationSummarizer(self._team, self._user).summarize(messages_to_summarize)
+            summary = await AnthropicConversationSummarizer(
+                self._team,
+                self._user,
+                extend_context_window=current_token_count > 195_000,
+            ).summarize(messages_to_summarize)
+
             summary_message = ContextMessage(
                 content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary),
                 id=str(uuid4()),
@@ -211,6 +218,7 @@ class AgentExecutable(BaseAgentExecutable):
         system_prompts = ChatPromptTemplate.from_messages(
             [
                 ("system", self._get_system_prompt(state, config)),
+                ("system", AGENT_CORE_MEMORY_PROMPT),
             ],
             template_format="mustache",
         ).format_messages(
@@ -220,7 +228,7 @@ class AgentExecutable(BaseAgentExecutable):
         )
 
         # Mark the longest default prefix as cacheable
-        add_cache_control(system_prompts[-1])
+        add_cache_control(system_prompts[0], ttl="1h")
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
         assistant_message = self._process_output_message(message)
@@ -262,7 +270,6 @@ class AgentExecutable(BaseAgentExecutable):
         - `{{{task_management}}}`
         - `{{{doing_tasks}}}`
         - `{{{tool_usage_policy}}}`
-        - `{{{core_memory_instructions}}}`
 
         The variables from above can have the following nested variables that will be injected:
         - `{{{groups}}}` – a prompt containing the description of the groups.
@@ -290,7 +297,6 @@ class AgentExecutable(BaseAgentExecutable):
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
-            core_memory_instructions=CORE_MEMORY_INSTRUCTIONS_PROMPT,
         )
 
     async def _get_billing_prompt(self) -> str:
@@ -318,7 +324,7 @@ class AgentExecutable(BaseAgentExecutable):
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14"],
+            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
@@ -465,6 +471,30 @@ class AgentToolsExecutable(BaseAgentExecutable):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
+        except MaxToolError as e:
+            logger.exception(
+                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
+            )
+            capture_exception(
+                e,
+                distinct_id=self._get_user_distinct_id(config),
+                properties={
+                    **self._get_debug_props(config),
+                    "tool": tool_call.name,
+                    "retry_strategy": e.retry_strategy,
+                },
+            )
+
+            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(

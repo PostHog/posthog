@@ -1528,6 +1528,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
     }
 
+    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
+        return this.messagingCategories().addPathComponent('import_from_customerio')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
@@ -4231,11 +4235,12 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
             return await new ApiRequest()
                 .messagingPreferencesOptOuts()
                 .withQueryString({
                     category_key: categoryKey,
+                    page: page || 1,
                 })
                 .get()
         },
