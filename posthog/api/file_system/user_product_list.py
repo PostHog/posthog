@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import QuerySet
 from django.db.models.functions import Lower
@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
 
 
@@ -56,7 +57,7 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"error": "product_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         existing_item = UserProductList.objects.filter(
-            team=self.team, user=request.user, product_path=product_path
+            team=self.team, user=cast(User, request.user), product_path=product_path
         ).first()
 
         if existing_item:
