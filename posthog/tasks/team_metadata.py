@@ -124,6 +124,7 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
         try:
             update_team_metadata_cache_task.delay(instance.id)
         except Exception as e:
+            TEAM_METADATA_SIGNAL_UPDATE_COUNTER.labels(result="enqueue_failed").inc()
             logger.exception(
                 "Failed to enqueue cache update task",
                 team_id=instance.id,

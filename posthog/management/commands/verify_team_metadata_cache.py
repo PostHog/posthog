@@ -18,6 +18,12 @@ Usage:
 
     # Verbose output (show full diffs)
     python manage.py verify_team_metadata_cache --verbose
+
+    # Automatically fix cache issues
+    python manage.py verify_team_metadata_cache --fix
+
+    # Fix specific teams
+    python manage.py verify_team_metadata_cache --team-ids 123 456 --fix
 """
 
 from django.conf import settings
@@ -31,6 +37,7 @@ from posthog.storage.team_metadata_cache import (
     _serialize_team_field,
     get_team_metadata,
     team_metadata_hypercache,
+    update_team_metadata_cache,
 )
 
 
@@ -59,12 +66,18 @@ class Command(BaseCommand):
             action="store_true",
             help="Also verify data exists in dedicated flags Redis cache",
         )
+        parser.add_argument(
+            "--fix",
+            action="store_true",
+            help="Automatically fix cache mismatches by updating cache from database",
+        )
 
     def handle(self, *args, **options):
         team_ids = options.get("team_ids")
         sample_size = options.get("sample")
         verbose = options.get("verbose", False)
         check_dedicated = options.get("check_dedicated_cache", False)
+        fix = options.get("fix", False)
 
         has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
 
@@ -91,6 +104,8 @@ class Command(BaseCommand):
             "cache_match": 0,
             "cache_mismatch": 0,
             "dedicated_miss": 0,
+            "fixed": 0,
+            "fix_failed": 0,
         }
 
         mismatches = []
@@ -102,14 +117,20 @@ class Command(BaseCommand):
 
             if not cached_data:
                 stats["cache_miss"] += 1
-                mismatches.append(
-                    {
-                        "team_id": team.id,
-                        "team_name": team.name,
-                        "issue": "CACHE_MISS",
-                        "details": "No cached data found",
-                    }
-                )
+                issue_detail = {
+                    "team_id": team.id,
+                    "team_name": team.name,
+                    "issue": "CACHE_MISS",
+                    "details": "No cached data found",
+                }
+
+                if fix:
+                    if self._fix_cache(team, stats):
+                        issue_detail["fixed"] = True
+                    else:
+                        issue_detail["fixed"] = False
+
+                mismatches.append(issue_detail)
                 continue
 
             db_data = self._get_db_data(team)
@@ -120,15 +141,21 @@ class Command(BaseCommand):
                 stats["cache_match"] += 1
             else:
                 stats["cache_mismatch"] += 1
-                mismatches.append(
-                    {
-                        "team_id": team.id,
-                        "team_name": team.name,
-                        "issue": "DATA_MISMATCH",
-                        "details": diffs if verbose else f"{len(diffs)} field(s) differ",
-                        "diffs": diffs,
-                    }
-                )
+                issue_detail = {
+                    "team_id": team.id,
+                    "team_name": team.name,
+                    "issue": "DATA_MISMATCH",
+                    "details": diffs if verbose else f"{len(diffs)} field(s) differ",
+                    "diffs": diffs,
+                }
+
+                if fix:
+                    if self._fix_cache(team, stats):
+                        issue_detail["fixed"] = True
+                    else:
+                        issue_detail["fixed"] = False
+
+                mismatches.append(issue_detail)
 
             if check_dedicated:
                 cache_key = team_metadata_hypercache.get_cache_key(team)
@@ -137,19 +164,41 @@ class Command(BaseCommand):
 
                 if not dedicated_data:
                     stats["dedicated_miss"] += 1
-                    mismatches.append(
-                        {
-                            "team_id": team.id,
-                            "team_name": team.name,
-                            "issue": "DEDICATED_CACHE_MISS",
-                            "details": "Data not found in dedicated flags cache",
-                        }
-                    )
+                    issue_detail = {
+                        "team_id": team.id,
+                        "team_name": team.name,
+                        "issue": "DEDICATED_CACHE_MISS",
+                        "details": "Data not found in dedicated flags cache",
+                    }
+
+                    if fix:
+                        if self._fix_cache(team, stats):
+                            issue_detail["fixed"] = True
+                        else:
+                            issue_detail["fixed"] = False
+
+                    mismatches.append(issue_detail)
 
             if stats["total"] % 100 == 0:
                 self.stdout.write(f"Progress: {stats['total']} teams verified...")
 
-        self._print_results(stats, mismatches, verbose, check_dedicated)
+        self._print_results(stats, mismatches, verbose, check_dedicated, fix)
+
+    def _fix_cache(self, team: Team, stats: dict[str, int]) -> bool:
+        """Fix cache for a team by updating from database."""
+        try:
+            success = update_team_metadata_cache(team)
+            if success:
+                stats["fixed"] += 1
+                self.stdout.write(self.style.SUCCESS(f"  ✓ Fixed cache for team {team.id} ({team.name})"))
+            else:
+                stats["fix_failed"] += 1
+                self.stdout.write(self.style.ERROR(f"  ✗ Failed to fix cache for team {team.id} ({team.name})"))
+            return success
+        except Exception as e:
+            stats["fix_failed"] += 1
+            self.stdout.write(self.style.ERROR(f"  ✗ Error fixing cache for team {team.id} ({team.name}): {e}"))
+            return False
 
     def _get_db_data(self, team: Team) -> dict:
         """Get team data from database in same format as cache."""
@@ -186,7 +235,7 @@ class Command(BaseCommand):
 
         return len(diffs) == 0, diffs
 
-    def _print_results(self, stats: dict, mismatches: list[dict], verbose: bool, check_dedicated: bool):
+    def _print_results(self, stats: dict, mismatches: list[dict], verbose: bool, check_dedicated: bool, fix: bool):
         """Print verification results."""
         self.stdout.write("\n" + "=" * 70)
         self.stdout.write(self.style.SUCCESS("\nVerification Results:"))
@@ -208,15 +257,32 @@ class Command(BaseCommand):
                 f"Dedicated cache miss: {stats['dedicated_miss']} ({self._percent(stats['dedicated_miss'], stats['total'])})"
             )
 
+        if fix:
+            self.stdout.write(
+                f"Cache fixes applied:  {stats['fixed']} ({self._percent(stats['fixed'], stats['total'])})"
+            )
+            if stats["fix_failed"] > 0:
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"Cache fixes failed:   {stats['fix_failed']} ({self._percent(stats['fix_failed'], stats['total'])})"
+                    )
+                )
+
         if mismatches:
             self.stdout.write("\n" + "=" * 70)
             self.stdout.write(self.style.WARNING(f"\nFound {len(mismatches)} issue(s):"))
             self.stdout.write("=" * 70 + "\n")
 
             for mismatch in mismatches:
-                self.stdout.write(
-                    self.style.ERROR(f"\n[{mismatch['issue']}] Team {mismatch['team_id']} ({mismatch['team_name']})")
-                )
+                issue_prefix = f"[{mismatch['issue']}] Team {mismatch['team_id']} ({mismatch['team_name']})"
+
+                if fix and "fixed" in mismatch:
+                    if mismatch["fixed"]:
+                        self.stdout.write(self.style.SUCCESS(f"\n{issue_prefix} - FIXED"))
+                    else:
+                        self.stdout.write(self.style.ERROR(f"\n{issue_prefix} - FIX FAILED"))
+                else:
+                    self.stdout.write(self.style.ERROR(f"\n{issue_prefix}"))
 
                 if verbose and mismatch.get("diffs"):
                     for diff in mismatch["diffs"]:
@@ -231,7 +297,21 @@ class Command(BaseCommand):
         if stats["cache_match"] == stats["total"]:
             self.stdout.write(self.style.SUCCESS("\n✓ All caches verified successfully!\n"))
         else:
-            self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
+            if fix:
+                if stats["fixed"] > 0 and stats["fix_failed"] == 0:
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f"\n✓ Found and fixed {stats['fixed']} issue(s) with {len(mismatches)} team(s)\n"
+                        )
+                    )
+                elif stats["fix_failed"] > 0:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"\n⚠ Fixed {stats['fixed']} issue(s), but {stats['fix_failed']} fix(es) failed\n"
+                        )
+                    )
+            else:
+                self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
 
     def _percent(self, part: int, total: int) -> str:
         """Calculate percentage."""

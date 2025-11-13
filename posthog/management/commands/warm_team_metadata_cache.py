@@ -5,6 +5,9 @@ Usage:
     # Initial cache warm (preserves existing caches)
     python manage.py warm_team_metadata_cache
 
+    # Warm specific teams
+    python manage.py warm_team_metadata_cache --team-ids 12345 67890
+
     # Schema changes (invalidates all caches first)
     python manage.py warm_team_metadata_cache --invalidate-first
 
@@ -14,13 +17,20 @@ Usage:
 
 from django.core.management.base import BaseCommand
 
-from posthog.storage.team_metadata_cache import warm_all_team_caches
+from posthog.models.team.team import Team
+from posthog.storage.team_metadata_cache import update_team_metadata_cache, warm_all_team_caches
 
 
 class Command(BaseCommand):
     help = "Warm team metadata cache for all teams (initial build or schema migration)"
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--team-ids",
+            nargs="+",
+            type=int,
+            help="Specific team IDs to warm (if not provided, warms all teams)",
+        )
         parser.add_argument(
             "--batch-size",
             type=int,
@@ -51,12 +61,19 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        team_ids = options.get("team_ids")
         batch_size = options["batch_size"]
         invalidate_first = options["invalidate_first"]
         stagger_ttl = not options["no_stagger"]
         min_ttl_days = options["min_ttl_days"]
         max_ttl_days = options["max_ttl_days"]
 
+        # Handle specific teams
+        if team_ids:
+            self._warm_specific_teams(team_ids, stagger_ttl, min_ttl_days, max_ttl_days)
+            return
+
+        # Handle all teams
         self.stdout.write(
             self.style.WARNING(
                 f"\nStarting team metadata cache warm:\n"
@@ -102,3 +119,46 @@ class Command(BaseCommand):
 
         if failed > 0:
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
+
+    def _warm_specific_teams(self, team_ids: list[int], stagger_ttl: bool, min_ttl_days: int, max_ttl_days: int):
+        """Warm cache for specific teams."""
+        import random
+
+        self.stdout.write(f"\nWarming cache for {len(team_ids)} specific team(s)...\n")
+
+        teams = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+        found_ids = {team.id for team in teams}
+        missing_ids = set(team_ids) - found_ids
+
+        if missing_ids:
+            self.stdout.write(self.style.WARNING(f"Warning: Could not find teams with IDs: {sorted(missing_ids)}\n"))
+
+        successful = 0
+        failed = 0
+
+        for team in teams:
+            try:
+                if stagger_ttl:
+                    ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
+                    update_team_metadata_cache(team, ttl=ttl_seconds)
+                else:
+                    update_team_metadata_cache(team)
+
+                successful += 1
+                self.stdout.write(self.style.SUCCESS(f"  ✓ Warmed cache for team {team.id} ({team.name})"))
+            except Exception as e:
+                failed += 1
+                self.stdout.write(self.style.ERROR(f"  ✗ Failed to warm cache for team {team.id} ({team.name}): {e}"))
+
+        total = successful + failed
+        success_rate = (successful / total * 100) if total > 0 else 0
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nCache warm completed:\n"
+                f"  Total teams: {total}\n"
+                f"  Successful: {successful}\n"
+                f"  Failed: {failed}\n"
+                f"  Success rate: {success_rate:.1f}%\n"
+            )
+        )
