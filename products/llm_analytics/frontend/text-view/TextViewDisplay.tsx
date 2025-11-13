@@ -5,635 +5,21 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconExternal } from '@posthog/icons'
-import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { SegmentRenderer, TextWithLinks } from './components'
+import { calculateLineNumberPadding, getExpandedTreeText, getPlainText, parseTextSegments } from './parsing'
 import { textViewLogic } from './textViewLogic'
-
-/**
- * Decode base64-encoded UTF-8 string properly
- * Using TextDecoder to handle emoji and special characters correctly
- */
-function decodeBase64Utf8(base64String: string): string {
-    const binaryString = atob(base64String)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-    }
-    return new TextDecoder('utf-8').decode(bytes)
-}
-
-interface TextSegment {
-    type: 'text' | 'truncated' | 'gen_expandable' | 'tools_expandable'
-    content: string
-    fullContent?: string
-    charCount?: number
-    eventId?: string
-}
-
-/**
- * Parse text for TRUNCATED and TOOLS_EXPANDABLE markers (used for nested content)
- */
-function parseTruncatedSegments(text: string): TextSegment[] {
-    const segments: TextSegment[] = []
-    const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
-    const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
-
-    const allMatches: Array<{
-        index: number
-        length: number
-        type: 'truncated' | 'tools_expandable'
-        data: any
-    }> = []
-
-    // Find all truncated markers
-    let truncMatch: RegExpExecArray | null
-    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
-        allMatches.push({
-            index: truncMatch.index,
-            length: truncMatch[0].length,
-            type: 'truncated',
-            data: { encodedContent: truncMatch[1], charCount: parseInt(truncMatch[2], 10) },
-        })
-    }
-
-    // Find all tools expandable markers
-    let toolsMatch: RegExpExecArray | null
-    while ((toolsMatch = toolsExpandableRegex.exec(text)) !== null) {
-        allMatches.push({
-            index: toolsMatch.index,
-            length: toolsMatch[0].length,
-            type: 'tools_expandable',
-            data: { displayText: toolsMatch[1], encodedContent: toolsMatch[2] },
-        })
-    }
-
-    // Sort by index
-    allMatches.sort((a, b) => a.index - b.index)
-
-    let lastIndex = 0
-
-    for (const match of allMatches) {
-        // Add text before the marker
-        if (match.index > lastIndex) {
-            segments.push({
-                type: 'text',
-                content: text.slice(lastIndex, match.index),
-            })
-        }
-
-        if (match.type === 'truncated') {
-            // Add truncated segment
-            try {
-                const fullContent = decodeBase64Utf8(match.data.encodedContent)
-                segments.push({
-                    type: 'truncated',
-                    content: `... (${match.data.charCount} chars truncated)`,
-                    fullContent,
-                    charCount: match.data.charCount,
-                })
-            } catch {
-                // If decoding fails, show as regular text
-                segments.push({
-                    type: 'text',
-                    content: text.slice(match.index, match.index + match.length),
-                })
-            }
-        } else if (match.type === 'tools_expandable') {
-            // Add tools expandable segment
-            try {
-                const fullContent = decodeBase64Utf8(match.data.encodedContent)
-                segments.push({
-                    type: 'tools_expandable',
-                    content: match.data.displayText,
-                    fullContent,
-                })
-            } catch {
-                // If decoding fails, show as regular text
-                segments.push({
-                    type: 'text',
-                    content: text.slice(match.index, match.index + match.length),
-                })
-            }
-        }
-
-        lastIndex = match.index + match.length
-    }
-
-    // Add remaining text
-    if (lastIndex < text.length) {
-        segments.push({
-            type: 'text',
-            content: text.slice(lastIndex),
-        })
-    }
-
-    return segments
-}
-
-/**
- * Parse text to find truncation, generation expandable, and tools expandable markers and split into segments
- */
-function parseTextSegments(text: string): TextSegment[] {
-    const segments: TextSegment[] = []
-
-    // Combined regex to match TRUNCATED, GEN_EXPANDABLE, and TOOLS_EXPANDABLE markers
-    const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
-    const genExpandableRegex = /<<<GEN_EXPANDABLE\|([^|]+)\|([^|]+)\|([^>]+)>>>/g
-    const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
-
-    const allMatches: Array<{
-        index: number
-        length: number
-        type: 'truncated' | 'gen_expandable' | 'tools_expandable'
-        data: any
-    }> = []
-
-    // Find all truncated markers
-    let truncMatch: RegExpExecArray | null
-    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
-        allMatches.push({
-            index: truncMatch.index,
-            length: truncMatch[0].length,
-            type: 'truncated',
-            data: { encodedContent: truncMatch[1], charCount: parseInt(truncMatch[2], 10) },
-        })
-    }
-
-    // Find all gen expandable markers
-    let genMatch: RegExpExecArray | null
-    while ((genMatch = genExpandableRegex.exec(text)) !== null) {
-        allMatches.push({
-            index: genMatch.index,
-            length: genMatch[0].length,
-            type: 'gen_expandable',
-            data: { eventId: genMatch[1], displayText: genMatch[2], encodedContent: genMatch[3] },
-        })
-    }
-
-    // Find all tools expandable markers
-    let toolsMatch: RegExpExecArray | null
-    while ((toolsMatch = toolsExpandableRegex.exec(text)) !== null) {
-        allMatches.push({
-            index: toolsMatch.index,
-            length: toolsMatch[0].length,
-            type: 'tools_expandable',
-            data: { displayText: toolsMatch[1], encodedContent: toolsMatch[2] },
-        })
-    }
-
-    // Sort by index
-    allMatches.sort((a, b) => a.index - b.index)
-
-    let lastIndex = 0
-
-    for (const match of allMatches) {
-        // Add text before the marker
-        if (match.index > lastIndex) {
-            segments.push({
-                type: 'text',
-                content: text.slice(lastIndex, match.index),
-            })
-        }
-
-        if (match.type === 'truncated') {
-            // Add truncated segment
-            try {
-                const fullContent = decodeBase64Utf8(match.data.encodedContent)
-                segments.push({
-                    type: 'truncated',
-                    content: `... (${match.data.charCount} chars truncated)`,
-                    fullContent,
-                    charCount: match.data.charCount,
-                })
-            } catch {
-                // If decoding fails, show as regular text
-                segments.push({
-                    type: 'text',
-                    content: text.slice(match.index, match.index + match.length),
-                })
-            }
-        } else if (match.type === 'gen_expandable') {
-            // Add gen expandable segment
-            try {
-                const fullContent = decodeBase64Utf8(match.data.encodedContent)
-                segments.push({
-                    type: 'gen_expandable',
-                    content: match.data.displayText,
-                    fullContent,
-                    eventId: match.data.eventId,
-                })
-            } catch {
-                // If decoding fails, show as regular text
-                segments.push({
-                    type: 'text',
-                    content: text.slice(match.index, match.index + match.length),
-                })
-            }
-        } else if (match.type === 'tools_expandable') {
-            // Add tools expandable segment
-            try {
-                const fullContent = decodeBase64Utf8(match.data.encodedContent)
-                segments.push({
-                    type: 'tools_expandable',
-                    content: match.data.displayText,
-                    fullContent,
-                })
-            } catch {
-                // If decoding fails, show as regular text
-                segments.push({
-                    type: 'text',
-                    content: text.slice(match.index, match.index + match.length),
-                })
-            }
-        }
-
-        lastIndex = match.index + match.length
-    }
-
-    // Add remaining text
-    if (lastIndex < text.length) {
-        segments.push({
-            type: 'text',
-            content: text.slice(lastIndex),
-        })
-    }
-
-    return segments
-}
-
-/**
- * Get plain text representation for copying (with all truncated sections collapsed)
- */
-function getPlainText(segments: TextSegment[]): string {
-    return segments.map((seg) => (seg.type === 'truncated' ? seg.content : seg.content)).join('')
-}
-
-/**
- * Get expanded tree text for copying trace views
- * Expands all gen_expandable nodes but keeps truncation markers collapsed
- */
-function getExpandedTreeText(segments: TextSegment[]): string {
-    return segments
-        .map((seg) => {
-            if (seg.type === 'gen_expandable' && seg.fullContent) {
-                // Expand this node but keep any nested truncation markers collapsed
-                const nestedSegments = parseTruncatedSegments(seg.fullContent)
-                return nestedSegments.map((nestedSeg) => nestedSeg.content).join('')
-            }
-            // For truncated and text segments, use content as-is
-            return seg.content
-        })
-        .join('')
-}
-
-interface TextPart {
-    type: 'text' | 'url'
-    content: string
-}
-
-interface EventLinkPart {
-    type: 'event_link'
-    eventId: string
-    displayText: string
-}
-
-/**
- * Parse text to find URLs and event links, split into parts
- */
-function parseUrls(text: string, traceId?: string): Array<TextPart | EventLinkPart> {
-    const parts: Array<TextPart | EventLinkPart> = []
-
-    // Process event links first, then URLs
-    const eventLinkRegex = /<<<EVENT_LINK\|([^|]+)\|([^>]+)>>>/g
-    const urlRegex = /(https?:\/\/[^\s]+)/g
-
-    let lastIndex = 0
-    const matches: Array<{ index: number; length: number; type: 'url' | 'event_link'; data: any }> = []
-
-    // Find all event links
-    let eventMatch: RegExpExecArray | null
-    while ((eventMatch = eventLinkRegex.exec(text)) !== null) {
-        matches.push({
-            index: eventMatch.index,
-            length: eventMatch[0].length,
-            type: 'event_link',
-            data: { eventId: eventMatch[1], displayText: eventMatch[2] },
-        })
-    }
-
-    // Find all URLs
-    let urlMatch: RegExpExecArray | null
-    while ((urlMatch = urlRegex.exec(text)) !== null) {
-        matches.push({
-            index: urlMatch.index,
-            length: urlMatch[0].length,
-            type: 'url',
-            data: { content: urlMatch[1] },
-        })
-    }
-
-    // Sort by index
-    matches.sort((a, b) => a.index - b.index)
-
-    // Build parts
-    for (const match of matches) {
-        // Add text before match
-        if (match.index > lastIndex) {
-            parts.push({
-                type: 'text',
-                content: text.slice(lastIndex, match.index),
-            })
-        }
-
-        // Add the match
-        if (match.type === 'url') {
-            parts.push({
-                type: 'url',
-                content: match.data.content,
-            })
-        } else if (match.type === 'event_link' && traceId) {
-            parts.push({
-                type: 'event_link',
-                eventId: match.data.eventId,
-                displayText: match.data.displayText,
-            })
-        } else {
-            // Fallback to text if no traceId
-            parts.push({
-                type: 'text',
-                content: match.data.displayText || '',
-            })
-        }
-
-        lastIndex = match.index + match.length
-    }
-
-    // Add remaining text
-    if (lastIndex < text.length) {
-        parts.push({
-            type: 'text',
-            content: text.slice(lastIndex),
-        })
-    }
-
-    // If no matches found, return the whole text as one part
-    if (parts.length === 0) {
-        parts.push({
-            type: 'text',
-            content: text,
-        })
-    }
-
-    return parts
-}
-
-/**
- * Render text with muted line numbers, clickable URLs and event links
- */
-function renderTextWithLinks(text: string, traceId?: string): JSX.Element[] {
-    const parts = parseUrls(text, traceId)
-    const result: JSX.Element[] = []
-
-    parts.forEach((part, i) => {
-        if (part.type === 'url') {
-            result.push(
-                <Link key={`url-${i}`} to={part.content} target="_blank" targetBlankIcon>
-                    {part.content}
-                </Link>
-            )
-        } else if (part.type === 'event_link' && traceId) {
-            result.push(
-                <Link key={`event-${i}`} to={urls.llmAnalyticsTrace(traceId, { event: part.eventId })}>
-                    {part.displayText}
-                </Link>
-            )
-        } else {
-            // Must be TextPart - process line by line to handle line numbers
-            const content = (part as TextPart).content
-            const lines = content.split('\n')
-
-            lines.forEach((line, lineIdx) => {
-                if (lineIdx > 0) {
-                    // Add newline between lines (except before first line)
-                    result.push(<span key={`nl-${i}-${lineIdx}`}>{'\n'}</span>)
-                }
-
-                const lineMatch = line.match(/^(L\d+:)(.*)$/)
-                if (lineMatch) {
-                    const linePrefix = lineMatch[1]
-                    const lineContent = lineMatch[2]
-                    const lineNumber = parseInt(linePrefix.slice(1, -1), 10)
-                    result.push(
-                        <span key={`line-${i}-${lineIdx}`} id={`line-${lineNumber}`}>
-                            <Tooltip title="Click to copy permalink to this line">
-                                <button
-                                    type="button"
-                                    className="text-muted hover:text-link cursor-pointer"
-                                    onClick={() => {
-                                        const url = new URL(window.location.href)
-                                        url.searchParams.set('line', lineNumber.toString())
-                                        copyToClipboard(url.toString(), 'permalink')
-                                    }}
-                                >
-                                    {linePrefix}
-                                </button>
-                            </Tooltip>
-                            {lineContent}
-                        </span>
-                    )
-                } else {
-                    result.push(<span key={`text-${i}-${lineIdx}`}>{line}</span>)
-                }
-            })
-        }
-    })
-
-    return result
-}
 
 interface TraceTreeNode {
     event: any
     children?: TraceTreeNode[]
-}
-
-/**
- * Render content that may contain truncated segments (used for nested content)
- */
-function NestedContentRenderer({
-    content,
-    traceId,
-    parentKey,
-    expandedSegments,
-    setExpandedSegments,
-    popoutSegment,
-    setPopoutSegment,
-}: {
-    content: string
-    traceId?: string
-    parentKey: string
-    expandedSegments: Set<number | string>
-    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<number | string>>>
-    popoutSegment: number | string | null
-    setPopoutSegment: React.Dispatch<React.SetStateAction<number | string | null>>
-}): JSX.Element {
-    const nestedSegments = parseTruncatedSegments(content)
-
-    const toggleNestedSegment = (nestedIndex: number): void => {
-        const key = `${parentKey}-${nestedIndex}`
-        setExpandedSegments((prev) => {
-            const next = new Set(prev)
-            if (next.has(key)) {
-                next.delete(key)
-            } else {
-                next.add(key)
-            }
-            return next
-        })
-    }
-
-    const toggleNestedPopout = (nestedIndex: number): void => {
-        const key = `${parentKey}-${nestedIndex}`
-        setPopoutSegment((prev) => (prev === key ? null : key))
-    }
-
-    return (
-        <>
-            {nestedSegments.map((nestedSeg, nestedIdx) => {
-                const nestedKey = `${parentKey}-${nestedIdx}`
-                const isNestedExpanded = expandedSegments.has(nestedKey)
-                const isNestedPopoutOpen = popoutSegment === nestedKey
-
-                if (nestedSeg.type === 'text') {
-                    return <span key={nestedIdx}>{renderTextWithLinks(nestedSeg.content, traceId)}</span>
-                }
-
-                if (nestedSeg.type === 'tools_expandable') {
-                    // Parse full content to split into individual tools
-                    const fullContent = nestedSeg.fullContent || ''
-                    const lines = fullContent.split('\n')
-
-                    // Find header line (e.g., "AVAILABLE TOOLS: 10")
-                    const headerLine = lines[0]
-                    const toolLines = lines.slice(1) // Skip header
-
-                    // Parse individual tool blocks
-                    const toolBlocks: string[] = []
-                    let currentBlock: string[] = []
-
-                    for (const line of toolLines) {
-                        if (line.trim() === '' && currentBlock.length > 0) {
-                            toolBlocks.push(currentBlock.join('\n'))
-                            currentBlock = []
-                        } else if (line.trim() !== '') {
-                            currentBlock.push(line)
-                        }
-                    }
-                    if (currentBlock.length > 0) {
-                        toolBlocks.push(currentBlock.join('\n'))
-                    }
-
-                    // Split into first 5 and remaining
-                    const visibleTools = toolBlocks.slice(0, 5)
-                    const hiddenTools = toolBlocks.slice(5)
-
-                    return (
-                        <span key={nestedIdx}>
-                            {headerLine}
-                            {'\n\n'}
-                            {visibleTools.map((toolBlock, i) => (
-                                <span key={i}>
-                                    {renderTextWithLinks(toolBlock, traceId)}
-                                    {'\n\n'}
-                                </span>
-                            ))}
-                            {hiddenTools.length > 0 && (
-                                <>
-                                    <button
-                                        onClick={() => toggleNestedSegment(nestedIdx)}
-                                        className="text-link hover:underline cursor-pointer"
-                                        title={isNestedExpanded ? 'Collapse' : 'Expand'}
-                                    >
-                                        {isNestedExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
-                                        {hiddenTools.length > 1 ? 's' : ''}
-                                    </button>
-                                    {isNestedExpanded && (
-                                        <div className="ml-4 mt-2 mb-2">
-                                            {hiddenTools.map((toolBlock, i) => (
-                                                <span key={i}>
-                                                    {renderTextWithLinks(toolBlock, traceId)}
-                                                    {'\n\n'}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </span>
-                    )
-                }
-
-                // Truncated segment
-                return (
-                    <span key={nestedIdx}>
-                        {isNestedExpanded ? (
-                            <>
-                                {renderTextWithLinks(nestedSeg.fullContent || '', traceId)}
-                                <button
-                                    onClick={() => toggleNestedSegment(nestedIdx)}
-                                    className="text-link hover:underline cursor-pointer ml-1"
-                                >
-                                    [collapse]
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <button
-                                    onClick={() => toggleNestedSegment(nestedIdx)}
-                                    className="text-link hover:underline cursor-pointer"
-                                >
-                                    {nestedSeg.content}
-                                </button>
-                                <Tooltip
-                                    title={
-                                        isNestedPopoutOpen ? (
-                                            <div
-                                                data-popout-content
-                                                className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
-                                            >
-                                                {nestedSeg.fullContent}
-                                            </div>
-                                        ) : null
-                                    }
-                                    containerClassName="max-w-4xl"
-                                    placement="top"
-                                    visible={isNestedPopoutOpen}
-                                >
-                                    <button
-                                        data-popout-button
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            toggleNestedPopout(nestedIdx)
-                                        }}
-                                        className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-default transition-colors"
-                                        title="Preview truncated content"
-                                    >
-                                        <IconExternal className="w-3 h-3" />
-                                    </button>
-                                </Tooltip>
-                            </>
-                        )}
-                    </span>
-                )
-            })}
-        </>
-    )
 }
 
 export function TextViewDisplay({
@@ -673,51 +59,11 @@ export function TextViewDisplay({
         fetchTextRepr()
     }, [event?.id, trace?.id, fetchTextRepr])
 
-    // Scroll to line when lineNumber changes
-    useEffect(() => {
-        if (lineNumber && !textReprLoading) {
-            // Small delay to ensure the content is rendered
-            setTimeout(() => {
-                const element = document.getElementById(`line-${lineNumber}`)
-                if (element) {
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                    // Highlight temporarily
-                    element.classList.add('bg-warning-highlight', 'border-l-4', 'border-warning')
-                    setTimeout(() => {
-                        element.classList.remove('bg-warning-highlight', 'border-l-4', 'border-warning')
-                    }, 3000)
-                }
-            }, 100)
-        }
-    }, [lineNumber, textReprLoading])
-
-    const segments = parseTextSegments(textRepr || '')
-
-    // Get indices of all expandable segments (truncated, gen_expandable, tools_expandable)
-    const truncatedIndices = segments
-        .map((seg, idx) => (seg.type === 'truncated' ? idx : -1))
-        .filter((idx) => idx !== -1)
-
-    const genExpandableIndices = segments
-        .map((seg, idx) => (seg.type === 'gen_expandable' ? idx : -1))
-        .filter((idx) => idx !== -1)
-
-    const toolsExpandableIndices = segments
-        .map((seg, idx) => (seg.type === 'tools_expandable' ? idx : -1))
-        .filter((idx) => idx !== -1)
-
-    const allExpandableIndices = [...truncatedIndices, ...genExpandableIndices, ...toolsExpandableIndices]
-
-    const allExpanded =
-        allExpandableIndices.length > 0 && allExpandableIndices.every((idx) => expandedSegments.has(idx))
-
     // Close popout when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent): void => {
-            // Close if clicking outside and popout is open
             if (popoutSegment !== null) {
                 const target = event.target as HTMLElement
-                // Don't close if clicking on the tooltip or the button
                 if (!target.closest('[data-popout-content]') && !target.closest('[data-popout-button]')) {
                     setPopoutSegment(null)
                 }
@@ -731,6 +77,19 @@ export function TextViewDisplay({
             }
         }
     }, [popoutSegment])
+
+    const segments = parseTextSegments(textRepr || '')
+    const lineNumberPadding = calculateLineNumberPadding(textRepr || '')
+
+    // Get indices of all expandable segments
+    const allExpandableIndices = segments
+        .map((seg, idx) =>
+            seg.type === 'truncated' || seg.type === 'gen_expandable' || seg.type === 'tools_expandable' ? idx : -1
+        )
+        .filter((idx) => idx !== -1)
+
+    const allExpanded =
+        allExpandableIndices.length > 0 && allExpandableIndices.every((idx) => expandedSegments.has(idx))
 
     const handleCopy = (): void => {
         // Check if we have gen_expandable segments (trace view)
@@ -759,10 +118,8 @@ export function TextViewDisplay({
 
     const toggleExpandAll = (): void => {
         if (allExpanded) {
-            // Collapse all
             setExpandedSegments(new Set())
         } else {
-            // Expand all (truncated, gen_expandable, and tools_expandable segments)
             setExpandedSegments(new Set(allExpandableIndices))
         }
     }
@@ -779,8 +136,6 @@ export function TextViewDisplay({
             </div>
         )
     }
-
-    // Error handling is done automatically by the logic through the fallback callback
 
     return (
         <div className="relative flex flex-col flex-1 min-h-0">
@@ -812,169 +167,36 @@ export function TextViewDisplay({
                         const nextSegment = segments[index + 1]
                         const content =
                             nextSegment?.type === 'gen_expandable' ? segment.content.trimEnd() : segment.content
-                        return <span key={index}>{renderTextWithLinks(content, traceId)}</span>
-                    }
-                    if (segment.type === 'gen_expandable') {
-                        const isExpanded = expandedSegments.has(index)
-                        // Extract [GEN], [SPAN], or [EMBED] tag and rest of content
-                        const tagMatch = segment.content.match(/^(\[(?:GEN|SPAN|EMBED)\])\s*(.*)$/)
-                        const tag = tagMatch ? tagMatch[1] : segment.content
-                        const restContent = tagMatch ? tagMatch[2] : segment.content
                         return (
                             <span key={index}>
-                                <Link
-                                    to={urls.llmAnalyticsTrace(traceId!, { event: segment.eventId })}
-                                    title="Jump to event"
-                                >
-                                    {tag}
-                                </Link>
-                                <button
-                                    onClick={() => toggleSegment(index)}
-                                    className="text-link hover:underline cursor-pointer"
-                                    title={isExpanded ? 'Collapse' : 'Expand'}
-                                >
-                                    {isExpanded ? '[−]' : '[+]'}
-                                </button>{' '}
-                                {restContent.trim()}
-                                {isExpanded && (
-                                    <div className="ml-4 mt-2 mb-2 pl-4 border-l-2 border-border">
-                                        <NestedContentRenderer
-                                            content={segment.fullContent || ''}
-                                            traceId={traceId}
-                                            parentKey={`gen-${index}`}
-                                            expandedSegments={expandedSegments}
-                                            setExpandedSegments={setExpandedSegments}
-                                            popoutSegment={popoutSegment}
-                                            setPopoutSegment={setPopoutSegment}
-                                        />
-                                    </div>
-                                )}
+                                <TextWithLinks
+                                    text={content}
+                                    traceId={traceId}
+                                    activeLineNumber={lineNumber}
+                                    lineNumberPadding={lineNumberPadding}
+                                />
                             </span>
                         )
                     }
-                    if (segment.type === 'tools_expandable') {
-                        const isExpanded = expandedSegments.has(index)
 
-                        // Parse full content to split into individual tools
-                        const fullContent = segment.fullContent || ''
-                        const lines = fullContent.split('\n')
-
-                        // Find header line (e.g., "AVAILABLE TOOLS: 10")
-                        const headerLine = lines[0]
-                        const toolLines = lines.slice(1) // Skip header
-
-                        // Parse individual tool blocks (tool_name(), description, blank line)
-                        const toolBlocks: string[] = []
-                        let currentBlock: string[] = []
-
-                        for (const line of toolLines) {
-                            if (line.trim() === '' && currentBlock.length > 0) {
-                                // End of a tool block
-                                toolBlocks.push(currentBlock.join('\n'))
-                                currentBlock = []
-                            } else if (line.trim() !== '') {
-                                currentBlock.push(line)
-                            }
-                        }
-                        // Add last block if exists
-                        if (currentBlock.length > 0) {
-                            toolBlocks.push(currentBlock.join('\n'))
-                        }
-
-                        // Split into first 5 and remaining
-                        const visibleTools = toolBlocks.slice(0, 5)
-                        const hiddenTools = toolBlocks.slice(5)
-
-                        return (
-                            <span key={index}>
-                                {headerLine}
-                                {'\n\n'}
-                                {/* Show first 5 tools inline */}
-                                {visibleTools.map((toolBlock, i) => (
-                                    <span key={i}>
-                                        {renderTextWithLinks(toolBlock, traceId)}
-                                        {'\n\n'}
-                                    </span>
-                                ))}
-                                {/* Show expandable for remaining tools */}
-                                {hiddenTools.length > 0 && (
-                                    <>
-                                        <button
-                                            onClick={() => toggleSegment(index)}
-                                            className="text-link hover:underline cursor-pointer"
-                                            title={isExpanded ? 'Collapse' : 'Expand'}
-                                        >
-                                            {isExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
-                                            {hiddenTools.length > 1 ? 's' : ''}
-                                        </button>
-                                        {isExpanded && (
-                                            <div className="ml-4 mt-2 mb-2">
-                                                {hiddenTools.map((toolBlock, i) => (
-                                                    <span key={i}>
-                                                        {renderTextWithLinks(toolBlock, traceId)}
-                                                        {'\n\n'}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </span>
-                        )
-                    }
-                    // Truncated segment
-                    const isExpanded = expandedSegments.has(index)
-                    const isPopoutOpen = popoutSegment === index
+                    // Render expandable segments (truncated, gen_expandable, tools_expandable)
                     return (
-                        <span key={index}>
-                            {isExpanded ? (
-                                <>
-                                    {renderTextWithLinks(segment.fullContent || '', traceId)}
-                                    <button
-                                        onClick={() => toggleSegment(index)}
-                                        className="text-link hover:underline cursor-pointer ml-1"
-                                    >
-                                        [collapse]
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => toggleSegment(index)}
-                                        className="text-link hover:underline cursor-pointer"
-                                    >
-                                        {segment.content}
-                                    </button>
-                                    <Tooltip
-                                        title={
-                                            isPopoutOpen ? (
-                                                <div
-                                                    data-popout-content
-                                                    className="max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs"
-                                                >
-                                                    {segment.fullContent}
-                                                </div>
-                                            ) : null
-                                        }
-                                        containerClassName="max-w-4xl"
-                                        placement="top"
-                                        visible={isPopoutOpen}
-                                    >
-                                        <button
-                                            data-popout-button
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                togglePopout(index)
-                                            }}
-                                            className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-default transition-colors"
-                                            title="Preview truncated content"
-                                        >
-                                            <IconExternal className="w-3 h-3" />
-                                        </button>
-                                    </Tooltip>
-                                </>
-                            )}
-                        </span>
+                        <SegmentRenderer
+                            key={index}
+                            segment={segment}
+                            index={index}
+                            traceId={traceId}
+                            isExpanded={expandedSegments.has(index)}
+                            isPopoutOpen={popoutSegment === index}
+                            onToggleExpand={toggleSegment}
+                            onTogglePopout={togglePopout}
+                            expandedSegments={expandedSegments}
+                            setExpandedSegments={setExpandedSegments}
+                            popoutSegment={popoutSegment}
+                            setPopoutSegment={setPopoutSegment}
+                            activeLineNumber={lineNumber}
+                            lineNumberPadding={lineNumberPadding}
+                        />
                     )
                 })}
             </pre>
