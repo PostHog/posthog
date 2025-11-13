@@ -143,7 +143,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
 
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_delete_folder_obj(self):
@@ -170,7 +170,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
 
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
@@ -348,7 +348,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/",
-            {"path": "Documents", "type": "doc"},
+            {"path": "Documents", "type": "feature_flag"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         created = response.json()
@@ -366,7 +366,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/",
-            {"path": "Folder/Subfolder/File", "type": "doc"},
+            {"path": "Folder/Subfolder/File", "type": "feature_flag"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         created = response.json()
@@ -563,8 +563,12 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create a folder and some files inside it
         folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
-        file1 = FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
-        file2 = FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+        file1 = FileSystem.objects.create(
+            team=self.team, path="OldFolder/File1", type="feature_flag", created_by=self.user
+        )
+        file2 = FileSystem.objects.create(
+            team=self.team, path="OldFolder/File2", type="feature_flag", created_by=self.user
+        )
 
         # Move the folder
         response = self.client.post(
@@ -589,8 +593,8 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create a folder and some files inside it
         folder = FileSystem.objects.create(team=self.team, path="OldFolder", type="folder", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="doc", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File1", type="feature_flag", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="OldFolder/File2", type="feature_flag", created_by=self.user)
 
         # Count the folder by id
         response = self.client.post(f"/api/projects/{self.team.id}/file_system/{folder.pk}/count")
@@ -615,7 +619,7 @@ class TestFileSystemAPI(APIBaseTest):
             FileSystem.objects.create(
                 team=self.team,
                 path=f"BulkFolder/File{index}",
-                type="doc",
+                type="feature_flag",
                 created_by=self.user,
             )
 
@@ -632,32 +636,32 @@ class TestFileSystemAPI(APIBaseTest):
         Ensure that the list endpoint filters results by the 'type' query parameter.
         """
         # Create several FileSystem items with different types
-        FileSystem.objects.create(team=self.team, path="FileA.txt", type="doc", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="FileB.txt", type="img", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="FileC.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileA.txt", type="feature_flag", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileB.txt", type="dashboard", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="FileC.txt", type="feature_flag", created_by=self.user)
 
         # Filter by type 'doc'
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type=doc")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type=feature_flag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         # Expecting 2 items with type 'doc'
         self.assertEqual(data["count"], 2)
         for item in data["results"]:
-            self.assertEqual(item["type"], "doc")
+            self.assertEqual(item["type"], "feature_flag")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type__startswith=d")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?type__startswith=f")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         # Expecting 2 items with type starting with 'd'
         self.assertEqual(data["count"], 2)
 
         # Filter by type 'doc'
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?not_type=doc")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?not_type=feature_flag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         # Expecting 1 items with type 'img'
         self.assertEqual(data["count"], 1)
-        self.assertEqual(data["results"][0]["type"], "img")
+        self.assertEqual(data["results"][0]["type"], "dashboard")
 
     def test_link_file_endpoint(self):
         """
@@ -667,7 +671,7 @@ class TestFileSystemAPI(APIBaseTest):
         file_obj = FileSystem.objects.create(
             team=self.team,
             path="OriginalFile.txt",
-            type="doc",
+            type="feature_flag",
             created_by=self.user,
         )
         new_path = "NewFolder/NewFile.txt"
@@ -699,7 +703,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(
             team=self.team,
             path="Folder1/Child.txt",
-            type="doc",
+            type="feature_flag",
             created_by=self.user,
         )
         new_path = "LinkedFolder"
@@ -713,7 +717,9 @@ class TestFileSystemAPI(APIBaseTest):
         # A single-segment folder should have depth 1.
         self.assertEqual(result["depth"], 1)
         # Verify that the child file was linked with its path updated.
-        linked_child = FileSystem.objects.filter(team=self.team, path="LinkedFolder/Child.txt", type="doc").first()
+        linked_child = FileSystem.objects.filter(
+            team=self.team, path="LinkedFolder/Child.txt", type="feature_flag"
+        ).first()
         assert linked_child is not None
         self.assertEqual(linked_child.depth, 2)
 
@@ -775,8 +781,8 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
 
         # FILES (depth=1)
-        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
-        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="feature_flag", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="feature_flag", created_by=self.user, depth=1)
 
         url = f"/api/projects/{self.team.id}/file_system/?depth=1"
         resp = self.client.get(url)
@@ -795,8 +801,8 @@ class TestFileSystemAPI(APIBaseTest):
         """
         FileSystem.objects.create(team=self.team, path="beta", type="folder", created_by=self.user, depth=1)
         FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
-        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
-        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="feature_flag", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="feature_flag", created_by=self.user, depth=1)
 
         resp = self.client.get(f"/api/projects/{self.team.id}/file_system/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
@@ -808,11 +814,11 @@ class TestFileSystemAPI(APIBaseTest):
     def test_list_order_by_created_at(self):
         # Create items in chronological order
         with freeze_time("2020-01-01 10:00:00"):
-            file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="doc", created_by=self.user)
+            file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="feature_flag", created_by=self.user)
         with freeze_time("2020-01-02 10:00:00"):
-            file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="doc", created_by=self.user)
+            file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="feature_flag", created_by=self.user)
         with freeze_time("2020-01-03 10:00:00"):
-            file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="doc", created_by=self.user)
+            file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="feature_flag", created_by=self.user)
 
         # Query with descending order
         url = f"/api/projects/{self.team.id}/file_system/?order_by=-created_at"
@@ -842,8 +848,12 @@ class TestFileSystemAPI(APIBaseTest):
         """
         `path:<txt>` must match items whose *parent* segment contains <txt>.
         """
-        FileSystem.objects.create(team=self.team, path="Analytics/Reports/Q1.txt", type="doc", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="Analytics/Other/Q2.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Reports/Q1.txt", type="feature_flag", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Other/Q2.txt", type="feature_flag", created_by=self.user
+        )
 
         url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports"
         resp = self.client.get(url)
@@ -856,10 +866,10 @@ class TestFileSystemAPI(APIBaseTest):
         `name:<txt>` must match on the last segment only.
         """
         FileSystem.objects.create(
-            team=self.team, path="Marketing/Plan/Q1 Overview.pdf", type="doc", created_by=self.user
+            team=self.team, path="Marketing/Plan/Q1 Overview.pdf", type="feature_flag", created_by=self.user
         )
         FileSystem.objects.create(
-            team=self.team, path="Marketing/Plan/Q2-Summary.pdf", type="doc", created_by=self.user
+            team=self.team, path="Marketing/Plan/Q2-Summary.pdf", type="feature_flag", created_by=self.user
         )
 
         url = f"/api/projects/{self.team.id}/file_system/?search=name:Overview"
@@ -875,8 +885,8 @@ class TestFileSystemAPI(APIBaseTest):
         paul = User.objects.create_and_join(
             self.organization, "paul@example.com", "pwd", first_name="Paul", last_name="Duncan"
         )
-        FileSystem.objects.create(team=self.team, path="Docs/PaulFile.txt", type="doc", created_by=paul)
-        FileSystem.objects.create(team=self.team, path="Docs/OtherFile.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Docs/PaulFile.txt", type="feature_flag", created_by=paul)
+        FileSystem.objects.create(team=self.team, path="Docs/OtherFile.txt", type="feature_flag", created_by=self.user)
 
         url = f'/api/projects/{self.team.id}/file_system/?search=user:"Paul Duncan"'
         resp = self.client.get(url)
@@ -888,9 +898,9 @@ class TestFileSystemAPI(APIBaseTest):
         """
         `user:me` must return only items created by the currently authenticated user.
         """
-        FileSystem.objects.create(team=self.team, path="Mine.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Mine.txt", type="feature_flag", created_by=self.user)
         other = User.objects.create_and_join(self.organization, "someone@ph.com", "pwd")
-        FileSystem.objects.create(team=self.team, path="Theirs.txt", type="doc", created_by=other)
+        FileSystem.objects.create(team=self.team, path="Theirs.txt", type="feature_flag", created_by=other)
 
         url = f"/api/projects/{self.team.id}/file_system/?search=user:me"
         resp = self.client.get(url)
@@ -902,8 +912,10 @@ class TestFileSystemAPI(APIBaseTest):
         """
         Negated tokens (`-path:` etc.) must exclude matches and AND-combine with positives.
         """
-        FileSystem.objects.create(team=self.team, path="Current/Reports/Now.txt", type="doc", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="Old/Reports/Old.txt", type="doc", created_by=self.user)
+        FileSystem.objects.create(
+            team=self.team, path="Current/Reports/Now.txt", type="feature_flag", created_by=self.user
+        )
+        FileSystem.objects.create(team=self.team, path="Old/Reports/Old.txt", type="feature_flag", created_by=self.user)
 
         url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports+-path:Old"
         resp = self.client.get(url)
@@ -944,7 +956,7 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team,
             base_folder="Synced",
             name="Item.txt",
-            file_type="doc",
+            file_type="feature_flag",
             ref="Ref-123",
             href="/any",
             meta={"created_at": ts_1.isoformat(), "created_by": self.user.pk},
@@ -965,7 +977,7 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team,
             base_folder="Synced",
             name="Item.txt",
-            file_type="doc",
+            file_type="feature_flag",
             ref="Ref-123",
             href="/any",
             meta={"created_at": ts_2.isoformat(), "created_by": self.user.pk},
@@ -1022,7 +1034,7 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team,
             path="Banana/go\\/revenue",  # ← stored form, depth = 2
             depth=2,
-            type="doc",
+            type="feature_flag",
             created_by=self.user,
         )
 
@@ -1040,7 +1052,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(
             team=self.team,
             path="What's my homepage",
-            type="doc",
+            type="feature_flag",
             created_by=self.user,
         )
 
@@ -1157,7 +1169,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # Confirm we can still delete file_a (which isn't restricted).
         url_a = f"/api/projects/{self.team.id}/file_system/{self.file_a.id}/"
         resp_a = self.client.delete(url_a)
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
+        self.assertEqual(resp_a.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(FileSystem.objects.filter(pk=self.file_a.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -1238,11 +1250,11 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         """
         # Create 3 files with different timestamps.
         with freeze_time("2020-01-01T10:00:00Z"):
-            FileSystem.objects.create(team=self.team, path="OldFile", type="doc", created_by=self.user)
+            FileSystem.objects.create(team=self.team, path="OldFile", type="feature_flag", created_by=self.user)
         with freeze_time("2020-01-02T10:00:00Z"):
-            FileSystem.objects.create(team=self.team, path="MidFile", type="doc", created_by=self.user)
+            FileSystem.objects.create(team=self.team, path="MidFile", type="feature_flag", created_by=self.user)
         with freeze_time("2020-01-03T10:00:00Z"):
-            FileSystem.objects.create(team=self.team, path="NewFile", type="doc", created_by=self.user)
+            FileSystem.objects.create(team=self.team, path="NewFile", type="feature_flag", created_by=self.user)
 
         # 1) Filter with ?created_at__gt=2020-01-01T12:00:00Z
         #    => should exclude anything created on or before 2020-01-01T12:00:00Z
@@ -1294,10 +1306,14 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         # Create two files with different created_by users
         FileSystem.objects.create(
-            team=self.team, path="File1", type="doc", created_by=self.user, meta={"created_by": self.user.pk}
+            team=self.team, path="File1", type="feature_flag", created_by=self.user, meta={"created_by": self.user.pk}
         )
         FileSystem.objects.create(
-            team=self.team, path="File2", type="doc", created_by=second_user, meta={"created_by": second_user.pk}
+            team=self.team,
+            path="File2",
+            type="feature_flag",
+            created_by=second_user,
+            meta={"created_by": second_user.pk},
         )
 
         # Request the list
@@ -1365,10 +1381,16 @@ class TestFileSystemProjectScoping(APIBaseTest):
         )
 
         # visible everywhere inside the project
-        self.doc_t1 = FileSystem.objects.create(team=self.team, path="Shared/Doc-T1", type="doc", created_by=self.user)
-        self.doc_t2 = FileSystem.objects.create(team=self.team2, path="Shared/Doc-T2", type="doc", created_by=self.user)
+        self.doc_t1 = FileSystem.objects.create(
+            team=self.team, path="Shared/Doc-T1", type="feature_flag", created_by=self.user
+        )
+        self.doc_t2 = FileSystem.objects.create(
+            team=self.team2, path="Shared/Doc-T2", type="feature_flag", created_by=self.user
+        )
         # never visible from self.team
-        self.doc_t3 = FileSystem.objects.create(team=self.team3, path="Shared/Doc-T3", type="doc", created_by=self.user)
+        self.doc_t3 = FileSystem.objects.create(
+            team=self.team3, path="Shared/Doc-T3", type="feature_flag", created_by=self.user
+        )
 
         # hog_function – team-scoped
         self.hog_t1 = FileSystem.objects.create(
@@ -1462,7 +1484,7 @@ class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
             team=self.team,
             path="Shared/Doc-1.txt",
             depth=2,
-            type="doc",
+            type="feature_flag",
             created_by=self.user,
         )
 
@@ -1560,7 +1582,7 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
     def test_destroy_folder_repairs_for_leftover_items(self):
         delete_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/"
         resp = self.client.delete(delete_url)
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
         self.assertFalse(
             FileSystem.objects.filter(team=self.team, path__startswith="Shared").exists(),
