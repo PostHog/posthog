@@ -321,7 +321,7 @@ export default {
         viewMode: 'story',
         mockDate: '2023-02-18',
         testOptions: {
-            waitForSelector: 'text=All levels',
+            waitForSelector: 'text=/Welcome to Logs!/i',
         },
     }, // scene mode
 } as Meta
