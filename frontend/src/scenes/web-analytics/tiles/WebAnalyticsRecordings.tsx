@@ -78,51 +78,50 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                     ) : items.length === 0 && emptyMessage ? (
                         <EmptyMessage {...emptyMessage} />
                     ) : (
-                        <>
-                            <LemonTable
-                                columns={[
-                                    {
-                                        title: 'Person',
-                                        render: (_, recording: SessionRecordingType) => (
-                                            <>
-                                                <ProfilePicture
-                                                    size="sm"
-                                                    name={asDisplay(recording.person)}
-                                                    className="mr-2"
-                                                />
-                                                {asDisplay(recording.person)}{' '}
-                                            </>
-                                        ),
-                                    },
-                                    {
-                                        title: 'Activity',
-                                        render: (_, recording: SessionRecordingType) => (
-                                            <>
-                                                <ActivityScoreLabel score={recording.activity_score} clean={true} />
-                                            </>
-                                        ),
-                                    },
-                                    {
-                                        title: 'Duration',
-                                        render: (_, recording: SessionRecordingType) => (
-                                            <>{humanFriendlyDuration(recording.recording_duration)}</>
-                                        ),
-                                    },
-                                    {
-                                        title: '',
-                                        render: (_, recording: SessionRecordingType) => (
-                                            <LemonButton
-                                                size="xsmall"
-                                                targetBlank
-                                                to={urls.replaySingle(recording.id ?? '')}
-                                                icon={<IconRewindPlay />}
+                        <LemonTable
+                            className="mt-4"
+                            columns={[
+                                {
+                                    title: 'Person',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>
+                                            <ProfilePicture
+                                                size="sm"
+                                                name={asDisplay(recording.person)}
+                                                className="mr-2"
                                             />
-                                        ),
-                                    },
-                                ]}
-                                dataSource={items}
-                            />
-                        </>
+                                            {asDisplay(recording.person)}{' '}
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Activity',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>
+                                            <ActivityScoreLabel score={recording.activity_score} clean={true} />
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Duration',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>{humanFriendlyDuration(recording.recording_duration)}</>
+                                    ),
+                                },
+                                {
+                                    title: '',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <LemonButton
+                                            size="xsmall"
+                                            targetBlank
+                                            to={urls.replaySingle(recording.id ?? '')}
+                                            icon={<IconRewindPlay />}
+                                        />
+                                    ),
+                                },
+                            ]}
+                            dataSource={items}
+                        />
                     )}
                 </div>
                 <div className="flex flex-row-reverse my-2">
