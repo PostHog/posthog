@@ -28,11 +28,6 @@ class UserProductListSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def update(self, instance: UserProductList, validated_data: dict[str, Any]) -> UserProductList:
-        instance.team_id = self.context["team_id"]
-        instance.user = self.context["request"].user
-        return super().update(instance, validated_data)
-
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> UserProductList:
         request = self.context["request"]
         team = self.context["get_team"]()
