@@ -192,6 +192,7 @@ export function Login(): JSX.Element {
                                         <Link
                                             to={[urls.passwordReset(), { email: login.email }]}
                                             data-attr="forgot-password"
+                                            tabIndex={-1}
                                         >
                                             Forgot your password?
                                         </Link>
