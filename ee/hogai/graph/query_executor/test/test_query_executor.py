@@ -39,6 +39,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.errors import ExposedCHQueryError
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, QueryExecutorError
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -255,12 +256,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     @patch("ee.hogai.graph.query_executor.query_executor.get_query_status")
-    async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
-        """Test async query polling that returns an error"""
+    async def test_async_query_polling_with_error_message(self, mock_get_query_status, mock_process_query):
+        """Test async query polling raises MaxToolRetryableError with error_message"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
-        # Mock polling to return error
+        # Mock polling to return error with error_message
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
                 "id": "test-query-id",
@@ -273,10 +274,36 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.graph.query_executor.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query failed with error", str(context.exception))
+        self.assertIn(
+            "Query execution failed, seems to be an API error: Query failed with error", str(context.exception)
+        )
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.graph.query_executor.query_executor.get_query_status")
+    async def test_async_query_polling_with_error_no_message(self, mock_get_query_status, mock_process_query):
+        """Test async query polling raises MaxToolRetryableError without error_message"""
+        # Initial response with incomplete query
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+
+        # Mock polling to return error without error_message
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": "Some error code or value",
+            }
+        )
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.graph.query_executor.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(query)
+
+        self.assertIn("Query execution failed: Some error code or value", str(context.exception))
 
     @override_settings(TEST=False)
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")

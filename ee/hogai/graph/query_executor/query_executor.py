@@ -53,6 +53,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 
 from .prompts import (
@@ -358,12 +359,17 @@ class AssistantQueryExecutor:
                 # Check for query execution errors before using results
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
-                    raise Exception("Query failed")
+                        raise MaxToolRetryableError(
+                            "Query execution failed, seems to be an API error: " + error_message
+                        )
+                    raise MaxToolRetryableError("Query execution failed: " + str(query_status.get("error")))
 
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except MaxToolRetryableError:
+            # Let MaxToolRetryableError propagate without modification
+            raise
         except (
             APIException,
             ExposedHogQLError,
