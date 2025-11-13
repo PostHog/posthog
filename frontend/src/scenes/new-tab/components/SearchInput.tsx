@@ -144,6 +144,13 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        const isModKeyPressed = e.metaKey || e.ctrlKey
+
+        // Allow browser navigation keys with modifier
+        if (isModKeyPressed) {
+            return
+        }
+
         switch (e.key) {
             case '/':
                 if (!showDropdown && inputValue === '') {
