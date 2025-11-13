@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './webhook_batch.template'
 
-describe('incoming webhook template', () => {
+describe('webhook batch template', () => {
     const tester = new TemplateTester(template)
 
     beforeEach(async () => {
@@ -15,23 +15,15 @@ describe('incoming webhook template', () => {
     it('should invoke the function', async () => {
         const response = await tester.invoke(
             {
-                event: '{request.body.eventName}',
-                distinct_id: 'hardcoded',
-                properties: {
-                    root_level: '{request.body.rootLevel}',
-                    nested_level: '{request.body.nested.nestedLevel}',
-                    missing: '{request.body.missing?.missingvalue}',
-                },
+                actor_id: '{request.body.actor_id}',
+                filters: {},
             },
             {
                 request: {
                     method: 'POST',
                     body: {
-                        eventName: 'the event',
-                        rootLevel: 'rootLevelValue',
-                        nested: {
-                            nestedLevel: 'nestedLevelValue',
-                        },
+                        actor_id: 'actor123',
+                        filters: { key: 'value' },
                     },
                     stringBody: '',
                     headers: {},
@@ -47,13 +39,10 @@ describe('incoming webhook template', () => {
         expect(response.capturedPostHogEvents).toMatchInlineSnapshot(`
             [
               {
-                "distinct_id": "hardcoded",
-                "event": "the event",
+                "distinct_id": "actor123",
+                "event": "$workflow_batch_triggered",
                 "properties": {
-                  "$hog_function_execution_count": 1,
-                  "missing": null,
-                  "nested_level": "nestedLevelValue",
-                  "root_level": "rootLevelValue",
+                  "filters": { "key": "value" },
                 },
                 "team_id": 1,
                 "timestamp": "2025-01-01T00:00:00.000Z",
@@ -62,23 +51,17 @@ describe('incoming webhook template', () => {
         `)
     })
 
-    it('should return 401 if the auth header is incorrect', async () => {
+    it('should return 400 if actor_id is missing', async () => {
         const response = await tester.invoke(
             {
-                event: '{request.body.eventName}',
-                distinct_id: 'hardcoded',
-                auth_header: 'Bearer my-secret-token',
+                filters: {},
             },
             {
                 request: {
                     method: 'POST',
-                    body: {
-                        eventName: 'the event',
-                    },
+                    body: {},
                     stringBody: '',
-                    headers: {
-                        authorization: 'Bearer wrong-token',
-                    },
+                    headers: {},
                     ip: '127.0.0.1',
                     query: {},
                 },
@@ -90,65 +73,11 @@ describe('incoming webhook template', () => {
 
         expect(response.execResult).toEqual({
             httpResponse: {
-                status: 401,
-                body: 'Unauthorized',
+                status: 400,
+                body: {
+                    error: '"actor_id" could not be parsed correctly',
+                },
             },
         })
-    })
-
-    it('should pass if the auth header is correct', async () => {
-        const response = await tester.invoke(
-            {
-                event: '{request.body.eventName}',
-                distinct_id: 'hardcoded',
-                auth_header: 'Bearer my-secret-token',
-            },
-            {
-                request: {
-                    method: 'POST',
-                    body: {
-                        eventName: 'the event',
-                    },
-                    stringBody: '',
-                    headers: {
-                        authorization: 'Bearer my-secret-token',
-                    },
-                    ip: '127.0.0.1',
-                    query: {},
-                },
-            }
-        )
-
-        expect(response.capturedPostHogEvents).toHaveLength(1)
-
-        expect(response.error).toBeUndefined()
-        expect(response.finished).toEqual(true)
-        expect(response.execResult).toBeUndefined()
-    })
-
-    it('should print the request body if debug is true', async () => {
-        const response = await tester.invoke(
-            {
-                event: '{request.body.eventName}',
-                distinct_id: 'hardcoded',
-                debug: true,
-            },
-            {
-                request: {
-                    method: 'POST',
-                    body: {
-                        eventName: 'the event',
-                    },
-                    stringBody: '',
-                    headers: {},
-                    query: {},
-                },
-            }
-        )
-
-        expect(response.logs.map((x) => x.message)).toEqual([
-            `Incoming request:, {"eventName":"the event"}`,
-            expect.stringContaining('Function completed'),
-        ])
     })
 })
