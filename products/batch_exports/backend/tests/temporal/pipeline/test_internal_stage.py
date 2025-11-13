@@ -532,7 +532,7 @@ async def test_insert_into_stage_activity_for_persons_model(
             person_id=person_1["person_id"],
             person_version=person_1_v2["version"],
             distinct_id=person_1["distinct_id"],
-            person_distinct_id_version=person_1_v2["version"],
+            person_distinct_id_version=person_1["person_distinct_id_version"],
             properties=person_1_v2["properties"],
             _timestamp=dt.datetime.fromisoformat(person_1_v2["_timestamp"]),
         ),
