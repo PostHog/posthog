@@ -15,8 +15,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -135,11 +135,11 @@ export const SidePanelActivity = (): JSX.Element => {
                                 },
                                 ...(featureFlags[FEATURE_FLAGS.METALYTICS]
                                     ? [
-                                        {
-                                            key: SidePanelActivityTab.Metalytics,
-                                            label: 'Analytics',
-                                        },
-                                    ]
+                                          {
+                                              key: SidePanelActivityTab.Metalytics,
+                                              label: 'Analytics',
+                                          },
+                                      ]
                                     : []),
                             ]}
                         />
