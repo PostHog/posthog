@@ -69,6 +69,11 @@ class BigQuerySourceConfig(config.Config):
 
 
 @config.config
+class BingAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BrazeSourceConfig(config.Config):
     pass
 
@@ -259,6 +264,7 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,

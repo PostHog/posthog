@@ -13914,6 +13914,7 @@
                 "LinkedinAds",
                 "RedditAds",
                 "TikTokAds",
+                "BingAds",
                 "Shopify"
             ],
             "type": "string"
@@ -16800,7 +16801,8 @@
                 "clickup",
                 "reddit-ads",
                 "databricks",
-                "tiktok-ads"
+                "tiktok-ads",
+                "bing-ads"
             ],
             "type": "string"
         },
