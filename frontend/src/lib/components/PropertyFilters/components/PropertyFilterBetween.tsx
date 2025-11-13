@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { PropertyFilterValue } from '~/types'
+
+import { propertyFilterBetweenLogic } from './propertyFilterBetweenLogic'
 
 export interface PropertyFilterBetweenProps {
     value: PropertyFilterValue
@@ -11,37 +13,17 @@ export interface PropertyFilterBetweenProps {
 }
 
 export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetweenProps): JSX.Element {
-    const [minValue, maxValue] = Array.isArray(value) ? value : [undefined, undefined]
-    const [localMin, setLocalMin] = useState<number | undefined>(
-        Number.isNaN(Number(minValue)) ? undefined : Number(minValue)
-    )
-    const [localMax, setLocalMax] = useState<number | undefined>(
-        Number.isNaN(Number(maxValue)) ? undefined : Number(maxValue)
-    )
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-    useEffect(() => {
-        if (localMin !== undefined && localMax !== undefined && localMin > localMax) {
-            setErrorMessage('Min must be less than or equal to max')
-        } else {
-            setErrorMessage(null)
-        }
-    }, [localMin, localMax])
+    const logic = propertyFilterBetweenLogic({ value, onSet })
+    const { localMin, localMax, errorMessage } = useValues(logic)
+    const { setLocalMin, setLocalMax } = useActions(logic)
 
     return (
         <div className="flex items-center gap-2">
             <LemonInput
                 type="number"
-                value={localMin}
+                value={localMin ?? undefined}
                 data-attr="prop-val"
-                onChange={(val) => {
-                    setLocalMin(val)
-                    if (localMax === undefined || val === undefined) {
-                        onSet(null)
-                    } else if (val <= localMax) {
-                        onSet([val, localMax])
-                    }
-                }}
+                onChange={(value) => setLocalMin(value ?? null)}
                 placeholder="min"
                 size={size}
                 status={errorMessage ? 'danger' : undefined}
@@ -49,16 +31,9 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
             <span className="font-medium">and</span>
             <LemonInput
                 type="number"
-                value={localMax}
+                value={localMax ?? undefined}
                 data-attr="prop-val"
-                onChange={(val) => {
-                    setLocalMax(val)
-                    if (localMin === undefined || val === undefined) {
-                        onSet(null)
-                    } else if (localMin <= val) {
-                        onSet([localMin, val])
-                    }
-                }}
+                onChange={(value) => setLocalMax(value ?? null)}
                 placeholder="max"
                 size={size}
                 status={errorMessage ? 'danger' : undefined}
