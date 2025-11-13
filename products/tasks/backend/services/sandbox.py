@@ -116,12 +116,13 @@ class Sandbox:
 
             secrets = []
             if config.environment_variables:
-                secret = modal.Secret.from_dict(config.environment_variables)
+                env_vars: dict[str, str | None] = config.environment_variables
+                secret = modal.Secret.from_dict(env_vars)
                 secrets.append(secret)
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
-            create_kwargs = {
+            create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
                 "image": image,
@@ -134,12 +135,13 @@ class Sandbox:
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            sb = modal.Sandbox.create(**create_kwargs)
+            sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
 
-            sandbox = Sandbox(sandbox=sb, status=SandboxStatus.RUNNING, config=config)
+            initial_status: SandboxStatus = SandboxStatus.RUNNING
+            sandbox = Sandbox(sandbox=sb, status=initial_status, config=config)
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -156,14 +158,7 @@ class Sandbox:
 
             config = SandboxConfig(name=getattr(sb, "name", f"sandbox-{sandbox_id}"))
 
-            # TRICKY: Modal does not expose the status of the sandbox, so we need to check if the sandbox is running by executing a command.
-            status = SandboxStatus.RUNNING
-            try:
-                process = sb.exec("echo", "test")
-                process.wait()
-            except Exception as e:
-                status = SandboxStatus.SHUTDOWN
-                capture_exception(e)
+            status: SandboxStatus = SandboxStatus.RUNNING if sb.poll() is None else SandboxStatus.SHUTDOWN
 
             sandbox = Sandbox(sandbox=sb, status=status, config=config)
 
@@ -199,8 +194,8 @@ class Sandbox:
             stderr = process.stderr.read()
 
             result = ExecutionResult(
-                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,
-                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,
+                stdout=stdout.decode("utf-8"),
+                stderr=stderr.decode("utf-8"),
                 exit_code=process.returncode,
                 error=None,
             )

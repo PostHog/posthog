@@ -180,7 +180,7 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await Sandbox.delete_snapshot(snapshot.external_id)
+                        Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass
@@ -288,7 +288,7 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await Sandbox.delete_snapshot(snapshot.external_id)
+                        Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass
