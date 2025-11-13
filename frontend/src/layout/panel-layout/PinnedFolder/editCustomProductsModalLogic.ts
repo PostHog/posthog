@@ -140,6 +140,11 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             } catch (error) {
                 console.error('Failed to toggle product:', error)
                 lemonToast.error('Failed to toggle product. Try again?')
+
+                // Revert state
+                actions.setSelectedPaths(
+                    new Set(Array.from(values.selectedPaths).filter((path) => path !== productPath))
+                )
             } finally {
                 actions.loadCustomProducts()
                 actions.setProductLoading(productPath, false)
