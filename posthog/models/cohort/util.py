@@ -70,25 +70,43 @@ def run_cohort_query(
     # Store the start time before running the query
     start_time = timezone.now()
 
+    # Track that a calculation is starting (before it runs, so we catch OOMs)
+    from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER
+
+    COHORT_CALCULATION_STARTED_COUNTER.inc()
+
     # Tag the query for tracking
     tag_queries(kind="cohort_calculation", id=cohort_tag)
 
+    delayed_task = None
     try:
+        from posthog.tasks.calculate_cohort import collect_cohort_query_stats
+
+        # Schedule delayed task to collect stats after query_log_archive is synced
+        # Only if we have a history record to update
+        if history and query:
+            delayed_task = collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=600,
+            )
+
         result = fn(*args, **kwargs)
         end_time = timezone.now()  # Capture when query actually finished
+
+        # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
+        # This avoids waiting 600s when the query completed quickly
+        if delayed_task and history and query:
+            delayed_task.revoke()  # Cancel the delayed task
+
+            # Run immediately since the query already completed
+            collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=60,  # Short delay to allow query_log to flush
+            )
 
         return result, end_time
 
     finally:
-        # Schedule delayed task to collect stats after query_log_archive is synced
-        # Only if we have a history record to update
-        if history and query:
-            from posthog.tasks.calculate_cohort import collect_cohort_query_stats
-
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=60,
-            )
         # Reset query tags to avoid affecting other queries
         from posthog.clickhouse.query_tagging import reset_query_tags
 
@@ -119,7 +137,6 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 lc_cohort_id = %(cohort_id)s
                 AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
                 AND event_date >= %(start_date)s
                 AND event_time >= %(start_time)s
             ORDER BY event_time DESC
@@ -507,27 +524,79 @@ def _recalculate_cohortpeople_for_team_hogql(
         )
         hogql_global_settings = HogQLGlobalSettings()
 
-        return sync_execute(
-            recalculate_cohortpeople_sql,
-            {
-                **cohort_params,
-                "cohort_id": cohort.pk,
-                "team_id": team.id,
-                "new_version": pending_version,
-            },
-            settings={
-                "max_execution_time": 600,
-                "send_timeout": 600,
-                "receive_timeout": 600,
-                "optimize_on_insert": 0,
-                "max_ast_elements": hogql_global_settings.max_ast_elements,
-                "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
-            },
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-        )
+        # TEST ONLY: Force OOM by setting very low memory limits for TEST_OOM cohorts
+        # This triggers a real ClickHouse memory error that can kill the worker
+        ch_settings = {
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
+            "optimize_on_insert": 0,
+            "max_ast_elements": hogql_global_settings.max_ast_elements,
+            "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
+            "max_bytes_ratio_before_external_group_by": 0.5,
+            "max_bytes_ratio_before_external_sort": 0.5,
+        }
+
+        test_oom_mode = None
+        if (settings.DEBUG or settings.TEST) and cohort.name:
+            if cohort.name.startswith("TEST_OOM_CRASH"):
+                test_oom_mode = "crash"
+            elif cohort.name.startswith("TEST_OOM"):
+                test_oom_mode = "error"
+
+        if test_oom_mode:
+            logger.warning(
+                "test_oom_force_memory_limit",
+                cohort_id=cohort.pk,
+                cohort_name=cohort.name,
+                test_mode=test_oom_mode,
+                message=f"Setting very low memory limit to force OOM ({test_oom_mode} mode)",
+            )
+            # Set extremely low memory limit to force OOM (10MB)
+            # This will cause ClickHouse to kill the query with "Memory limit exceeded"
+            ch_settings["max_memory_usage"] = 10 * 1024 * 1024  # 10MB
+            ch_settings["max_memory_usage_for_user"] = 10 * 1024 * 1024  # 10MB
+
+        try:
+            result = sync_execute(
+                recalculate_cohortpeople_sql,
+                {
+                    **cohort_params,
+                    "cohort_id": cohort.pk,
+                    "team_id": team.id,
+                    "new_version": pending_version,
+                },
+                settings=ch_settings,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.COHORTS,
+            )
+        except Exception:
+            # If TEST_OOM_CRASH mode, simulate worker crash even on caught exceptions
+            if test_oom_mode == "crash":
+                import os
+
+                logger.exception(
+                    "test_oom_crash_simulation",
+                    cohort_id=cohort.pk,
+                    cohort_name=cohort.name,
+                    message="Simulating worker crash with exit code 137 (SIGKILL)",
+                )
+                os._exit(137)
+            raise
+
+        # If TEST_OOM_CRASH mode and query succeeded, still crash to simulate post-query OOM
+        if test_oom_mode == "crash":
+            import os
+
+            logger.warning(
+                "test_oom_crash_simulation_post_query",
+                cohort_id=cohort.pk,
+                cohort_name=cohort.name,
+                message="Simulating post-query worker crash with exit code 137 (SIGKILL)",
+            )
+            os._exit(137)
+
+        return result
 
     result, query_end_time = run_cohort_query(
         execute_query,

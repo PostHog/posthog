@@ -1,5 +1,5 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -10,7 +10,7 @@ import structlog
 import posthoganalytics
 from celery import chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
@@ -18,6 +18,7 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import (
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
@@ -58,6 +59,30 @@ COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors", "Number of cohorts that have reached the maximum number of errors"
 )
 
+COHORT_CALCULATION_STARTED_COUNTER = Counter(
+    "cohort_calculation_started_total",
+    "Cohort calculations started (tracks all attempts including those that may OOM)",
+)
+
+COHORT_CALCULATION_COMPLETED_COUNTER = Counter(
+    "cohort_calculation_completed_total",
+    "Cohort calculations that completed (either success or caught error)",
+    ["status"],  # labels: "success", "error"
+)
+
+COHORT_CALCULATION_FAILURES_COUNTER = Counter(
+    "cohort_calculation_failures_total",
+    "Cohort calculation failures by type",
+    ["failure_type"],  # labels: "exception", "clickhouse_error", etc.
+)
+
+COHORT_CALCULATION_DURATION_SECONDS = Histogram(
+    "cohort_calculation_duration_seconds",
+    "Duration of cohort calculations in seconds",
+    ["status"],  # labels: "success", "error"
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -91,6 +116,9 @@ def reset_stuck_cohorts() -> None:
     # After resetting, these cohorts will be picked up by the next cohort calculation but we need to limit the number
     # of stuck cohorts that are reset at once to avoid overwhelming ClickHouse with too many
     # calculations for stuck cohorts
+    #
+    # Stuck cohorts are typically caused by worker crashes (OOMs, SIGKILL, etc.) where the
+    # exception handling in calculate_people_ch never runs
     reset_cohort_ids = []
     for cohort in get_stuck_cohort_calculation_candidates_queryset().order_by(
         F("last_calculation").asc(nulls_first=True)
@@ -103,6 +131,9 @@ def reset_stuck_cohorts() -> None:
         cohort.last_error_at = timezone.now()
         cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
         reset_cohort_ids.append(cohort.pk)
+
+        # Track as inferred OOM/worker crash for observability
+        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type="stuck_inferred_oom").inc()
 
     COHORT_STUCK_RESETS_COUNTER.inc(len(reset_cohort_ids))
     logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
@@ -178,10 +209,11 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             capture_exception(error=e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
             # Skip this cohort and continue with others
             continue
-    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
+    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids, COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog)
 
     try:
         update_cohort_metrics()
@@ -362,12 +394,80 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
 
 
+def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:
+    """
+    Collect Prometheus metrics for cohort calculation based on the history record.
+    This is called from collect_cohort_query_stats to ensure metrics are captured even if OOM occurred.
+
+    Args:
+        history: CohortCalculationHistory instance
+        start_time: datetime when the calculation started (used as fallback)
+    """
+    # Determine if calculation completed
+    if not history.finished_at:
+        # Calculation never finished - likely OOM or worker crash
+        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type="stuck_inferred_oom").inc()
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
+        logger.warning(
+            "cohort_calculation_stuck_detected",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+        )
+        return
+
+    # Get actual query duration from ClickHouse query_log (most accurate)
+    # Fallback to wall-clock time if query stats aren't available
+    duration_seconds = None
+    if history.total_query_ms:
+        duration_seconds = history.total_query_ms / 1000.0
+    else:
+        # Fallback: use wall-clock time
+        duration_seconds = (history.finished_at - start_time).total_seconds()
+
+    if history.error:
+        # Calculation finished with error
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
+        if duration_seconds is not None:
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="error").observe(duration_seconds)
+
+        # Categorize failure type
+        failure_type = "exception"
+        error_lower = history.error.lower()
+        if "clickhouse" in error_lower or "code:" in error_lower:
+            failure_type = "clickhouse_error"
+        elif "memory" in error_lower or "oom" in error_lower:
+            failure_type = "memory_error"
+        elif "timeout" in error_lower or "timed out" in error_lower:
+            failure_type = "timeout_error"
+
+        COHORT_CALCULATION_FAILURES_COUNTER.labels(failure_type=failure_type).inc()
+        logger.warning(
+            "cohort_calculation_failed_with_error",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+            failure_type=failure_type,
+            duration_seconds=duration_seconds,
+        )
+    else:
+        # Calculation succeeded
+        COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="success").inc()
+        if duration_seconds is not None:
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="success").observe(duration_seconds)
+        logger.info(
+            "cohort_calculation_completed_successfully",
+            cohort_id=history.cohort_id,
+            history_id=str(history.id),
+            duration_seconds=duration_seconds,
+            count=history.count,
+        )
+
+
 @shared_task(ignore_result=True, max_retries=2)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
     """
-    Delayed task to collect cohort query statistics
+    Delayed task to collect cohort query statistics and observability metrics
 
     Args:
         tag_matcher: Query tag to match in query_log_archive
@@ -378,8 +478,6 @@ def collect_cohort_query_stats(
     """
     try:
         from dateutil import parser
-
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
 
         try:
             history = CohortCalculationHistory.objects.get(id=history_id)
@@ -417,6 +515,10 @@ def collect_cohort_query_stats(
                 cohort_id=cohort_id,
                 history_id=history_id,
             )
+
+        # Collect observability metrics based on the calculation result
+        # This runs even if the worker OOM'd, since this task was scheduled before the calculation
+        _collect_cohort_calculation_metrics(history, start_time)
 
     except Exception as e:
         logger.exception(
