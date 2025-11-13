@@ -788,7 +788,7 @@ export class PostgresPersonRepository
             return [person, [], false]
         }
 
-        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+        const values = [...updateValues, person.id, person.team_id].map(sanitizeJsonbValue)
 
         // Measure JSON field sizes after sanitization (using already sanitized values)
         const updateKeys = Object.keys(unparsedUpdate)
@@ -816,14 +816,14 @@ export class PostgresPersonRepository
             update
         ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
             Object.values(update).length + 1
-        }
+        } AND team_id = $${Object.values(update).length + 2}
         RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}
+        )} WHERE id = $${Object.values(update).length + 1} AND team_id = $${Object.values(update).length + 2}
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
