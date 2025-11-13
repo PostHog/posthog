@@ -32,6 +32,17 @@
     border-radius: 0 0 0 100%;
 }
 
+.scene-tab-active-indicator--first {
+    right: -11px;
+    width: calc(100% + 11px);
+    border-left: 1px solid var(--color-border-primary);
+    transform: none;
+
+    &::before {
+        display: none;
+    }
+}
+
 .scene-tab--pinned {
     min-width: 36px;
     padding-right: 0.5rem;

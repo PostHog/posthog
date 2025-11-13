@@ -181,7 +181,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = ActivityLogPagination
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
-    scope_object = "INTERNAL"
+    scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
 
     def _should_skip_parents_filter(self) -> bool:

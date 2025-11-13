@@ -1546,6 +1546,7 @@ class FileSystemIconType(StrEnum):
     APPS = "apps"
     LIVE = "live"
     CHAT = "chat"
+    SEARCH = "search"
 
 
 class FileSystemImport(BaseModel):
@@ -1730,6 +1731,7 @@ class HogLanguage(StrEnum):
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"
+    LIQUID = "liquid"
 
 
 class BounceRatePageViewMode(StrEnum):
