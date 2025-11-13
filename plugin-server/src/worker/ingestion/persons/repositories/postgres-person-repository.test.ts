@@ -3510,6 +3510,330 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
+        describe('addDistinctId()', () => {
+            it('should add distinct ID to person in old table', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in old table
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [lowId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertOldTablePerson'
+                )
+
+                // Add distinct ID
+                await cutoverRepository.addDistinctId(
+                    { id: String(lowId), uuid, team_id: team.id } as any,
+                    'new-distinct-id',
+                    0
+                )
+
+                // Verify distinct ID was added
+                const distinctIdResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE distinct_id = $1 AND team_id = $2`,
+                    ['new-distinct-id', team.id],
+                    'checkDistinctId'
+                )
+                expect(distinctIdResult.rows).toHaveLength(1)
+                expect(distinctIdResult.rows[0].person_id).toBe(String(lowId))
+            })
+
+            it('should add distinct ID to person in new table', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [highId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertNewTablePerson'
+                )
+
+                // Add distinct ID
+                await cutoverRepository.addDistinctId(
+                    { id: String(highId), uuid, team_id: team.id } as any,
+                    'new-distinct-id',
+                    0
+                )
+
+                // Verify distinct ID was added
+                const distinctIdResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE distinct_id = $1 AND team_id = $2`,
+                    ['new-distinct-id', team.id],
+                    'checkDistinctId'
+                )
+                expect(distinctIdResult.rows).toHaveLength(1)
+                expect(distinctIdResult.rows[0].person_id).toBe(String(highId))
+            })
+        })
+
+        describe('moveDistinctIds()', () => {
+            it('should move distinct IDs from old table person to old table person', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in old table with distinct IDs
+                const sourceId = 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in old table
+                const targetId = 200
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('source-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('source-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from new table person to new table person', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in new table with distinct IDs
+                const sourceId = ID_OFFSET + 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in new table
+                const targetId = ID_OFFSET + 200
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('source-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('source-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from old table person to new table person (cross-table merge)', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in old table with distinct IDs
+                const sourceId = 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in new table
+                const targetId = ID_OFFSET + 100
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs from old to new table person
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target in new table
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('old-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('old-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from new table person to old table person (cross-table merge)', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in new table with distinct IDs
+                const sourceId = ID_OFFSET + 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in old table
+                const targetId = 100
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs from new to old table person
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target in old table
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('new-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('new-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+        })
+
         describe('Cutover disabled', () => {
             it('should use old table when cutover is disabled', async () => {
                 const disabledRepository = new PostgresPersonRepository(postgres, {

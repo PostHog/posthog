@@ -627,17 +627,6 @@ export class PostgresPersonRepository
                 distinctIdsCTE +
                 ` SELECT * FROM inserted_person;`
 
-            // Debug logging for cutover
-            if (useDefaultId) {
-                console.log('DEBUG createPerson with DEFAULT:', {
-                    tableName,
-                    columns,
-                    valuePlaceholders,
-                    personParamsLength: personParams.length,
-                    query: query.substring(0, 300),
-                })
-            }
-
             const { rows } = await this.postgres.query<RawPerson>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 query,
