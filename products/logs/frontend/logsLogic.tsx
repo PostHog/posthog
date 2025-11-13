@@ -55,9 +55,7 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     actionToUrl(({ actions, values }) => {
-        const buildURL = (
-            debounce: integer = 0
-        ): [
+        const buildURL = (): [
             string,
             Params,
             Record<string, any>,
