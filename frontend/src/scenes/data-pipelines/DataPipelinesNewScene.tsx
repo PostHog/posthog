@@ -9,7 +9,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
@@ -40,13 +39,13 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                     },
                     {
                         key: [Scene.DataPipelines, kind],
-                        name: capitalizeFirstLetter(kind) + 's',
+                        name: capitalizeFirstLetter(humanizeHogFunctionType(kind, true)),
                         path: urls.dataPipelines((kind + 's') as DataPipelinesSceneTab),
                         iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataPipelinesNew,
-                        name: 'New',
+                        name: 'New ' + humanizeHogFunctionType(kind),
                         iconType: 'data_pipeline',
                     },
                 ]
@@ -84,7 +83,6 @@ export function DataPipelinesNewScene(): JSX.Element {
                     type: 'data_pipeline',
                 }}
             />
-            <SceneDivider />
 
             {kind === 'transformation' ? (
                 <HogFunctionTemplateList type="transformation" />

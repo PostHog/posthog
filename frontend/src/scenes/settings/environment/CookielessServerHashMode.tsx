@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { CookielessServerHashMode } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, CookielessServerHashMode } from '~/types'
 
 const options: LemonRadioOption<CookielessServerHashMode>[] = [
     {
@@ -57,15 +58,25 @@ export function CookielessServerHashModeSetting(): JSX.Element {
                 Enable cookieless tracking, using a privacy-preserving hash to count unique users without cookies. You
                 must enable this here before enabling cookieless in posthog-js, otherwise your events will be dropped.
             </p>
-            <LemonRadio value={setting} onChange={setSetting} options={optionsToShow} />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WebAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonRadio value={setting} onChange={setSetting} options={optionsToShow} />
+            </AccessControlAction>
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={() => handleChange(setting)}
-                    disabledReason={setting === savedSetting ? 'No changes to save' : undefined}
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.WebAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Save
-                </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleChange(setting)}
+                        disabledReason={setting === savedSetting ? 'No changes to save' : undefined}
+                    >
+                        Save
+                    </LemonButton>
+                </AccessControlAction>
             </div>
         </>
     )

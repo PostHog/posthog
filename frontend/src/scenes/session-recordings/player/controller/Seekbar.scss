@@ -45,6 +45,18 @@
             z-index: 2;
             background-color: var(--color-border-primary);
             border-radius: var(--bar-height);
+
+            &--loading {
+                background-image: repeating-linear-gradient(
+                    45deg,
+                    var(--color-border-primary),
+                    var(--color-border-primary) 10px,
+                    var(--color-bg-surface-secondary) 10px,
+                    var(--color-bg-surface-secondary) 20px
+                );
+                background-size: 28px 28px;
+                animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
+            }
         }
 
         .PlayerSeekbar__currentbar {
@@ -68,6 +80,25 @@
                 &--active {
                     opacity: 0;
                 }
+
+                &--buffer {
+                    background-color: var(--color-bg-surface-tertiary);
+                    opacity: 0.6;
+                }
+
+                &--buffer-loading {
+                    background-color: var(--color-border-primary);
+                    background-image: repeating-linear-gradient(
+                        45deg,
+                        var(--color-border-primary),
+                        var(--color-border-primary) 10px,
+                        var(--color-bg-surface-secondary) 10px,
+                        var(--color-bg-surface-secondary) 20px
+                    );
+                    background-size: 28px 28px;
+                    opacity: 1;
+                    animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
+                }
             }
         }
 
@@ -83,6 +114,16 @@
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
+        }
+
+        @keyframes PlayerSeekbar__loading-stripes {
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 28px 0;
+            }
         }
     }
 

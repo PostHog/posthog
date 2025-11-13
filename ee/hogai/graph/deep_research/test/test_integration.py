@@ -2,7 +2,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
@@ -11,19 +11,15 @@ from parameterized import parameterized
 
 from posthog.schema import (
     AssistantMessage,
-    AssistantTrendsQuery,
+    AssistantToolCall,
     DeepResearchNotebook,
     DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
-    PlanningMessage,
-    PlanningStep,
-    PlanningStepStatus,
-    TaskExecutionStatus,
     VisualizationItem,
 )
 
-from posthog.models.notebook import Notebook
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
@@ -31,12 +27,7 @@ from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboarding
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchIntermediateResult,
-    DeepResearchState,
-    DeepResearchTask,
-    DeepResearchTodo,
-)
+from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState, TodoItem
 from ee.hogai.utils.types.base import TaskResult
 from ee.models.assistant import Conversation
 
@@ -59,16 +50,18 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     def _create_mock_state(
         self,
         messages: list[Any] | None = None,
-        todos: list[DeepResearchTodo] | None = None,
-        tasks: list[DeepResearchTask] | None = None,
+        todos: list[TodoItem] | None = None,
+        tool_calls: list[AssistantToolCall] | None = None,
         task_results: list[TaskResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         current_run_notebooks: list[DeepResearchNotebook] | None = None,
     ) -> DeepResearchState:
+        messages = messages or []
+        if tool_calls:
+            messages.append(AssistantMessage(id=str(uuid4()), content="something", tool_calls=tool_calls))
         return DeepResearchState(
-            messages=messages or [],
+            messages=messages,
             todos=todos,
-            tasks=tasks,
             task_results=task_results or [],
             intermediate_results=intermediate_results or [],
             conversation_notebooks=[],
@@ -83,9 +76,6 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     def _create_mock_human_message(self, content: str) -> HumanMessage:
         return HumanMessage(content=content)
 
-    def _create_mock_planning_message(self, steps: list[PlanningStep]) -> PlanningMessage:
-        return PlanningMessage(steps=steps)
-
     def _create_mock_visualization_message(self, query_items: list[VisualizationItem]) -> MultiVisualizationMessage:
         return MultiVisualizationMessage(visualizations=query_items)
 
@@ -93,19 +83,6 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         self.assertIsNotNone(self.graph)
         self.assertEqual(self.graph._team, self.team)
         self.assertEqual(self.graph._user, self.user)
-
-    def test_message_types_validation(self, mock_llm_class, mock_get_model):
-        """Test that various message types are properly validated."""
-        # Test planning message
-        planning_steps = [PlanningStep(description="Test step", status=PlanningStepStatus.PENDING)]
-        planning_message = self._create_mock_planning_message(planning_steps)
-        self.assertEqual(len(planning_message.steps), 1)
-        self.assertEqual(planning_message.steps[0].description, "Test step")
-
-        mock_query = Mock(spec=AssistantTrendsQuery)
-        viz_items = [VisualizationItem(answer=mock_query, query="Test query")]
-        viz_message = self._create_mock_visualization_message(viz_items)
-        self.assertEqual(len(viz_message.visualizations), 1)
 
     @parameterized.expand(
         [
@@ -120,16 +97,11 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     ):
         """Test state serialization"""
         todos = [
-            DeepResearchTodo(id=i, description=f"Task {i}", status=PlanningStepStatus.PENDING, priority="medium")
+            TodoItem(id=str(i), content=scenario_name, status="pending", priority="medium")
             for i in range(1, num_todos + 1)
         ]
 
-        task_results = [
-            TaskResult(
-                id=f"result_{i}", description=f"Result {i}", result="Success", status=TaskExecutionStatus.COMPLETED
-            )
-            for i in range(num_results)
-        ]
+        task_results = [TaskResult(id=f"result_{i}", result="Success", status="completed") for i in range(num_results)]
 
         state = self._create_mock_state(
             messages=[HumanMessage(content=query)],
@@ -140,7 +112,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         serialized = state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), num_todos)
+        self.assertEqual(len(cast(list[TodoItem], deserialized.todos)), num_todos)
         self.assertEqual(len(deserialized.task_results), num_results)
         self.assertEqual(cast(HumanMessage, deserialized.messages[0]).content, query)
 
@@ -266,12 +238,8 @@ class TestDeepResearchE2E(APIBaseTest):
         # Test state validation and serialization
         test_state = DeepResearchState(
             messages=[HumanMessage(content="Test message")],
-            todos=[DeepResearchTodo(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(
-                    id="task_1", description="Test task", result="Test result", status=TaskExecutionStatus.COMPLETED
-                )
-            ],
+            todos=[TodoItem(id="1", content="Test todo", status="pending", priority="high")],
+            task_results=[TaskResult(id="task_1", result="Test result", status="completed")],
         )
 
         # Test serialization roundtrip
@@ -279,10 +247,10 @@ class TestDeepResearchE2E(APIBaseTest):
         deserialized = DeepResearchState.model_validate(serialized)
 
         self.assertEqual(len(deserialized.messages), 1)
-        todos = cast(list[DeepResearchTodo], deserialized.todos)
-        self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
+        todos = cast(list[TodoItem], deserialized.todos)
+        self.assertEqual(len(cast(list[TodoItem], deserialized.todos)), 1)
         self.assertEqual(len(deserialized.task_results), 1)
-        self.assertEqual(todos[0].description, "Test todo")
+        self.assertEqual(todos[0].content, "Test todo")
         self.assertEqual(deserialized.task_results[0].result, "Test result")
 
         # Test database integration

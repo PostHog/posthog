@@ -23,6 +23,7 @@ pub enum ContentType {
 pub struct TransformContext {
     pub team_id: i32,
     pub token: String,
+    pub job_id: uuid::Uuid,
     pub identify_cache: Arc<dyn IdentifyCache>,
     pub group_cache: Arc<dyn GroupCache>,
     pub import_events: bool,

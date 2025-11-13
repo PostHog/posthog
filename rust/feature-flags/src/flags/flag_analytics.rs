@@ -10,7 +10,7 @@ const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
     match request_type {
         FlagRequestType::Decide => format!("posthog:decide_requests:{team_id}"),
-        FlagRequestType::LocalEvaluation => {
+        FlagRequestType::FlagDefinitions => {
             format!("posthog:local_evaluation_requests:{team_id}")
         }
     }
@@ -46,7 +46,7 @@ mod tests {
             "posthog:decide_requests:123"
         );
         assert_eq!(
-            get_team_request_key(456, FlagRequestType::LocalEvaluation),
+            get_team_request_key(456, FlagRequestType::FlagDefinitions),
             "posthog:local_evaluation_requests:456"
         );
     }
@@ -59,11 +59,14 @@ mod tests {
         let count = 5;
 
         let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
-        let local_eval_key = get_team_request_key(team_id, FlagRequestType::LocalEvaluation);
+        let flag_definitions_key = get_team_request_key(team_id, FlagRequestType::FlagDefinitions);
 
         // Clean up Redis before the test to ensure no leftover data
         redis_client.del(decide_key.clone()).await.unwrap();
-        redis_client.del(local_eval_key.clone()).await.unwrap();
+        redis_client
+            .del(flag_definitions_key.clone())
+            .await
+            .unwrap();
 
         // Test for Decide request type
         increment_request_count(
@@ -75,12 +78,12 @@ mod tests {
         .await
         .unwrap();
 
-        // Test for LocalEvaluation request type
+        // Test for FlagDefinitions request type
         increment_request_count(
             redis_client.clone(),
             team_id,
             count,
-            FlagRequestType::LocalEvaluation,
+            FlagRequestType::FlagDefinitions,
         )
         .await
         .unwrap();
@@ -99,18 +102,18 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
-        let local_eval_count: i32 = redis_client
-            .hget(local_eval_key.clone(), time_bucket.to_string())
+        let flag_definitions_count: i32 = redis_client
+            .hget(flag_definitions_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
             .parse()
             .unwrap();
 
         assert_eq!(decide_count, count);
-        assert_eq!(local_eval_count, count);
+        assert_eq!(flag_definitions_count, count);
 
         // Clean up Redis after the test
         redis_client.del(decide_key).await.unwrap();
-        redis_client.del(local_eval_key).await.unwrap();
+        redis_client.del(flag_definitions_key).await.unwrap();
     }
 }

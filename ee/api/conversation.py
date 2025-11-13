@@ -103,7 +103,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             # Only for streaming
             and self.action == "create"
             # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            and not (get_instance_region() == "US" and self.team_id in (2, 87921))
+            and not (get_instance_region() == "US" and self.team_id in (2, 87921, 41124))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 

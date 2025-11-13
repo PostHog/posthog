@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,6 +19,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -42,12 +43,14 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { QuerySchema } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { InsightLogicProps, ProductKey } from '~/types'
 
+import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -81,6 +84,23 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     )
 }
 
+const MarketingTiles = (props: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
+    const { tiles, compact = false } = props
+
+    return (
+        <div
+            className={clsx(
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+            )}
+        >
+            {tiles?.map((tile, i) => (
+                <QueryTileItem key={i} tile={tile} />
+            ))}
+        </div>
+    )
+}
+
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
@@ -88,6 +108,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
+        <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
         tile.canOpenInsight ? (
             <LemonButton
                 key="open-insight-button"
@@ -189,6 +210,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 canOpenInsight: !!tab.canOpenInsight,
                 query: tab.query,
                 docs: tab.docs,
+                insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
             getNewInsightUrl={getNewInsightUrl}
@@ -236,6 +258,7 @@ export const WebTabs = ({
         canOpenInsight: boolean
         query: QuerySchema
         docs: LearnMorePopoverProps | undefined
+        insightProps: InsightLogicProps
     }[]
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
@@ -251,7 +274,16 @@ export const WebTabs = ({
 
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
+    const activeTabData = tabs.find((t) => t.id === activeTabId)
+
     const buttonsRow = [
+        activeTab && activeTabData ? (
+            <WebAnalyticsExport
+                key="export-button"
+                query={activeTabData.query}
+                insightProps={activeTabData.insightProps}
+            />
+        ) : null,
         activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
@@ -412,6 +444,7 @@ const MainContent = (): JSX.Element => {
 const MarketingDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
 
     const feedbackBanner = (
         <LemonBanner
@@ -452,13 +485,14 @@ const MarketingDashboard = (): JSX.Element => {
             />
         )
     } else {
-        // if the user has sources configured and the feature flag is enabled, show the tiles
-        component = <Tiles />
+        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
+        component = <MarketingTiles tiles={marketingTiles} />
     }
 
     return (
         <>
             {feedbackBanner}
+            <MarketingAnalyticsSourceStatusBanner />
             {component}
         </>
     )
@@ -510,12 +544,11 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
+                <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
                     {/* Empty fragment so tabs are not part of the sticky bar */}
                     <Filters tabs={<></>} />
 
-                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </SceneContent>
@@ -530,6 +563,10 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     const { setProductTab } = useActions(webAnalyticsLogic)
 
+    const handleShare = (): void => {
+        void copyToClipboard(window.location.href, 'link')
+    }
+
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -542,6 +579,17 @@ const WebAnalyticsTabs = (): JSX.Element => {
             ]}
             sceneInset
             className="-mt-4"
+            rightSlot={
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconShare />}
+                    onClick={handleShare}
+                    data-attr="web-analytics-share-button"
+                >
+                    Share
+                </LemonButton>
+            }
         />
     )
 }

@@ -1,5 +1,5 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -451,36 +451,37 @@ export const tasksLogic = kea<tasksLogicType>([
         },
 
         startPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
-            }
-            cache.pollingInterval = setInterval(() => {
-                if (values.hasActiveTasks) {
-                    actions.pollForUpdates()
-                } else {
-                    actions.stopPolling()
-                }
-            }, 3000) // Poll every 3 seconds
+            // Remove any existing polling interval
+            cache.disposables.dispose('pollingInterval')
+
+            // Add new polling interval
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    if (values.hasActiveTasks) {
+                        actions.pollForUpdates()
+                    } else {
+                        actions.stopPolling()
+                    }
+                }, 3000) // Poll every 3 seconds
+                return () => clearInterval(intervalId)
+            }, 'pollingInterval')
         },
         stopPolling: () => {
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
-                cache.pollingInterval = null
-            }
+            cache.disposables.dispose('pollingInterval')
         },
         loadTasksSuccess: () => {
             // Start polling when tasks are loaded if there are active tasks
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
         moveTaskSuccess: () => {
             // Check if polling should start/stop after moving a task
-            if (values.hasActiveTasks && !cache.pollingInterval) {
+            if (values.hasActiveTasks) {
                 actions.startPolling()
-            } else if (!values.hasActiveTasks && cache.pollingInterval) {
+            } else {
                 actions.stopPolling()
             }
         },
@@ -533,10 +534,5 @@ export const tasksLogic = kea<tasksLogicType>([
         actions.loadTasks()
         actions.loadDefaultWorkflow()
         actions.loadAllWorkflows()
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
     }),
 ])

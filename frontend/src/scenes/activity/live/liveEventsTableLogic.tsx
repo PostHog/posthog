@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb, LiveEvent } from '~/types'
@@ -115,7 +116,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return key in event && event[key] === value
+                        return key in event && event[key as keyof LiveEvent] === value
                     })
                 })
             },
@@ -125,8 +126,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.LiveEvents,
-                    name: 'Live',
-                    iconType: 'dashboard',
+                    name: sceneConfigurations[Scene.LiveEvents].name,
+                    iconType: sceneConfigurations[Scene.LiveEvents].iconType,
                 },
             ],
         ],
@@ -210,9 +211,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             } finally {
-                cache.statsTimer = setTimeout(() => {
-                    actions.pollStats()
-                }, 1500)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.pollStats()
+                    }, 1500)
+                    return () => clearTimeout(timerId)
+                }, 'statsTimer')
             }
         },
         addEvents: ({ events }) => {
@@ -235,9 +239,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
-            }
-            if (cache.statsTimer) {
-                clearTimeout(cache.statsTimer)
             }
         },
     })),

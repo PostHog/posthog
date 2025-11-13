@@ -11,7 +11,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Notebook } from './Notebook/Notebook'
@@ -35,7 +34,6 @@ export function NotebookCanvas(): JSX.Element {
         <SceneContent className="h-full">
             <SceneTitleSection
                 name="Canvas"
-                description="You can change anything you like and it is persisted to the URL for easy sharing."
                 resourceType={{
                     type: 'notebook',
                 }}
@@ -96,7 +94,6 @@ export function NotebookCanvas(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
             <div className="relative flex-1">
                 <Notebook {...logicProps} />
             </div>

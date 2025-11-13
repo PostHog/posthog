@@ -15,7 +15,7 @@ import temporalio.common
 from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -107,6 +107,19 @@ class RecordBatchQueue(asyncio.Queue):
         number of bytes.
         """
         return self._bytes_size
+
+    def __repr__(self):
+        return f"<{type(self).__name__} at {id(self):#x} {self._format()}>"
+
+    def __str__(self):
+        return f"<{type(self).__name__} {self._format()}>"
+
+    def _format(self) -> str:
+        result = f"record_batches={len(self._queue)}"
+        result += f" bytes={str(self._bytes_size)}"
+        if self.record_batch_schema is not None:
+            result += f" schema='{self.record_batch_schema}'"
+        return result
 
 
 class TaskNotDoneError(Exception):
@@ -967,7 +980,7 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
-    context.database = create_hogql_database(team=team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=team, modifiers=context.modifiers)
 
     exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)

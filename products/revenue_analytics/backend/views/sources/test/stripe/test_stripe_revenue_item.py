@@ -39,23 +39,16 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
             SUBSCRIPTION_RESOURCE_NAME,
         ]
         self.setup_stripe_external_data_source(schemas=schemas)
-
-        queries = list(build(self.stripe_handle))
-
-        # Should build queries for revenue items
-        self.assertGreater(len(queries), 0)
-
-        revenue_query = queries[0]
         revenue_table = self.get_stripe_table_by_schema_name(INVOICE_RESOURCE_NAME)
 
+        query = build(self.stripe_handle)
+
         # Test the query structure
-        self.assertQueryContainsFields(revenue_query.query, REVENUE_ITEM_SCHEMA)
-        self.assertBuiltQueryStructure(
-            revenue_query, str(revenue_table.id), f"stripe.{self.external_data_source.prefix}"
-        )
+        self.assertQueryContainsFields(query.query, REVENUE_ITEM_SCHEMA)
+        self.assertBuiltQueryStructure(query, str(revenue_table.id), f"stripe.{self.external_data_source.prefix}")
 
         # Print and snapshot the generated HogQL query
-        query_sql = revenue_query.query.to_hogql()
+        query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_revenue_item_query_with_minimal_schemas(self):
@@ -64,12 +57,11 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         schemas = [INVOICE_RESOURCE_NAME]
         self.setup_stripe_external_data_source(schemas=schemas)
 
-        queries = list(build(self.stripe_handle))
+        query = build(self.stripe_handle)
 
         # Print and snapshot for minimal case
-        if queries:
-            query_sql = queries[0].query.to_hogql()
-            self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+        query_sql = query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_subscription_schemas_only(self):
         """Test building revenue item query with subscription-related schemas only."""
@@ -80,40 +72,34 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         ]
         self.setup_stripe_external_data_source(schemas=schemas)
 
-        queries = list(build(self.stripe_handle))
-
         # Print and snapshot for subscription case
-        if queries:
-            query_sql = queries[0].query.to_hogql()
-            self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_relevant_schemas(self):
         """Test that build returns view even when no relevant schemas exist."""
         # Setup without any relevant schemas
         self.setup_stripe_external_data_source(schemas=[])
 
-        queries = list(build(self.stripe_handle))
+        query = build(self.stripe_handle)
 
-        # Should return no queries
-        self.assertEqual(len(queries), 1)
-        revenue_query = queries[0]
-        self.assertQueryContainsFields(revenue_query.query, REVENUE_ITEM_SCHEMA)
+        self.assertQueryContainsFields(query.query, REVENUE_ITEM_SCHEMA)
         self.assertBuiltQueryStructure(
-            revenue_query,
-            f"stripe.{self.external_data_source.prefix}.no_source",
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_schema",
         )
         # Print and snapshot the generated HogQL query
-        self.assertQueryMatchesSnapshot(revenue_query.query.to_hogql(), replace_all_numbers=True)
+        self.assertQueryMatchesSnapshot(query.query.to_hogql(), replace_all_numbers=True)
 
     def test_build_with_no_source(self):
         """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
 
-        queries = list(build(handle))
-
-        # Should return no queries
-        self.assertEqual(len(queries), 0)
+        with self.assertRaises(ValueError):
+            build(handle)
 
     def test_revenue_item_query_contains_required_fields(self):
         """Test that the generated query contains all required revenue item fields."""
@@ -126,19 +112,16 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         ]
         self.setup_stripe_external_data_source(schemas=schemas)
 
-        queries = list(build(self.stripe_handle))
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
 
-        if queries:
-            revenue_query = queries[0]
-            query_sql = revenue_query.query.to_hogql()
+        # Check for specific fields in the query based on the revenue item schema
+        self.assertIn("id", query_sql)
+        self.assertIn("source_label", query_sql)
 
-            # Check for specific fields in the query based on the revenue item schema
-            self.assertIn("id", query_sql)
-            self.assertIn("source_label", query_sql)
-
-            # Check that source_label contains the expected prefix
-            expected_prefix = f"stripe.{self.external_data_source.prefix}"
-            self.assertIn(f"'{expected_prefix}'", query_sql)
+        # Check that source_label contains the expected prefix
+        expected_prefix = f"stripe.{self.external_data_source.prefix}"
+        self.assertIn(f"'{expected_prefix}'", query_sql)
 
     def test_revenue_item_query_with_currency_conversion(self):
         """Test revenue item query includes currency conversion logic."""
@@ -148,17 +131,15 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         schemas = [CHARGE_RESOURCE_NAME, INVOICE_RESOURCE_NAME]
         self.setup_stripe_external_data_source(schemas=schemas)
 
-        queries = list(build(self.stripe_handle))
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
 
-        if queries:
-            query_sql = queries[0].query.to_hogql()
+        # Check for currency-related fields/functions
+        # The specific implementation may vary
+        self.assertIn("currency", query_sql.lower())
 
-            # Check for currency-related fields/functions
-            # The specific implementation may vary
-            self.assertIn("currency", query_sql.lower())
-
-            # Print and snapshot for currency conversion case
-            self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+        # Print and snapshot for currency conversion case
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     @parameterized.expand(
         [

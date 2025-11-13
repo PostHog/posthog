@@ -22,7 +22,7 @@ METRIC_FIELDS_TO_IGNORE: set[str] = {
 
 
 def compute_metric_fingerprint(
-    metric: dict, start_date: Any, stats_config: dict | None, exposure_criteria: dict | None
+    metric: dict, start_date: Any, stats_method: str | None = None, exposure_criteria: dict | None = None
 ) -> str:
     """
     Compute fingerprint for a metric.
@@ -30,7 +30,7 @@ def compute_metric_fingerprint(
     Args:
         metric: The metric definition
         start_date: Experiment start date
-        stats_config
+        stats_method
         exposure_criteria
 
     Returns:
@@ -47,10 +47,13 @@ def compute_metric_fingerprint(
     else:
         start_date_str = start_date
 
+    if stats_method is None:
+        stats_method = "bayesian"
+
     fingerprint_data = {
         "metric": clean_metric,
         "start_date": start_date_str,
-        "stats_config": stats_config,
+        "stats_method": stats_method,
     }
 
     if exposure_criteria:

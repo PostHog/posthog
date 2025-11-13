@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo, IconUser } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -23,7 +23,8 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,6 +40,7 @@ import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
 
 export const scene: SceneExport<PersonsLogicProps> = {
@@ -138,13 +140,12 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Person"
+                name={asDisplay(person)}
                 resourceType={{
-                    type: 'person',
-                    forceIcon: <IconUser />,
+                    type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
                 forceBackTo={{
-                    name: 'People',
+                    name: sceneConfigurations[Scene.Persons].name,
                     path: urls.persons(),
                     key: 'people',
                 }}
@@ -153,7 +154,7 @@ export function PersonScene(): JSX.Element | null {
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { id: person?.distinct_ids[0] },
+                                attrs: { distinctId: person?.distinct_ids[0] },
                             }}
                             type="secondary"
                             size="small"
@@ -184,7 +185,6 @@ export function PersonScene(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
 
             <PersonCaption person={person} />
 

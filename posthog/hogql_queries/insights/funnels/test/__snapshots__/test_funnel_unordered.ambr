@@ -139,6 +139,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -306,6 +308,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -459,6 +463,8 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -707,6 +713,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -955,6 +964,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1224,6 +1236,9 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

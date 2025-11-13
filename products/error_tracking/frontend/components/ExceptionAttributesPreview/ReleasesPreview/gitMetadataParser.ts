@@ -1,15 +1,34 @@
-import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingRelease } from 'lib/components/Errors/types'
+import { ReleaseGitMetadata } from 'lib/components/Errors/types'
+
+export type GitProvider = 'github' | 'unknown'
 
 export class GitMetadataParser {
-    static getViewCommitLink(release: ErrorTrackingRelease): string | undefined {
-        const hasRemoteUrl = release.metadata?.git?.remote_url !== undefined
-        const hasCommitId = release.metadata?.git?.commit_id !== undefined
+    static getViewCommitLink(git: ReleaseGitMetadata): string | undefined {
+        const { remote_url, commit_id } = git
 
-        const remoteUrl = release.metadata?.git?.remote_url ?? ''
-        const commitId = release.metadata?.git?.commit_id ?? ''
+        return !!remote_url && !!commit_id ? this.resolveRemoteUrlWithCommitToLink(remote_url, commit_id) : undefined
+    }
 
-        return hasRemoteUrl && hasCommitId ? this.resolveRemoteUrlWithCommitToLink(remoteUrl, commitId) : undefined
+    static parseRemoteUrl(remoteUrl: string): { provider: GitProvider; owner: string; repository: string } | null {
+        const parsed = this.parseSshRemoteUrl(remoteUrl) || this.parseHttpsRemoteUrl(remoteUrl)
+
+        if (!parsed) {
+            return null
+        }
+
+        if (parsed.providerUrl.includes('github')) {
+            return {
+                provider: 'github',
+                owner: parsed.user,
+                repository: parsed.path,
+            }
+        }
+
+        return {
+            provider: 'unknown',
+            owner: parsed.user,
+            repository: parsed.path,
+        }
     }
 
     static resolveRemoteUrlWithCommitToLink(remoteUrl: string, commitSha: string): string | undefined {
@@ -19,14 +38,14 @@ export class GitMetadataParser {
             parsed = GitMetadataParser.parseHttpsRemoteUrl(remoteUrl)
         }
 
-        if (!parsed?.provider.includes('github')) {
+        if (!parsed?.providerUrl.includes('github')) {
             return undefined
         }
 
-        return `${parsed.provider}/${parsed.user}/${parsed.path}/commit/${commitSha}`
+        return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/commit/${commitSha}`
     }
 
-    static parseSshRemoteUrl(remoteUrl: string): { provider: string; user: string; path: string } | undefined {
+    static parseSshRemoteUrl(remoteUrl: string): { providerUrl: string; user: string; path: string } | undefined {
         // git@github.com:user/repo.git
 
         const atIdx = remoteUrl.indexOf('@')
@@ -46,10 +65,10 @@ export class GitMetadataParser {
         if (path.endsWith('.git')) {
             path = path.slice(0, -4)
         }
-        return { provider, user, path }
+        return { providerUrl: provider, user, path }
     }
 
-    static parseHttpsRemoteUrl(remoteUrl: string): { provider: string; user: string; path: string } | undefined {
+    static parseHttpsRemoteUrl(remoteUrl: string): { providerUrl: string; user: string; path: string } | undefined {
         // https://github.com/user/repo.git
 
         const httpsPrefix = 'https://'
@@ -76,6 +95,6 @@ export class GitMetadataParser {
             path = path.slice(0, -4)
         }
 
-        return { provider, user, path }
+        return { providerUrl: provider, user, path }
     }
 }

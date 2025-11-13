@@ -19,8 +19,9 @@ import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
+import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
-import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
@@ -63,7 +64,7 @@ export async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>[]) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<unknown>[]) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -72,7 +73,7 @@ async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBat
 }
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Info,
+    LOG_LEVEL: 'info',
 }
 
 describe('processEvent', () => {
@@ -114,7 +115,19 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         if (isOkResult(res)) {
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+            // Use emit event step to emit the event
+            const emitEventStep = createEmitEventStep({
+                kafkaProducer: hub.kafkaProducer,
+                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            })
+            const emitResult = await emitEventStep(res.value)
+
+            // Handle side effects using side effect handling pipeline
+            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                await Promise.allSettled(emitResult.sideEffects)
+            }
+
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
         }
         await groupStoreForBatch.flush()
     }
@@ -225,7 +238,19 @@ describe('processEvent', () => {
         const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         if (isOkResult(res)) {
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.value.ackPromises ?? [])
+            // Use emit event step to emit the event
+            const emitEventStep = createEmitEventStep({
+                kafkaProducer: hub.kafkaProducer,
+                clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            })
+            const emitResult = await emitEventStep(res.value)
+
+            // Handle side effects using side effect handling pipeline
+            if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
+                await Promise.allSettled(emitResult.sideEffects)
+            }
+
+            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
         }
         await groupStoreForBatch.flush()
     }
@@ -484,10 +509,9 @@ describe('processEvent', () => {
         )
 
         expect((await fetchPersons(hub.db.postgres)).length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])).toEqual([
-            'new_distinct_id',
-            'old_distinct_id',
-        ])
+        const distinctIds = await fetchDistinctIdValues(hub.db.postgres, (await fetchPersons(hub.db.postgres))[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new_distinct_id', 'old_distinct_id']))
+        expect(distinctIds).toHaveLength(2)
     })
 
     test('alias both existing', async () => {
@@ -849,7 +873,9 @@ describe('processEvent', () => {
         expect(people.length).toEqual(2)
         expect(people[1].team_id).toEqual(team.id)
         expect(people[1].properties).toEqual({})
-        expect(await fetchDistinctIdValues(hub.db.postgres, people[1])).toEqual(['1', '2'])
+        const distinctIdsForPerson1 = await fetchDistinctIdValues(hub.db.postgres, people[1])
+        expect(distinctIdsForPerson1).toEqual(expect.arrayContaining(['1', '2']))
+        expect(distinctIdsForPerson1).toHaveLength(2)
         expect(people[0].team_id).toEqual(team2.id)
         expect(await fetchDistinctIdValues(hub.db.postgres, people[0])).toEqual(['2'])
     })
@@ -939,16 +965,13 @@ describe('processEvent', () => {
             // Get pairins of person distinctIds and the events associated with them
             const eventsByPerson = await getEventsByPerson(hub)
 
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'event 2', '$identify'],
-                ],
-                [
-                    [p2DistinctId, p2NewDistinctId],
-                    ['event 3', '$identify', 'event 4'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(2)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'event 2', '$identify'])
+            expect(eventsByPerson[1][0]).toEqual(expect.arrayContaining([p2DistinctId, p2NewDistinctId]))
+            expect(eventsByPerson[1][0]).toHaveLength(2)
+            expect(eventsByPerson[1][1]).toEqual(['event 3', '$identify', 'event 4'])
 
             // Make sure the persons are identified
             const persons = await fetchPersons(hub.db.postgres)
@@ -1065,12 +1088,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'anonymous event', '$create_alias'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
 
             // Make sure there is one identified person
             const persons = await fetchPersons(hub.db.postgres)
@@ -1093,12 +1114,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'anonymous event', '$create_alias'],
-                ],
-            ])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
 
             // Make sure there is one identified person
             const persons = await fetchPersons(hub.db.postgres)
@@ -1146,7 +1165,10 @@ describe('processEvent', () => {
             const eventsByPerson = await getEventsByPerson(hub)
 
             // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([[[anonymous1, anonymous2], ['$create_alias']]])
+            expect(eventsByPerson).toHaveLength(1)
+            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([anonymous1, anonymous2]))
+            expect(eventsByPerson[0][0]).toHaveLength(2)
+            expect(eventsByPerson[0][1]).toEqual(['$create_alias'])
 
             const persons = await fetchPersons(hub.db.postgres)
             expect(persons.map((person) => person.is_identified)).toEqual([true])

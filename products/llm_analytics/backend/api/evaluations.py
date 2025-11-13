@@ -10,6 +10,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +26,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
-            "prompt",
+            "evaluation_type",
+            "evaluation_config",
+            "output_type",
+            "output_config",
             "conditions",
             "created_at",
             "updated_at",
@@ -33,6 +37,19 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "deleted",
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+
+    def validate(self, data):
+        if "evaluation_config" in data and "output_config" in data:
+            evaluation_type = data.get("evaluation_type")
+            output_type = data.get("output_type")
+            if evaluation_type and output_type:
+                try:
+                    data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
+                        evaluation_type, output_type, data["evaluation_config"], data["output_config"]
+                    )
+                except ValueError as e:
+                    raise serializers.ValidationError({"config": str(e)})
+        return data
 
     def create(self, validated_data):
         request = self.context["request"]

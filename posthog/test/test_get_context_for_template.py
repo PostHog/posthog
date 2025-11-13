@@ -9,6 +9,7 @@ class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
         with self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]):
             actual = get_context_for_template(
+                "layout",
                 MagicMock(),
             )
 
@@ -37,6 +38,7 @@ class TestGetContextForTemplate(APIBaseTest):
     def test_picks_up_stripe_public_key_from_environment(self):
         with self.settings(STRIPE_PUBLIC_KEY="pk_test_12345"):
             actual = get_context_for_template(
+                "layout",
                 MagicMock(),
             )
 

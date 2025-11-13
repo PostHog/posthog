@@ -20,39 +20,39 @@ export function useSortedPaginatedList<T>({
     setShowAll: (value: boolean) => void
 } {
     const [showAll, setShowAll] = useState(false)
-    const [itemOrder, setItemOrder] = useState<string[] | null>(null)
+    const [orderedItems, setOrderedItems] = useState<string[] | null>(null)
 
     // Establish initial sort order on first render - preserve order after that
     useEffect(() => {
-        if (itemOrder === null && items.length > 0) {
-            const sorted = [...items].sort((a, b) => {
-                const aConfigured = isItemConfigured(a)
-                const bConfigured = isItemConfigured(b)
-
-                // Configured items first
-                if (aConfigured && !bConfigured) {
-                    return -1
-                }
-                if (!aConfigured && bConfigured) {
-                    return 1
-                }
-                return 0
-            })
-            setItemOrder(sorted.map((item) => getId(item)))
-        } else if (items.length === 0) {
-            setItemOrder(null)
+        if (items.length === 0) {
+            setOrderedItems(null)
+            return
         }
-    }, [items, itemOrder, getId, isItemConfigured])
+        const sortedItems = [...items].sort((a, b) => {
+            const aConfigured = isItemConfigured(a)
+            const bConfigured = isItemConfigured(b)
+
+            // Configured items first
+            if (aConfigured && !bConfigured) {
+                return -1
+            }
+            if (!aConfigured && bConfigured) {
+                return 1
+            }
+            return 0
+        })
+        setOrderedItems(sortedItems.map((item) => getId(item)))
+    }, [items, getId, isItemConfigured])
 
     // Apply the preserved order to current item data
     const sortedItems = useMemo(() => {
-        if (!itemOrder) {
+        if (!orderedItems) {
             return items
         }
 
         const itemMap = new Map(items.map((item) => [getId(item), item]))
-        return itemOrder.map((id) => itemMap.get(id)).filter(Boolean) as T[]
-    }, [items, itemOrder, getId])
+        return orderedItems.map((id) => itemMap.get(id)).filter(Boolean) as T[]
+    }, [items, orderedItems, getId])
 
     // Determine which items to display
     const displayedItems = showAll ? sortedItems : sortedItems.slice(0, maxItemsToShow)

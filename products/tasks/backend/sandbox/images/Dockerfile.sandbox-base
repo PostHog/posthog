@@ -61,30 +61,33 @@ RUN npm install -g yarn pnpm typescript ts-node nodemon
 # Install PostHog CLI
 RUN npm install -g @posthog/cli
 
-
 ###
-# Claude Code SDK
+# Agent SDK
 ###
-
-RUN python3 -m venv /opt/claude-env
-
-RUN /opt/claude-env/bin/pip install --upgrade pip
-
-RUN /opt/claude-env/bin/pip install claude-code-sdk
 
 RUN npm install -g @anthropic-ai/claude-code
+
+# Set up /scripts as a Node.js project and install @posthog/agent
+RUN mkdir -p /scripts && \
+    cd /scripts && \
+    npm init -y && \
+    npm install @posthog/agent
+
+# Download agent runner script from GitHub
+RUN cd /scripts && \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
+    -o runAgent.mjs && \
+    chmod +x runAgent.mjs
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1
 
-ENV PATH="/opt/claude-env/bin:$PATH"
 ENV PYTHONPATH="/tmp/workspace:$PYTHONPATH"
 
 WORKDIR /tmp/workspace
 
 RUN python3 --version && \
     node --version && \
-    npm --version && \
-    /opt/claude-env/bin/python -c 'import claude_code_sdk; print("Claude Code SDK installed successfully")'
+    npm --version
 
 CMD ["/bin/bash"]

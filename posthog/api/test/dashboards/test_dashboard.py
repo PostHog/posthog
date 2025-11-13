@@ -18,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -141,6 +142,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response["count"] == 2
         dashboard_names = {dashboard["name"] for dashboard in response["results"]}
         assert dashboard_names == {"tagged", "also tagged"}
+
+    def test_list_includes_last_viewed_at_from_filesystem_logs(self):
+        dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
+        dashboard_unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed"})
+
+        other_team = Team.objects.create(organization=self.organization)
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard_recent_id),
+            )
+
+        with freeze_time("2024-02-01T12:00:00Z"):
+            FileSystemViewLog.objects.create(
+                team=other_team,
+                user=self.user,
+                type="dashboard",
+                ref=str(dashboard_unseen_id),
+            )
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        results_by_id = {dashboard["id"]: dashboard for dashboard in response["results"]}
+
+        assert results_by_id[dashboard_recent_id]["last_viewed_at"] is not None
+        assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
+        assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
@@ -298,22 +328,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 8
+            baseline = 10
 
-            with self.assertNumQueries(baseline + 12):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 13):
-                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        with self.assertNumQueries(baseline + 11 + 11):
+            self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -1938,3 +1968,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(sse_dashboard["persisted_filters"], dashboard_filters)
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
+
+    def test_create_unlisted_dashboard_creates_tags_without_tagging_feature(self):
+        """Test that unlisted dashboards get tags even if org doesn't have TAGGING feature"""
+        # Remove TAGGING feature from organization
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        # Verify org doesn't have tagging
+        self.assertFalse(self.organization.is_feature_available(AvailableFeature.TAGGING))
+
+        # Create unlisted dashboard
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        dashboard = Dashboard.objects.get(id=response.json()["id"])
+
+        # Verify dashboard was created with unlisted mode
+        self.assertEqual(dashboard.creation_mode, "unlisted")
+        self.assertEqual(dashboard.name, "LLM Analytics Default")
+
+        # Verify tags were created despite org lacking TAGGING feature
+        tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["llm-analytics"])
+
+    def test_create_unlisted_dashboard_enforces_uniqueness(self):
+        """Test that creating duplicate unlisted dashboards returns 409"""
+        # Create first dashboard
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create duplicate
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+            {"tag": "llm-analytics"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already exists", response.json()["error"])

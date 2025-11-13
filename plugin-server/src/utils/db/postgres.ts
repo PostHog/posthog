@@ -17,7 +17,7 @@ export enum PostgresUse {
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
     PERSONS_READ, // Person database, read replica
     PERSONS_WRITE, // Person database, write
-    COUNTERS_RW, // Counters database for aggregations
+    BEHAVIORAL_COHORTS_RW, // Behavioral cohorts database for behavioral cohorts
 }
 
 export class TransactionClient {
@@ -49,7 +49,7 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
             [PostgresUse.PERSONS_WRITE, commonClient],
-            [PostgresUse.COUNTERS_RW, commonClient],
+            [PostgresUse.BEHAVIORAL_COHORTS_RW, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -88,6 +88,20 @@ export class PostgresRouter {
             )
             logger.info('👍', `Persons Postgresql ready`)
         }
+
+        if (serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL) {
+            logger.info('🤔', `Connecting to behavioral cohorts Postgresql...`)
+            this.pools.set(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                createPostgresPool(
+                    serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Behavioral cohorts Postgresql ready`)
+        }
+
         if (serverConfig.PERSONS_READONLY_DATABASE_URL) {
             logger.info('🤔', `Connecting to persons read-only Postgresql...`)
             this.pools.set(

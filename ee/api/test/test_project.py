@@ -29,13 +29,13 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)
         response_data = response.json()
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Test",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
@@ -118,7 +118,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(17, 18)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, 200)

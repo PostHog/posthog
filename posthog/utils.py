@@ -195,7 +195,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
@@ -271,6 +271,9 @@ def get_delta_mapping_for(
     elif kind == "M":
         if number:
             delta_mapping["minutes"] = int(number)
+    elif kind == "s":
+        if number:
+            delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
             delta_mapping["weeks"] = 13 * int(number)
@@ -308,6 +311,12 @@ def relative_date_parse(
     )[0]
 
 
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    if plural is None:
+        plural = singular + "s"
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def human_list(items: Sequence[str]) -> str:
     """Join iterable of strings into a human-readable list ("a, b, and c").
     Uses the Oxford comma only when there are at least 3 items."""
@@ -327,6 +336,7 @@ def get_js_url(request: HttpRequest) -> str:
 
 
 def get_context_for_template(
+    template_name: str,
     request: HttpRequest,
     context: Optional[dict] = None,
     team_for_public_context: Optional["Team"] = None,
@@ -345,18 +355,23 @@ def get_context_for_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
+        source_path = "src/index.tsx"
+        if template_name == "exporter.html":
+            source_path = "src/exporter/index.tsx"
+        elif template_name == "render_query.html":
+            source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
-        context["vite_dev_scripts"] = """
-        <script type="module">
+        context["vite_dev_scripts"] = f"""
+        <script nonce="{request.csp_nonce}" type="module">
             import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
-            window.$RefreshReg$ = () => {}
+            window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
         <script type="module" src="http://localhost:8234/@vite/client"></script>
-        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
+        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -511,7 +526,7 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
-    context = get_context_for_template(request, context, team_for_public_context)
+    context = get_context_for_template(template_name, request, context, team_for_public_context)
     template = get_template(template_name)
 
     html = template.render(context, request=request)

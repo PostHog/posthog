@@ -11,6 +11,7 @@ import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionRateLimiter } from './session-rate-limiter'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
@@ -64,15 +65,18 @@ export class SessionBatchRecorder {
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
     private readonly batchId: string
+    private readonly rateLimiter: SessionRateLimiter
 
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate,
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
+        this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
         logger.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
     }
 
@@ -87,6 +91,46 @@ export class SessionBatchRecorder {
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
+
+        const isAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
+
+        if (!isAllowed) {
+            logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
+                partition,
+                sessionId,
+                teamId,
+                eventCount: this.rateLimiter.getEventCount(teamSessionKey),
+                batchId: this.batchId,
+            })
+
+            if (!this.partitionSessions.has(partition)) {
+                this.offsetManager.trackOffset({
+                    partition: message.message.metadata.partition,
+                    offset: message.message.metadata.offset,
+                })
+                return 0
+            }
+
+            const sessions = this.partitionSessions.get(partition)!
+            const existingRecorders = sessions.get(teamSessionKey)
+
+            if (existingRecorders) {
+                sessions.delete(teamSessionKey)
+                logger.info('🔁', 'session_batch_recorder_deleted_rate_limited_session', {
+                    partition,
+                    sessionId,
+                    teamId,
+                    batchId: this.batchId,
+                })
+            }
+
+            this.offsetManager.trackOffset({
+                partition: message.message.metadata.partition,
+                offset: message.message.metadata.offset,
+            })
+
+            return 0
+        }
 
         if (!this.partitionSessions.has(partition)) {
             this.partitionSessions.set(partition, new Map())
@@ -155,6 +199,9 @@ export class SessionBatchRecorder {
                 partition,
                 partitionSize,
             })
+
+            this.rateLimiter.discardPartition(partition)
+
             this._size -= partitionSize
             this.partitionSizes.delete(partition)
             this.partitionSessions.delete(partition)
@@ -260,10 +307,11 @@ export class SessionBatchRecorder {
             SessionBatchMetrics.incrementEventsFlushed(totalEvents)
             SessionBatchMetrics.incrementBytesWritten(totalBytes)
 
-            // Clear sessions, partition sizes, and total size after successful flush
+            // Clear sessions, partition sizes, total size, and rate limiter state after successful flush
             this.partitionSessions.clear()
             this.partitionSizes.clear()
             this._size = 0
+            this.rateLimiter.clear()
 
             logger.info('🔁', 'session_batch_recorder_flushed', {
                 totalEvents,

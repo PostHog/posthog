@@ -5,26 +5,30 @@ use std::collections::HashSet;
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
+use crate::database::get_connection_with_metrics;
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::PostgresReader;
+use common_types::ProjectId;
 
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
         client: PostgresReader,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<Vec<Cohort>, FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!(
-                "Failed to get database connection for project {}: {}",
-                project_id,
-                e
-            );
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get database connection for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::DatabaseUnavailable
+            })?;
 
         let query = r#"
             SELECT c.id,
@@ -228,7 +232,8 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                    if apply_cohort_membership_logic(std::slice::from_ref(filter), cohort_matches)?
+                    {
                         return Ok(true);
                     }
                 } else {
@@ -244,8 +249,10 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check with negation
-                    let cohort_result =
-                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    let cohort_result = apply_cohort_membership_logic(
+                        std::slice::from_ref(filter),
+                        cohort_matches,
+                    )?;
                     // Apply negation if specified
                     if cohort_result == filter.negation.unwrap_or(false) {
                         return Ok(false);
@@ -432,7 +439,7 @@ mod tests {
             .await
             .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id())
             .await
             .expect("Failed to list cohorts");
 
@@ -507,7 +514,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id())
             .await
             .expect("Failed to fetch cohorts");
 

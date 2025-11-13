@@ -582,7 +582,11 @@ class HedgeboxPerson(SimPerson):
         if self.cluster.random.random() < 0.7:
             self.active_client.capture(
                 EVENT_DOWNLOADED_FILE,
-                {"file_type": file.type, "file_size_b": file.size_b},
+                {
+                    "file_type": file.type,
+                    "file_size_b": file.size_b,
+                    "file_name": self.cluster.random.randbytes(8).hex(),
+                },
             )
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 2) * 80)
         self.need += (self.cluster.random.betavariate(1.2, 1) - 0.5) * 0.08
@@ -684,14 +688,14 @@ class HedgeboxPerson(SimPerson):
         assert self.account is not None
         self.advance_timer(self.cluster.random.betavariate(2.5, 1.1) * 95)
         self.account.files.add(file)
-        self.active_client.capture(
-            EVENT_UPLOADED_FILE,
-            properties={
-                "file_type": file.type,
-                "file_size_b": file.size_b,
-                "used_mb": self.account.current_used_mb,
-            },
-        )
+        properties = {
+            "file_type": file.type,
+            "file_size_b": file.size_b,
+            "used_mb": self.account.current_used_mb,
+        }
+        if self.cluster.random.random() < 0.5:
+            properties["file_name"] = self.cluster.random.randbytes(8).hex()
+        self.active_client.capture(EVENT_UPLOADED_FILE, properties=properties)
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
@@ -709,7 +713,14 @@ class HedgeboxPerson(SimPerson):
             )
 
     def download_file(self, file: HedgeboxFile):
-        self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
+        self.active_client.capture(
+            EVENT_DOWNLOADED_FILE,
+            {
+                "file_type": file.type,
+                "file_size_b": file.size_b,
+                "file_name": self.cluster.random.randbytes(8).hex(),
+            },
+        )
 
     def delete_file(self, file: HedgeboxFile):
         assert self.account is not None

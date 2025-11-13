@@ -438,3 +438,34 @@ class TestCspReport(BaseTest):
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("posthog.api.report.capture_internal")
+    def test_safari_single_csp_violation_with_csp_report_content_type(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
+        safari_report = {
+            "type": "csp-violation",
+            "url": "https://us.posthog.com/signup?next=%2F&__posthog.debug=true",
+            "body": {
+                "documentURL": "https://us.posthog.com/signup?next=%2F&__posthog.debug=true",
+                "disposition": "report",
+                "referrer": "",
+                "effectiveDirective": "script-src-elem",
+                "blockedURL": "inline",
+                "originalPolicy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://*.posthog.com",
+                "statusCode": 200,
+                "sample": "",
+                "sourceFile": "https://us.posthog.com/signup?next=%2F&__posthog.debug=true",
+                "lineNumber": 53,
+                "columnNumber": 1,
+            },
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=1.0&v=2",
+            data=json.dumps(safari_report),
+            content_type="application/csp-report",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_capture.assert_called_once()

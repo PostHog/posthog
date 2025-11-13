@@ -11,11 +11,11 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { StatusTag } from 'scenes/surveys/Surveys'
+import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagBasicType, Survey } from '~/types'
+import { FeatureFlagBasicType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
@@ -64,7 +64,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                         <>
                             <span className="flex-1 font-semibold truncate">{survey.name}</span>
                             {/* survey has to exist in notebooks */}
-                            <StatusTag survey={survey as Survey} />
+                            <SurveyStatusTag survey={survey} />
                         </>
                     )}
                 </div>

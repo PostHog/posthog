@@ -3,6 +3,7 @@ import typing as t
 import datetime as dt
 
 import pytest
+from unittest import mock
 
 from django.conf import settings
 from django.test.client import Client as HttpClient
@@ -19,6 +20,7 @@ from posthog.api.test.batch_exports.operations import (
 )
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
+from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
@@ -488,3 +490,225 @@ def test_switching_snowflake_auth_type_to_keypair_requires_private_key(
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["destination"]["type"] == "Snowflake"
     assert batch_export["destination"]["config"]["authentication_type"] == "password"
+
+
+@pytest.fixture
+def databricks_integration(team, user):
+    """Create a Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="my-server-hostname",
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def databricks_integration_2(team, user):
+    """Create a second Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="my-server-hostname-2",
+        config={"server_hostname": "my-server-hostname-2"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def enable_databricks(team):
+    """Enable the Databricks batch exports feature flag to be able to run the test."""
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
+        yield
+
+
+def test_can_update_batch_export_with_integration(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    databricks_integration,
+    databricks_integration_2,
+    enable_databricks,
+):
+    """Test we can update a batch export with an integration (for example Databricks)."""
+
+    destination_data = {
+        "type": "Databricks",
+        "integration": databricks_integration.id,
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    old_schedule = describe_schedule(temporal, batch_export["id"])
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Databricks",
+            "integration": databricks_integration_2.id,
+            "config": {
+                "http_path": "my-http-path",
+                "catalog": "my-catalog",
+                "schema": "my-schema",
+                "table_name": "my-table-name",
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert response_data["interval"] == "hour"
+    assert response_data["destination"]["integration"] == databricks_integration_2.id
+    assert response_data["destination"]["config"] == {
+        "http_path": "my-http-path",
+        "catalog": "my-catalog",
+        "schema": "my-schema",
+        "table_name": "my-table-name",
+    }
+
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["integration_id"] == databricks_integration_2.id
+
+
+def test_can_update_batch_export_with_integration_to_none(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    databricks_integration,
+    enable_databricks,
+):
+    """Test we cannot update a batch export that requires an integration to None."""
+
+    destination_data = {
+        "type": "Databricks",
+        "integration": databricks_integration.id,
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Databricks",
+            "integration": None,
+            "config": {
+                "http_path": "my-http-path",
+                "catalog": "my-catalog",
+                "schema": "my-schema",
+                "table_name": "my-table-name",
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Integration is required for Databricks batch exports" in response.json()["detail"]
+
+
+def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organization, team, user):
+    """Test we can patch a Redshift batch export preserving credentials."""
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "test",
+            "schema": "public",
+            "table_name": "my_events",
+            "mode": "COPY",
+            "copy_inputs": {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+            },
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-redshiftn-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    # Updates bucket name, leaves everything else untouched.
+    new_destination_data = {
+        "type": "Redshift",
+        "config": {
+            "copy_inputs": {
+                "s3_bucket": "my-new-production-s3-bucket",
+            },
+        },
+    }
+
+    new_batch_export_data = {
+        "destination": new_destination_data,
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    # Verify the bucket name update worked
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["type"] == "Redshift"
+    assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-new-production-s3-bucket"

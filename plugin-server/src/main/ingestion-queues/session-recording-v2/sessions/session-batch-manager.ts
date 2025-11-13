@@ -12,6 +12,8 @@ export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
     /** Maximum age of a batch in milliseconds before it should be flushed */
     maxBatchAgeMs: number
+    /** Maximum number of events per session per batch before rate limiting */
+    maxEventsPerSessionPerBatch: number
     /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
@@ -62,6 +64,7 @@ export class SessionBatchManager {
     private currentBatch: SessionBatchRecorder
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
+    private readonly maxEventsPerSessionPerBatch: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
@@ -72,6 +75,7 @@ export class SessionBatchManager {
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
+        this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
         this.offsetManager = config.offsetManager
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
@@ -83,7 +87,8 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate
+            this.metadataSwitchoverDate,
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }
@@ -106,7 +111,8 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate
+            this.metadataSwitchoverDate,
+            this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
     }

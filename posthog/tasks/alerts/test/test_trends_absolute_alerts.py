@@ -23,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
@@ -658,3 +659,62 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         mock_send_breaches.assert_called_once_with(
             ANY, ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"]
         )
+
+    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    def test_hourly_alert_respects_latest_data(
+        self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        from posthog.api.services.query import ExecutionMode
+
+        insight = self.create_time_series_trend_insight(interval=IntervalType.HOUR)
+        alert = self.create_alert(
+            insight, series_index=0, upper=1, calculation_interval=AlertCalculationInterval.HOURLY
+        )
+
+        # Create 3 events for 07:00-07:59 (will be checked at 08:05)
+        with freeze_time(dateutil.parser.parse("2024-06-02T07:30:00.000Z")):
+            _create_event(team=self.team, event="signed_up", distinct_id="1")
+            _create_event(team=self.team, event="signed_up", distinct_id="2")
+            _create_event(team=self.team, event="signed_up", distinct_id="3")
+            flush_persons_and_events()
+
+        # Check at 08:05 - checks previous hour (07:00-07:59), should fire (3 events > upper threshold of 1)
+        with freeze_time(dateutil.parser.parse("2024-06-02T08:05:00.000Z")):
+            check_alert(alert["id"])
+
+            # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
+            assert mock_calculate.call_count == 1
+            call_args = mock_calculate.call_args
+            assert call_args.kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+            # Verify alert is firing
+            updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+            assert updated_alert.state == AlertState.FIRING
+
+            alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+            assert alert_check.calculated_value == 3
+            assert alert_check.state == AlertState.FIRING
+
+            mock_send_breaches.assert_called_once()
+
+        mock_calculate.reset_mock()
+        mock_send_breaches.reset_mock()
+
+        # Second check at 09:05 - checks previous hour (08:00-08:59), should not fire (0 events)
+        with freeze_time(dateutil.parser.parse("2024-06-02T09:05:00.000Z")):
+            check_alert(alert["id"])
+
+            # Verify execution mode is still CALCULATE_BLOCKING_ALWAYS
+            assert mock_calculate.call_count == 1
+            call_args = mock_calculate.call_args
+            assert call_args.kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+            # Verify alert is not firing
+            updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
+            assert updated_alert.state == AlertState.NOT_FIRING
+
+            alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+            assert alert_check.calculated_value == 0
+            assert alert_check.state == AlertState.NOT_FIRING
+
+            mock_send_breaches.assert_not_called()

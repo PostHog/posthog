@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from typing import cast
 
 from posthog.hogql import ast
@@ -9,8 +8,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
-from posthog.warehouse.models.table import DataWarehouseTable
 
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
@@ -77,7 +76,7 @@ def _calculate_months_for_period(start_timestamp: ast.Expr, end_timestamp: ast.E
     )
 
 
-def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
+def build(handle: SourceHandle) -> BuiltQuery:
     """
     Revenue Analytics Revenue Item View with Revenue Recognition Support
 
@@ -102,7 +101,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     """
     source = handle.source
     if source is None:
-        return
+        raise ValueError("Source is required")
 
     prefix = view_prefix_for_source(source)
 
@@ -113,10 +112,12 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
 
     if invoice_schema is None and charge_schema is None:
-        yield BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        return BuiltQuery(
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
-        return
 
     invoice_table: DataWarehouseTable | None = None
     charge_table: DataWarehouseTable | None = None
@@ -132,10 +133,12 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     elif charge_table is not None:
         team = charge_table.team
     else:
-        yield BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        return BuiltQuery(
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
-        return
 
     # Build the query for invoice items with revenue recognition splitting
     invoice_item_query: ast.SelectQuery | None = None
@@ -483,10 +486,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
         query for query in [invoice_item_query, invoiceless_charges_query] if query is not None
     ]
     if len(queries) == 0:
-        yield BuiltQuery(
-            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
-        )
-        return
+        return BuiltQuery(key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields))
 
     # Very cumbersome, but mypy won't be happy otherwise
     if invoice_table is not None:
@@ -496,5 +496,8 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     else:
         id = None
 
-    query = ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
-    yield BuiltQuery(key=str(id), prefix=prefix, query=query)
+    return BuiltQuery(
+        key=str(id),
+        prefix=prefix,
+        query=ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL"),
+    )

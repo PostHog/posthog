@@ -232,8 +232,14 @@ function UpstreamGraphContent({ tabId }: UpstreamGraphProps): JSX.Element {
 
     // Fit view when nodes change
     useEffect(() => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
         if (nodes.length > 0) {
-            setTimeout(() => fitView({ padding: 0.1 }), 100)
+            timeoutId = setTimeout(() => fitView({ padding: 0.1 }), 100)
+        }
+        return () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
         }
     }, [nodes, fitView])
 

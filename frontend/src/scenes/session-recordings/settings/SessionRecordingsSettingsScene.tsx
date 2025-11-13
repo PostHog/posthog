@@ -11,7 +11,7 @@ import { Breadcrumb } from '~/types'
 import { SessionRecordingsPageTabs } from '../SessionRecordings'
 import type { sessionRecordingsSettingsSceneLogicType } from './SessionRecordingsSettingsSceneType'
 
-const SETTINGS_LOGIC_KEY = 'replaySettings'
+export const SETTINGS_LOGIC_KEY = 'replaySettings'
 
 export const sessionRecordingsSettingsSceneLogic = kea<sessionRecordingsSettingsSceneLogicType>([
     path(['scenes', 'session-recordings', 'settings', 'sessionRecordingsSettingsSceneLogic']),

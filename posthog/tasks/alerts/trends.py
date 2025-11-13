@@ -67,6 +67,13 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     is_non_time_series = _is_non_time_series_trend(query)
     check_current_interval = config.check_ongoing_interval
 
+    # Do not use cache hourly trends alerts.
+    # The cache key uses relative times (e.g -2h), and this leads to
+    # using stale data irrelevant for the current alert check
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    if query.interval == IntervalType.HOUR:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
             if threshold.type != InsightThresholdType.ABSOLUTE:
@@ -84,7 +91,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 team=alert.team,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_override,
             )
@@ -175,7 +182,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 team=alert.team,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_overrides,
             )
@@ -282,7 +289,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 team=alert.team,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=execution_mode,
                 user=None,
                 filters_override=filters_overrides,
             )

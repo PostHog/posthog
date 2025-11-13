@@ -22,7 +22,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
                     listParts={[<>created a new view</>]}
                     prefix={
                         <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
+                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
                         </>
                     }
                 />
@@ -37,7 +37,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
                     listParts={[<>updated the view</>]}
                     prefix={
                         <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
+                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
                         </>
                     }
                 />

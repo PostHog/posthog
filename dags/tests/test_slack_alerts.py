@@ -1,9 +1,10 @@
 from unittest import mock
 
 import dagster
+from dagster import DagsterRunStatus
 
 from dags.common import JobOwners
-from dags.slack_alerts import get_job_owner_for_alert
+from dags.slack_alerts import get_job_owner_for_alert, should_suppress_alert
 
 
 class TestSlackAlertsRouting:
@@ -72,3 +73,102 @@ class TestSlackAlertsRouting:
         result = get_job_owner_for_alert(mock_run, error_message)
 
         assert result == "unknown"
+
+
+class TestConsecutiveFailureSuppression:
+    def test_suppression_with_fewer_runs_than_threshold(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        mock_records = [
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+        ]
+        mock_instance.get_run_records.return_value = mock_records
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=3)
+
+        assert result is True
+        mock_context.log.info.assert_called()
+
+    def test_no_suppression_when_threshold_reached(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        mock_records = [
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+        ]
+        mock_instance.get_run_records.return_value = mock_records
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=3)
+
+        assert result is False
+        mock_context.log.warning.assert_called()
+
+    def test_suppression_with_mixed_success_and_failure(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        mock_records = [
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.SUCCESS)),
+        ]
+        mock_instance.get_run_records.return_value = mock_records
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=3)
+
+        assert result is True
+        mock_context.log.info.assert_called()
+
+    def test_suppression_with_one_success_among_failures(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        mock_records = [
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.SUCCESS)),
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+        ]
+        mock_instance.get_run_records.return_value = mock_records
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=3)
+
+        assert result is True
+        mock_context.log.info.assert_called()
+
+    def test_error_handling_does_not_suppress(self):
+        """Should NOT suppress alert if there's an error checking run history so we keep the existing behavior"""
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        # Mock an exception when getting run records
+        mock_instance.get_run_records.side_effect = Exception("Database connection error")
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=3)
+
+        assert result is False
+        mock_context.log.exception.assert_called()
+
+    def test_threshold_of_one_never_suppresses(self):
+        mock_context = mock.MagicMock(spec=dagster.RunFailureSensorContext)
+        mock_instance = mock.MagicMock()
+        mock_context.instance = mock_instance
+
+        # Mock 1 run record (failure)
+        mock_records = [
+            mock.MagicMock(dagster_run=mock.MagicMock(status=DagsterRunStatus.FAILURE)),
+        ]
+        mock_instance.get_run_records.return_value = mock_records
+
+        result = should_suppress_alert(mock_context, "some_job", threshold=1)
+
+        assert result is False
+        mock_context.log.warning.assert_called()

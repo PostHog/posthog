@@ -13,6 +13,21 @@ from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 logger = structlog.get_logger(__name__)
 
 
+def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
+    if asset.exception:
+        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+        return {
+            "error": True,
+            "insight_name": insight_name,
+            "error_message": asset.exception,
+        }
+
+    return {
+        "error": False,
+        "image_url": asset.get_public_content_url(),
+    }
+
+
 def send_email_subscription_report(
     email: str,
     subscription: Subscription,
@@ -52,7 +67,7 @@ def send_email_subscription_report(
         subject=subject,
         template_name="subscription_report",
         template_context={
-            "images": [x.get_public_content_url() for x in assets],
+            "asset_data": [_get_asset_data_for_email(x) for x in assets],
             "resource_noun": resource_info.kind,
             "resource_name": resource_info.name,
             "resource_url": f"{resource_info.url}?{utm_tags}",

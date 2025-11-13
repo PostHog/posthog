@@ -7,16 +7,25 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SCRATCHPAD_NOTEBOOK, notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, CommentType, SidePanelTab } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { isSavedInsightNode } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    CommentType,
+    InsightShortId,
+    SidePanelTab,
+} from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -68,6 +77,7 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
+
     connect((props: NotebookLogicProps) => ({
         values: [
             notebooksModel,
@@ -129,6 +139,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
+        addSavedInsightToNotebook: (insightShortId: InsightShortId) => ({ insightShortId }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
@@ -470,7 +481,24 @@ export const notebookLogic = kea<notebookLogicType>([
                 (shouldBeEditable &&
                     !previewContent &&
                     !!notebook?.user_access_level &&
-                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
+        ],
+
+        insightShortIdsInNotebook: [
+            (s) => [s.content],
+            (content) => {
+                if (!content) {
+                    return []
+                }
+                const insightNodes = content?.content?.filter(
+                    (node) => node.type === NotebookNodeType.Query && isSavedInsightNode(node?.attrs?.query)
+                )
+                return insightNodes?.map((node) => node?.attrs?.query?.shortId)
+            },
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -513,11 +541,27 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
+        addSavedInsightToNotebook: async ({ insightShortId }) => {
+            actions.insertAfterLastNode({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.SavedInsightNode,
+                        shortId: insightShortId,
+                    },
+                },
+            })
+            lemonToast.success('Insight added to notebook')
+        },
         setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
-                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+                !accessLevelSatisfied(
+                    AccessControlResourceType.Notebook,
+                    values.notebook.user_access_level,
+                    AccessControlLevel.Editor
+                )
             ) {
                 actions.clearLocalContent()
                 return
@@ -639,10 +683,16 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
-            clearTimeout(cache.refreshTimeout)
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadNotebook()
-            }, NOTEBOOK_REFRESH_MS)
+            // Remove any existing refresh timeout
+            cache.disposables.dispose('refreshTimeout')
+
+            // Add new refresh timeout
+            cache.disposables.add(() => {
+                const refreshTimeout = setTimeout(() => {
+                    actions.loadNotebook()
+                }, NOTEBOOK_REFRESH_MS)
+                return () => clearTimeout(refreshTimeout)
+            }, 'refreshTimeout')
         },
 
         // Comments
@@ -709,8 +759,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(

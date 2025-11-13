@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.transforms.state_aggregations import (
     combine_queries_with_state_and_merge,
@@ -22,7 +22,7 @@ class TestStateTransforms(BaseTest):
     snapshot: Any
 
     def _print_select(self, expr: ast.SelectQuery | ast.SelectSetQuery):
-        query = print_ast(
+        query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
@@ -874,7 +874,7 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
 
     def _print_select(self, expr: ast.SelectQuery):
-        query = print_ast(
+        query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
@@ -914,14 +914,14 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
 
     def execute_original_and_merge_queries(self, original_query_ast):
         context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        original_sql = print_ast(original_query_ast, context=context_original, dialect="clickhouse")
+        original_sql, _ = prepare_and_print_ast(original_query_ast, context=context_original, dialect="clickhouse")
         original_result = sync_execute(original_sql, context_original.values)
 
         state_query_ast = transform_query_to_state_aggregations(original_query_ast)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_sql, _ = prepare_and_print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
         transformed_result = sync_execute(transformed_sql, context_transformed.values)
 
         return original_result, transformed_result
@@ -1106,11 +1106,11 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
 
         # Execute both and compare
         context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        original_sql = print_ast(original_union_ast, context=context_original, dialect="clickhouse")
+        original_sql, _ = prepare_and_print_ast(original_union_ast, context=context_original, dialect="clickhouse")
         original_result = sync_execute(original_sql, context_original.values)
 
         context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        transformed_sql = print_ast(final_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_sql, _ = prepare_and_print_ast(final_query_ast, context=context_transformed, dialect="clickhouse")
         transformed_result = sync_execute(transformed_sql, context_transformed.values)
 
         # Results should be equivalent (order might differ, so we sort)

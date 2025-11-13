@@ -53,8 +53,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     if (req.url.searchParams.get('source') === 'blob') {
                         throw new Error('not expecting this to be called in this test')
-                    } else if (req.url.searchParams.get('source') === 'realtime') {
-                        throw new Error('not expecting this to be called in this test')
                     } else if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
                         const start_blob_key = req.url.searchParams.get('start_blob_key')
@@ -135,7 +133,7 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                     start_timestamp: '2025-05-18T03:51:54.816000Z',
                 },
             ])
-            expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1'])
+            expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
             expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(11)
             // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
             expect(logic.values.snapshotsBySources['blob_v2-1']).toEqual({
@@ -145,7 +143,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
             expect(logic.cache.processingCache['blob_v2-0']).toEqual(
                 logic.values.snapshotsBySources['blob_v2-0'].snapshots
             )
-            expect(logic.cache.processingCache['blob_v2-1']).toHaveLength(0)
         })
     })
 })

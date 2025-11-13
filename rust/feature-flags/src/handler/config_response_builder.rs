@@ -249,8 +249,9 @@ mod tests {
             id: 1,
             name: "Test Team".to_string(),
             api_token: "test-token".to_string(),
-            project_id: 1,
+            project_id: Some(1),
             uuid: Uuid::new_v4(),
+            organization_id: None,
             autocapture_opt_out: None,
             autocapture_exceptions_opt_in: None,
             autocapture_web_vitals_opt_in: None,
@@ -276,7 +277,7 @@ mod tests {
             session_recording_event_trigger_config: None,
             session_recording_trigger_match_type_config: None,
             recording_domains: None,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
         }
     }

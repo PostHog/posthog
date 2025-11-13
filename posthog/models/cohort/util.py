@@ -6,7 +6,6 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from dateutil import parser
 from rest_framework.exceptions import ValidationError
 
@@ -14,7 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.clickhouse.client import sync_execute
@@ -49,44 +48,62 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def run_cohort_query(fn, *args, **kwargs):
+def run_cohort_query(
+    fn, *args, cohort_id: int, history: CohortCalculationHistory | None = None, query: str | None = None, **kwargs
+):
     """
-    Run a cohort calculation function with automatic query performance tracking.
+    Run a cohort calculation function with delayed query performance tracking.
+
+    Args:
+        fn: Function to execute
+        cohort_id: ID of the cohort being calculated
+        history_id: Optional UUID string of CohortCalculationHistory to update with delayed stats
+        query: Optional SQL query string to be logged with stats
+        *args, **kwargs: Arguments passed to fn
+
+    Returns:
+        tuple: (result, end_time) where end_time is when the query finished
     """
     tracking_uuid = uuid.uuid4().hex[:8]
     cohort_tag = f"cohort_calc:{tracking_uuid}"
+
+    # Store the start time before running the query
+    start_time = timezone.now()
 
     # Tag the query for tracking
     tag_queries(kind="cohort_calculation", id=cohort_tag)
 
     try:
         result = fn(*args, **kwargs)
-        stats = get_clickhouse_query_stats(cohort_tag)
-        return result, stats
+        end_time = timezone.now()  # Capture when query actually finished
+
+        return result, end_time
+
     finally:
+        # Schedule delayed task to collect stats after query_log_archive is synced
+        # Only if we have a history record to update
+        if history and query:
+            from posthog.tasks.calculate_cohort import collect_cohort_query_stats
+
+            collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=60,
+            )
         # Reset query tags to avoid affecting other queries
         from posthog.clickhouse.query_tagging import reset_query_tags
 
         reset_query_tags()
 
 
-def get_clickhouse_query_stats(tag_matcher: str) -> Optional[dict]:
+def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> Optional[dict]:
     """
-    Retrieve query statistics from ClickHouse system.query_log using query tags.
+    Retrieve query statistics from ClickHouse query_log_archive using query tags.
     Similar to approach in ee/benchmarks/helpers.py but adapted for cohort calculations.
     """
     if not tag_matcher:
         return None
 
     try:
-        # Flush logs to ensure recent queries are available
-        sync_execute(
-            "SYSTEM FLUSH LOGS",
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-        )
-
-        # Query system.query_log using tag matcher - same pattern as benchmarks
         result = sync_execute(
             """
             SELECT
@@ -95,15 +112,25 @@ def get_clickhouse_query_stats(tag_matcher: str) -> Optional[dict]:
                 read_rows,
                 read_bytes,
                 written_rows,
-                memory_usage
-            FROM system.query_log
+                memory_usage,
+                exception
+            FROM query_log_archive
             WHERE
-                query NOT LIKE '%%query_log%%'
+                lc_cohort_id = %(cohort_id)s
+                AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type = 'QueryFinish'
+                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
+                AND event_date >= %(start_date)s
+                AND event_time >= %(start_time)s
             ORDER BY event_time DESC
             """,
-            {"matcher": f"%{tag_matcher}%"},
+            {
+                "cohort_id": cohort_id,
+                "team_id": team_id,
+                "matcher": f"%{tag_matcher}%",
+                "start_date": start_time.date(),
+                "start_time": start_time,
+            },
             settings={"max_execution_time": 10},
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
@@ -125,10 +152,11 @@ def get_clickhouse_query_stats(tag_matcher: str) -> Optional[dict]:
                 "read_bytes": sum(get_column(result, 3)),
                 "written_rows": sum(get_column(result, 4)),
                 "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+                "exception": first_row[6] if len(first_row) > 6 else None,
             }
 
     except Exception as e:
-        logger.warning("Failed to retrieve ClickHouse query stats", tag_matcher=tag_matcher, error=str(e))
+        logger.exception("Failed to retrieve ClickHouse query stats", tag_matcher=tag_matcher, error=str(e))
 
     return None
 
@@ -197,7 +225,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     # Apply HogQL global settings to ensure consistency with regular queries
     settings = HogQLGlobalSettings()
-    return print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)
+    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
@@ -414,35 +442,47 @@ def recalculate_cohortpeople(
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
         tag_queries(team_id=team.id)
-        _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, initiating_user_id=initiating_user_id)
-        count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
-        count_by_team_id[team.id] = count or 0
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
+        count: Optional[int]
+        if cohort.is_static:
+            count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
+        else:
+            count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
+        count_by_team_id[team.id] = count if count is not None else 0
 
     return count_by_team_id[cohort.team_id]
 
 
-def _recalculate_cohortpeople_for_team_hogql(
-    cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
-) -> int:
+def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
     tag_queries(name="recalculate_cohortpeople_for_team_hogql")
 
-    history = None
-    if posthoganalytics.feature_enabled("cohort-calculation-history", str(team.id)):
-        try:
-            history = CohortCalculationHistory.objects.create(
-                team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
-            )
-        except Exception as e:
-            logger.exception("Failed to create cohort calculation history", error=str(e))
+    history = CohortCalculationHistory.objects.create(
+        team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+    )
 
+    try:
+        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
+        return result
+
+    except Exception as e:
+        history.finished_at = timezone.now()
+        history.error = str(e)
+        history.save(update_fields=["finished_at", "error"])
+        raise
+
+
+def _recalculate_cohortpeople_for_team_hogql(
+    cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
+) -> int:
     cohort_params: dict[str, Any]
-    # No need to do anything here, as we're only testing hogql
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
     elif not cohort.properties.values:
-        # Can't match anything, don't insert anything
-        cohort_query = "SELECT generateUUIDv4() as id WHERE 0 = 19"
-        cohort_params = {}
+        history.finished_at = timezone.now()
+        history.count = 0
+        history.error = "Cohort has no properties defined"
+        history.save(update_fields=["finished_at", "count", "error"])
+        return 0
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
@@ -457,10 +497,16 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORT)
-    hogql_global_settings = HogQLGlobalSettings()
-
     def execute_query():
+        tag_queries(
+            kind="cohort_calculation",
+            query_type="CohortsQueryHogQL",
+            feature=Feature.COHORT,
+            cohort_id=cohort.pk,
+            team_id=team.id,
+        )
+        hogql_global_settings = HogQLGlobalSettings()
+
         return sync_execute(
             recalculate_cohortpeople_sql,
             {
@@ -483,32 +529,21 @@ def _recalculate_cohortpeople_for_team_hogql(
             ch_user=ClickHouseUser.COHORTS,
         )
 
-    result, query_stats = run_cohort_query(execute_query)
+    result, query_end_time = run_cohort_query(
+        execute_query,
+        cohort_id=cohort.pk,
+        history=history,
+        query=recalculate_cohortpeople_sql,
+    )
 
     if history:
-        try:
-            history.finished_at = timezone.now()
-            if isinstance(result, list) and len(result) == 0:
-                history.count = 0
-            else:
-                history.count = result
+        history.finished_at = query_end_time
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
 
-            history.add_query_info(
-                query=recalculate_cohortpeople_sql,
-                query_id=query_stats.get("query_id") if query_stats else None,
-                query_ms=query_stats.get("query_duration_ms") if query_stats else None,
-                memory_mb=query_stats.get("memory_mb") if query_stats else None,
-                read_rows=query_stats.get("read_rows") if query_stats else None,
-                written_rows=query_stats.get("written_rows") if query_stats else None,
-            )
-
-            history.save(update_fields=["finished_at", "count", "queries"])
-
-        except Exception as e:
-            history.finished_at = timezone.now()
-            history.error = str(e)
-            history.save(update_fields=["finished_at", "error"])
-            raise
+        history.save(update_fields=["finished_at", "count"])
 
     return result
 

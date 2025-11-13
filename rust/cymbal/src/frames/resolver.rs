@@ -1,20 +1,23 @@
 use std::time::Duration;
 
+use common_types::error_tracking::RawFrameId;
 use moka::sync::{Cache, CacheBuilder};
 use sqlx::PgPool;
 
 use crate::{
     config::Config,
     error::UnhandledError,
-    frames::FrameId,
-    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
+    metric_consts::{
+        FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
+        SUSPICIOUS_FRAMES_DETECTED,
+    },
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
 use super::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame};
 
 pub struct Resolver {
-    cache: Cache<FrameId, ErrorTrackingStackFrame>,
+    cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
     result_ttl: chrono::Duration,
 }
 
@@ -35,60 +38,68 @@ impl Resolver {
         team_id: i32,
         pool: &PgPool,
         catalog: &Catalog,
-    ) -> Result<Frame, UnhandledError> {
-        if let Some(result) = self.cache.get(&frame.frame_id(team_id)) {
+    ) -> Result<Vec<Frame>, UnhandledError> {
+        if frame.is_suspicious() {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
+        }
+        let raw_id = frame.raw_id(team_id);
+
+        if let Some(result) = self.cache.get(&raw_id) {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
-            return Ok(result.contents);
+            return Ok(result.into_iter().map(|f| f.contents).collect());
         }
         metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
-        if let Some(mut result) =
-            ErrorTrackingStackFrame::load(pool, &frame.frame_id(team_id), self.result_ttl).await?
-        {
-            // We don't serialise release information on the frame, so we have to reload it if we fetched
-            // the saved result from the DB
-            result.contents = add_release_info(pool, result.contents, frame, team_id).await?;
-            self.cache.insert(frame.frame_id(team_id), result.clone());
+        let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
+
+        if !loaded.is_empty() {
+            self.cache.insert(raw_id.clone(), loaded.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
-            return Ok(result.contents);
+            return Ok(loaded.into_iter().map(|f| f.contents).collect());
         }
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
-        let resolved = add_release_info(pool, resolved, frame, team_id).await?;
 
-        let set = if let Some(set_ref) = frame.symbol_set_ref() {
-            SymbolSetRecord::load(pool, team_id, &set_ref).await?
+        assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
+
+        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref() {
+            // TODO - should be a join
+            (
+                SymbolSetRecord::load(pool, team_id, &set_ref).await?,
+                ReleaseRecord::for_symbol_set_ref(pool, &set_ref, team_id).await?,
+            )
         } else {
-            None
+            (None, None)
         };
 
-        let record = ErrorTrackingStackFrame::new(
-            frame.frame_id(team_id),
-            set.map(|s| s.id),
-            resolved.clone(),
-            resolved.resolved,
-            resolved.context.clone(),
-        );
+        let mut records = Vec::new();
+        let mut resolved = resolved.clone();
+        for r_frame in resolved.iter_mut() {
+            r_frame.release = release.clone(); // Enrich with release information
 
-        record.save(pool).await?;
+            // And save back to the DB
+            let record = ErrorTrackingStackFrame::new(
+                r_frame.frame_id.clone(),
+                set.as_ref().map(|s| s.id),
+                r_frame.clone(),
+                r_frame.resolved,
+                r_frame.context.clone(),
+            );
+            record.save(pool).await?;
+            if r_frame.suspicious {
+                metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
+                    .increment(1);
+            }
 
-        self.cache.insert(frame.frame_id(team_id), record);
+            // And gather up for the cache
+            records.push(record);
+        }
+
+        self.cache.insert(frame.raw_id(team_id), records);
         Ok(resolved)
     }
-}
-
-async fn add_release_info(
-    pool: &PgPool,
-    mut resolved: Frame,
-    raw: &RawFrame,
-    team_id: i32,
-) -> Result<Frame, UnhandledError> {
-    if let Some(set_ref) = raw.symbol_set_ref() {
-        resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
-    }
-    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -108,6 +119,7 @@ mod test {
         symbol_store::{
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
+            proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
@@ -169,7 +181,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp);
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp);
 
         (config, catalog, server)
     }
@@ -240,7 +259,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_sourcemapcache_bytes()))
+            .returning(|_, _| Ok(Some(get_sourcemapcache_bytes())))
             .times(gets);
 
         client
@@ -280,11 +299,13 @@ mod test {
             .unwrap();
 
         // get the frame
-        let frame_id = frame.frame_id(0);
-        let frame = ErrorTrackingStackFrame::load(&pool, &frame_id, chrono::Duration::minutes(30))
-            .await
-            .unwrap()
-            .unwrap();
+        let frame_id = frame.raw_id(0);
+        let frame =
+            ErrorTrackingStackFrame::load_all(&pool, &frame_id, chrono::Duration::minutes(30))
+                .await
+                .unwrap()
+                .pop()
+                .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

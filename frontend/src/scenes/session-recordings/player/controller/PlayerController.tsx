@@ -4,7 +4,7 @@ import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
@@ -31,6 +31,22 @@ function PlayPauseButton(): JSX.Element {
 
     const showPause = playingState === SessionPlayerState.PLAY
 
+    const getPlayIcon = (): JSX.Element => {
+        const localTime = new Date()
+
+        // If between October 28th and October 31st
+        if (localTime.getMonth() == 9 && localTime.getDate() >= 28) {
+            return <IconGhost className="text-3xl" />
+        }
+
+        // If between December 1st and December 28th
+        if (localTime.getMonth() == 11 && localTime.getDate() <= 28) {
+            return <IconSanta className="text-3xl" />
+        }
+
+        return <IconPlay className="text-3xl" />
+    }
+
     return (
         <LemonButton
             size="large"
@@ -42,13 +58,14 @@ function PlayPauseButton(): JSX.Element {
                     <KeyboardShortcut space />
                 </div>
             }
+            data-attr={showPause ? 'recording-pause' : endReached ? 'recording-rewind' : 'recording-play'}
         >
             {showPause ? (
                 <IconPause className="text-3xl" />
             ) : endReached ? (
                 <IconRewindPlay className="text-3xl" />
             ) : (
-                <IconPlay className="text-3xl" />
+                getPlayIcon()
             )}
         </LemonButton>
     )
@@ -149,11 +166,11 @@ export function PlayerController(): JSX.Element {
         >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
-                <Timestamp size={size} />
                 <div className="flex gap-0.5 items-center justify-center">
-                    <SeekSkip direction="backward" />
                     <PlayPauseButton />
+                    <SeekSkip direction="backward" />
                     <SeekSkip direction="forward" />
+                    <Timestamp size={size} />
                 </div>
                 <div className="flex justify-end items-center">
                     {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (

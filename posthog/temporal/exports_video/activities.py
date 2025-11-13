@@ -11,6 +11,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -33,10 +34,6 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     except (ValueError, TypeError):
         ts = 0
 
-    url = absolute_uri(
-        f"/exporter?token={access_token}&t={ts}&fullscreen=true&inspectorSideBar=false&showInspector=false"
-    )
-
     # Validate CSS selector (basic sanitization)
     css_raw = asset.export_context.get("css_selector", ".replayer-wrapper")
     if not isinstance(css_raw, str) or len(css_raw) > 100:
@@ -57,6 +54,24 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     if height is not None:
         height = max(300, min(2160, int(height)))
 
+    # we can set playback speed to any integer between 1 and 360
+    try:
+        playback_speed = max(1, min(360, int(asset.export_context.get("playback_speed", 1))))
+    except (ValueError, TypeError):
+        playback_speed = 1
+
+    url_params = {
+        "token": access_token,
+        "t": ts,
+        "fullscreen": "true",
+        "inspectorSideBar": "false",
+        "showInspector": "false",
+    }
+    if playback_speed != 1:
+        url_params["playerSpeed"] = playback_speed
+
+    url = absolute_uri(f"/exporter?{'&'.join(f'{key}={value}' for key, value in url_params.items())}")
+
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
     return {
@@ -67,6 +82,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
         "export_format": fmt,
         "tmp_ext": tmp_ext,
         "duration": duration,
+        "playback_speed": playback_speed,
     }
 
 
@@ -78,12 +94,15 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
     tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
     try:
         record_replay_to_file(
-            image_path=tmp_path,
-            url_to_render=build["url_to_render"],
-            screenshot_width=build.get("width"),  # None if not provided
-            wait_for_css_selector=build["css_selector"],
-            screenshot_height=build.get("height"),  # None if not provided
-            recording_duration=build["duration"],
+            RecordReplayToFileOptions(
+                image_path=tmp_path,
+                url_to_render=build["url_to_render"],
+                screenshot_width=build.get("width"),  # None if not provided
+                wait_for_css_selector=build["css_selector"],
+                screenshot_height=build.get("height"),  # None if not provided
+                recording_duration=build["duration"],
+                playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
+            )
         )
         return {"tmp_path": tmp_path}
     except Exception:

@@ -8,6 +8,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
@@ -122,6 +123,7 @@ export const MetricHeader = ({
     } = useActions(modalsLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -143,10 +145,18 @@ export const MetricHeader = ({
                                 tooltip="Edit"
                                 onClick={() => {
                                     if (metric.isSharedMetric) {
+                                        /**
+                                         * this is for legacy experiments support
+                                         */
                                         const openSharedModal = isPrimaryMetric
                                             ? openPrimarySharedMetricModal
                                             : openSecondarySharedMetricModal
                                         openSharedModal(metric.sharedMetricId)
+
+                                        openSharedMetricModal(
+                                            METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
+                                            metric.sharedMetricId
+                                        )
                                     } else {
                                         /**
                                          * this is for legacy experiments support
@@ -183,8 +193,8 @@ export const MetricHeader = ({
                                                 <div className="text-sm text-secondary max-w-lg">
                                                     <p>
                                                         We'll take you to the form to customize and save this metric.
-                                                        Your new version will appear in your shared metrics, ready to
-                                                        add to your experiment.
+                                                        Your new version will appear in your shared metrics, ready to be
+                                                        added to your experiment.
                                                     </p>
                                                 </div>
                                             ),

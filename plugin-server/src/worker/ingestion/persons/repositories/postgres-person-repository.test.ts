@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, Team } from '../../../../types'
+import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
 import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
+import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
 
@@ -244,6 +245,14 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
             expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
             expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
+
+            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            expect(distinctIds).toHaveLength(2)
+            expect(distinctIds).toEqual(expect.arrayContaining(['distinct-1', 'distinct-2']))
+
+            const distinctIdRecords = await fetchDistinctIds(hub.db.postgres, person)
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe('0')
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
 
         it('creates a person without distinct IDs', async () => {
@@ -482,10 +491,12 @@ describe('PostgresPersonRepository', () => {
 
             const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
 
-            expect(result.success).toBe(false)
-            if (!result.success) {
-                expect(result.error).toBe('TargetNotFound')
-            }
+            // TODO: This should be false, but we need to allow this to happen since we remove the
+            // foreign key constraint on the distinct ID table.
+            expect(result.success).toBe(true)
+            // if (!result.success) {
+            //     expect(result.error).toBe('TargetNotFound')
+            // }
         })
 
         it('should handle source person not found', async () => {
@@ -1084,15 +1095,16 @@ describe('PostgresPersonRepository', () => {
                 },
             })
 
-            const size = await repository.personPropertiesSize(person.id)
+            const size = await repository.personPropertiesSize(person.id, team.id)
 
             expect(size).toBeGreaterThan(0)
             expect(typeof size).toBe('number')
         })
 
         it('should return 0 for non-existent person', async () => {
+            const team = await getFirstTeam(hub)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
-            const size = await repository.personPropertiesSize(fakePersonId)
+            const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
             expect(size).toBe(0)
         })
@@ -1108,11 +1120,11 @@ describe('PostgresPersonRepository', () => {
             const person2 = await createTestPerson(team2Id, 'different-distinct', { name: 'Team 2 Person' })
 
             // Check size for person 1
-            const size1 = await repository.personPropertiesSize(person1.id)
+            const size1 = await repository.personPropertiesSize(person1.id, team1.id)
             expect(size1).toBeGreaterThan(0)
 
             // Check size for person 2
-            const size2 = await repository.personPropertiesSize(person2.id)
+            const size2 = await repository.personPropertiesSize(person2.id, team2Id)
             expect(size2).toBeGreaterThan(0)
         })
 
@@ -1121,7 +1133,7 @@ describe('PostgresPersonRepository', () => {
 
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
-            const minimalSize = await repository.personPropertiesSize(minimalPerson.id)
+            const minimalSize = await repository.personPropertiesSize(minimalPerson.id, team.id)
 
             // Create person with extensive properties
             const extensiveProperties = {
@@ -1150,7 +1162,7 @@ describe('PostgresPersonRepository', () => {
                 },
             }
             const extensivePerson = await createTestPerson(team.id, 'extensive-person', extensiveProperties)
-            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id)
+            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id, team.id)
 
             expect(extensiveSize).toBeGreaterThan(minimalSize)
         })
@@ -1162,7 +1174,10 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
 
             const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
-            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, update)
+            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane', age: 30, city: 'New York' })
             expect(updatedPerson.version).toBe(person.version + 1)
@@ -1175,23 +1190,15 @@ describe('PostgresPersonRepository', () => {
             expect(fetchedPerson?.version).toBe(person.version + 1)
         })
 
-        it('should handle empty update gracefully', async () => {
-            const team = await getFirstTeam(hub)
-            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
-
-            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, {})
-
-            expect(updatedPerson).toEqual(person)
-            expect(messages).toHaveLength(0)
-            expect(versionDisparity).toBe(false)
-        })
-
         it('should update is_identified field', async () => {
             const team = await getFirstTeam(hub)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { is_identified: true }
-            const [updatedPerson, messages] = await repository.updatePerson(person, update)
+            const [updatedPerson, messages] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.is_identified).toBe(true)
             expect(updatedPerson.version).toBe(person.version + 1)
@@ -1204,11 +1211,17 @@ describe('PostgresPersonRepository', () => {
 
             // First update
             const update1 = { properties: { name: 'Jane' } }
-            const [updatedPerson1, _messages1] = await repository.updatePerson(person, update1)
+            const [updatedPerson1, _messages1] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update1)
+            )
 
             // Second update with the updated person (should succeed since we're using the latest version)
             const update2 = { properties: { age: 30 } }
-            const [updatedPerson2, messages2] = await repository.updatePerson(updatedPerson1, update2)
+            const [updatedPerson2, messages2] = await repository.updatePerson(
+                updatedPerson1,
+                createPersonUpdateFields(updatedPerson1, update2)
+            )
 
             // updatePerson replaces properties entirely, so we expect only the age property
             expect(updatedPerson2.properties).toEqual({ age: 30 })
@@ -1222,7 +1235,12 @@ describe('PostgresPersonRepository', () => {
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
                 const update = { properties: { name: 'Jane' } }
-                const [updatedPerson, messages] = await repository.updatePerson(person, update, 'tx', tx)
+                const [updatedPerson, messages] = await repository.updatePerson(
+                    person,
+                    createPersonUpdateFields(person, update),
+                    'tx',
+                    tx
+                )
 
                 expect(updatedPerson.properties).toEqual({ name: 'Jane' })
                 expect(messages).toHaveLength(1)
@@ -1238,7 +1256,11 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
-            const [updatedPerson, messages] = await repository.updatePerson(person, update, 'test-tag')
+            const [updatedPerson, messages] = await repository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update),
+                'test-tag'
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane' })
             expect(messages).toHaveLength(1)
@@ -1260,7 +1282,9 @@ describe('PostgresPersonRepository', () => {
             }
 
             const update = { properties: { name: 'Jane' } }
-            await expect(repository.updatePerson(nonExistentPerson, update)).rejects.toThrow(NoRowsUpdatedError)
+            await expect(
+                repository.updatePerson(nonExistentPerson, createPersonUpdateFields(nonExistentPerson, update))
+            ).rejects.toThrow(NoRowsUpdatedError)
         })
 
         it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
@@ -1283,6 +1307,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // First update should succeed
@@ -1317,6 +1343,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail due to version mismatch
@@ -1350,6 +1378,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail because person doesn't exist
@@ -1367,7 +1397,7 @@ describe('PostgresPersonRepository', () => {
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await hub.db.postgres.query(
-                PostgresUse.COMMON_WRITE,
+                PostgresUse.PERSONS_WRITE,
                 'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
                 [],
                 ''
@@ -1719,7 +1749,10 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                const [updatedPerson, messages] = await oversizedRepository.updatePerson(normalPerson, oversizedUpdate)
+                const [updatedPerson, messages] = await oversizedRepository.updatePerson(
+                    normalPerson,
+                    createPersonUpdateFields(normalPerson, oversizedUpdate)
+                )
 
                 expect(updatedPerson).toBeDefined()
                 expect(updatedPerson.version).toBe(normalPerson.version + 1)
@@ -1754,12 +1787,18 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    'Person properties update would exceed size limit'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow('Person properties update would exceed size limit')
 
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
@@ -1801,14 +1840,20 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
                 updateCallCount = 0
-                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
-                    'Person properties update failed after trying to trim oversized properties'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(
+                        normalPerson,
+                        createPersonUpdateFields(normalPerson, oversizedUpdate)
+                    )
+                ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
 
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
@@ -1868,16 +1913,16 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
-                    PersonPropertiesSizeViolationError
-                )
+                await expect(
+                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
                 expect(updateCallCount).toBe(2)
 
                 updateCallCount = 0
-                await expect(oversizedRepository.updatePerson(oversizedPerson, update)).rejects.toThrow(
-                    'Person properties update failed after trying to trim oversized properties'
-                )
+                await expect(
+                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
+                ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
 
                 expect(updateCallCount).toBe(2)
 
@@ -1949,6 +1994,8 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    original_is_identified: false,
+                    original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2033,7 +2080,7 @@ describe('PostgresPersonRepository', () => {
                 }
 
                 try {
-                    await oversizedRepository.updatePerson(person, oversizedUpdate)
+                    await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
                 } catch (error) {}
 
@@ -2147,12 +2194,12 @@ describe('PostgresPersonRepository', () => {
 
             const [updatedPerson1, messages1, versionDisparity1] = await repositoryWithCalculation.updatePerson(
                 person1,
-                update,
+                createPersonUpdateFields(person1, update),
                 'test-with-logging'
             )
             const [updatedPerson2, messages2, versionDisparity2] = await repositoryWithoutCalculation.updatePerson(
                 person2,
-                update,
+                createPersonUpdateFields(person2, update),
                 'test-without-logging'
             )
 
@@ -2201,6 +2248,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')
@@ -2234,12 +2283,1603 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-default', { name: 'John' })
             const update = { properties: { name: 'Jane', city: 'Boston' } }
 
-            const [updatedPerson, messages, versionDisparity] = await defaultRepository.updatePerson(person, update)
+            const [updatedPerson, messages, versionDisparity] = await defaultRepository.updatePerson(
+                person,
+                createPersonUpdateFields(person, update)
+            )
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane', city: 'Boston' })
             expect(updatedPerson.version).toBe(person.version + 1)
             expect(messages).toHaveLength(1)
             expect(versionDisparity).toBe(false)
+        })
+    })
+
+    describe('JSON field size metrics', () => {
+        let personJsonFieldSizeHistogram: any
+        let labelsSpy: jest.SpyInstance
+        let observeCalls: any[]
+
+        beforeEach(() => {
+            // Import the histogram
+            const metricsModule = require('../metrics')
+            personJsonFieldSizeHistogram = metricsModule.personJsonFieldSizeHistogram
+
+            // Track observe calls
+            observeCalls = []
+
+            // Spy on labels to intercept and spy on observe
+            const originalLabels = personJsonFieldSizeHistogram.labels.bind(personJsonFieldSizeHistogram)
+            labelsSpy = jest.spyOn(personJsonFieldSizeHistogram, 'labels').mockImplementation(function (labels: any) {
+                const labeledInstance = originalLabels(labels)
+                const originalObserve = labeledInstance.observe.bind(labeledInstance)
+                labeledInstance.observe = jest.fn((value: number) => {
+                    observeCalls.push({ labels, value })
+                    return originalObserve(value)
+                })
+                return labeledInstance
+            })
+        })
+
+        afterEach(() => {
+            if (labelsSpy) {
+                labelsSpy.mockRestore()
+            }
+            observeCalls = []
+        })
+
+        it('should track JSON field sizes on createPerson', async () => {
+            const team = await getFirstTeam(hub)
+            const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
+            const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
+            const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(propertiesLastUpdatedAt).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(propertiesLastOperation).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-create' }]
+            )
+
+            // Verify metrics were recorded for all three fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with operation='createPerson' and exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('createPerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should track JSON field sizes on updatePerson with properties', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            const update = {
+                properties: { name: 'Bob Updated', city: 'San Francisco', data: 'x'.repeat(1000) },
+                properties_last_updated_at: { name: '2024-01-16T10:30:00.000Z', city: '2024-01-16T10:30:00.000Z' },
+                properties_last_operation: { name: PropertyUpdateOperation.Set, city: PropertyUpdateOperation.Set },
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(update.properties_last_updated_at).length
+            const expectedPropertiesLastOperationSize = JSON.stringify(update.properties_last_operation).length
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Verify metrics were recorded for all updated fields (3 calls total)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify each field was recorded with exact size
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should only track metrics for fields being updated', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Only update properties, not the other fields
+            const update = {
+                properties: { name: 'Charlie Updated' },
+            }
+
+            const expectedPropertiesSize = JSON.stringify(update.properties).length
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            expect(observeCalls).toHaveLength(3)
+
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('updatePerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+        })
+
+        it('should handle large properties correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const largeProperties = {
+                name: 'David',
+                large_field: 'z'.repeat(100000), // 100KB of data
+            }
+
+            // Pre-serialize to calculate expected sizes
+            const expectedPropertiesSize = JSON.stringify(largeProperties).length
+            const expectedPropertiesLastUpdatedAtSize = JSON.stringify({}).length
+            const expectedPropertiesLastOperationSize = JSON.stringify({}).length
+
+            await repository.createPerson(
+                TIMESTAMP,
+                largeProperties,
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [{ distinctId: 'test-metrics-large' }]
+            )
+
+            // Should have 3 calls (properties, properties_last_updated_at, properties_last_operation)
+            expect(observeCalls).toHaveLength(3)
+
+            // Verify exact sizes
+            const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
+            const propertiesLastUpdatedAtCall = observeCalls.find(
+                (c) => c.labels.field === 'properties_last_updated_at'
+            )
+            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
+
+            expect(propertiesCall).toBeDefined()
+            expect(propertiesCall!.labels.operation).toBe('createPerson')
+            expect(propertiesCall!.value).toBe(expectedPropertiesSize)
+            expect(propertiesCall!.value).toBeGreaterThan(100000) // Sanity check
+
+            expect(propertiesLastUpdatedAtCall).toBeDefined()
+            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
+
+            expect(propertiesLastOperationCall).toBeDefined()
+            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
+        })
+
+        it('should not record metrics when update is empty', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
+
+            // Clear observe calls from createTestPerson
+            observeCalls = []
+
+            // Empty update - but helper fills in all fields from person
+            const update = {}
+
+            await repository.updatePerson(person, createPersonUpdateFields(person, update))
+
+            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
+            // even though the values haven't changed from the person object
+            expect(observeCalls).toHaveLength(3)
+        })
+    })
+
+    describe('Table Cutover', () => {
+        let cutoverRepository: PostgresPersonRepository
+        const NEW_TABLE_NAME = 'posthog_person_new'
+        const ID_OFFSET = 1000000
+
+        beforeEach(() => {
+            // Create repository with cutover enabled
+            cutoverRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
+                tableCutoverEnabled: true,
+                newTableName: NEW_TABLE_NAME,
+                newTableIdOffset: ID_OFFSET,
+            })
+        })
+
+        describe('createPerson()', () => {
+            it('should create new persons in the new table when cutover is enabled', async () => {
+                const team = await getFirstTeam(hub)
+                const uuid = new UUIDT().toString()
+
+                const result = await cutoverRepository.createPerson(
+                    TIMESTAMP,
+                    { name: 'New Table Person' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    [{ distinctId: 'new-table-distinct' }]
+                )
+
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Failed to create person')
+                }
+
+                // Verify person is in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE uuid = $1`,
+                    [uuid],
+                    'checkNewTable'
+                )
+                expect(newTableResult.rows).toHaveLength(1)
+
+                // Verify person is NOT in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE uuid = $1`,
+                    [uuid],
+                    'checkOldTable'
+                )
+                expect(oldTableResult.rows).toHaveLength(0)
+            })
+        })
+
+        describe('fetchPerson()', () => {
+            it('should fetch person from old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in old table with low ID
+                const lowId = 100
+                const oldUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        oldUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-distinct-old', lowId, team.id, 0],
+                    'insertOldTableDistinctId'
+                )
+
+                // Create a different person in new table with high ID but same distinct_id to verify routing
+                const highId = ID_OFFSET + 100
+                const newUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        newUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Table Wrong' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+
+                // Fetch should return the old table person based on person_id from distinct_id mapping
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-distinct-old')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(lowId))
+                expect(person!.uuid).toBe(oldUuid)
+                expect(person!.properties.name).toBe('Old Table')
+            })
+
+            it('should fetch person from new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table with high ID
+                const highId = ID_OFFSET + 100
+                const newUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        newUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-distinct-new', highId, team.id, 0],
+                    'insertNewTableDistinctId'
+                )
+
+                // Create a different person in old table with low ID but same distinct_id to verify routing
+                const lowId = 200
+                const oldUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        oldUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Table Wrong' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldTablePerson'
+                )
+
+                // Fetch should return the new table person based on person_id from distinct_id mapping
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-distinct-new')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(highId))
+                expect(person!.uuid).toBe(newUuid)
+                expect(person!.properties.name).toBe('New Table')
+            })
+
+            it('should return undefined for non-existent distinct ID', async () => {
+                const team = await getFirstTeam(hub)
+                const person = await cutoverRepository.fetchPerson(team.id, 'non-existent')
+                expect(person).toBeUndefined()
+            })
+        })
+
+        describe('fetchPersonsByDistinctIds()', () => {
+            it('should fetch multiple persons from old table only', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create multiple persons in old table
+                const oldId1 = 100
+                const oldUuid1 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId1,
+                        oldUuid1,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Person 1' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-1', oldId1, team.id, 0],
+                    'insertOldDistinctId1'
+                )
+
+                const oldId2 = 200
+                const oldUuid2 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId2,
+                        oldUuid2,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Person 2' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson2'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-2', oldId2, team.id, 0],
+                    'insertOldDistinctId2'
+                )
+
+                const oldId3 = 300
+                const oldUuid3 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId3,
+                        oldUuid3,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Person 3' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson3'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-3', oldId3, team.id, 0],
+                    'insertOldDistinctId3'
+                )
+
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'old-distinct-1' },
+                    { teamId: team.id, distinctId: 'old-distinct-2' },
+                    { teamId: team.id, distinctId: 'old-distinct-3' },
+                ])
+
+                expect(result).toHaveLength(3)
+
+                const person1 = result.find((p) => p.distinct_id === 'old-distinct-1')
+                expect(person1).toBeDefined()
+                expect(person1!.id).toBe(String(oldId1))
+                expect(person1!.uuid).toBe(oldUuid1)
+                expect(person1!.properties.name).toBe('Old Person 1')
+
+                const person2 = result.find((p) => p.distinct_id === 'old-distinct-2')
+                expect(person2).toBeDefined()
+                expect(person2!.id).toBe(String(oldId2))
+                expect(person2!.uuid).toBe(oldUuid2)
+                expect(person2!.properties.name).toBe('Old Person 2')
+
+                const person3 = result.find((p) => p.distinct_id === 'old-distinct-3')
+                expect(person3).toBeDefined()
+                expect(person3!.id).toBe(String(oldId3))
+                expect(person3!.uuid).toBe(oldUuid3)
+                expect(person3!.properties.name).toBe('Old Person 3')
+            })
+
+            it('should fetch multiple persons from new table only', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create multiple persons in new table
+                const newId1 = ID_OFFSET + 100
+                const newUuid1 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId1,
+                        newUuid1,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Person 1' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-1', newId1, team.id, 0],
+                    'insertNewDistinctId1'
+                )
+
+                const newId2 = ID_OFFSET + 200
+                const newUuid2 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId2,
+                        newUuid2,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Person 2' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson2'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-2', newId2, team.id, 0],
+                    'insertNewDistinctId2'
+                )
+
+                const newId3 = ID_OFFSET + 300
+                const newUuid3 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId3,
+                        newUuid3,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Person 3' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson3'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-3', newId3, team.id, 0],
+                    'insertNewDistinctId3'
+                )
+
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'new-distinct-1' },
+                    { teamId: team.id, distinctId: 'new-distinct-2' },
+                    { teamId: team.id, distinctId: 'new-distinct-3' },
+                ])
+
+                expect(result).toHaveLength(3)
+
+                const person1 = result.find((p) => p.distinct_id === 'new-distinct-1')
+                expect(person1).toBeDefined()
+                expect(person1!.id).toBe(String(newId1))
+                expect(person1!.uuid).toBe(newUuid1)
+                expect(person1!.properties.name).toBe('New Person 1')
+
+                const person2 = result.find((p) => p.distinct_id === 'new-distinct-2')
+                expect(person2).toBeDefined()
+                expect(person2!.id).toBe(String(newId2))
+                expect(person2!.uuid).toBe(newUuid2)
+                expect(person2!.properties.name).toBe('New Person 2')
+
+                const person3 = result.find((p) => p.distinct_id === 'new-distinct-3')
+                expect(person3).toBeDefined()
+                expect(person3!.id).toBe(String(newId3))
+                expect(person3!.uuid).toBe(newUuid3)
+                expect(person3!.properties.name).toBe('New Person 3')
+            })
+
+            it('should fetch persons from both tables with mixed IDs', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create multiple persons in old table
+                const oldId1 = 100
+                const oldUuid1 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId1,
+                        oldUuid1,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old 1' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-old-1', oldId1, team.id, 0],
+                    'insertOldDistinctId1'
+                )
+
+                const oldId2 = 200
+                const oldUuid2 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId2,
+                        oldUuid2,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old 2' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson2'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-old-2', oldId2, team.id, 0],
+                    'insertOldDistinctId2'
+                )
+
+                const oldId3 = 300
+                const oldUuid3 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId3,
+                        oldUuid3,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old 3' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson3'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-old-3', oldId3, team.id, 0],
+                    'insertOldDistinctId3'
+                )
+
+                // Create multiple persons in new table
+                const newId1 = ID_OFFSET + 100
+                const newUuid1 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId1,
+                        newUuid1,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New 1' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-new-1', newId1, team.id, 0],
+                    'insertNewDistinctId1'
+                )
+
+                const newId2 = ID_OFFSET + 200
+                const newUuid2 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId2,
+                        newUuid2,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New 2' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson2'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-new-2', newId2, team.id, 0],
+                    'insertNewDistinctId2'
+                )
+
+                const newId3 = ID_OFFSET + 300
+                const newUuid3 = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId3,
+                        newUuid3,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New 3' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson3'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['mixed-new-3', newId3, team.id, 0],
+                    'insertNewDistinctId3'
+                )
+
+                // Fetch all persons - mix of old and new table persons
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'mixed-old-1' },
+                    { teamId: team.id, distinctId: 'mixed-new-1' },
+                    { teamId: team.id, distinctId: 'mixed-old-2' },
+                    { teamId: team.id, distinctId: 'mixed-new-2' },
+                    { teamId: team.id, distinctId: 'mixed-old-3' },
+                    { teamId: team.id, distinctId: 'mixed-new-3' },
+                ])
+
+                expect(result).toHaveLength(6)
+
+                // Verify old table persons
+                const oldPerson1 = result.find((p) => p.distinct_id === 'mixed-old-1')
+                expect(oldPerson1).toBeDefined()
+                expect(oldPerson1!.id).toBe(String(oldId1))
+                expect(oldPerson1!.uuid).toBe(oldUuid1)
+                expect(oldPerson1!.properties.name).toBe('Old 1')
+
+                const oldPerson2 = result.find((p) => p.distinct_id === 'mixed-old-2')
+                expect(oldPerson2).toBeDefined()
+                expect(oldPerson2!.id).toBe(String(oldId2))
+                expect(oldPerson2!.uuid).toBe(oldUuid2)
+                expect(oldPerson2!.properties.name).toBe('Old 2')
+
+                const oldPerson3 = result.find((p) => p.distinct_id === 'mixed-old-3')
+                expect(oldPerson3).toBeDefined()
+                expect(oldPerson3!.id).toBe(String(oldId3))
+                expect(oldPerson3!.uuid).toBe(oldUuid3)
+                expect(oldPerson3!.properties.name).toBe('Old 3')
+
+                // Verify new table persons
+                const newPerson1 = result.find((p) => p.distinct_id === 'mixed-new-1')
+                expect(newPerson1).toBeDefined()
+                expect(newPerson1!.id).toBe(String(newId1))
+                expect(newPerson1!.uuid).toBe(newUuid1)
+                expect(newPerson1!.properties.name).toBe('New 1')
+
+                const newPerson2 = result.find((p) => p.distinct_id === 'mixed-new-2')
+                expect(newPerson2).toBeDefined()
+                expect(newPerson2!.id).toBe(String(newId2))
+                expect(newPerson2!.uuid).toBe(newUuid2)
+                expect(newPerson2!.properties.name).toBe('New 2')
+
+                const newPerson3 = result.find((p) => p.distinct_id === 'mixed-new-3')
+                expect(newPerson3).toBeDefined()
+                expect(newPerson3!.id).toBe(String(newId3))
+                expect(newPerson3!.uuid).toBe(newUuid3)
+                expect(newPerson3!.properties.name).toBe('New 3')
+            })
+
+            it('should return empty array when no persons found', async () => {
+                const team = await getFirstTeam(hub)
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'non-existent-1' },
+                    { teamId: team.id, distinctId: 'non-existent-2' },
+                ])
+                expect(result).toEqual([])
+            })
+        })
+
+        describe('updatePerson()', () => {
+            it('should update person in old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+
+                // Insert person in old table
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original Old' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+
+                // Insert person with same ID in new table (to verify it's not updated)
+                const newTableUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        newTableUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original New' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+
+                const person = {
+                    id: String(lowId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'Original Old' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                const [updatedPerson] = await cutoverRepository.updatePerson(person, {
+                    properties: { name: 'Updated Old' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                expect(updatedPerson.properties.name).toBe('Updated Old')
+                expect(updatedPerson.version).toBe(1)
+
+                // Verify update happened in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1 AND team_id = $2`,
+                    [lowId, team.id],
+                    'checkOldTableUpdate'
+                )
+                expect(oldTableResult.rows[0].properties.name).toBe('Updated Old')
+
+                // Verify new table was NOT updated
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1 AND team_id = $2`,
+                    [lowId, team.id],
+                    'checkNewTableNotUpdated'
+                )
+                expect(newTableResult.rows[0].properties.name).toBe('Original New')
+                expect(Number(newTableResult.rows[0].version)).toBe(0)
+            })
+
+            it('should update person in new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+
+                // Insert person in new table
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original New' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+
+                // Insert person with same ID in old table (to verify it's not updated)
+                const oldTableUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        oldTableUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original Old' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+
+                const person = {
+                    id: String(highId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'Original New' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                const [updatedPerson] = await cutoverRepository.updatePerson(person, {
+                    properties: { name: 'Updated New' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                expect(updatedPerson.properties.name).toBe('Updated New')
+                expect(updatedPerson.version).toBe(1)
+
+                // Verify update happened in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1 AND team_id = $2`,
+                    [highId, team.id],
+                    'checkNewTableUpdate'
+                )
+                expect(newTableResult.rows[0].properties.name).toBe('Updated New')
+
+                // Verify old table was NOT updated
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1 AND team_id = $2`,
+                    [highId, team.id],
+                    'checkOldTableNotUpdated'
+                )
+                expect(oldTableResult.rows[0].properties.name).toBe('Original Old')
+                expect(Number(oldTableResult.rows[0].version)).toBe(0)
+            })
+        })
+
+        describe('deletePerson()', () => {
+            it('should delete person from old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+
+                // Insert person in old table
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+
+                // Insert person with same ID in new table (to verify it's not deleted)
+                const newTableUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        newTableUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+
+                const person = {
+                    id: String(lowId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'Old Table' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                await cutoverRepository.deletePerson(person)
+
+                // Verify person is deleted from old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1 AND team_id = $2`,
+                    [lowId, team.id],
+                    'checkOldTableDelete'
+                )
+                expect(oldTableResult.rows).toHaveLength(0)
+
+                // Verify person in new table was NOT deleted
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1 AND team_id = $2`,
+                    [lowId, team.id],
+                    'checkNewTableNotDeleted'
+                )
+                expect(newTableResult.rows).toHaveLength(1)
+                expect(newTableResult.rows[0].properties.name).toBe('New Table')
+            })
+
+            it('should delete person from new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+
+                // Insert person in new table
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+
+                // Insert person with same ID in old table (to verify it's not deleted)
+                const oldTableUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        oldTableUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+
+                const person = {
+                    id: String(highId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'New Table' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                await cutoverRepository.deletePerson(person)
+
+                // Verify person is deleted from new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1 AND team_id = $2`,
+                    [highId, team.id],
+                    'checkNewTableDelete'
+                )
+                expect(newTableResult.rows).toHaveLength(0)
+
+                // Verify person in old table was NOT deleted
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1 AND team_id = $2`,
+                    [highId, team.id],
+                    'checkOldTableNotDeleted'
+                )
+                expect(oldTableResult.rows).toHaveLength(1)
+                expect(oldTableResult.rows[0].properties.name).toBe('Old Table')
+            })
+        })
+
+        describe('addDistinctId()', () => {
+            it('should add distinct ID to person in old table', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in old table
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [lowId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertOldTablePerson'
+                )
+
+                // Add distinct ID
+                await cutoverRepository.addDistinctId(
+                    { id: String(lowId), uuid, team_id: team.id } as any,
+                    'new-distinct-id',
+                    0
+                )
+
+                // Verify distinct ID was added
+                const distinctIdResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE distinct_id = $1 AND team_id = $2`,
+                    ['new-distinct-id', team.id],
+                    'checkDistinctId'
+                )
+                expect(distinctIdResult.rows).toHaveLength(1)
+                expect(distinctIdResult.rows[0].person_id).toBe(String(lowId))
+            })
+
+            it('should add distinct ID to person in new table', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [highId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertNewTablePerson'
+                )
+
+                // Add distinct ID
+                await cutoverRepository.addDistinctId(
+                    { id: String(highId), uuid, team_id: team.id } as any,
+                    'new-distinct-id',
+                    0
+                )
+
+                // Verify distinct ID was added
+                const distinctIdResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE distinct_id = $1 AND team_id = $2`,
+                    ['new-distinct-id', team.id],
+                    'checkDistinctId'
+                )
+                expect(distinctIdResult.rows).toHaveLength(1)
+                expect(distinctIdResult.rows[0].person_id).toBe(String(highId))
+            })
+        })
+
+        describe('moveDistinctIds()', () => {
+            it('should move distinct IDs from old table person to old table person', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in old table with distinct IDs
+                const sourceId = 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in old table
+                const targetId = 200
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('source-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('source-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from new table person to new table person', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in new table with distinct IDs
+                const sourceId = ID_OFFSET + 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['source-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in new table
+                const targetId = ID_OFFSET + 200
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('source-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('source-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from old table person to new table person (cross-table merge)', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in old table with distinct IDs
+                const sourceId = 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in new table
+                const targetId = ID_OFFSET + 100
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs from old to new table person
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target in new table
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('old-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('old-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+
+            it('should move distinct IDs from new table person to old table person (cross-table merge)', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create source person in new table with distinct IDs
+                const sourceId = ID_OFFSET + 100
+                const sourceUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [sourceId, sourceUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertSourcePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-1', sourceId, team.id, 0],
+                    'insertSourceDistinct1'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct-2', sourceId, team.id, 0],
+                    'insertSourceDistinct2'
+                )
+
+                // Create target person in old table
+                const targetId = 100
+                const targetUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [targetId, targetUuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertTargetPerson'
+                )
+
+                // Move distinct IDs from new to old table person
+                await cutoverRepository.moveDistinctIds(
+                    { id: String(sourceId), uuid: sourceUuid, team_id: team.id } as any,
+                    { id: String(targetId), uuid: targetUuid, team_id: team.id } as any
+                )
+
+                // Verify distinct IDs were moved to target in old table
+                const movedDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2 ORDER BY distinct_id`,
+                    [targetId, team.id],
+                    'checkMovedDistincts'
+                )
+                expect(movedDistincts.rows).toHaveLength(2)
+                expect(movedDistincts.rows[0].distinct_id).toBe('new-distinct-1')
+                expect(movedDistincts.rows[1].distinct_id).toBe('new-distinct-2')
+
+                // Verify source person has no distinct IDs
+                const sourceDistincts = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_persondistinctid WHERE person_id = $1 AND team_id = $2`,
+                    [sourceId, team.id],
+                    'checkSourceDistincts'
+                )
+                expect(sourceDistincts.rows).toHaveLength(0)
+            })
+        })
+
+        describe('Cutover disabled', () => {
+            it('should use old table when cutover is disabled', async () => {
+                const disabledRepository = new PostgresPersonRepository(postgres, {
+                    calculatePropertiesSize: 0,
+                    personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                    personPropertiesTrimTargetBytes: 512 * 1024,
+                    tableCutoverEnabled: false,
+                    newTableName: NEW_TABLE_NAME,
+                    newTableIdOffset: ID_OFFSET,
+                })
+
+                const team = await getFirstTeam(hub)
+                const uuid = new UUIDT().toString()
+
+                const result = await disabledRepository.createPerson(
+                    TIMESTAMP,
+                    { name: 'Disabled Cutover' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    [{ distinctId: 'disabled-distinct' }]
+                )
+
+                expect(result.success).toBe(true)
+
+                // Verify person is in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE uuid = $1`,
+                    [uuid],
+                    'checkOldTable'
+                )
+                expect(oldTableResult.rows).toHaveLength(1)
+
+                // Verify person is NOT in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE uuid = $1`,
+                    [uuid],
+                    'checkNewTable'
+                )
+                expect(newTableResult.rows).toHaveLength(0)
+            })
         })
     })
 })

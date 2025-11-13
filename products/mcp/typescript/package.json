@@ -1,0 +1,88 @@
+{
+    "name": "@posthog/agent-toolkit",
+    "version": "0.2.2",
+    "description": "PostHog tools for AI agents",
+    "main": "dist/index.js",
+    "module": "dist/index.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.js"
+        },
+        "./tools": {
+            "types": "./dist/tools.d.ts",
+            "import": "./dist/tools.mjs",
+            "require": "./dist/tools.js"
+        },
+        "./integrations/ai-sdk": {
+            "types": "./dist/ai-sdk.d.ts",
+            "import": "./dist/ai-sdk.mjs",
+            "require": "./dist/ai-sdk.js"
+        },
+        "./integrations/langchain": {
+            "types": "./dist/langchain.d.ts",
+            "import": "./dist/langchain.mjs",
+            "require": "./dist/langchain.js"
+        }
+    },
+    "scripts": {
+        "build": "tsup",
+        "dev": "wrangler dev",
+        "deploy": "wrangler deploy",
+        "cf-typegen": "wrangler types",
+        "inspector": "npx @modelcontextprotocol/inspector@0.15.0 npx -y mcp-remote@latest http://localhost:8787/mcp",
+        "test": "vitest",
+        "test:integration": "vitest run --config vitest.integration.config.mts",
+        "test:watch": "vitest watch",
+        "typecheck": "tsc --noEmit",
+        "generate-client": "tsx scripts/update-openapi-client.ts"
+    },
+    "keywords": [
+        "posthog",
+        "mcp",
+        "ai",
+        "agents",
+        "analytics",
+        "feature-flags"
+    ],
+    "author": "PostHog Inc.",
+    "license": "MIT",
+    "peerDependencies": {
+        "@langchain/core": "^0.3.72",
+        "@langchain/openai": "^0.6.9",
+        "ai": "^5.0.0",
+        "langchain": "^0.3.31"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.17.3",
+        "agents": "^0.0.113",
+        "ai": "^5.0.18",
+        "fflate": "^0.7.4",
+        "posthog-node": "^4.18.0",
+        "uuid": "^11.1.0",
+        "zod": "^3.24.4"
+    },
+    "devDependencies": {
+        "@langchain/core": "^0.3.72",
+        "@langchain/openai": "^0.6.9",
+        "@types/dotenv": "^6.1.1",
+        "@types/node": "^22.15.34",
+        "dotenv": "^16.4.7",
+        "langchain": "^0.3.31",
+        "tsup": "^8.5.0",
+        "tsx": "^4.20.5",
+        "typed-openapi": "^2.2.2",
+        "typescript": "^5.8.3",
+        "vite": "^5.0.0",
+        "vite-tsconfig-paths": "^5.1.4",
+        "vitest": "^3.2.4",
+        "wrangler": "^4.14.4",
+        "zod-to-json-schema": "^3.24.6"
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ]
+}

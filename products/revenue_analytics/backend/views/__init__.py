@@ -9,12 +9,12 @@ from posthog.hogql.database.models import SavedQuery
 class RevenueAnalyticsBaseView(SavedQuery, ABC):
     prefix: str
     source_id: Optional[str] = None
-    union_all: bool = False
+    event_name: Optional[str] = None
 
     DATABASE_SCHEMA_TABLE_KIND: ClassVar[DatabaseSchemaManagedViewTableKind]
 
     def is_event_view(self) -> bool:
-        return self.source_id is None
+        return self.event_name is not None
 
     @classmethod
     def get_generic_view_alias(cls) -> str:

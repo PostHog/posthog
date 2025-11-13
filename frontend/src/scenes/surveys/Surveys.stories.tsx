@@ -9,6 +9,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
+    AccessControlLevel,
     FeatureFlagBasicType,
     MultipleSurveyQuestion,
     PropertyFilterType,
@@ -48,6 +49,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -89,6 +91,7 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -168,6 +171,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_SHOWN = {

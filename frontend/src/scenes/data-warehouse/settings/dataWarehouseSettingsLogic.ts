@@ -43,6 +43,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
         deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
@@ -104,6 +105,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
@@ -123,6 +130,32 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
                 const normalizedSearch = searchTerm.toLowerCase()
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
+            },
+        ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
+                const sources = dataWarehouseSources?.results ?? []
+                if (!managedSearchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                )
+            },
+        ],
+        hasZendeskSource: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): boolean => {
+                const sources = dataWarehouseSources?.results
+                if (!sources) {
+                    return false
+                }
+
+                return !!sources.some((source) => source?.source_type === 'Zendesk')
             },
         ],
     }),
@@ -190,21 +223,23 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         deleteJoin: ({ join }): void => {
@@ -226,7 +261,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])

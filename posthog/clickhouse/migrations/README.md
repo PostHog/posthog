@@ -1,3 +1,11 @@
+## Creating ClickHouse schema changes
+
+**Important:** ClickHouse schema changes should be created as a separate PR from application code changes. This allows for:
+
+- Independent review and testing of schema migrations
+- Safer rollout of database changes
+- Clear separation between infrastructure and application logic changes
+
 ## About migrations
 
 Not all migrations are intended to run on all nodes every time, because of the topologies we run. Some nodes are intended to only perform compute operations and do not contain sharded tables.
@@ -10,10 +18,7 @@ Because of the above, take the following advice into consideration when manipula
 
 ### When to run a migration ONLY on a data node
 
-- When adding / updating a Kafka table
-- When adding / updating a materialized view
-- When adding / updating a sharded table
-- When adding / updating a distributed table used for the write path
+- When adding / updating a sharded data table
 
 In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
 
@@ -44,6 +49,25 @@ In the above cases, create a migration and call the `run_sql_with_exceptions` fu
 Following the previous section example, the sharded events table along with the Kafka tables, materialized views and writable distributed table would be added to the data nodes. However, the `distributed_events`, which is the table used for the read path, would be added to all nodes.
 
 </details>
+
+## When to use NodeRole.INGESTION_SMALL or NodeRole.INGESTION_MEDIUM
+
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. These nodes don't contain any data perse, only Kafka tables and Distributed ones, along with the materialized views that connect them.
+
+Use these node roles exclusively when you need to ingest data from Kafka into ClickHouse.
+
+When you want to pull data from Kafka into ClickHouse, you should:
+
+1. Create a Kafka table.
+2. Create a writable table only on ingestion nodes. It should be a Distributed table with your data table.
+   1. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`, without using any sharding key.
+   2. If your data table is sharded, you should point it to all shards: `Distributed(..., cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="...")`, using a sharding key.
+3. Create a materialized view between Kafka table and the writable table.
+
+Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+Example PR for sharded table: https://github.com/PostHog/posthog/issues/38668/files
+
+`Medium` tier contains 4 consumers, while `Small` tier contain just one. Depending on the throughput of the Kafka topic, you should choose the appropriate tier, in case of doubts choose `Small` and you can later upgrade to `Medium` if lag is too high.
 
 ## When to use NodeRole.ALL
 

@@ -37,6 +37,8 @@ export const manifest: ProductManifest = {
             href: urls.dashboards() + '#newDashboard=modal',
             iconType: 'dashboard' as FileSystemIconType,
             iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
+            sceneKey: 'Dashboard',
+            sceneKeys: ['Dashboards', 'Dashboard'],
         },
     ],
 }

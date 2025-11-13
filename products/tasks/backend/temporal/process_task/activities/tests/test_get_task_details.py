@@ -10,17 +10,12 @@ from products.tasks.backend.temporal.process_task.activities.get_task_details im
 
 
 class TestGetTaskDetailsActivity:
-    async def _create_task_with_repo(self, ateam, auser, task_workflow, github_integration, repo_config):
-        workflow, stages = task_workflow
-        backlog_stage = stages[0]
-
+    async def _create_task_with_repo(self, ateam, auser, github_integration, repo_config):
         return await sync_to_async(Task.objects.create)(
             team=ateam,
             title="Test Task",
             description="Test task description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=workflow,
-            current_stage=backlog_stage,
             position=0,
             github_integration=github_integration,
             repository_config=repo_config,
@@ -60,10 +55,10 @@ class TestGetTaskDetailsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_task_details_with_different_repository(
-        self, activity_environment, ateam, auser, task_workflow, github_integration
+        self, activity_environment, ateam, auser, github_integration
     ):
         task = await self._create_task_with_repo(
-            ateam, auser, task_workflow, github_integration, {"organization": "posthog", "repository": "posthog-js"}
+            ateam, auser, github_integration, {"organization": "posthog", "repository": "posthog-js"}
         )
 
         try:
@@ -79,12 +74,11 @@ class TestGetTaskDetailsActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db
     async def test_get_task_details_with_missing_repository(
-        self, activity_environment, ateam, auser, task_workflow, github_integration
+        self, activity_environment, ateam, auser, github_integration
     ):
         task = await self._create_task_with_repo(
             ateam,
             auser,
-            task_workflow,
             github_integration,
             {"organization": "test-org"},  # Missing "repository" key
         )

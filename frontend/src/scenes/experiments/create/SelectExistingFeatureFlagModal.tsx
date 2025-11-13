@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
 
-import { featureFlagEligibleForExperiment } from '../utils'
 import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 
 export const SelectExistingFeatureFlagModal = ({
@@ -44,19 +43,12 @@ export const SelectExistingFeatureFlagModal = ({
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing multivariate feature flag to use with this experiment. The feature flag must use
-                    multiple variants with <code>'control'</code> as the first, and not be associated with an existing
-                    experiment.
+                    multiple variants with <code>'control'</code> as the first.
                 </div>
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlags.results.filter((featureFlag) => {
-                        try {
-                            return featureFlagEligibleForExperiment(featureFlag)
-                        } catch {
-                            return false
-                        }
-                    })}
+                    dataSource={featureFlags.results}
                     loading={featureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

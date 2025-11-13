@@ -20,7 +20,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -112,7 +112,7 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     serializer_class = ExperimentSavedMetricSerializer
 
 
-@receiver(model_activity_signal, sender=ExperimentSavedMetric)
+@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

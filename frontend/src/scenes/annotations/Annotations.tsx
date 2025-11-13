@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification, IconPencil } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
@@ -15,11 +15,12 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
@@ -147,11 +148,10 @@ export function Annotations(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Annotations"
-                description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                name={sceneConfigurations[Scene.Annotations].name}
+                description={sceneConfigurations[Scene.Annotations].description}
                 resourceType={{
-                    type: 'annotation',
-                    forceIcon: <IconNotification />,
+                    type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">
@@ -159,7 +159,6 @@ export function Annotations(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
             <div className="flex flex-row items-center gap-2 justify-end">
                 <div>Scope:</div>
                 <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />

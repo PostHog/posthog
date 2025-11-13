@@ -10,8 +10,8 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
-from django.dispatch import receiver
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
@@ -30,7 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -65,7 +65,7 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import Property
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -127,6 +127,40 @@ class RemoteConfigThrottle(BurstRateThrottle):
         return super().allow_request(request, view)
 
 
+class EvaluationTagsChecker:
+    """Helper class to check if evaluation tags feature is enabled.
+
+    This avoids repeated feature flag checks during serialization by computing
+    the result once per request.
+    """
+
+    @staticmethod
+    def is_enabled(request) -> bool:
+        """Check if evaluation tags feature is enabled for the request user."""
+        if not hasattr(request, "user") or request.user.is_anonymous:
+            return False
+
+        # Check TAGGING license
+        try:
+            if not request.user.organization.is_feature_available(AvailableFeature.TAGGING):
+                return False
+        except Exception:
+            return False
+
+        # Check FLAG_EVALUATION_TAGS feature flag
+        try:
+            return posthoganalytics.feature_enabled(
+                "flag-evaluation-tags",
+                request.user.distinct_id,
+                groups={"organization": str(request.user.organization.id)},
+                group_properties={"organization": {"id": str(request.user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
+
+
 class EvaluationTagSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles evaluation tags for feature flags.
@@ -150,6 +184,11 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # Only validate if we have initial_data (not during partial updates without these fields)
         if not hasattr(self, "initial_data"):
+            return attrs
+
+        # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
+        # Evaluation tags are preserved in DB but hidden from user (like regular tags)
+        if not self._is_evaluation_tags_feature_enabled():
             return attrs
 
         # Get evaluation_tags from the request
@@ -181,14 +220,29 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         return attrs
 
+    def _is_evaluation_tags_feature_enabled(self):
+        """Check if FLAG_EVALUATION_TAGS feature flag is enabled."""
+        if "request" not in self.context:
+            return False
+
+        return EvaluationTagsChecker.is_enabled(self.context["request"])
+
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
+
+        If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled,
+        preserve existing evaluation tags in database (don't update them).
 
         Instead of deleting all tags and recreating them (which causes unnecessary
         DB operations and activity logs), we calculate the diff and only modify
         what has actually changed.
         """
-        if not obj or evaluation_tags is None:
+        if not obj:
+            return
+
+        # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
+        # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
+        if not self._is_evaluation_tags_feature_enabled():
             return
 
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
@@ -235,6 +289,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
 
         # Include evaluation tags in the serialized output
+        # The evaluation_tags are hidden (if user doesn't have access) in list and retrieve methods
         if hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
             # If the viewset used prefetch_related (which it should for performance),
@@ -331,6 +386,7 @@ class FeatureFlagSerializer(
             "has_encrypted_payloads",
             "status",
             "evaluation_runtime",
+            "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
         ]
@@ -400,6 +456,13 @@ class FeatureFlagSerializer(
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
+
+        # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
+        # Existing flags may legitimately have empty groups temporarily during scheduled changes
+        if self.context["request"].method == "POST":
+            groups = filters.get("groups", [])
+            if not groups:
+                raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -617,6 +680,7 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -627,7 +691,7 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1022,6 +1086,7 @@ class FeatureFlagViewSet(
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         where=[
                             """
                             (
@@ -1045,6 +1110,18 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]
@@ -1055,8 +1132,10 @@ class FeatureFlagViewSet(
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
                 queryset = queryset.filter(
-                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
-                )
+                    Q(key__icontains=request.GET["search"])
+                    | Q(name__icontains=request.GET["search"])
+                    | Q(experiment__name__icontains=request.GET["search"], experiment__deleted=False)
+                ).distinct()
             elif key == "type":
                 type = request.GET["type"]
                 if type == "boolean":
@@ -1117,7 +1196,16 @@ class FeatureFlagViewSet(
                 queryset.filter(deleted=False)
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
-                .prefetch_related("surveys_linked_flag")
+                .prefetch_related(
+                    Prefetch(
+                        "surveys_linked_flag",
+                        queryset=Survey.objects.select_related(
+                            "linked_flag",
+                            "targeting_flag",
+                            "internal_targeting_flag",
+                        ).prefetch_related("actions"),
+                    )
+                )
                 .prefetch_related(
                     Prefetch(
                         "team__cohort_set",
@@ -1210,8 +1298,16 @@ class FeatureFlagViewSet(
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
 
-        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        # Check if user has access to evaluation tags feature (once per request)
+        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+
+        # Populate evaluation_tags and handle encrypted payloads
         for feature_flag in feature_flags_data:
+            # Set evaluation_tags based on access
+            if not is_evaluation_tags_enabled:
+                feature_flag["evaluation_tags"] = []
+
+            # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
                 feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
                     request, feature_flag["filters"]["payloads"]
@@ -1222,6 +1318,13 @@ class FeatureFlagViewSet(
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
         feature_flag_data = response.data
+
+        # Check if user has access to evaluation tags feature
+        is_evaluation_tags_enabled = EvaluationTagsChecker.is_enabled(request)
+
+        # Set evaluation_tags based on access
+        if not is_evaluation_tags_enabled:
+            feature_flag_data["evaluation_tags"] = []
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
@@ -1651,7 +1754,7 @@ class FeatureFlagViewSet(
         return activity_page_response(activity_page, limit, page, request)
 
 
-@receiver(model_activity_signal, sender=FeatureFlag)
+@mutable_receiver(model_activity_signal, sender=FeatureFlag)
 def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
     # Extract scheduled change context if present
     scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})

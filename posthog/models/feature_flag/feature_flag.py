@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -20,7 +21,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -93,6 +94,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # JSON including evaluation_tags, and when we deserialize, we store them here
     # temporarily to avoid N+1 queries when accessing evaluation tags.
     _evaluation_tag_names: Optional[list[str]] = None
+
+    last_called_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this feature flag was called (from $feature_flag_called events)",
+    )
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -409,6 +416,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         # We kind of cheat here set the request user to the user who created the scheduled change
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
+        http_request.method = "PATCH"  # This is a partial update, not a new creation
         context = {
             "request": http_request,
             "team_id": self.team_id,
@@ -491,6 +499,8 @@ class FeatureFlagHashKeyOverride(models.Model):
     hash_key = models.CharField(max_length=400)
 
     class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "person", "feature_flag_key"],
@@ -558,12 +568,7 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    try:
-        cache.set(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
-    except Exception:
-        # redis is unavailable
-        logger.exception("Redis is unavailable")
-        capture_exception()
+    write_flags_to_cache(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
 
     return all_feature_flags
 
@@ -572,7 +577,6 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     try:
         flag_data = cache.get(f"team_feature_flags_{project_id}")
     except Exception:
-        # redis is unavailable
         logger.exception("Redis is unavailable")
         return None
 
@@ -637,3 +641,22 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+
+class TeamDefaultEvaluationTag(UUIDModel):
+    """
+    Defines default evaluation tags that will be automatically applied to new feature flags in a team.
+    These tags serve as default evaluation environments that can be configured at the team/organization level.
+    When a new feature flag is created and the team has default_evaluation_environments_enabled=True,
+    these tags will be automatically added as evaluation tags for the new flag.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="default_evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="team_defaults")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["team", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.team.name} - {self.tag.name}"

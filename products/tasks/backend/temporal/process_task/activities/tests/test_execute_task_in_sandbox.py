@@ -63,7 +63,7 @@ class TestExecuteTaskInSandboxActivity:
 
                 await activity_environment.run(execute_task_in_sandbox, input_data)
 
-                mock_task_cmd.assert_called_once_with("test-task-123")
+                mock_task_cmd.assert_called_once_with("test-task-123", "/tmp/workspace/repos/posthog/posthog-js")
 
         finally:
             if sandbox:
@@ -206,7 +206,10 @@ class TestExecuteTaskInSandboxActivity:
 
                         await activity_environment.run(execute_task_in_sandbox, input_data)
 
-                        mock_task_cmd.assert_called_once_with(f"test-task-{repo.split('/')[1]}")
+                        mock_task_cmd.assert_called_once_with(
+                            f"test-task-{repo.split('/')[1]}",
+                            f"/tmp/workspace/repos/{repo.lower()}",
+                        )
 
         finally:
             if sandbox:

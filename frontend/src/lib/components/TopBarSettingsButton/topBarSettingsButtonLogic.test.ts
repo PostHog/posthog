@@ -12,7 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { topBarSettingsButtonLogic } from './topBarSettingsButtonLogic'
 
 const groupsScene = (): any => ({
-    scene: { component: () => null, logic: null, settingSectionId: 'environment-crm' },
+    scene: { component: () => null, logic: null, settingSectionId: 'environment-customer-analytics' },
 })
 const personsScene = (): any => ({
     scene: { component: () => null, logic: null, settingSectionId: 'environment-product-analytics' },
@@ -24,7 +24,7 @@ const scenes: Record<string, () => any> = {
 }
 
 describe('topBarSettingsButtonLogic', () => {
-    describe('loadedSceneSettingsSectionId selector for environment-crm', () => {
+    describe('loadedSceneSettingsSectionId selector for environment-customer-analytics', () => {
         let logic: ReturnType<typeof topBarSettingsButtonLogic.build>
         let sceneLogicInstance: ReturnType<typeof sceneLogic.build>
 
@@ -43,19 +43,19 @@ describe('topBarSettingsButtonLogic', () => {
             sceneLogicInstance?.unmount()
         })
 
-        it('returns environment-crm when CRM feature flag is enabled', async () => {
+        it('returns environment-customer-analytics when customer-analytics feature flag is enabled', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
             })
 
             await expectLogic(logic).toMatchValues({
-                loadedSceneSettingsSectionId: 'environment-crm',
+                loadedSceneSettingsSectionId: 'environment-customer-analytics',
             })
         })
 
-        it('returns undefined when CRM feature flag is disabled for environment-crm', async () => {
+        it('returns undefined when customer-analytics feature flag is disabled for environment-customer-analytics', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: false,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false,
             })
 
             await expectLogic(logic).toMatchValues({

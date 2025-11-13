@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -14,7 +15,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -85,6 +86,7 @@ const _itemTypes = [
     'inactivity',
     'inspector-summary',
     'app-state',
+    'session-change',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -138,6 +140,18 @@ export type InspectorListBrowserVisibility = InspectorListItemBase & {
     status: 'hidden' | 'visible'
 }
 
+interface SessionChangePayload {
+    nextSessionId?: string
+    previousSessionId?: string
+    changeReason?: { noSessionId: boolean; activityTimeout: boolean; sessionPastMaximumLength: boolean }
+}
+
+export type InspectorListSessionChange = InspectorListItemBase & {
+    type: 'session-change'
+    tag: '$session_starting' | '$session_ending'
+    data: SessionChangePayload
+}
+
 export type InspectorListItemDoctor = InspectorListItemBase & {
     type: 'doctor'
     tag: string
@@ -171,6 +185,7 @@ export type InspectorListItem =
     | InspectorListItemSummary
     | InspectorListItemInactivity
     | InspectorListItemAppState
+    | InspectorListSessionChange
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -206,6 +221,7 @@ function timeRelativeToStart(
         | PerformanceEvent
         | RecordingConsoleLogV2
         | RecordingEventType
+        | { timestamp: string }
         | { timestamp: number },
     start: Dayjs | null
 ): {
@@ -273,6 +289,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
+            sessionRecordingPlayerLogic(props),
+            ['seekToTime', 'setSkippingToMatchingEvent'],
         ],
         values: [
             miniFiltersLogic,
@@ -297,7 +315,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -329,8 +347,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
-        matchingEventUUIDs: [
+    loaders(({ actions, values, props }) => ({
+        matchingEvents: [
             [] as MatchedRecordingEvent[] | null,
             {
                 loadMatchingEvents: async () => {
@@ -340,16 +358,32 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return null
                     }
 
-                    if (matchType === 'uuid') {
-                        if (!matchingEventsMatchType?.eventUUIDs) {
-                            console.error('UUID matching events type must include its event ids')
+                    const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
+                        if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
+                            const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
+                                previous.timestamp < current.timestamp ? previous : current
+                            )
+                            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+                            const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
+
+                            // Only show the "skipping to matching event" overlay if we're actually skipping (> 1 second from start)
+                            if (seekTime > 1000) {
+                                actions.setSkippingToMatchingEvent(true)
+                                setTimeout(() => {
+                                    actions.setSkippingToMatchingEvent(false)
+                                }, 1500)
+                            }
+
+                            actions.seekToTime(seekTime)
                         }
-                        return matchingEventsMatchType.eventUUIDs.map(
-                            (x) =>
-                                ({
-                                    uuid: x,
-                                }) as MatchedRecordingEvent
-                        )
+                    }
+
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.matchedEvents) {
+                            console.error('UUID matching events type must include its array of matched events')
+                        }
+                        skipToEarliestEvent(matchingEventsMatchType.matchedEvents)
+                        return matchingEventsMatchType.matchedEvents
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -363,12 +397,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map(
-                        (x) =>
-                            ({
-                                uuid: x,
-                            }) as MatchedRecordingEvent
-                    )
+                    skipToEarliestEvent(response.results)
+                    return response.results
                 },
             },
         ],
@@ -428,6 +458,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const appStateItems: InspectorListItemAppState[] = []
                 const snapshotCounts: Record<string, Record<string, number>> = {}
                 const consoleLogSeenCache = new Set<string>()
+                const sessionChangeItems: InspectorListSessionChange[] = []
 
                 // Single pass through all snapshots
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
@@ -459,6 +490,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     highlightColor: 'warning',
                                     key: `${timestamp.valueOf()}-offline-status-${tag}`,
                                 } satisfies InspectorListOfflineStatusChange)
+                            }
+
+                            if (['$session_ending', '$session_starting'].includes(tag)) {
+                                const item: InspectorListSessionChange = {
+                                    type: 'session-change',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    tag: tag as '$session_starting' | '$session_ending',
+                                    data: customEvent.data.payload as SessionChangePayload,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${timestamp.valueOf()}-session-change-${tag}`,
+                                }
+                                sessionChangeItems.push(item)
                             }
 
                             // Browser visibility changes
@@ -615,6 +661,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     ...offlineStatusChanges,
                     ...browserVisibilityChanges,
                     ...doctorEvents,
+                    ...sessionChangeItems,
                 ]
 
                 return {
@@ -627,7 +674,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     rawConsoleLogs: consoleLogs,
                 }
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         notebookCommentItems: [
@@ -658,7 +705,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            {
+                resultEqualityCheck: equal,
+            },
         ],
 
         commentItems: [
@@ -692,7 +741,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allContextItems: [
@@ -744,7 +793,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return items
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allItems: [
@@ -753,7 +802,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allPerformanceEvents,
                 s.processedSnapshotData,
                 s.sessionEventsData,
-                s.matchingEventUUIDs,
+                s.matchingEvents,
                 s.windowNumberForID,
                 s.allContextItems,
                 s.commentItems,
@@ -766,7 +815,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 performanceEvents,
                 processedSnapshotData,
                 eventsData,
-                matchingEventUUIDs,
+                matchingEvents,
                 windowNumberForID,
                 allContextItems,
                 commentItems,
@@ -865,8 +914,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         errorCount += 1
                     }
 
-                    if (matchingEventUUIDs?.length) {
-                        isMatchingEvent = !!matchingEventUUIDs.find(
+                    if (matchingEvents?.length) {
+                        isMatchingEvent = !!matchingEvents.find(
                             (x: MatchedRecordingEvent) => x.uuid === String(event.id)
                         )
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
@@ -939,7 +988,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     itemsByType,
                 }
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         filteredItems: [
@@ -982,7 +1031,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return acc
                 }, [] as InspectorListItem[])
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         seekbarItems: [
@@ -1069,7 +1118,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return eventAndCommentItems
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         inspectorDataState: [
@@ -1185,7 +1234,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         allItemsList: [(s) => [s.allItems], (allItemsData): InspectorListItem[] => allItemsData.items],
@@ -1230,7 +1279,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         },
     })),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+        if (!equal(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
             actions.loadMatchingEvents()
         }
     }),

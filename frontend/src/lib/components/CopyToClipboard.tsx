@@ -22,6 +22,8 @@ interface InlinePropsBase {
     className?: string
     /** @deprecated */
     style?: React.CSSProperties
+    /** @default true */
+    iconMargin?: boolean
 }
 interface InlinePropsWithStringInside extends InlinePropsBase {
     children: string
@@ -46,6 +48,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
         iconSize = 'small',
         className,
         style,
+        iconMargin = true,
         ...props
     },
     ref
@@ -57,7 +60,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
             size={iconSize}
             icon={<IconCopy style={{ ...iconStyle }} />}
             noPadding
-            className="ml-1"
+            className={iconMargin ? 'ml-1' : undefined}
             data-attr="copy-icon"
             onClick={selectable || !children ? copy : undefined}
         />

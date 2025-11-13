@@ -35,7 +35,7 @@
 </head>
 
 <body>
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         posthog.init('{{api_token}}', {
             api_host: window.location.origin,
             loaded: (posthog) => {
@@ -200,7 +200,7 @@
         {% endif %}
     </main>
 
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
 
         if (document.getElementById('submit-review')) {
             document.getElementById('submit-review').addEventListener('click', () => {

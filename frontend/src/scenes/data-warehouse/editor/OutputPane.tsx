@@ -207,7 +207,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                                 </pre>
                             ) : (
                                 <div className="overflow-x-auto max-w-full">
-                                    <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                    <JSONViewer src={jsonValue} name={null} collapsed={1} sortKeys={true} />
                                 </div>
                             )}
                         </div>

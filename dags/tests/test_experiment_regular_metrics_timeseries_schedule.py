@@ -10,10 +10,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 
-from dags.experiment_regular_metrics_timeseries import (
-    _parse_partition_key,
-    experiment_regular_metrics_timeseries_refresh_schedule,
-)
+from dags.experiment_regular_metrics_timeseries import experiment_regular_metrics_timeseries_refresh_schedule
+from dags.experiments import _parse_partition_key
 
 
 class TestScheduleHelperFunctions:
@@ -87,9 +85,11 @@ class TestScheduleIntegration(BaseTest):
             ]
         )
 
-        with patch.object(type(context), "instance", new_callable=PropertyMock) as mock_instance_prop:
-            mock_instance_prop.return_value = mock_instance
-            result = experiment_regular_metrics_timeseries_refresh_schedule(context)
+        with patch("dags.experiments.connection") as mock_connection:
+            mock_connection.close = Mock()
+            with patch.object(type(context), "instance", new_callable=PropertyMock) as mock_instance_prop:
+                mock_instance_prop.return_value = mock_instance
+                result = experiment_regular_metrics_timeseries_refresh_schedule(context)
 
         # Should only return RunRequest for the valid experiment
         assert isinstance(result, list)
@@ -107,7 +107,9 @@ class TestScheduleIntegration(BaseTest):
 
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2024, 1, 15, 14, 0))
 
-        result = experiment_regular_metrics_timeseries_refresh_schedule(context)
+        with patch("dags.experiments.connection") as mock_connection:
+            mock_connection.close = Mock()
+            result = experiment_regular_metrics_timeseries_refresh_schedule(context)
 
         assert isinstance(result, dagster.SkipReason)
         assert "No experiments found for teams scheduled at 14:00 UTC" in str(result)

@@ -377,6 +377,7 @@ export const DetailFilters = (): JSX.Element => {
                 options={fieldOptions}
                 placeholder="Add filter"
                 searchPlaceholder="Search fields..."
+                searchKeys={['value']}
                 icon={<IconPlus />}
                 size="small"
                 className="w-[200px]"

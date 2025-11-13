@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from posthog.schema import AssistantMessage
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_merge_messages
+from ee.hogai.utils.types.base import ReplaceMessages
 
 
 class TestAssistantTypes(BaseTest):
@@ -48,6 +49,22 @@ class TestAssistantTypes(BaseTest):
         self.assertIsNotNone(result[0].id)
         self.assertIsNotNone(result[1].id)
         self.assertNotEqual(result[0].id, result[1].id)
+
+    def test_replace_messages(self):
+        """Test that ReplaceMessages replaces the messages."""
+        # Create two messages with the same content but no ID
+        left_message = AssistantMessage(content="Same content")
+        right_message = AssistantMessage(content="Different content")
+
+        # Merge the messages
+        left = [left_message]
+        right = [right_message]
+        result = add_and_merge_messages(left, ReplaceMessages(right))
+
+        # Verify that both messages are in the result with different IDs
+        self.assertEqual(len(result), 1)
+        self.assertEqual(cast(AssistantMessage, result[0]).content, "Different content")
+        self.assertIsNotNone(result[0].id)
 
     async def test_memory_collection_messages_is_not_reset_by_unset_values(self):
         """Test that memory_collection_messages is not reset by unset values"""

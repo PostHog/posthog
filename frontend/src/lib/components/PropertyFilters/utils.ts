@@ -106,6 +106,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
         [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
@@ -288,10 +289,12 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingPropertyFilter
     | LogEntryPropertyFilter
+    | LogPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter {
+    | DataWarehousePersonPropertyFilter
+    | LogPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -308,7 +311,8 @@ export function isPropertyFilterWithOperator(
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
             isDataWarehousePersonPropertyFilter(filter) ||
-            isErrorTrackingIssuePropertyFilter(filter))
+            isErrorTrackingIssuePropertyFilter(filter) ||
+            isLogPropertyFilter(filter))
     )
 }
 
@@ -326,6 +330,7 @@ export function filterMatchesItem(
 const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterGroupType>> = {
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+    [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,

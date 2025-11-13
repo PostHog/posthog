@@ -32,12 +32,12 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
-            return { scheduledAt: conditionResult.scheduledAt }
+            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            return { nextAction: conditionResult.nextAction }
+            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
-        return { nextAction: findContinueAction(invocation) }
+        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 }
 
@@ -50,7 +50,7 @@ export async function checkConditions(
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
-        // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
+        // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,

@@ -2,7 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { ModelRow } from './providers/types'
+import { ResolvedModelCost } from './providers/types'
 
 const REASONING_COST_MODELS = [/^gemini-2.5-/]
 
@@ -10,7 +10,7 @@ const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
 }
 
-export const calculateOutputCost = (event: PluginEvent, cost: ModelRow): string => {
+export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
     }

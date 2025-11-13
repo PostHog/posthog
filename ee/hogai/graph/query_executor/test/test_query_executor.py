@@ -38,7 +38,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, QueryExecutorError
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -157,38 +157,41 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
         """Test handling of APIException"""
+
         mock_process_query.side_effect = APIException("API error message")
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(QueryExecutorError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an error running this query: API error message", str(context.exception))
+        self.assertIn("API error message", str(context.exception))
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
         """Test handling of ExposedHogQLError"""
+
         mock_process_query.side_effect = ExposedHogQLError("HogQL error")
 
         query = AssistantHogQLQuery(query="SELECT invalid")
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(QueryExecutorError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an error running this query: HogQL error", str(context.exception))
+        self.assertIn("HogQL error", str(context.exception))
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
         """Test handling of ExposedCHQueryError"""
+
         mock_process_query.side_effect = ExposedCHQueryError("ClickHouse error")
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(QueryExecutorError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an error running this query: ClickHouse error", str(context.exception))
+        self.assertIn("ClickHouse error", str(context.exception))
 
     @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):

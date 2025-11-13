@@ -10,6 +10,7 @@ export const USAGE_TYPES = [
     { label: 'Survey Responses', value: 'survey_responses_count_in_period' },
     { label: 'LLM Events', value: 'ai_event_count_in_period' },
     { label: 'Synced Rows', value: 'rows_synced_in_period' },
+    { label: 'Free Synced Rows', value: 'free_historical_rows_synced_in_period' },
     { label: 'Data Pipelines (deprecated)', value: 'data_pipelines' },
     { label: 'Destinations Trigger Events', value: 'cdp_billable_invocations_in_period' },
     { label: 'Rows Exported', value: 'rows_exported_in_period' },

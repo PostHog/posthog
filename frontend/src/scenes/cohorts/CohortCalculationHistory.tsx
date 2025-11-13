@@ -64,16 +64,6 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
             sorter: true,
         },
         {
-            title: 'Duration',
-            render: (_, record) => {
-                if (!record.finished_at) {
-                    return record.error ? 'Failed' : 'In progress...'
-                }
-                const duration = new Date(record.finished_at).getTime() - new Date(record.started_at).getTime()
-                return `${(duration / 1000).toFixed(2)}s`
-            },
-        },
-        {
             title: 'Count',
             dataIndex: 'count',
             render: (count) => (count !== null ? count.toLocaleString() : '-'),

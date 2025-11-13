@@ -11,7 +11,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -27,7 +26,6 @@ export function NotebooksScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Notebooks"
-                description="Notebooks are a way to organize your work and share it with others."
                 resourceType={{
                     type: 'notebook',
                 }}
@@ -83,7 +81,6 @@ export function NotebooksScene(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
 
             <NotebooksTable />
         </SceneContent>

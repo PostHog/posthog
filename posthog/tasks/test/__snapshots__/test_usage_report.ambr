@@ -424,7 +424,7 @@
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE type = 'QueryFinish'
     AND is_initial_query
-    AND event_time >= '2022-01-10 00:00:00'
+    AND event_time >= 'today 00:00:00'
     AND event_time < '2022-01-10 23:59:59'
     AND team_id > 0
     AND JSONExtractBool(log_comment, 'chargeable')

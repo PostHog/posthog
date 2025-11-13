@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -44,7 +44,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
-    authentication_classes = [PersonalAPIKeyAuthentication]
+    authentication_classes = [PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
     @action(
         detail=False,

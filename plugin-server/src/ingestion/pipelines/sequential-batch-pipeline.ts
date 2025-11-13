@@ -1,36 +1,33 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, isOkResult } from './results'
+import { isOkResult } from './results'
 
-export class SequentialBatchPipeline<TInput, TIntermediate, TOutput> implements BatchPipeline<TInput, TOutput> {
+export class SequentialBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput = CInput>
+    implements BatchPipeline<TInput, TOutput, CInput, COutput>
+{
     constructor(
-        private currentPipeline: Pipeline<TIntermediate, TOutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate>
+        private currentPipeline: Pipeline<TIntermediate, TOutput, COutput>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return null
         }
 
-        // Process each item sequentially using the pipeline
-        const results: PipelineResultWithContext<TOutput>[] = []
+        const results: PipelineResultWithContext<TOutput, COutput>[] = []
         for (const resultWithContext of previousResults) {
             if (isOkResult(resultWithContext.result)) {
-                const pipelineResult = await this.currentPipeline.process({
-                    result: resultWithContext.result,
-                    context: resultWithContext.context,
-                })
+                const pipelineResult = await this.currentPipeline.process(resultWithContext)
                 results.push(pipelineResult)
             } else {
-                // Pass through non-successful results unchanged
                 results.push({
-                    result: resultWithContext.result as PipelineResult<TOutput>,
+                    result: resultWithContext.result,
                     context: resultWithContext.context,
                 })
             }

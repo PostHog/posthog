@@ -1,7 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
@@ -11,8 +10,7 @@ const meta: Meta = {
 }
 export default meta
 
-const Template: StoryFn<{ insight: InsightModel }> = ({ insight: legacyInsight }) => {
-    const insight = getQueryBasedInsightModel(legacyInsight)
+const Template: StoryFn<{ insight: QueryBasedInsightModel }> = ({ insight }) => {
     return (
         <div className="bg-surface-primary w-[24rem] p-4 rounded">
             <InsightDetailsComponent query={insight.query} footerInfo={insight} />
@@ -44,6 +42,11 @@ TrendsPie.args = { insight: require('../../../../mocks/fixtures/api/projects/tea
 export const TrendsWorldMap = Template.bind({})
 TrendsWorldMap.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+}
+
+export const TrendsFormulas = Template.bind({})
+TrendsFormulas.args = {
+    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsFormulas.json'),
 }
 
 export const Funnel = Template.bind({})

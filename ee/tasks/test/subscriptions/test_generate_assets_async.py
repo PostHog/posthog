@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -16,6 +17,22 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, g
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_export_asset():
+    """Mock export_asset_direct to avoid launching Chrome browser in tests."""
+
+    def set_content(asset: ExportedAsset) -> None:
+        asset.content = b"fake image data"
+        asset.save()
+
+    with (
+        patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct", side_effect=set_content),
+        patch("ee.tasks.subscriptions.subscription_utils.get_metric_meter", MagicMock()),
+        patch("ee.tasks.subscriptions.get_metric_meter", MagicMock()),
+    ):
+        yield
 
 
 @pytest_asyncio.fixture
@@ -200,3 +217,100 @@ async def test_async_foreign_key_access_with_real_subscription(team, user, dashb
         pytest.fail(
             "deliver_subscription_report_async raised SynchronousOnlyOperation - foreign key access not properly handled in async context"
         )
+
+
+@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
+async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -> None:
+    def export_success(asset: ExportedAsset, **kwargs) -> None:
+        asset.content = b"fake image data"
+        asset.save()
+
+    mock_export.side_effect = export_success
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    assert len(insights) == 3
+    assert len(assets) == 3
+    assert mock_export.call_count == 3
+    assert all(asset.content for asset in assets)
+
+
+@patch("ee.tasks.subscriptions.subscription_utils.asyncio.wait_for")
+@patch("posthog.tasks.exporter.export_asset_direct")
+async def test_async_generate_assets_timeout_continues_with_partial_results(
+    mock_export: MagicMock, mock_wait_for: MagicMock, team, user
+) -> None:
+    mock_export.return_value = None
+    mock_wait_for.side_effect = TimeoutError()
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    assert len(insights) == 3
+    assert len(assets) == 3
+    assert all(asset.content is None and asset.content_location is None for asset in assets)
+    assert mock_wait_for.called
+
+
+@patch("posthog.tasks.exporter.export_asset_direct")
+async def test_async_generate_assets_partial_success(mock_export: MagicMock, team, user) -> None:
+    call_count = 0
+
+    def export_with_partial_success(asset: ExportedAsset, **kwargs) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            asset.content = b"fake image data"
+            asset.save()
+
+    mock_export.side_effect = export_with_partial_success
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="test dashboard", created_by=user)
+
+    for i in range(3):
+        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"insight-{i}", name=f"Insight {i}")
+        await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    insights, assets = await generate_assets_async(subscription)
+
+    assert len(insights) == 3
+    assert len(assets) == 3
+    assets_with_content = [a for a in assets if a.content or a.content_location]
+    assets_without_content = [a for a in assets if not a.content and not a.content_location]
+    assert len(assets_with_content) == 2
+    assert len(assets_without_content) == 1

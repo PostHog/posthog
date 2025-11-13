@@ -1,4 +1,4 @@
-!function(){try{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]="00000-00000-00000")}catch(e){}}();\nimport{j as r,R as o}from"./index-D_JuKIur.js";function e(){const t=new Error("Exception created");throw o.captureException(t),t}function c(){return r.jsx("button",{onClick:()=>e(),children:"Create exception"})}export{c as default};
+!function(){try{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof globalThis?globalThis:"undefined"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]="00000-00000-00000")}catch(e){}}();import{j as r,R as o}from"./index-D_JuKIur.js";function e(){const t=new Error("Exception created");throw o.captureException(t),t}function c(){return r.jsx("button",{onClick:()=>e(),children:"Create exception"})}export{c as default};
 //# sourceMappingURL=chunk.js.map
 
 //# chunkId=00000-00000-00000

@@ -15,6 +15,8 @@ export const manifest: ProductManifest = {
             activityScope: 'Endpoints',
             layout: 'app-container',
             defaultDocsPath: '/docs/endpoints',
+            iconType: 'endpoints',
+            description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },
         EndpointsUsage: {
             import: () => import('./frontend/EndpointsUsage'),
@@ -22,15 +24,31 @@ export const manifest: ProductManifest = {
             name: 'Endpoints usage',
             activityScope: 'Endpoints',
             layout: 'app-container',
+            iconType: 'endpoints',
+        },
+        EndpointScene: {
+            import: () => import('./frontend/EndpointScene'),
+            projectBased: true,
+            name: 'Endpoint',
+            activityScope: 'Endpoint',
+        },
+        EndpointNew: {
+            import: () => import('./frontend/EndpointScene'),
+            projectBased: true,
+            name: 'EndpointNew',
+            activityScope: 'Endpoint',
         },
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
         // EndpointsScene stays first as scene for Usage!
         '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
+        '/endpoints/:name': ['EndpointScene', 'endpoint'],
+        '/endpoints/new': ['EndpointNew', 'endpointNew'],
     },
     urls: {
         endpoints: (): string => '/endpoints',
+        endpoint: (name: string): string => `/endpoints/${name}`,
         endpointsUsage: (params?: {
             dateFrom?: string
             dateTo?: string
@@ -62,6 +80,7 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            sceneKey: 'EndpointsScene',
         },
     ],
     treeItemsMetadata: [
@@ -71,6 +90,9 @@ export const manifest: ProductManifest = {
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
+            sceneKey: 'EndpointsScene',
+            flag: FEATURE_FLAGS.ENDPOINTS,
+            tags: ['alpha'],
         },
     ],
 }

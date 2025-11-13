@@ -307,7 +307,7 @@ impl WebhookCleaner {
         Ok(row)
     }
 
-    async fn start_serializable_txn(&self) -> Result<SerializableTxn> {
+    async fn start_serializable_txn(&self) -> Result<SerializableTxn<'_>> {
         let mut tx = self
             .pg_pool
             .begin()

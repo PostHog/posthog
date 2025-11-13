@@ -1,21 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { parseEventHeaders } from '../../kafka/consumer'
-import { EventHeaders } from '../../types'
 import { ok } from '../pipelines/results'
 import { createParseHeadersStep } from './parse-headers'
 
-// Mock dependencies
-jest.mock('../../../src/kafka/consumer', () => ({
-    parseEventHeaders: jest.fn(),
-}))
-
 describe('createParseHeadersStep', () => {
-    const mockParseEventHeaders = parseEventHeaders as jest.MockedFunction<typeof parseEventHeaders>
     let step: ReturnType<typeof createParseHeadersStep>
 
     beforeEach(() => {
-        jest.clearAllMocks()
         step = createParseHeadersStep()
     })
 
@@ -26,26 +17,21 @@ describe('createParseHeadersStep', () => {
             } as Pick<Message, 'headers'>,
         }
 
-        const expectedHeaders: EventHeaders = {
-            token: 'test-token',
-            distinct_id: 'test-user',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should preserve additional input properties', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'test-token',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [{ token: Buffer.from('test-token') }],
@@ -58,17 +44,15 @@ describe('createParseHeadersStep', () => {
         expect(result).toEqual(
             ok({
                 ...input,
-                headers: expectedHeaders,
+                headers: {
+                    token: 'test-token',
+                    force_disable_person_processing: false,
+                },
             })
         )
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
     it('should handle empty headers', async () => {
-        const expectedHeaders: EventHeaders = {}
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [],
@@ -76,15 +60,17 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should handle undefined headers', async () => {
-        const expectedHeaders: EventHeaders = {}
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: undefined,
@@ -92,18 +78,17 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should handle headers with duplicate keys (last value wins)', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'second-token',
-            distinct_id: 'second-user',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [
@@ -116,19 +101,19 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'second-token',
+                    distinct_id: 'second-user',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should handle complex headers with multiple supported fields', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'complex-token',
-            distinct_id: 'complex-user',
-            timestamp: '2023-01-01T00:00:00Z',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [
@@ -140,19 +125,20 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'complex-token',
+                    distinct_id: 'complex-user',
+                    timestamp: '2023-01-01T00:00:00Z',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should handle string values in headers', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'string-token',
-            distinct_id: 'string-user',
-            timestamp: '2023-01-01T00:00:00Z',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [
@@ -164,19 +150,20 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'string-token',
+                    distinct_id: 'string-user',
+                    timestamp: '2023-01-01T00:00:00Z',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should handle mixed Buffer and string values in headers', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'buffer-token',
-            distinct_id: 'string-user',
-            timestamp: '2023-01-01T00:00:00Z',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [
@@ -188,18 +175,20 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'buffer-token',
+                    distinct_id: 'string-user',
+                    timestamp: '2023-01-01T00:00:00Z',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
     })
 
     it('should ignore unsupported headers and only parse supported ones', async () => {
-        const expectedHeaders: EventHeaders = {
-            token: 'test-token',
-            distinct_id: 'test-user',
-        }
-
-        mockParseEventHeaders.mockReturnValue(expectedHeaders)
-
         const input = {
             message: {
                 headers: [
@@ -214,7 +203,150 @@ describe('createParseHeadersStep', () => {
         }
         const result = await step(input)
 
-        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
-        expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
+        expect(result).toEqual(
+            ok({
+                ...input,
+                headers: {
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    force_disable_person_processing: false,
+                },
+            })
+        )
+    })
+
+    describe('force_disable_person_processing header', () => {
+        it('should parse force_disable_person_processing as true when value is "true"', async () => {
+            const input = {
+                message: {
+                    headers: [{ force_disable_person_processing: Buffer.from('true') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: true,
+                    },
+                })
+            )
+        })
+
+        it('should parse force_disable_person_processing as false when value is "false"', async () => {
+            const input = {
+                message: {
+                    headers: [{ force_disable_person_processing: Buffer.from('false') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should parse force_disable_person_processing as false when value is not "true"', async () => {
+            const input = {
+                message: {
+                    headers: [{ force_disable_person_processing: Buffer.from('1') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should parse force_disable_person_processing as false when header is missing', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test-token') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle force_disable_person_processing with string values', async () => {
+            const input = {
+                message: {
+                    headers: [{ force_disable_person_processing: 'true' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: true,
+                    },
+                })
+            )
+        })
+
+        it('should handle force_disable_person_processing with string "false"', async () => {
+            const input = {
+                message: {
+                    headers: [{ force_disable_person_processing: 'false' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle multiple headers including force_disable_person_processing', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { distinct_id: Buffer.from('test-user') },
+                        { force_disable_person_processing: Buffer.from('true') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        force_disable_person_processing: true,
+                    },
+                })
+            )
+        })
     })
 })

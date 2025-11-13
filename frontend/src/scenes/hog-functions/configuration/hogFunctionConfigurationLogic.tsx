@@ -49,6 +49,7 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    TeamType,
 } from '~/types'
 
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
@@ -296,6 +297,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam'],
         ],
     })),
     actions({
@@ -474,6 +477,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type: res.type,
                         enabled: res.enabled,
                     })
+
+                    // Capture error tracking specific alert event
+                    if (
+                        res.template?.id === 'error-tracking-issue-created' ||
+                        res.template?.id === 'error-tracking-issue-reopened'
+                    ) {
+                        const triggerEvent =
+                            res.template.id === 'error-tracking-issue-created'
+                                ? '$error_tracking_issue_created'
+                                : '$error_tracking_issue_reopened'
+
+                        posthog.capture('error_tracking_alert_created', {
+                            trigger_event: triggerEvent,
+                            subtemplate_id: res.template.id,
+                            has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                            enabled: res.enabled,
+                        })
+                    }
 
                     lemonToast.success('Configuration saved')
                     refreshTreeItem('hog_function/', res.id)
@@ -685,6 +706,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
+            },
+        ],
+        teamHasCohortFilters: [
+            (s) => [s.currentTeam, s.configuration],
+            (currentTeam: TeamType | null, configuration: HogFunctionConfigurationType | null) => {
+                // Only show warning if filter_test_accounts is enabled AND team has cohort filters
+                const hasFilterTestAccountsEnabled = configuration?.filters?.filter_test_accounts === true
+                const teamHasCohorts =
+                    currentTeam?.test_account_filters?.some(
+                        (filter: AnyPropertyFilter) => filter.type === PropertyFilterType.Cohort
+                    ) || false
+
+                return hasFilterTestAccountsEnabled && teamHasCohorts
             },
         ],
         useMapping: [
@@ -1141,11 +1175,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         canEditSource: [
             (s) => [s.type, s.template, s.hogFunction],
             (type, template, hogFunction) => {
-                return (
-                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
-                    (type === 'destination' &&
-                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
-                )
+                const codeLanguage = template?.code_language || hogFunction?.template?.code_language
+
+                if (type === 'site_app' || type === 'site_destination') {
+                    return true
+                }
+
+                // Only allow editing if code language is 'hog'
+                if (codeLanguage && codeLanguage !== 'hog') {
+                    return false
+                }
+
+                return ['source_webhook', 'transformation', 'destination'].includes(type)
             },
         ],
 

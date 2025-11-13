@@ -1,44 +1,38 @@
-from datetime import datetime
-from functools import cached_property
+from copy import deepcopy
 from typing import Literal, Optional, cast
 
 import structlog
 
 from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
-    ConversionGoalFilter1,
-    ConversionGoalFilter2,
-    ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
 
-from .adapters.base import MarketingSourceAdapter, QueryContext
-from .adapters.factory import MarketingSourceFactory
-from .constants import BASE_COLUMN_MAPPING, DEFAULT_LIMIT, PAGINATION_EXTRA, to_marketing_analytics_data
-from .conversion_goal_processor import ConversionGoalProcessor
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+
+from .constants import (
+    BASE_COLUMN_MAPPING,
+    DEFAULT_LIMIT,
+    PAGINATION_EXTRA,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    to_marketing_analytics_data,
+)
 from .conversion_goals_aggregator import ConversionGoalsAggregator
-from .marketing_analytics_config import MarketingAnalyticsConfig
-from .utils import convert_team_conversion_goals_to_objects
+from .marketing_analytics_base_query_runner import MarketingAnalyticsBaseQueryRunner
 
 logger = structlog.get_logger(__name__)
 
 
-class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsTableQueryResponse]):
+class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
     cached_response: CachedMarketingAnalyticsTableQueryResponse
 
@@ -47,94 +41,19 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        # Initialize configuration
-        self.config = MarketingAnalyticsConfig()
+        # Initialize configuration with team-specific settings
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
 
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
+    # Implementation of abstract methods from base class
 
-    def _factory(self, date_range: QueryDateRange):
-        """Create factory instance for the given date range"""
-
-        # Create query context for all adapters
-        context = QueryContext(
-            date_range=date_range,
-            team=self.team,
-            base_currency=self.team.base_currency or DEFAULT_CURRENCY,
-        )
-        return MarketingSourceFactory(context=context)
-
-    def _get_marketing_source_adapters(self, date_range: QueryDateRange):
-        """Get marketing source adapters using the new adapter architecture"""
-        try:
-            factory: MarketingSourceFactory = self._factory(date_range=date_range)
-            adapters = factory.create_adapters()
-            valid_adapters = factory.get_valid_adapters(adapters)
-
-            logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
-
-            return valid_adapters
-
-        except Exception as e:
-            logger.exception("Error getting marketing source adapters", error=str(e))
-            return []
-
-    def to_query(self) -> ast.SelectQuery:
-        """Generate the HogQL query using the new adapter architecture"""
-        with self.timings.measure("marketing_analytics_table_query"):
-            # Get marketing source adapters
-            adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
-
-            # Build the union query using the factory
-            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
-
-            # Get conversion goals and create processors
-            conversion_goals = self._get_team_conversion_goals()
-            processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
-
-            # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
-
-    def _build_complete_query_ast(
-        self, union_query_string: str, processors: list, date_range: QueryDateRange
+    def _build_main_select_query(
+        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> ast.SelectQuery:
-        """Build the complete query with CTEs using AST expressions"""
-
-        # Create conversion goals aggregator if needed
-        conversion_aggregator = ConversionGoalsAggregator(processors, self.config) if processors else None
-
-        # Build the main SELECT query
-        main_query = self._build_select_query(conversion_aggregator)
-
-        # Build CTEs as a dictionary
-        ctes: dict[str, ast.CTE] = {}
-
-        # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
-        campaign_cost_cte = ast.CTE(
-            name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
-        )
-        ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
-
-        # Add unified conversion goal CTE if any
-        if conversion_aggregator:
-            unified_cte = conversion_aggregator.generate_unified_cte(date_range, self._get_where_conditions)
-            ctes["unified_conversion_goals"] = unified_cte
-
-        # Add CTEs to the main query
-        main_query.ctes = ctes
-
-        return main_query
+        """Build the main SELECT query for table queries with detailed rows"""
+        return self._build_select_query(conversion_aggregator)
 
     def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
-        from posthog.hogql.query import execute_hogql_query
 
         query: ast.SelectQuery
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -208,6 +127,18 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
 
+    def _build_flexible_source_join_condition(self) -> ast.Expr:
+        """
+        Build source join condition.
+        Source normalization happens in conversion_goal_processor._normalize_source_field,
+        so we can use simple equality here.
+        """
+        return ast.CompareOperation(
+            left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
+        )
+
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
     ) -> ast.JoinExpr:
@@ -223,14 +154,16 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                     expr=ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                left=ast.Field(chain=["current_period", "Campaign"]),
+                                left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.CAMPAIGN.value]),
                                 op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=["previous_period", "Campaign"]),
+                                right=ast.Field(
+                                    chain=["previous_period", MarketingAnalyticsBaseColumns.CAMPAIGN.value]
+                                ),
                             ),
                             ast.CompareOperation(
-                                left=ast.Field(chain=["current_period", "Source"]),
+                                left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
                                 op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(chain=["previous_period", "Source"]),
+                                right=ast.Field(chain=["previous_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
                             ),
                         ]
                     ),
@@ -267,22 +200,9 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         filtered_select = self._get_filtered_select_columns(query)
         return self._build_paginated_query(filtered_select, query.select_from, query.ctes)
 
-    def _create_previous_period_date_range(self) -> QueryDateRange:
-        """Create the date range for the previous period comparison"""
-        return QueryDateRange(
-            date_range=DateRange(
-                date_from=self.query_compare_to_date_range.date_from().isoformat(),
-                date_to=self.query_compare_to_date_range.date_to().isoformat(),
-            ),
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-
     def calculate_with_compare(self) -> ast.SelectQuery:
         """Execute the query and return results with pagination support"""
         # For compare queries, we need to create a new query runner for the previous period
-        from copy import deepcopy
 
         previous_query = deepcopy(self.query)
         previous_date_range = self._create_previous_period_date_range()
@@ -326,40 +246,6 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
 
         return self._build_paginated_query(tuple_columns, join_expr)
 
-    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
-        """Build the campaign_costs CTE SELECT query"""
-        # Build SELECT columns for the CTE
-        select_columns: list[ast.Expr] = [
-            ast.Field(chain=[self.config.campaign_field]),
-            ast.Field(chain=[self.config.source_field]),
-            ast.Alias(
-                alias=self.config.total_cost_field,
-                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]),
-            ),
-            ast.Alias(
-                alias=self.config.total_clicks_field,
-                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]),
-            ),
-            ast.Alias(
-                alias=self.config.total_impressions_field,
-                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
-            ),
-            ast.Alias(
-                alias=self.config.total_reported_conversions_field,
-                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])]),
-            ),
-        ]
-
-        # Parse the union query as a subquery and wrap it in a JoinExpr
-        union_subquery = parse_select(union_query_string)
-        union_join_expr = ast.JoinExpr(table=union_subquery)
-
-        # Build GROUP BY using configuration
-        group_by_exprs: list[ast.Expr] = [ast.Field(chain=[field]) for field in self.config.group_by_fields]
-
-        # Build the CTE SELECT query
-        return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
-
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
@@ -391,7 +277,7 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
             join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
             unified_join = ast.JoinExpr(
                 join_type=join_type,
-                table=ast.Field(chain=["unified_conversion_goals"]),
+                table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
@@ -405,15 +291,7 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                                     chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
                                 ),
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                ),
-                            ),
+                            self._build_flexible_source_join_condition(),
                         ]
                     ),
                     constraint_type="ON",
@@ -434,27 +312,6 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                 base_join = base_join.next_join
             base_join.next_join = current_join
         return initial_join
-
-    @cached_property
-    def query_compare_to_date_range(self):
-        """Get the compare date range if compare filter is enabled"""
-        if self.query.compareFilter is not None:
-            if isinstance(self.query.compareFilter.compare_to, str):
-                return QueryCompareToDateRange(
-                    date_range=self.query.dateRange,
-                    team=self.team,
-                    interval=None,
-                    now=datetime.now(),
-                    compare_to=self.query.compareFilter.compare_to,
-                )
-            elif self.query.compareFilter.compare:
-                return QueryPreviousPeriodDateRange(
-                    date_range=self.query.dateRange,
-                    team=self.team,
-                    interval=None,
-                    now=datetime.now(),
-                )
-        return None
 
     def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
@@ -477,100 +334,6 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
         return order_by_exprs
-
-    def _create_conversion_goal_processors(
-        self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
-    ) -> list:
-        """Create conversion goal processors for reuse across different methods"""
-        processors = []
-        for index, conversion_goal in enumerate(conversion_goals):
-            # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
-            should_create = self.query.select is None or (
-                conversion_goal.conversion_goal_name in self.query.select
-                or f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
-                in self.query.select
-            )
-            if should_create:
-                processor = ConversionGoalProcessor(
-                    goal=conversion_goal, index=index, team=self.team, config=self.config
-                )
-                processors.append(processor)
-        return processors
-
-    def _generate_conversion_goal_selects_from_processors(
-        self, processors: list[ConversionGoalProcessor]
-    ) -> list[ast.Expr]:
-        """Generate SELECT columns for conversion goals"""
-        if not processors:
-            return []
-
-        all_selects: list[ast.Expr] = []
-        for processor in processors:
-            # Let the processor generate its own SELECT columns
-            select_columns = processor.generate_select_columns()
-            all_selects.extend(select_columns)
-
-        return all_selects
-
-    def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
-        """Get conversion goals from team marketing analytics config and convert to proper objects"""
-        conversion_goals = convert_team_conversion_goals_to_objects(
-            self.team.marketing_analytics_config.conversion_goals, self.team.pk
-        )
-
-        if self.query.draftConversionGoal:
-            conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
-
-        return conversion_goals
-
-    def _get_where_conditions(
-        self,
-        date_range: QueryDateRange,
-        base_conditions=None,
-        include_date_range=True,
-        date_field="timestamp",
-        use_date_not_datetime=False,
-    ) -> list[ast.Expr]:
-        """Build WHERE conditions with common patterns"""
-        conditions = base_conditions or []
-
-        if include_date_range:
-            # Handle date_field with table prefixes like "events.timestamp"
-            date_field_chain = date_field.split(".")
-            if use_date_not_datetime:
-                # For conversion goals that use toDate instead of toDateTime
-                # Build: date_field >= toDate('date_from')
-                date_field_expr = ast.Field(chain=date_field_chain)
-                from_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_from_str)])
-                to_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_to_str)])
-
-                gte_condition = ast.CompareOperation(
-                    left=date_field_expr, op=ast.CompareOperationOp.GtEq, right=from_date
-                )
-                lte_condition = ast.CompareOperation(
-                    left=date_field_expr, op=ast.CompareOperationOp.LtEq, right=to_date
-                )
-
-                conditions.extend([gte_condition, lte_condition])
-            else:
-                date_cast: ast.Expr
-                # Build for regular datetime conditions
-                if "." in date_field:
-                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
-                else:
-                    date_cast = ast.Field(chain=date_field_chain)
-
-                from_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
-                to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
-
-                gte_condition = ast.CompareOperation(
-                    left=date_cast, op=ast.CompareOperationOp.GtEq, right=from_datetime
-                )
-                lte_condition = ast.CompareOperation(left=date_cast, op=ast.CompareOperationOp.LtEq, right=to_datetime)
-
-                conditions.extend([gte_condition, lte_condition])
-
-        return conditions
 
     def _transform_results_to_marketing_analytics_items(
         self, results: list, columns: list, has_comparison: bool

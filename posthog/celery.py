@@ -18,8 +18,6 @@ from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from prometheus_client import Counter, Histogram
 
-from posthog.cloud_utils import is_cloud
-
 logger = structlog.get_logger(__name__)
 
 
@@ -59,6 +57,11 @@ CELERY_TASK_DURATION_HISTOGRAM = Histogram(
     "Time spent running a task",
     labelnames=["task_name"],
     buckets=(1, 5, 10, 30, 60, 120, 600, 1200, float("inf")),
+)
+
+CELERY_TASK_INITIALIZATION_FAILURE_COUNTER = Counter(
+    "posthog_celery_task_initialization_failure",
+    "Number of times task initialization failed",
 )
 
 
@@ -155,18 +158,11 @@ def retry_signal_handler(sender, reason, **kwargs):
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
-    from posthog.pagerduty.pd import create_incident
     from posthog.tasks.scheduled import setup_periodic_tasks
 
     try:
         setup_periodic_tasks(sender)
     except Exception as exc:
         # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
-        if is_cloud():
-            create_incident(
-                f"Periodic tasks setup failed: {exc}",
-                "posthog.celery.setup_periodic_tasks",
-                "critical",
-            )
-        else:
-            logger.exception("Periodic tasks setup failed", exception=exc)
+        CELERY_TASK_INITIALIZATION_FAILURE_COUNTER.inc()
+        logger.exception("Periodic tasks setup failed", exception=exc)

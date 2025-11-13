@@ -16,7 +16,9 @@ export const CommandEnterExtension = Extension.create<CommandEnterExtensionOptio
     addKeyboardShortcuts() {
         return {
             'Mod-Enter': () => {
-                this.options.onPressCmdEnter()
+                if (!this.editor.isEmpty) {
+                    this.options.onPressCmdEnter()
+                }
                 return true
             },
         }

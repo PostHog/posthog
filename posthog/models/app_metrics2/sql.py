@@ -1,14 +1,22 @@
-from django.conf import settings
-
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 
 APP_METRICS2_TTL_DAYS = 90
 
-SHARDED_APP_METRICS2_TABLE_ENGINE = lambda: AggregatingMergeTree(
-    "sharded_app_metrics2", replication_scheme=ReplicationScheme.SHARDED
-)
+APP_METRICS2_TABLE = "app_metrics2"
+APP_METRICS2_SHARDED_TABLE = f"sharded_{APP_METRICS2_TABLE}"
+APP_METRICS2_MV_TABLE = f"{APP_METRICS2_TABLE}_mv"
+APP_METRICS2_WRITABLE_TABLE = f"writable_{APP_METRICS2_TABLE}"
+KAFKA_APP_METRICS2_TABLE = f"kafka_{APP_METRICS2_TABLE}"
+
+DROP_APP_METRICS2_MV_TABLE_SQL = f"DROP TABLE IF EXISTS {APP_METRICS2_MV_TABLE}"
+DROP_KAFKA_APP_METRICS2_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_APP_METRICS2_TABLE}"
+
+
+def APP_METRICS2_SHARDED_TABLE_ENGINE():
+    return AggregatingMergeTree(APP_METRICS2_SHARDED_TABLE, replication_scheme=ReplicationScheme.SHARDED)
+
 
 BASE_APP_METRICS2_COLUMNS = """
     team_id Int64,
@@ -36,12 +44,12 @@ APP_METRICS2_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
 APP_METRICS2_DATA_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS {APP_METRICS2_SHARDED_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {SHARDED_APP_METRICS2_TABLE_ENGINE()}
+ENGINE = {APP_METRICS2_SHARDED_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_kind, metric_name)
 {ttl_period("timestamp", APP_METRICS2_TTL_DAYS, unit="DAY")}
@@ -50,18 +58,29 @@ ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTA
 
 DISTRIBUTED_APP_METRICS2_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS {APP_METRICS2_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE={Distributed(data_table="sharded_app_metrics2", sharding_key="rand()")}
+ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()")}
+"""
+)
+
+WRITABLE_APP_METRICS2_TABLE_SQL = (
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS {APP_METRICS2_WRITABLE_TABLE}
+(
+    {BASE_APP_METRICS2_COLUMNS}
+    {KAFKA_COLUMNS_WITH_PARTITION}
+)
+ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()")}
 """
 )
 
 KAFKA_APP_METRICS2_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS2_TABLE}
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -77,9 +96,9 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
 )
 
 APP_METRICS2_MV_TABLE_SQL = (
-    lambda: f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
-TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics2
+    lambda target_table=APP_METRICS2_WRITABLE_TABLE: f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv
+TO {target_table}
 AS SELECT
 team_id,
 timestamp,
@@ -88,12 +107,16 @@ app_source_id,
 instance_id,
 metric_kind,
 metric_name,
-count
-FROM {settings.CLICKHOUSE_DATABASE}.kafka_app_metrics2
+count,
+_timestamp,
+_offset,
+_partition
+FROM {KAFKA_APP_METRICS2_TABLE}
 """
 )
 
-TRUNCATE_APP_METRICS2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS sharded_app_metrics2"
+
+TRUNCATE_APP_METRICS2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {APP_METRICS2_SHARDED_TABLE}"
 
 INSERT_APP_METRICS2_SQL = """
 INSERT INTO sharded_app_metrics2 (

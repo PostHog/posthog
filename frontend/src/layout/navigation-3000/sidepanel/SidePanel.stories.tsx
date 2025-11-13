@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -10,6 +11,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { SidePanelTab } from '~/types'
 
+import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -18,8 +20,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-07-04', // To stabilize relative dates
+        mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
+        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -34,6 +37,8 @@ const meta: Meta = {
                 '/api/projects/:id/batch_exports/': { results: [] },
                 '/api/projects/:id/surveys/': { results: [] },
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
+                '/api/environments/:team_id/exports/': { results: [] },
+                '/api/environments/:team_id/events': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -51,7 +56,20 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 }
 
 export const SidePanelDocs: StoryFn = () => {
+    const { setIframeReady } = useActions(sidePanelDocsLogic({ iframeRef: { current: null } }))
+
+    // Directly set iframeReady to skip waiting for external iframe to load
+    useOnMountEffect(() => {
+        setIframeReady(true)
+    })
+
     return <BaseTemplate panel={SidePanelTab.Docs} />
+}
+SidePanelDocs.parameters = {
+    testOptions: {
+        // Skip iframe wait since the external docs iframe fails to load in CI
+        skipIframeWait: true,
+    },
 }
 
 export const SidePanelSettings: StoryFn = () => {
@@ -70,12 +88,16 @@ export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
 
+export const SidePanelSdkDoctor: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
+}
+
 export const SidePanelSupportNoEmail: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
-    const { openEmailForm } = useActions(supportLogic)
+    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
 
     useStorybookMocks({
         get: {
@@ -99,7 +121,10 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
         },
     })
 
-    useOnMountEffect(openEmailForm)
+    useOnMountEffect(() => {
+        openEmailForm()
+        return () => closeEmailForm()
+    })
 
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

@@ -16,6 +16,8 @@ class LogsTable(Table):
         "span_id": StringDatabaseField(name="span_id", nullable=False),
         "body": StringDatabaseField(name="body", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
+        "time_minute": DateTimeDatabaseField(name="time_minute", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
         "observed_timestamp": DateTimeDatabaseField(name="observed_timestamp", nullable=False),
         "severity_text": StringDatabaseField(name="severity_text", nullable=False),
@@ -25,6 +27,10 @@ class LogsTable(Table):
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
+        # internal fields for query optimization
+        "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True, hidden=True),
+        "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
+        "mat_body_ipv4_matches": StringJSONDatabaseField(name="mat_body_ipv4_matches", nullable=True, hidden=True),
     }
 
     def to_printed_clickhouse(self, context):

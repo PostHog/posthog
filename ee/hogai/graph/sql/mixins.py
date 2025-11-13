@@ -7,7 +7,7 @@ from posthog.schema import AssistantHogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
@@ -15,8 +15,9 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
@@ -34,25 +35,33 @@ from .prompts import (
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
-class HogQLGeneratorMixin(AssistantContextMixin):
+class HogQLDatabaseMixin:
+    _team: Team
     _database_instance: Database | None = None
 
     def _get_database(self):
         if self._database_instance:
             return self._database_instance
-        self._database_instance = create_hogql_database(team=self._team)
+        self._database_instance = Database.create_for(team=self._team)
         return self._database_instance
+
+    @database_sync_to_async
+    def _aget_database(self):
+        return self._get_database()
 
     def _get_default_hogql_context(self, database: Database):
         hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
         return hogql_context
 
-    async def _construct_system_prompt(self) -> ChatPromptTemplate:
-        database = await database_sync_to_async(self._get_database)()
-        hogql_context = self._get_default_hogql_context(database)
+    async def _serialize_database_schema(self):
+        database = await self._aget_database()
+        return await serialize_database_schema(database, self._get_default_hogql_context(database))
 
+
+class HogQLGeneratorMixin(AssistantContextMixin, HogQLDatabaseMixin):
+    async def _construct_system_prompt(self) -> ChatPromptTemplate:
         schema_description, core_memory = await asyncio.gather(
-            serialize_database_schema(database, hogql_context),
+            self._serialize_database_schema(),
             self._aget_core_memory_text(),
         )
 
@@ -96,7 +105,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
 
-            print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
+            prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):

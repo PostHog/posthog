@@ -24,7 +24,10 @@ pub struct ChangedGroup {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
     pub path: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_bool"
+    )]
     pub user_properties_updated: bool,
     #[serde(rename = "group_first_event", default)]
     pub group_first_event: HashMap<String, Value>,
@@ -75,6 +78,10 @@ pub struct AmplitudeEvent {
     pub groups: HashMap<String, Vec<String>>,
     pub idfa: Option<String>,
     pub ip_address: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub is_attribution_event: Option<bool>,
     pub language: Option<String>,
     pub library: Option<String>,
@@ -83,6 +90,10 @@ pub struct AmplitudeEvent {
     pub os_name: Option<String>,
     pub os_version: Option<String>,
     pub partner_id: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub paying: Option<bool>,
     #[serde(default)]
     pub plan: HashMap<String, Value>,
@@ -145,8 +156,7 @@ fn detect_group_changes(
 
 /// Create a PostHog group identify event
 fn create_group_identify_event(
-    team_id: i32,
-    token: String,
+    context: &TransformContext,
     distinct_id: String,
     group_type: String,
     group_key: String,
@@ -179,6 +189,10 @@ fn create_group_identify_event(
         "analytics_source".to_string(),
         Value::String("amplitude".to_string()),
     );
+    properties.insert(
+        "$import_job_id".to_string(),
+        Value::String(context.job_id.to_string()),
+    );
 
     let raw_event = RawEvent {
         event: "$groupidentify".to_string(),
@@ -186,7 +200,7 @@ fn create_group_identify_event(
         timestamp: Some(timestamp.to_rfc3339()),
         distinct_id: Some(Value::String(distinct_id.clone())),
         uuid: Some(event_uuid),
-        token: Some(token.clone()),
+        token: Some(context.token.clone()),
         offset: None,
         set: None,
         set_once: None,
@@ -199,12 +213,15 @@ fn create_group_identify_event(
         data: serde_json::to_string(&raw_event)?,
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         sent_at: None,
-        token,
+        token: context.token.clone(),
+        event: "$groupidentify".to_string(),
+        timestamp,
         is_cookieless_mode: false,
+        historical_migration: true,
     };
 
     Ok(InternallyCapturedEvent {
-        team_id,
+        team_id: context.team_id,
         inner: captured_event,
     })
 }
@@ -453,6 +470,10 @@ impl AmplitudeEvent {
                 "analytics_source".to_string(),
                 Value::String("amplitude".to_string()),
             );
+            properties.insert(
+                "$import_job_id".to_string(),
+                Value::String(context.job_id.to_string()),
+            );
 
             // Add groups to the regular event properties BEFORE creating RawEvent
             if !amp.groups.is_empty() {
@@ -538,8 +559,7 @@ impl AmplitudeEvent {
                     Ok(changed_groups) => {
                         for changed_group in changed_groups {
                             match create_group_identify_event(
-                                team_id,
-                                token.clone(),
+                                &context,
                                 distinct_id.clone(),
                                 changed_group.group_type,
                                 changed_group.group_key,
@@ -571,7 +591,10 @@ impl AmplitudeEvent {
                     now: Utc::now().to_rfc3339(),
                     sent_at: None,
                     token,
+                    event: raw_event.event.clone(),
+                    timestamp,
                     is_cookieless_mode: false,
+                    historical_migration: true,
                 };
 
                 events.push(InternallyCapturedEvent { team_id, inner });
@@ -639,6 +662,7 @@ mod tests {
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -999,6 +1023,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1074,6 +1099,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: cache.clone(),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1116,6 +1142,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1155,6 +1182,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1218,6 +1246,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1274,6 +1303,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: false, // Disabled
@@ -1327,6 +1357,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1424,6 +1455,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1498,6 +1530,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1566,6 +1599,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1629,6 +1663,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1688,6 +1723,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1738,6 +1774,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1756,6 +1793,249 @@ mod tests {
         assert_eq!(
             original_data["properties"]["$groups"]["company"],
             "acme-corp"
+        );
+    }
+
+    #[test]
+    fn test_job_id_in_amplitude_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 1);
+
+        let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+    }
+
+    #[test]
+    fn test_user_properties_updated_string_bool() {
+        // Test that user_properties_updated accepts string "true"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "true"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test that user_properties_updated accepts string "false"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "false"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(!event.data.user_properties_updated);
+
+        // Test with actual boolean
+        let json = r#"{
+            "data": {
+                "user_properties_updated": true
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test with string "1"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "1"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+    }
+
+    #[test]
+    fn test_is_attribution_event_string_bool() {
+        // Test with string "true"
+        let json = r#"{"is_attribution_event": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with string "false"
+        let json = r#"{"is_attribution_event": "false"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(false));
+
+        // Test with string "1"
+        let json = r#"{"is_attribution_event": "1"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"is_attribution_event": true}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with null
+        let json = r#"{"is_attribution_event": null}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+    }
+
+    #[test]
+    fn test_paying_string_bool() {
+        // Test with string "true"
+        let json = r#"{"paying": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with string "0"
+        let json = r#"{"paying": "0"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with integer
+        let json = r#"{"paying": 1}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"paying": false}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, None);
+    }
+
+    #[test]
+    fn test_job_id_in_group_identify_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let mut groups = HashMap::new();
+        groups.insert("company".to_string(), vec!["acme-corp".to_string()]);
+
+        let mut group_properties = HashMap::new();
+        let mut company_props = HashMap::new();
+        company_props.insert("acme-corp".to_string(), {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), json!("Acme Corporation"));
+            props
+        });
+        group_properties.insert("company".to_string(), company_props);
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            groups,
+            group_properties,
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        let group_identify_data: serde_json::Value =
+            serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(group_identify_data["event"], "$groupidentify");
+        assert_eq!(
+            group_identify_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
+        );
+
+        let original_data: serde_json::Value = serde_json::from_str(&result[1].inner.data).unwrap();
+        assert_eq!(
+            original_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
+        );
+    }
+
+    #[test]
+    fn test_captured_event_has_historical_migration_and_now_fields() {
+        let before_test = Utc::now();
+
+        let amp_event = AmplitudeEvent {
+            insert_id: Some("test_insert_id".to_string()),
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let captured_event = result.into_iter().next().unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            captured_event.inner.historical_migration,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !captured_event.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&captured_event.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&captured_event.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
         );
     }
 }

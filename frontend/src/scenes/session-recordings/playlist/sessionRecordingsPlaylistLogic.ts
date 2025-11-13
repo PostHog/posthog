@@ -19,7 +19,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean, objectsEqual } from 'lib/utils'
+import { isString, objectClean, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
@@ -27,13 +27,20 @@ import { urls } from 'scenes/urls'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    NodeKind,
+    RecordingOrder,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    VALID_RECORDING_ORDERS,
+} from '~/queries/schema/schema-general'
 import {
     EntityTypes,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -93,11 +100,21 @@ const isPersonPropertyShortcutSearchParams = (
     return (x as PersonPropertyShortcutSearchParams).personProperty !== undefined
 }
 
+function isValidRecordingOrder(order: unknown): boolean {
+    return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
+}
+
+function isValidRecordingOrderDirection(direction: unknown): boolean {
+    return !!direction && isString(direction) && ['ASC', 'DESC'].includes(direction)
+}
+
 const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
+    const replayURLSearchParams = x as ReplayURLSearchParams
     return (
-        (x as ReplayURLSearchParams).filters !== undefined ||
-        (x as ReplayURLSearchParams).order !== undefined ||
-        (x as ReplayURLSearchParams).order_direction !== undefined
+        (replayURLSearchParams.filters === undefined || isValidRecordingFilters(replayURLSearchParams.filters)) &&
+        (replayURLSearchParams.order === undefined || isValidRecordingOrder(replayURLSearchParams.order)) &&
+        (replayURLSearchParams.order_direction === undefined ||
+            isValidRecordingOrderDirection(replayURLSearchParams.order_direction))
     )
 }
 
@@ -112,7 +129,7 @@ interface EventNamesMatching {
 
 interface EventUUIDsMatching {
     matchType: 'uuid'
-    eventUUIDs: string[]
+    matchedEvents: MatchedRecordingEvent[]
 }
 
 interface BackendEventsMatching {
@@ -176,7 +193,7 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
  */
-export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
     if (!filters || typeof filters !== 'object') {
         return false
     }
@@ -238,7 +255,10 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const having_predicates: RecordingsQuery['having_predicates'] = []
     let comment_text: RecordingsQuery['comment_text'] = undefined
 
-    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    // it was possible to store an invalid order key in local storage sometimes, let's just ignore that instead of erroring
+    const order: RecordingsQuery['order'] = isValidRecordingOrder(universalFilters.order)
+        ? universalFilters.order
+        : DEFAULT_RECORDING_FILTERS_ORDER_BY
     const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
 
     const durationFilter = universalFilters.duration[0]
@@ -500,6 +520,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
+                next_cursor: undefined,
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                 order_direction: 'DESC',
             } as RecordingsQueryResponse & {
@@ -530,11 +551,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
 
                     if (direction === 'older') {
-                        params.offset = values.sessionRecordings.length
+                        // Use cursor-based pagination for loading older recordings
+                        if (values.sessionRecordingsResponse?.next_cursor) {
+                            params.after = values.sessionRecordingsResponse.next_cursor
+                        } else {
+                            // Fallback to offset-based pagination if cursor is not available
+                            params.offset = values.sessionRecordings.length
+                        }
                     }
 
                     if (direction === 'newer') {
+                        // Reset pagination for loading newer recordings
                         params.offset = 0
+                        params.after = undefined
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -552,6 +581,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             direction === 'newer'
                                 ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
+                        next_cursor: direction === 'newer' ? undefined : response.next_cursor,
                         results: response.results,
                         order: params.order,
                         order_direction: params.order_direction,
@@ -586,7 +616,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }
-                    // TODO: Check for pinnedRecordings being IDs and fetch them, returning the merged list
 
                     return recordings
                 },

@@ -170,6 +170,7 @@ async def test_get_copy_into_table_from_volume_query():
             SELECT `uuid`, `event`, PARSE_JSON(`properties`) as `properties`, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
         )
         FILEFORMAT = PARQUET
+        COPY_OPTIONS ('force' = 'true', 'mergeSchema' = 'true')
         """
     )
 
@@ -186,7 +187,7 @@ async def test_connect_when_invalid_host():
     )
     with pytest.raises(
         DatabricksConnectionError,
-        match="Failed to connect to Databricks. Please check that the server_hostname and http_path are valid.",
+        match="Failed to connect to Databricks. Please check that your connection details are valid.",
     ):
         async with client.connect():
             pass

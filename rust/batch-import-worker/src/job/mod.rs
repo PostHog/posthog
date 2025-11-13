@@ -286,7 +286,12 @@ impl Job {
                         display_msg,
                     } => {
                         let mut model = self.model.lock().await;
-                        error!(job_id = %model.id, error = ?e, "Pausing job due to error: {}", error_msg);
+                        error!(
+                            job_id = %model.id,
+                            user_msg = %error_msg,
+                            "Pausing job due to error: {:#}",
+                            e
+                        );
                         model
                             .pause(self.context.clone(), error_msg, Some(display_msg))
                             .await?;

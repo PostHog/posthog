@@ -11,6 +11,7 @@ import {
     IconShortcut,
 } from '@posthog/icons'
 
+import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -23,6 +24,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -102,6 +104,7 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -169,7 +172,7 @@ export function ProjectTree({
         if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
             return true
         }
-        if (item.name === 'Messaging' && currentPath.startsWith('/messaging/')) {
+        if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
             return true
         }
 
@@ -440,7 +443,33 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
+
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
+                    let key = item.record?.sceneKey
+                    return (
+                        <>
+                            {sceneConfigurations[key]?.description || item.name}
+
+                            {item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
+                }
+                if (root === 'persons://') {
                     return (
                         <>
                             {nameNode}
@@ -525,7 +554,7 @@ export function ProjectTree({
                             </span>
                         )}
 
-                        {item.record?.protocol === 'products://' && item.tags?.length && (
+                        {item.tags?.length && (
                             <>
                                 {item.tags?.map((tag) => (
                                     <LemonTag
@@ -596,6 +625,24 @@ export function ProjectTree({
                                         })}
                                     />
                                     {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'shortcuts://' &&
+                        sortMethod !== 'recent' && {
+                            'data-attr': 'shortcuts-panel-add-button',
+                            onClick: openItemSelectModal,
+                            children: (
+                                <>
+                                    <IconPlusSmall
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    Add shortcut
                                 </>
                             ),
                         }),

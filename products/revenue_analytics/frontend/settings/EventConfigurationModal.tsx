@@ -4,16 +4,16 @@ import { useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { userHasAccess } from 'lib/components/AccessControlAction'
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -44,7 +44,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
     const [originalEvent] = useState<RevenueAnalyticsEventItem | null>(() => (event ? { ...event } : null))
 
     // Don't show the modal if the user doesn't have access to the revenue analytics resource
-    if (!userHasAccess(AccessControlResourceType.RevenueAnalytics, 'editor')) {
+    if (!userHasAccess(AccessControlResourceType.RevenueAnalytics, AccessControlLevel.Editor)) {
         onClose()
         return null
     }

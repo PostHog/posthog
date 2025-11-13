@@ -71,7 +71,7 @@ class TestSummarizeSession:
         ):
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {mock_session_id}"):
                 await get_session_data_from_db(session_id=mock_session_id, team_id=mock_team.id, local_reads_prod=False)
-            mock_get_db_metadata.assert_called_once_with(session_id=mock_session_id, team_id=mock_team.id)
+            mock_get_db_metadata.assert_called_once_with(session_id=mock_session_id, team=mock_team)
 
     def test_prepare_data_no_events_returns_error_data(
         self, mock_team: MagicMock, mock_raw_metadata: dict[str, Any], mock_session_id: str

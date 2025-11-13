@@ -26,10 +26,13 @@ exports[`queries errorTrackingQuery usage in web analytics should return a query
       ],
     },
     "filterTestAccounts": true,
+    "groupKey": undefined,
+    "groupTypeIndex": undefined,
     "kind": "ErrorTrackingQuery",
     "limit": 4,
     "orderBy": "users",
     "orderDirection": undefined,
+    "personId": undefined,
     "searchQuery": undefined,
     "status": undefined,
     "tags": {

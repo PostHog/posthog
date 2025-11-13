@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChat } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { WarningHog } from 'lib/components/hedgehogs'
@@ -25,29 +24,6 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
     )
 }
 
-const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
-    const { selectedTabOptions } = useValues(sidePanelStateLogic)
-    const { setReplyingComment } = useActions(commentsLogic(logicProps))
-
-    useEffect(() => {
-        if (selectedTabOptions) {
-            setReplyingComment(selectedTabOptions)
-        }
-    }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-2">
-                <CommentsList {...logicProps} />
-            </div>
-
-            <div className="border-t px-3 pb-3">
-                <CommentComposer {...logicProps} />
-            </div>
-        </div>
-    )
-}
-
 export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
 
@@ -66,9 +42,6 @@ export const SidePanelDiscussion = (): JSX.Element => {
                                 </span>
                             ) : null}
                         </span>
-                        <Tooltip title="This is a feature we are experimenting with! We'd love to get your feedback on it and whether this is something useful for working with PostHog.">
-                            <LemonTag type="completion">Experimental</LemonTag>
-                        </Tooltip>
                     </div>
                 }
             />
@@ -87,6 +60,30 @@ export const SidePanelDiscussion = (): JSX.Element => {
                     </p>
                 </div>
             )}
+        </div>
+    )
+}
+
+const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
+    const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const { setReplyingComment } = useActions(commentsLogic(logicProps))
+    const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
+
+    useEffect(() => {
+        if (selectedTabOptions) {
+            setReplyingComment(selectedTabOptions)
+        }
+    }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    return (
+        <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-2" ref={setCommentsListRef}>
+                <CommentsList {...logicProps} />
+            </div>
+
+            <div className="border-t px-3 pb-3">
+                <CommentComposer {...logicProps} />
+            </div>
         </div>
     )
 }

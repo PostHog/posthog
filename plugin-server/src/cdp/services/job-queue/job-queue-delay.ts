@@ -14,23 +14,23 @@ import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
 export const getDelayQueue = (_queueScheduledAt: DateTime): CyclotronJobQueueKind => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
-    //     return 'delay_24h'
+    //     return 'delay24h'
     // }
 
     // if (queueScheduledAt > DateTime.now().plus({ minutes: 10 })) {
-    //     return 'delay_60m'
+    //     return 'delay60m'
     // }
 
-    return 'delay_10m' // Force everything to the 10m queue for now
+    return 'delay10m' // Force everything to the 10m queue for now
 }
 
 export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
     switch (queue) {
-        case 'delay_24h':
+        case 'delay24h':
             return 24 * 60 * 60 * 1000 // 24 hours
-        case 'delay_60m':
+        case 'delay60m':
             return 60 * 60 * 1000 // 1 hour
-        case 'delay_10m':
+        case 'delay10m':
             return 10 * 60 * 1000 // 10 minutes
         default:
             throw new Error(`Invalid queue: ${queue}`)

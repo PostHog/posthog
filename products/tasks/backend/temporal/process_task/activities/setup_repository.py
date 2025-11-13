@@ -44,4 +44,15 @@ async def setup_repository(input: SetupRepositoryInput) -> str:
                 {"repository": input.repository, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
             )
 
+        is_clean, status_output = await agent.is_git_clean(input.repository)
+
+        if not is_clean:
+            raise RepositorySetupError(
+                "Repository setup left uncommitted changes. Cannot snapshot with modified git state.",
+                {
+                    "repository": input.repository,
+                    "uncommitted_changes": status_output[:500],
+                },
+            )
+
         return result.stdout

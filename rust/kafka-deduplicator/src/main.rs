@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
+use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -20,13 +21,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use kafka_deduplicator::{
-    config::Config,
-    service::KafkaDeduplicatorService,
-    utils::pprof::{handle_flamegraph, handle_profile},
-};
+use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_alloc::used!();
+common_profiler::used_with_profiling!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -130,9 +127,7 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
         );
 
     let router = if config.enable_pprof {
-        router
-            .route("/pprof/profile", get(handle_profile))
-            .route("/pprof/flamegraph", get(handle_flamegraph))
+        apply_pprof_routes(router)
     } else {
         router
     };
@@ -163,15 +158,27 @@ async fn main() -> Result<()> {
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
     // Initialize tracing with structured output similar to feature-flags
-    let log_layer = fmt::layer()
-        .with_span_events(
-            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-        )
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_ansi(false)
-        .with_filter(EnvFilter::from_default_env());
+    let log_layer = {
+        let base = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.otel_log_level == tracing::Level::DEBUG {
+            // local dev: pretty-print output to console
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(EnvFilter::from_default_env())
+            .boxed()
+        } else {
+            // production: use JSON format Loki/Grafana can extract useful filter tags from
+            base.json()
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
+        }
+    };
 
     // OpenTelemetry layer if configured
     let otel_layer = if let Some(ref otel_url) = config.otel_url {

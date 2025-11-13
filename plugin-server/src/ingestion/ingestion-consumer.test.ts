@@ -91,6 +91,7 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
             headers: {
                 token: e.token || '',
                 distinct_id: e.distinct_id || '',
+                force_disable_person_processing: false,
             },
         })
     )
@@ -710,6 +711,7 @@ describe('IngestionConsumer', () => {
                         token: team.api_token,
                         distinct_id: event.distinct_id || '',
                         timestamp: (Date.now() + index * 1000).toString(),
+                        force_disable_person_processing: false,
                     },
                 }
             })
@@ -723,12 +725,14 @@ describe('IngestionConsumer', () => {
                 token: team.api_token,
                 distinct_id: 'distinct-id-1',
                 timestamp: expect.any(String),
+                force_disable_person_processing: false,
             })
 
             expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
                 token: team.api_token,
                 distinct_id: 'distinct-id-2',
                 timestamp: expect.any(String),
+                force_disable_person_processing: false,
             })
 
             // Verify the timestamp values are different

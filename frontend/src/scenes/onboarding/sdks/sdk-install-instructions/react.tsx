@@ -35,15 +35,15 @@ import { PostHogProvider } from 'posthog-js/react'
 const options = {
   api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
   defaults: '${SDK_DEFAULTS_DATE}',
-}
+} as const
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
       <App />
     </PostHogProvider>
-  </StrictMode>,
-);`}
+  </StrictMode>
+)`}
         </CodeSnippet>
     )
 }

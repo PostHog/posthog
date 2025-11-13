@@ -20,6 +20,7 @@ type MetricOption = {
     metric: ExperimentMetric
     uuid: string
     isSharedMetric: boolean
+    name: string | undefined
 }
 
 export const MetricSelectorStep = ({
@@ -29,12 +30,10 @@ export const MetricSelectorStep = ({
     onChangeMetric: (metric: ExperimentMetric) => void
     onChangeFunnelConversionRateType: (type: ConversionRateInputType) => void
 }): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
-    const { experiment, metric, metricUuid, metricResultLoading } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
-    )
-    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experimentId }))
+    const { metric, metricUuid, metricResultLoading } = useValues(runningTimeCalculatorLogic({ experiment }))
+    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experiment }))
 
     // Create combined array of metrics and saved metrics
     const metricOptions: MetricOption[] = [
@@ -45,6 +44,7 @@ export const MetricSelectorStep = ({
                 metric: metric as ExperimentMetric,
                 uuid: metric.uuid!,
                 isSharedMetric: false,
+                name: undefined,
             })),
         // Shared metrics with primary type
         ...experiment.saved_metrics
@@ -61,6 +61,7 @@ export const MetricSelectorStep = ({
                         metric: sharedMetric.query as ExperimentMetric,
                         uuid: sharedMetric.query.uuid,
                         isSharedMetric: true,
+                        name: sharedMetric.name,
                     }
                 }
                 return null
@@ -81,7 +82,11 @@ export const MetricSelectorStep = ({
                         label: (
                             <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                 <span className="mr-1">{index + 1}.</span>
-                                <MetricTitle metric={option.metric} />
+                                {option.name ? (
+                                    <span className="max-w-56 truncate">{option.name}</span>
+                                ) : (
+                                    <MetricTitle metric={option.metric} />
+                                )}
                                 {option.isSharedMetric && (
                                     <span className="ml-1">
                                         <LemonTag>Shared</LemonTag>

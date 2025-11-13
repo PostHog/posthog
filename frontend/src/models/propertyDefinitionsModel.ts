@@ -593,6 +593,12 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         property_type: PropertyType.String,
                         type: PropertyDefinitionType.EventMetadata,
                     },
+                    {
+                        id: 'person_mode',
+                        name: 'person_mode',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
                 ] as PropertyDefinition[]
                 for (const [groupTypeIndex, groupType] of groupTypes) {
                     const column = `$group_${groupTypeIndex}`
