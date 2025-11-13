@@ -159,7 +159,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // This pattern matches the checks in the 'steps' and 'hasFunnelResults' selectors.
                 if (
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    (!querySource || querySource.kind !== NodeKind.FunnelsQuery)
+                    querySource &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
                     return []
                 }
