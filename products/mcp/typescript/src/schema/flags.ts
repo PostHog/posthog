@@ -78,7 +78,7 @@ export const FiltersSchema = z.object({
 export type Filters = z.infer<typeof FiltersSchema>
 
 export const FilterGroupsSchema = z.object({
-    groups: z.array(FiltersSchema),
+    groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
 })
 
 export type FilterGroups = z.infer<typeof FilterGroupsSchema>
