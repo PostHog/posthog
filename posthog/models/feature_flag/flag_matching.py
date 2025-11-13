@@ -517,8 +517,8 @@ class FeatureFlagMatcher:
                 all_conditions: dict = {}
 
                 # Dual-table support: Query PersonDistinctId first to get person_id,
-                # then filter Person by id instead of using reverse FK relation
-                from posthog.models.person import PersonDistinctId
+                # then use manager method to get QuerySet (not Person.objects.filter which returns list)
+                from posthog.models.person import PersonDistinctId, PersonOld
 
                 distinct_id_obj = (
                     PersonDistinctId.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS)
@@ -530,13 +530,15 @@ class FeatureFlagMatcher:
                 )
 
                 if distinct_id_obj:
-                    person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                    # Use manager method that returns QuerySet with dual-table fallback
+                    person_query: QuerySet = Person.objects.filter_by_id_queryset(
+                        person_id=distinct_id_obj.person_id,
                         team_id=self.team_id,
-                        id=distinct_id_obj.person_id,
+                        db=READ_ONLY_DATABASE_FOR_PERSONS,
                     )
                 else:
-                    # No person found for this distinct_id
-                    person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).none()
+                    # No person found for this distinct_id - use empty QuerySet
+                    person_query: QuerySet = PersonOld.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).none()
                 basic_group_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                     team_id=self.team_id
                 )

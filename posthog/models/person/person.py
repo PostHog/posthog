@@ -1,7 +1,10 @@
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
+
+if TYPE_CHECKING:
+    from django.db.models.query import QuerySet
 
 from posthog.models.utils import UUIDT
 
@@ -167,6 +170,34 @@ class DualPersonManager(models.Manager):
         if result:
             result.__class__ = Person
         return result
+
+    def filter_by_id_queryset(self, person_id: int, team_id: int, db: Optional[str] = None) -> "QuerySet":
+        """Get QuerySet for person by ID, routing to correct table.
+
+        Returns a real QuerySet (not a list) that supports .annotate(), .select_related(), etc.
+        Used when code needs QuerySet operations after filtering by person_id.
+
+        Args:
+            person_id: The person ID to filter by
+            team_id: Team ID to filter by
+            db: Optional database alias (e.g., READ_ONLY_DATABASE_FOR_PERSONS)
+
+        Returns:
+            QuerySet from PersonOld or PersonNew that can be chained with other operations
+        """
+        db = db or "default"
+
+        # Route to correct table based on ID cutoff
+        if person_id >= PERSON_ID_CUTOFF:
+            # Must be in new table
+            return PersonNew.objects.db_manager(db).filter(team_id=team_id, id=person_id)
+        else:
+            # Could be in either table, try old first
+            qs = PersonOld.objects.db_manager(db).filter(team_id=team_id, id=person_id)
+            # If not found in old table, check new table
+            if not qs.exists():
+                return PersonNew.objects.db_manager(db).filter(team_id=team_id, id=person_id)
+            return qs
 
     def get_by_uuid(self, team_id: int, uuid: str):
         """Get person by UUID, trying new table first then falling back to old."""
