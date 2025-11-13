@@ -104,7 +104,8 @@ See [Client Types](#client-types) section for detailed explanation.
 - **HTTP allowed** only for localhost/loopback addresses (127.0.0.1)
 - No fragments (#) allowed
 - Examples:
-  ```
+
+  ```text
   https://app.example.com/oauth/callback
   http://localhost:3000/callback
   http://127.0.0.1:8080/auth
@@ -188,7 +189,7 @@ See [Client Types](#client-types) section for detailed explanation.
 
 2. **Redirect user to authorization URL**:
 
-   ```
+   ```text
    GET /oauth/authorize/
      ?response_type=code
      &client_id=DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ
@@ -203,7 +204,7 @@ See [Client Types](#client-types) section for detailed explanation.
 
 4. **Receive authorization code** at redirect_uri:
 
-   ```
+   ```text
    http://localhost:3000/callback?code=<authorization_code>&state=<state_value>
    ```
 
@@ -222,6 +223,7 @@ See [Client Types](#client-types) section for detailed explanation.
    ```
 
 6. **Response includes**:
+
    ```json
    {
      "access_token": "...",
