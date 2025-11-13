@@ -19,7 +19,10 @@ export interface RecordingRowProps {
 
 type ACTIVITY_DESCRIPTIONS = 'very low' | 'low' | 'medium' | 'high' | 'very high'
 
-function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Element {
+function getActivityScoreDescription({ score }: { score: number | undefined }): {
+    description: ACTIVITY_DESCRIPTIONS
+    backgroundColor: string
+} {
     const n = score ?? 0
     let backgroundColor = 'bg-primary-alt-highlight'
     let description: ACTIVITY_DESCRIPTIONS = 'very low'
@@ -35,6 +38,22 @@ function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Eleme
     } else if (n >= 25) {
         backgroundColor = 'bg-warning-highlight'
         description = 'low'
+    }
+
+    return { description, backgroundColor }
+}
+
+export function ActivityScoreLabel({
+    score,
+    clean = false,
+}: {
+    score: number | undefined
+    clean?: boolean
+}): JSX.Element {
+    const { description, backgroundColor } = getActivityScoreDescription({ score })
+
+    if (clean) {
+        return <>{description}</>
     }
 
     return <LemonSnack className={clsx(backgroundColor, 'text-xs')}>activity: {description}</LemonSnack>
