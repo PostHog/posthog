@@ -194,7 +194,7 @@ export function InsightVizDisplay({
                         full: true,
                         showActions: false,
                         embedded: false,
-                        hiddenColumns: ['cross_sell'],
+                        hiddenColumns: ['context.columns.cross_sell'],
                     }
 
                     // Use the Web Analytics query context for custom column rendering and formatting
