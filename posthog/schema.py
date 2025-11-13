@@ -285,6 +285,7 @@ class AssistantTool(StrEnum):
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
+    CREATE_EXPERIMENT = "create_experiment"
 
 
 class AssistantToolCall(BaseModel):
@@ -1546,6 +1547,7 @@ class FileSystemIconType(StrEnum):
     APPS = "apps"
     LIVE = "live"
     CHAT = "chat"
+    SEARCH = "search"
 
 
 class FileSystemImport(BaseModel):
@@ -1730,6 +1732,7 @@ class HogLanguage(StrEnum):
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"
+    LIQUID = "liquid"
 
 
 class BounceRatePageViewMode(StrEnum):

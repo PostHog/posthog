@@ -4094,6 +4094,7 @@
       session_timestamp,
       session_id_v7
   )
+  SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
   
   '''
 # ---
@@ -6633,6 +6634,7 @@
       session_timestamp,
       session_id_v7
   )
+  SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
   
   '''
 # ---

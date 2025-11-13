@@ -245,6 +245,7 @@ export enum ProductKey {
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    LOGS = 'logs',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -313,6 +314,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
+    ActivityLog = 'activity_log',
 }
 
 interface UserBaseType {
