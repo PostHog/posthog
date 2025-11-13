@@ -158,15 +158,29 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
             assert res.status_code == status.HTTP_400_BAD_REQUEST, f"Failed for level {level}: {res.json()}"
             assert "cannot be set above the maximum 'viewer'" in res.json()["detail"]
 
-    def test_activity_log_available_access_levels_restricted(self):
-        """Test that activity_log returns only ['none', 'viewer'] in available_access_levels"""
+    def test_activity_log_access_restricted_for_users_without_access(self):
+        """Test that users without access to activity_log cannot access activity log endpoints"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "activity_log", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, f"Failed to set access control: {res.json()}"
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac = AccessControl.objects.filter(team=self.team, resource="activity_log", resource_id=None).first()
+        assert ac is not None, "Access control was not created"
+        assert ac.access_level == "none", f"Access level is {ac.access_level}, expected 'none'"
+
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        res = self.client.get("/api/projects/@current/resource_access_controls?resource=activity_log")
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json()["minimum_access_level"] == "none"
-        assert res.json()["maximum_access_level"] == "viewer"
-        assert res.json()["default_access_level"] == "viewer"
+        res = self.client.get("/api/projects/@current/activity_log/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
+
+        res = self.client.get("/api/projects/@current/advanced_activity_logs/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
 
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
