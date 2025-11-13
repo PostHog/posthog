@@ -18,6 +18,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from .models import Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
+    TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
     TaskSerializer,
@@ -53,6 +54,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "run",
         ]
     }
+
+    @validated_request(
+        query_serializer=TaskListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+        },
+        summary="List tasks",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).order_by("position")
@@ -197,6 +209,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
+        },
+        summary="List task runs",
+        description="Get a list of runs for a specific task.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+        },
+        summary="Create task run",
+        description="Create a new run for a specific task.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
