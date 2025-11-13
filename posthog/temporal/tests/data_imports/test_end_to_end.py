@@ -2353,28 +2353,45 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_client):
+async def test_worker_shutdown_desc_sort_order(team):
     """Testing that a descending sort ordered source will not trigger the rescheduling"""
 
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    async def mock_get_workflows(*args, **kwargs):
+        yield {
+            "workflow_id": "test-workflow-id",
+            "run_id": "test-run-id",
+            "status": "RUNNING",
+            "close_time": datetime.now().isoformat(),
+        }
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.temporalio.temporalio._get_workflows", mock_get_workflows),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name=STRIPE_PRICE_RESOURCE_NAME,
-            table_name="stripe_price",
-            source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-            mock_data_response=stripe_price["data"],
+            schema_name="workflows",
+            table_name="temporalio_workflows",
+            source_type="TemporalIO",
+            job_inputs={
+                "host": "test",
+                "port": "1234",
+                "namespace": "test",
+                "server_client_root_ca": "test",
+                "client_certificate": "test",
+                "client_private_key": "test",
+                "encryption_key": "test",
+            },
+            mock_data_response=[],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            sync_type_config={"incremental_field": "close_time", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 
@@ -2400,7 +2417,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
     ):
         _, inputs = await _run(
             team=team,
@@ -2584,8 +2601,10 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 @pytest.mark.asyncio
 async def test_pipeline_mb_chunk_size(team, zendesk_brands):
     with (
-        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
-        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES", 1),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 5000
+        ),  # Explicitly make this big
         mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
     ):
         await _run(
@@ -2854,3 +2873,20 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
         Bucket=BUCKET_NAME, Prefix=f"{folder_path}/balance_transaction__query/"
     )
     assert len(s3_objects_old_format.get("Contents", [])) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_client):
+    with mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown") as mock_raise_if_is_worker_shutdown:
+        await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+            ignore_assertions=True,
+        )
+
+        mock_raise_if_is_worker_shutdown.assert_called()

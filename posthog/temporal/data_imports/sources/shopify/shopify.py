@@ -163,7 +163,7 @@ def shopify_source(
     if not endpoint_config:
         raise ValueError(f"Endpoint {schema_name} has no config in shopify/settings.py")
     return SourceResponse(
-        items=get_rows(),
+        items=get_rows,
         primary_keys=[ID],
         # intentionally left as the input object name as the response name needs to match the input name
         name=graphql_object_name,

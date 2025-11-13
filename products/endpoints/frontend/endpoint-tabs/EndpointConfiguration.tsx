@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { DataWarehouseSyncInterval } from '~/types'
 
-import { endpointLogic } from './endpointLogic'
+import { endpointLogic } from '../endpointLogic'
 
 interface EndpointConfigurationProps {
     tabId: string
