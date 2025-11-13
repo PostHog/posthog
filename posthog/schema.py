@@ -1546,6 +1546,7 @@ class FileSystemIconType(StrEnum):
     APPS = "apps"
     LIVE = "live"
     CHAT = "chat"
+    SEARCH = "search"
 
 
 class FileSystemImport(BaseModel):
