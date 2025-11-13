@@ -65,6 +65,8 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    /** Show an "optimized" badge for properties that support faster queries using the pre-aggregated tables (default: false) */
+    enablePreaggregatedTableHints?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -126,6 +128,7 @@ export interface TaxonomicFilterGroup {
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
+    preAggregatedOptimizedIndicator?: boolean
 }
 
 export enum TaxonomicFilterGroupType {
