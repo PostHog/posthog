@@ -1188,34 +1188,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
 
-                            <span className="card-secondary mt-4">Flag persistence</span>
-                            <span>
-                                This flag{' '}
-                                <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
-                                across authentication events.
-                            </span>
-                            <div className="col-span-2">
-                                {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                                    featureFlag.tags &&
-                                    featureFlag.tags.length > 0 && (
-                                        <>
-                                            <span className="card-secondary mt-4">Tags</span>
-                                            <div className="mt-2">
-                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                    <FeatureFlagEvaluationTags
-                                                        tags={featureFlag.tags}
-                                                        evaluationTags={featureFlag.evaluation_tags || []}
-                                                        staticOnly
-                                                        flagId={featureFlag.id}
-                                                    />
-                                                ) : (
-                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
-                                                )}
-                                            </div>
-                                        </>
-                                    )}
-                            </div>
-
                             <div className="mt-4">
                                 <span className="card-secondary">Flag persistence</span>
                                 <div>
