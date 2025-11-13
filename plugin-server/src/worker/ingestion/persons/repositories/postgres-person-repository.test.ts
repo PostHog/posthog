@@ -2511,7 +2511,7 @@ describe('PostgresPersonRepository', () => {
         const NEW_TABLE_NAME = 'posthog_person_new'
         const ID_OFFSET = 1000000
 
-        beforeEach(async () => {
+        beforeEach(() => {
             // Create repository with cutover enabled
             cutoverRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
