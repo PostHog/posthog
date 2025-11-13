@@ -12,7 +12,12 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.file_system.deletion import HOG_FUNCTION_TYPES, get_delete_handler
+from posthog.api.file_system.deletion import (
+    HOG_FUNCTION_TYPES,
+    delete_file_system_object,
+    is_file_system_type_registered,
+    undo_delete as undo_delete_object,
+)
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -417,9 +422,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 .count()
             )
 
-            handler = get_delete_handler(current.type)
-
-            if handler is None:
+            if not is_file_system_type_registered(current.type):
                 continue
 
             if remaining == 0 and not current.ref:
@@ -452,8 +455,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .count()
         )
 
-        handler = get_delete_handler(entry.type)
-        if handler is None:
+        if not is_file_system_type_registered(entry.type):
             entry.delete()
             return deleted_objects
 
@@ -464,21 +466,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not entry.ref:
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
-        handler.delete(self, entry)
-
-        # Ensure the original FileSystem entry is gone even if signals haven't run yet
-        entry_id = entry.id
-        if entry_id is not None:
-            FileSystem.objects.filter(id=entry_id).delete()
+        entry_path = entry.path
+        result = delete_file_system_object(
+            entry,
+            user=self.request.user,
+            request=self.request,
+            team=self.team,
+            organization=getattr(self, "organization", None),
+        )
 
         deleted_objects.append(
             {
-                "type": entry.type,
-                "ref": entry.ref,
-                "mode": handler.mode,
-                "undo": handler.undo,
-                "path": entry.path,
-                "can_undo": handler.restore is not None,
+                "type": result.type,
+                "ref": result.ref,
+                "mode": result.mode,
+                "undo": result.undo,
+                "path": entry_path,
+                "can_undo": result.can_undo and bool(result.ref),
             }
         )
         return deleted_objects
@@ -515,10 +519,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             for item in items:
-                handler = get_delete_handler(item["type"])
-                if handler is None or handler.restore is None:
-                    raise serializers.ValidationError({"detail": f"Undo for type '{item['type']}' is not supported."})
-                restored_instance = handler.restore(self, item)
+                try:
+                    restored_instance = undo_delete_object(
+                        type_string=item["type"],
+                        ref=item["ref"],
+                        restore_path=item.get("path"),
+                        user=request.user,
+                        request=request,
+                        team=self.team,
+                        organization=getattr(self, "organization", None),
+                    )
+                except ValueError as exc:
+                    raise serializers.ValidationError({"detail": str(exc)})
                 self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 

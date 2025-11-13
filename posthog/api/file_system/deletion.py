@@ -1,711 +1,396 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import Any, Literal
 
 from django.apps import apps
+from django.core.exceptions import ObjectDoesNotExist
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
-from posthog.models.user import User
-from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
-from products.notebooks.backend.api.notebook import log_notebook_activity
+logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from posthog.api.file_system.file_system import FileSystemViewSet
-
-
-HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
-
-
-@dataclass(frozen=True)
-class DeleteHandler:
-    delete: Callable[[FileSystemViewSet, FileSystem], None]
-    mode: Literal["soft", "hard"]
-    undo: str
-    restore: Optional[Callable[[FileSystemViewSet, dict[str, Any]], Any]] = None
+HOG_FUNCTION_TYPES = [
+    "broadcast",
+    "campaign",
+    "destination",
+    "site_app",
+    "source",
+    "transformation",
+]
 
 
 @dataclass(frozen=True)
-class DeleteContext:
-    viewset: FileSystemViewSet
-    entry: FileSystem
-    user: Optional[User]
+class ModelRegistration:
+    app_label: str
+    model_name: str
+    lookup_field: str
+    manager_name: str
+    team_field: str | None
+    queryset_modifier: Callable[[Any], Any] | None
+    soft_delete_field: str | None
+    hard_delete: bool | None
+    allow_restore: bool | None
+    undo_message: str
+
+
+@dataclass(frozen=True)
+class ModelCapabilities:
+    soft_delete_field: str | None
+    has_last_modified_by: bool
+    can_restore: bool
 
     @property
-    def organization(self):
-        return getattr(self.viewset, "organization", None)
+    def has_soft_delete(self) -> bool:
+        return self.soft_delete_field is not None
+
+
+@dataclass(frozen=True)
+class DeletionResult:
+    type: str
+    ref: str | None
+    mode: Literal["soft", "hard"]
+    can_undo: bool
+    undo: str
+
+
+@dataclass(frozen=True)
+class DeletionContext:
+    entry: FileSystem
+    user: Any | None
+    request: Any | None
+    team: Any | None
+    organization: Any | None
 
 
 @dataclass(frozen=True)
 class RestoreContext:
-    viewset: FileSystemViewSet
-    payload: dict[str, Any]
-    user: Optional[User]
-
-    @property
-    def organization(self):
-        return getattr(self.viewset, "organization", None)
-
-
-@dataclass(frozen=True)
-class ModelConfig:
-    app_label: str
-    model_name: str
-    lookup_field: str = "id"
-    manager_name: str = "objects"
-    team_field: str = "team"
-    queryset_modifier: Callable[[Any], Any] | None = None
-    delete_updates: Callable[[Any], dict[str, Any]] | dict[str, Any] | None = None
-    restore_updates: Callable[[Any], dict[str, Any]] | dict[str, Any] | None = None
-    soft_delete_field: str = "deleted"
-    allow_restore: bool = True
-    pre_delete_hook: Callable[[DeleteContext, Any], None] | None = None
-    post_delete_hook: Callable[[DeleteContext, Any], None] | None = None
-    pre_restore_hook: Callable[[RestoreContext, Any], None] | None = None
-    post_restore_hook: Callable[[RestoreContext, Any], Any] | None = None
-    hard_delete_override: Optional[bool] = None
+    type: str
+    ref: str
+    restore_path: str | None
+    user: Any | None
+    request: Any | None
+    team: Any | None
+    organization: Any | None
 
 
-@dataclass(frozen=True)
-class HandlerConfig:
-    model: ModelConfig
-    undo: str
+PreDeleteHook = Callable[[DeletionContext, Any], None]
+PostDeleteHook = Callable[[DeletionContext, Any], None]
+PreRestoreHook = Callable[[RestoreContext, Any], None]
+PostRestoreHook = Callable[[RestoreContext, Any], None]
+
+_MODEL_REGISTRY: dict[str, ModelRegistration] = {}
+_PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
+_POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
+_PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
+_POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
 
 
-def _get_request_user(viewset: FileSystemViewSet) -> Optional[User]:
-    request_user = getattr(viewset.request, "user", None)
-    if request_user and getattr(request_user, "is_authenticated", False):
-        return cast(User, request_user)
+def _default_manager_name(app_label: str, model_name: str) -> str:
+    try:
+        model_class = apps.get_model(app_label, model_name)
+    except LookupError:
+        logger.exception("Unable to resolve model %s.%s during file system registration", app_label, model_name)
+        return "objects"
+
+    if hasattr(model_class, "objects_including_soft_deleted"):
+        return "objects_including_soft_deleted"
+    return "objects"
+
+
+def register_file_system_type(
+    type_string: str,
+    app_label: str,
+    model_name: str,
+    *,
+    lookup_field: str = "id",
+    manager_name: str | None = None,
+    team_field: str | None = "team",
+    queryset_modifier: Callable[[Any], Any] | None = None,
+    soft_delete_field: str | None = None,
+    hard_delete: bool | None = None,
+    allow_restore: bool | None = None,
+    undo_message: str = "",
+) -> None:
+    """Register a model that participates in the file system."""
+
+    resolved_manager = manager_name or _default_manager_name(app_label, model_name)
+    _MODEL_REGISTRY[type_string] = ModelRegistration(
+        app_label=app_label,
+        model_name=model_name,
+        lookup_field=lookup_field,
+        manager_name=resolved_manager,
+        team_field=team_field,
+        queryset_modifier=queryset_modifier,
+        soft_delete_field=soft_delete_field,
+        hard_delete=hard_delete,
+        allow_restore=allow_restore,
+        undo_message=undo_message,
+    )
+
+
+def register_pre_delete_hook(type_string: str, hook: PreDeleteHook) -> None:
+    _PRE_DELETE_HOOKS[type_string] = hook
+
+
+def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
+    _POST_DELETE_HOOKS[type_string] = hook
+
+
+def register_pre_restore_hook(type_string: str, hook: PreRestoreHook) -> None:
+    _PRE_RESTORE_HOOKS[type_string] = hook
+
+
+def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
+    _POST_RESTORE_HOOKS[type_string] = hook
+
+
+def is_file_system_type_registered(type_string: str) -> bool:
+    return type_string in _MODEL_REGISTRY
+
+
+def _resolve_user(user: Any | None) -> Any | None:
+    if user is not None and getattr(user, "is_authenticated", False):
+        return user
     return None
 
 
-def _set_last_modified_by(instance: Any, user: Optional[User], update_fields: list[str]) -> None:
-    if not user or not getattr(user, "is_authenticated", False):
-        return
-
-    if not hasattr(instance, "last_modified_by"):
-        return
-
-    current_id = getattr(instance, "last_modified_by_id", None)
-    instance.last_modified_by = user
-
-    if current_id != user.id and "last_modified_by" not in update_fields:
-        update_fields.append("last_modified_by")
-
-
-def _soft_delete(
-    instance: Any,
-    *,
-    field: str = "deleted",
-    extra_updates: Optional[dict[str, Any]] = None,
-    user: Optional[User] = None,
-) -> None:
-    update_fields: list[str] = []
-    if extra_updates:
-        for attr, value in extra_updates.items():
-            if getattr(instance, attr) != value:
-                setattr(instance, attr, value)
-                update_fields.append(attr)
-    if getattr(instance, field) is not True:
-        setattr(instance, field, True)
-        update_fields.append(field)
-
-    _set_last_modified_by(instance, user, update_fields)
-
-    if update_fields:
-        instance.save(update_fields=update_fields)
-    else:
-        instance.save()
-
-
-def _restore_soft_delete(
-    instance: Any,
-    *,
-    field: str = "deleted",
-    extra_updates: Optional[dict[str, Any]] = None,
-    restore_path: Optional[str] = None,
-    user: Optional[User] = None,
-) -> Any:
-    if restore_path is not None and hasattr(instance, "_create_in_folder"):
-        segments = split_path(restore_path)
-        folder_path = join_path(segments[:-1]) if len(segments) > 1 else ""
-        instance._create_in_folder = folder_path or None
-    update_fields: list[str] = []
-    if getattr(instance, field) is not False:
-        setattr(instance, field, False)
-        update_fields.append(field)
-    if extra_updates:
-        for attr, value in extra_updates.items():
-            if getattr(instance, attr) != value:
-                setattr(instance, attr, value)
-                update_fields.append(attr)
-
-    _set_last_modified_by(instance, user, update_fields)
-
-    if update_fields:
-        instance.save(update_fields=update_fields)
-    else:
-        instance.save()
-    return instance
-
-
-def _resolve_updates(updates: Callable[[Any], dict[str, Any]] | dict[str, Any] | None, instance: Any) -> dict[str, Any]:
-    if updates is None:
-        return {}
-    if callable(updates):
-        return updates(instance)
-    return updates
-
-
-def _apply_updates(instance: Any, updates: dict[str, Any], user: Optional[User]) -> None:
-    if not updates:
-        return
-
-    update_fields: list[str] = []
-    for attr, value in updates.items():
-        if getattr(instance, attr) != value:
-            setattr(instance, attr, value)
-            update_fields.append(attr)
-
-    _set_last_modified_by(instance, user, update_fields)
-
-    if update_fields:
-        instance.save(update_fields=update_fields)
-    else:
-        instance.save()
-
-
-def _log_file_system_activity(
-    viewset: FileSystemViewSet,
-    *,
-    scope: str,
-    activity: Literal["deleted", "updated", "restored"],
-    item_id: str | int,
-    name: Optional[str] = None,
-    short_id: Optional[str] = None,
-    changes: Optional[list[Change]] = None,
-) -> None:
-    organization = getattr(viewset, "organization", None)
-    if not organization:
-        return
-
-    log_activity(
-        organization_id=organization.id,
-        team_id=viewset.team_id,
-        user=cast(User, viewset.request.user),
-        was_impersonated=is_impersonated_session(viewset.request),
-        item_id=str(item_id),
-        scope=scope,
-        activity=activity,
-        detail=Detail(name=name, short_id=short_id, changes=changes),
-    )
-
-
-def _log_restore_activity(
-    viewset: FileSystemViewSet,
-    *,
-    scope: str,
-    item_id: str | int,
-    name: Optional[str] = None,
-    short_id: Optional[str] = None,
-    extra_changes: Optional[list[Change]] = None,
-) -> None:
-    changes = list(extra_changes or [])
-    changes.append(Change(type=scope, action="changed", field="deleted", before=True, after=False))
-    _log_file_system_activity(
-        viewset,
-        scope=scope,
-        activity="restored",
-        item_id=item_id,
-        name=name,
-        short_id=short_id,
-        changes=changes,
-    )
-
-
-def _get_model_class(model_config: ModelConfig):
-    return apps.get_model(model_config.app_label, model_config.model_name)
-
-
-def _get_queryset(model_class: Any, model_config: ModelConfig):
-    manager = getattr(model_class, model_config.manager_name)
+def _get_queryset(registration: ModelRegistration):
+    model_class = apps.get_model(registration.app_label, registration.model_name)
+    manager = getattr(model_class, registration.manager_name, model_class.objects)
     queryset = manager.all()
-    if model_config.queryset_modifier:
-        queryset = model_config.queryset_modifier(queryset)
+    if registration.queryset_modifier:
+        queryset = registration.queryset_modifier(queryset)
     return queryset
 
 
-def _get_object_for_entry(model_config: ModelConfig, entry: FileSystem):
-    model_class = _get_model_class(model_config)
-    queryset = _get_queryset(model_class, model_config)
-    filters: dict[str, Any] = {model_config.lookup_field: entry.ref}
-    if model_config.team_field:
-        filters[model_config.team_field] = entry.team_id
+def _get_object(
+    registration: ModelRegistration,
+    *,
+    ref: str,
+    team_id: int | None,
+) -> Any:
+    queryset = _get_queryset(registration)
+    filters: dict[str, Any] = {registration.lookup_field: ref}
+    if registration.team_field and team_id is not None:
+        filters[f"{registration.team_field}_id"] = team_id
     return queryset.get(**filters)
 
 
-def _get_object_for_restore(model_config: ModelConfig, viewset: FileSystemViewSet, payload: dict[str, Any]):
-    model_class = _get_model_class(model_config)
-    queryset = _get_queryset(model_class, model_config)
-    filters: dict[str, Any] = {model_config.lookup_field: payload["ref"]}
-    if model_config.team_field:
-        filters[model_config.team_field] = viewset.team_id
-    return queryset.get(**filters)
+def _detect_soft_delete_field(model_class: type, preferred: str | None) -> str | None:
+    if preferred:
+        return preferred
+
+    for candidate in ("deleted", "is_deleted"):
+        field = next((f for f in model_class._meta.fields if f.name == candidate), None)
+        if field is None:
+            continue
+        internal_type = getattr(field, "get_internal_type", lambda: None)()
+        if internal_type == "BooleanField":
+            return candidate
+    return None
 
 
-def _supports_soft_delete(model_config: ModelConfig) -> bool:
-    if model_config.hard_delete_override is True:
-        return False
-    if model_config.hard_delete_override is False:
-        return True
-    model_class = _get_model_class(model_config)
-    return any(field.name == model_config.soft_delete_field for field in model_class._meta.fields)
+def _introspect_model_capabilities(registration: ModelRegistration) -> ModelCapabilities:
+    model_class = apps.get_model(registration.app_label, registration.model_name)
 
+    soft_delete_field = None
+    if registration.hard_delete is not True:
+        soft_delete_field = _detect_soft_delete_field(model_class, registration.soft_delete_field)
 
-def _build_delete_handler(config: HandlerConfig) -> DeleteHandler:
-    supports_soft_delete = _supports_soft_delete(config.model)
+    has_soft_delete = soft_delete_field is not None and registration.hard_delete is not True
 
-    def delete(viewset: FileSystemViewSet, entry: FileSystem) -> None:
-        context = DeleteContext(viewset=viewset, entry=entry, user=_get_request_user(viewset))
-        instance = _get_object_for_entry(config.model, entry)
+    if registration.hard_delete is False and soft_delete_field is None:
+        raise ValueError(f"Soft delete forced for '{registration.model_name}' but no soft delete field was found.")
 
-        if config.model.pre_delete_hook:
-            config.model.pre_delete_hook(context, instance)
-
-        if supports_soft_delete:
-            updates = _resolve_updates(config.model.delete_updates, instance)
-            _soft_delete(
-                instance,
-                field=config.model.soft_delete_field,
-                extra_updates=updates,
-                user=context.user,
-            )
-        else:
-            updates = _resolve_updates(config.model.delete_updates, instance)
-            _apply_updates(instance, updates, context.user)
-            instance.delete()
-
-        if config.model.post_delete_hook:
-            config.model.post_delete_hook(context, instance)
-
-    restore: Optional[Callable[[FileSystemViewSet, dict[str, Any]], Any]] = None
-
-    if supports_soft_delete and config.model.allow_restore:
-
-        def restore(viewset: FileSystemViewSet, payload: dict[str, Any]) -> Any:
-            context = RestoreContext(viewset=viewset, payload=payload, user=_get_request_user(viewset))
-            instance = _get_object_for_restore(config.model, viewset, payload)
-
-            if config.model.pre_restore_hook:
-                config.model.pre_restore_hook(context, instance)
-
-            updates = _resolve_updates(config.model.restore_updates, instance)
-            restored = _restore_soft_delete(
-                instance,
-                field=config.model.soft_delete_field,
-                extra_updates=updates,
-                restore_path=payload.get("path"),
-                user=context.user,
-            )
-
-            if config.model.post_restore_hook:
-                result = config.model.post_restore_hook(context, restored)
-                if result is not None:
-                    return result
-            return restored
-
-        restore_callable = restore
+    allow_restore = registration.allow_restore
+    if allow_restore is None:
+        allow_restore = has_soft_delete
     else:
-        restore_callable = None
+        allow_restore = allow_restore and has_soft_delete
 
-    mode: Literal["soft", "hard"] = "soft" if supports_soft_delete else "hard"
-    return DeleteHandler(delete=delete, mode=mode, undo=config.undo, restore=restore_callable)
+    has_last_modified_by = hasattr(model_class, "last_modified_by")
 
-
-def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
-    _log_restore_activity(
-        context.viewset,
-        scope="Dashboard",
-        item_id=dashboard.id,
-        name=dashboard.name or "Untitled dashboard",
+    return ModelCapabilities(
+        soft_delete_field=soft_delete_field if has_soft_delete else None,
+        has_last_modified_by=has_last_modified_by,
+        can_restore=allow_restore,
     )
 
 
-def _dashboard_post_delete(context: DeleteContext, dashboard: Any) -> None:
-    _log_file_system_activity(
-        context.viewset,
-        scope="Dashboard",
-        activity="deleted",
-        item_id=dashboard.id,
-        name=dashboard.name or "Untitled dashboard",
+def _build_deletion_context(
+    entry: FileSystem,
+    *,
+    user: Any | None,
+    request: Any | None,
+    team: Any | None,
+    organization: Any | None,
+) -> DeletionContext:
+    resolved_user = _resolve_user(user)
+    resolved_team = team or getattr(entry, "team", None)
+    return DeletionContext(
+        entry=entry,
+        user=resolved_user,
+        request=request,
+        team=resolved_team,
+        organization=organization,
     )
 
 
-def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
-    _log_restore_activity(
-        context.viewset,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=experiment.name or "Untitled experiment",
+def _build_restore_context(
+    type_string: str,
+    ref: str,
+    restore_path: str | None,
+    *,
+    user: Any | None,
+    request: Any | None,
+    team: Any | None,
+    organization: Any | None,
+) -> RestoreContext:
+    return RestoreContext(
+        type=type_string,
+        ref=ref,
+        restore_path=restore_path,
+        user=_resolve_user(user),
+        request=request,
+        team=team,
+        organization=organization,
     )
 
 
-def _experiment_post_delete(context: DeleteContext, experiment: Any) -> None:
-    _log_file_system_activity(
-        context.viewset,
-        scope="Experiment",
-        activity="deleted",
-        item_id=experiment.id,
-        name=experiment.name or "Untitled experiment",
+def delete_file_system_object(
+    entry: FileSystem,
+    *,
+    user: Any | None = None,
+    request: Any | None = None,
+    team: Any | None = None,
+    organization: Any | None = None,
+) -> DeletionResult:
+    type_string = entry.type
+    ref = entry.ref
+
+    if not ref or type_string == "folder":
+        entry.delete()
+        return DeletionResult(type=type_string, ref=ref, mode="hard", can_undo=False, undo="")
+
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        logger.warning("No model registered for type '%s'. Removing file system entry only.", type_string)
+        entry.delete()
+        return DeletionResult(type=type_string, ref=ref, mode="hard", can_undo=False, undo="")
+
+    capabilities = _introspect_model_capabilities(registration)
+    context = _build_deletion_context(entry, user=user, request=request, team=team, organization=organization)
+
+    try:
+        instance = _get_object(registration, ref=ref, team_id=entry.team_id)
+    except ObjectDoesNotExist:
+        logger.warning("File system entry for type '%s' with ref '%s' has no backing object.", type_string, ref)
+        entry.delete()
+        return DeletionResult(
+            type=type_string,
+            ref=ref,
+            mode="hard",
+            can_undo=False,
+            undo=registration.undo_message,
+        )
+
+    pre_hook = _PRE_DELETE_HOOKS.get(type_string)
+    if pre_hook:
+        pre_hook(context, instance)
+
+    if capabilities.has_soft_delete:
+        assert capabilities.soft_delete_field is not None
+        setattr(instance, capabilities.soft_delete_field, True)
+        if capabilities.has_last_modified_by and context.user is not None:
+            instance.last_modified_by = context.user
+        instance.save()
+        entry.delete()
+        post_hook = _POST_DELETE_HOOKS.get(type_string)
+        if post_hook:
+            post_hook(context, instance)
+        return DeletionResult(
+            type=type_string,
+            ref=ref,
+            mode="soft",
+            can_undo=capabilities.can_restore,
+            undo=registration.undo_message,
+        )
+
+    if capabilities.has_last_modified_by and context.user is not None:
+        instance.last_modified_by = context.user
+        instance.save(update_fields=["last_modified_by"])
+    instance.delete()
+    entry.delete()
+    post_hook = _POST_DELETE_HOOKS.get(type_string)
+    if post_hook:
+        post_hook(context, instance)
+    return DeletionResult(
+        type=type_string,
+        ref=ref,
+        mode="hard",
+        can_undo=False,
+        undo=registration.undo_message,
     )
 
 
-def _insight_post_delete(context: DeleteContext, insight: Any) -> None:
-    _log_file_system_activity(
-        context.viewset,
-        scope="Insight",
-        activity="deleted",
-        item_id=insight.id,
-        name=insight.name or getattr(insight, "derived_name", None) or "Untitled insight",
-        short_id=insight.short_id,
+def undo_delete(
+    *,
+    type_string: str,
+    ref: str,
+    restore_path: str | None = None,
+    user: Any | None = None,
+    request: Any | None = None,
+    team: Any | None = None,
+    organization: Any | None = None,
+) -> Any:
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        raise ValueError(f"No model registered for type '{type_string}'")
+
+    capabilities = _introspect_model_capabilities(registration)
+    if not capabilities.has_soft_delete:
+        raise ValueError(f"Type '{type_string}' does not support undo operations")
+    if not capabilities.can_restore:
+        raise ValueError(f"Undo for type '{type_string}' has been disabled")
+
+    context = _build_restore_context(
+        type_string,
+        ref,
+        restore_path,
+        user=user,
+        request=request,
+        team=team,
+        organization=organization,
     )
 
+    team_id = getattr(team, "id", None)
+    try:
+        instance = _get_object(registration, ref=ref, team_id=team_id)
+    except ObjectDoesNotExist as exc:
+        raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
 
-def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
-    _log_restore_activity(
-        context.viewset,
-        scope="Insight",
-        item_id=insight.id,
-        name=insight.name or getattr(insight, "derived_name", None) or "Untitled insight",
-        short_id=insight.short_id,
-    )
+    pre_hook = _PRE_RESTORE_HOOKS.get(type_string)
+    if pre_hook:
+        pre_hook(context, instance)
 
+    assert capabilities.soft_delete_field is not None
+    setattr(instance, capabilities.soft_delete_field, False)
 
-def _link_post_delete(context: DeleteContext, link: Any) -> None:
-    ref = context.entry.ref
-    if ref is None:
-        return
-    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or ref
-    _log_file_system_activity(
-        context.viewset,
-        scope="Link",
-        activity="deleted",
-        item_id=ref,
-        name=link_name,
-    )
+    if restore_path and hasattr(instance, "_create_in_folder"):
+        segments = split_path(restore_path)
+        folder_path = join_path(segments[:-1]) if len(segments) > 1 else ""
+        instance._create_in_folder = folder_path or None
 
+    if capabilities.has_last_modified_by and context.user is not None:
+        instance.last_modified_by = context.user
 
-def _notebook_post_delete(context: DeleteContext, notebook: Any) -> None:
-    organization = context.organization
-    if not organization:
-        return
-    log_notebook_activity(
-        activity="deleted",
-        notebook=notebook,
-        organization_id=organization.id,
-        team_id=context.viewset.team_id,
-        user=cast(User, context.viewset.request.user),
-        was_impersonated=is_impersonated_session(context.viewset.request),
-    )
+    instance.save()
 
+    post_hook = _POST_RESTORE_HOOKS.get(type_string)
+    if post_hook:
+        post_hook(context, instance)
 
-def _notebook_post_restore(context: RestoreContext, notebook: Any) -> None:
-    organization = context.organization
-    if not organization:
-        return
-    log_notebook_activity(
-        activity="restored",
-        notebook=notebook,
-        organization_id=organization.id,
-        team_id=context.viewset.team_id,
-        user=cast(User, context.viewset.request.user),
-        was_impersonated=is_impersonated_session(context.viewset.request),
-        changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
-    )
-
-
-def _playlist_post_delete(context: DeleteContext, playlist: Any) -> None:
-    organization = context.organization
-    if not organization:
-        return
-    log_playlist_activity(
-        activity="deleted",
-        playlist=playlist,
-        playlist_id=playlist.id,
-        playlist_short_id=playlist.short_id,
-        organization_id=organization.id,
-        team_id=context.viewset.team_id,
-        user=cast(User, context.viewset.request.user),
-        was_impersonated=is_impersonated_session(context.viewset.request),
-    )
-
-
-def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
-    organization = context.organization
-    if not organization:
-        return
-    log_playlist_activity(
-        activity="restored",
-        playlist=playlist,
-        playlist_id=playlist.id,
-        playlist_short_id=playlist.short_id,
-        organization_id=organization.id,
-        team_id=context.viewset.team_id,
-        user=cast(User, context.viewset.request.user),
-        was_impersonated=is_impersonated_session(context.viewset.request),
-        changes=[Change(type="SessionRecordingPlaylist", action="changed", field="deleted", before=True, after=False)],
-    )
-
-
-def _cohort_post_delete(context: DeleteContext, cohort: Any) -> None:
-    _log_file_system_activity(
-        context.viewset,
-        scope="Cohort",
-        activity="deleted",
-        item_id=cohort.id,
-        name=cohort.name or "Untitled cohort",
-    )
-
-
-def _cohort_post_restore(context: RestoreContext, cohort: Any) -> None:
-    _log_restore_activity(
-        context.viewset,
-        scope="Cohort",
-        item_id=cohort.id,
-        name=cohort.name or "Untitled cohort",
-    )
-
-
-def _hog_function_post_delete(context: DeleteContext, hog_function: Any) -> None:
-    _log_file_system_activity(
-        context.viewset,
-        scope="HogFunction",
-        activity="deleted",
-        item_id=hog_function.id,
-        name=hog_function.name or "Untitled",
-    )
-
-
-def _hog_function_post_restore(context: RestoreContext, hog_function: Any) -> None:
-    _log_restore_activity(
-        context.viewset,
-        scope="HogFunction",
-        item_id=hog_function.id,
-        name=hog_function.name or "Untitled",
-        extra_changes=[Change(type="HogFunction", action="changed", field="enabled", before=False, after=True)],
-    )
-
-
-def _survey_pre_delete(context: DeleteContext, survey: Any) -> None:
-    targeting_flag = getattr(survey, "targeting_flag", None)
-    if targeting_flag:
-        targeting_flag.delete()
-    internal_targeting_flag = getattr(survey, "internal_targeting_flag", None)
-    if internal_targeting_flag:
-        internal_targeting_flag.delete()
-
-
-def _survey_post_delete(context: DeleteContext, survey: Any) -> None:
-    organization = context.organization
-    if not organization:
-        return
-    ref = context.entry.ref
-    if ref is None:
-        return
-    log_activity(
-        organization_id=organization.id,
-        team_id=context.viewset.team_id,
-        user=cast(User, context.viewset.request.user),
-        was_impersonated=is_impersonated_session(context.viewset.request),
-        item_id=ref,
-        scope="Survey",
-        activity="deleted",
-        detail=Detail(name=survey.name),
-    )
-
-
-def _early_access_feature_pre_delete(context: DeleteContext, feature: Any) -> None:
-    feature_flag = getattr(feature, "feature_flag", None)
-    if feature_flag:
-        filters = dict(feature_flag.filters or {})
-        filters["super_groups"] = None
-        feature_flag.filters = filters
-        feature_flag.save(update_fields=["filters"])
-
-
-def _early_access_feature_post_delete(context: DeleteContext, feature: Any) -> None:
-    ref = context.entry.ref
-    if ref is None:
-        return
-    _log_file_system_activity(
-        context.viewset,
-        scope="EarlyAccessFeature",
-        activity="deleted",
-        item_id=ref,
-        name=feature.name or "Untitled feature",
-    )
-
-
-MODEL_CONFIGS: dict[str, ModelConfig] = {
-    "action": ModelConfig(app_label="posthog", model_name="Action"),
-    "dashboard": ModelConfig(
-        app_label="posthog",
-        model_name="Dashboard",
-        manager_name="objects_including_soft_deleted",
-        post_delete_hook=_dashboard_post_delete,
-        post_restore_hook=_dashboard_post_restore,
-    ),
-    "feature_flag": ModelConfig(
-        app_label="posthog",
-        model_name="FeatureFlag",
-        delete_updates={"active": False},
-        restore_updates={"active": True},
-    ),
-    "experiment": ModelConfig(
-        app_label="posthog",
-        model_name="Experiment",
-        post_delete_hook=_experiment_post_delete,
-        post_restore_hook=_experiment_post_restore,
-    ),
-    "insight": ModelConfig(
-        app_label="posthog",
-        model_name="Insight",
-        manager_name="objects_including_soft_deleted",
-        lookup_field="short_id",
-        post_delete_hook=_insight_post_delete,
-        post_restore_hook=_insight_post_restore,
-    ),
-    "link": ModelConfig(
-        app_label="posthog",
-        model_name="Link",
-        allow_restore=False,
-        post_delete_hook=_link_post_delete,
-    ),
-    "notebook": ModelConfig(
-        app_label="notebooks",
-        model_name="Notebook",
-        lookup_field="short_id",
-        post_delete_hook=_notebook_post_delete,
-        post_restore_hook=_notebook_post_restore,
-    ),
-    "session_recording_playlist": ModelConfig(
-        app_label="posthog",
-        model_name="SessionRecordingPlaylist",
-        lookup_field="short_id",
-        post_delete_hook=_playlist_post_delete,
-        post_restore_hook=_playlist_post_restore,
-    ),
-    "cohort": ModelConfig(
-        app_label="posthog",
-        model_name="Cohort",
-        post_delete_hook=_cohort_post_delete,
-        post_restore_hook=_cohort_post_restore,
-    ),
-    "survey": ModelConfig(
-        app_label="posthog",
-        model_name="Survey",
-        queryset_modifier=lambda qs: qs.select_related("targeting_flag", "internal_targeting_flag"),
-        hard_delete_override=True,
-        allow_restore=False,
-        pre_delete_hook=_survey_pre_delete,
-        post_delete_hook=_survey_post_delete,
-    ),
-    "early_access_feature": ModelConfig(
-        app_label="early_access_features",
-        model_name="EarlyAccessFeature",
-        queryset_modifier=lambda qs: qs.select_related("feature_flag"),
-        hard_delete_override=True,
-        allow_restore=False,
-        pre_delete_hook=_early_access_feature_pre_delete,
-        post_delete_hook=_early_access_feature_post_delete,
-    ),
-}
-
-
-_hog_function_config = ModelConfig(
-    app_label="posthog",
-    model_name="HogFunction",
-    delete_updates={"enabled": False},
-    restore_updates={"enabled": True},
-    post_delete_hook=_hog_function_post_delete,
-    post_restore_hook=_hog_function_post_restore,
-)
-
-
-for hog_type in HOG_FUNCTION_TYPES:
-    MODEL_CONFIGS[f"hog_function/{hog_type}"] = _hog_function_config
-
-
-HANDLER_CONFIGS: dict[str, HandlerConfig] = {
-    "action": HandlerConfig(
-        model=MODEL_CONFIGS["action"],
-        undo="Send PATCH /api/projects/@current/actions/{id} with deleted=false.",
-    ),
-    "dashboard": HandlerConfig(
-        model=MODEL_CONFIGS["dashboard"],
-        undo="Send PATCH /api/projects/@current/dashboards/{id} with deleted=false.",
-    ),
-    "feature_flag": HandlerConfig(
-        model=MODEL_CONFIGS["feature_flag"],
-        undo="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
-    ),
-    "experiment": HandlerConfig(
-        model=MODEL_CONFIGS["experiment"],
-        undo="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
-    ),
-    "insight": HandlerConfig(
-        model=MODEL_CONFIGS["insight"],
-        undo="Send PATCH /api/projects/@current/insights/{id} with deleted=false.",
-    ),
-    "link": HandlerConfig(
-        model=MODEL_CONFIGS["link"],
-        undo="Create a new link with the same details.",
-    ),
-    "notebook": HandlerConfig(
-        model=MODEL_CONFIGS["notebook"],
-        undo="Send PATCH /api/projects/@current/notebooks/{id} with deleted=false.",
-    ),
-    "session_recording_playlist": HandlerConfig(
-        model=MODEL_CONFIGS["session_recording_playlist"],
-        undo="Send PATCH /api/projects/@current/session_recordings/playlists/{id} with deleted=false.",
-    ),
-    "cohort": HandlerConfig(
-        model=MODEL_CONFIGS["cohort"],
-        undo="Send PATCH /api/projects/@current/cohorts/{id} with deleted=false.",
-    ),
-    "survey": HandlerConfig(
-        model=MODEL_CONFIGS["survey"],
-        undo="Create a new survey using the saved configuration.",
-    ),
-    "early_access_feature": HandlerConfig(
-        model=MODEL_CONFIGS["early_access_feature"],
-        undo="Recreate the early access feature and reapply any filters.",
-    ),
-}
-
-
-for hog_type in HOG_FUNCTION_TYPES:
-    HANDLER_CONFIGS[f"hog_function/{hog_type}"] = HandlerConfig(
-        model=MODEL_CONFIGS[f"hog_function/{hog_type}"],
-        undo="Send PATCH /api/projects/@current/hog_functions/{id} with deleted=false.",
-    )
-
-
-DELETE_HANDLER_MAP: dict[str, DeleteHandler] = {
-    key: _build_delete_handler(config) for key, config in HANDLER_CONFIGS.items()
-}
-
-
-MODEL_MAP: dict[str, tuple[str, str]] = {
-    key: (config.model.app_label, config.model.model_name) for key, config in HANDLER_CONFIGS.items()
-}
-
-
-def get_delete_handler(file_type: str | None) -> Optional[DeleteHandler]:
-    if not file_type:
-        return None
-    return DELETE_HANDLER_MAP.get(file_type)
+    return instance
