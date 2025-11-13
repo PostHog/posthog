@@ -31,12 +31,14 @@ function detectFeatureFlagChanges(
     }
 
     // Check for active status changes
+    let statusChanged = false
     if (originalFlag.active !== updatedFlag.active) {
         if (updatedFlag.active) {
             changes.push('Enable the feature flag')
         } else {
             changes.push('Disable the feature flag')
         }
+        statusChanged = true
     }
 
     // Check for any filter changes (comprehensive detection)
@@ -93,7 +95,7 @@ function detectFeatureFlagChanges(
         }
 
         // If we haven't caught the specific change, add a generic message
-        if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged) {
+        if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged && !statusChanged) {
             changes.push('Feature flag configuration changed')
         }
     }
