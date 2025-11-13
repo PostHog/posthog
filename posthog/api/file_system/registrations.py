@@ -174,6 +174,45 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
     )
 
 
+def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
+    organization = context.organization
+    if not organization:
+        return
+
+    team = context.team
+    team_id = getattr(team, "id", None) if team is not None else None
+    if not isinstance(team_id, int):
+        return
+
+    user = context.user
+    if not isinstance(user, User):
+        return
+
+    short_id = getattr(playlist, "short_id", None)
+    if short_id is None:
+        return
+
+    log_playlist_activity(
+        activity="deleted",
+        playlist=playlist,
+        playlist_id=playlist.id,
+        playlist_short_id=str(short_id),
+        organization_id=organization.id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        changes=[
+            Change(
+                type="SessionRecordingPlaylist",
+                action="changed",
+                field="deleted",
+                before=False,
+                after=True,
+            )
+        ],
+    )
+
+
 def _cohort_post_delete(context: DeletionContext, cohort: Any) -> None:
     _log_deletion_activity(
         context,
@@ -288,6 +327,7 @@ def register_core_file_system_types() -> None:
         lookup_field="short_id",
         undo_message="Send PATCH /api/projects/@current/session_recordings/playlists/{id} with deleted=false.",
     )
+    register_post_delete_hook("session_recording_playlist", _playlist_post_delete)
     register_post_restore_hook("session_recording_playlist", _playlist_post_restore)
 
     register_file_system_type(

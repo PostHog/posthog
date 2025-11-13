@@ -1,8 +1,7 @@
 import re
 import shlex
 import builtins
-from typing import Any, Optional, cast
-import logging
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -530,9 +529,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         team=self.team,
                         organization=getattr(self, "organization", None),
                     )
-                except ValueError as exc:
+                except ValueError:
                     import logging
-                    logging.exception("Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref"))
+
+                    logging.exception(
+                        "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
+                    )
                     raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})
                 self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
@@ -769,7 +771,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def _assure_parent_folders(self, path: str, created_by: User, team: Optional[Team] = None) -> None:
+    def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
         """
         Ensure that all parent folders for the given path exist for the provided team.
         For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
