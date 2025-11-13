@@ -501,7 +501,7 @@ impl Config {
             flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
-            cookieless_identifies_ttl_seconds:  345600,
+            cookieless_identifies_ttl_seconds: 345600,
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
             cookieless_redis_port: 6379,

@@ -285,7 +285,10 @@ pub fn is_calendar_date_valid(yyyymmdd: &str) -> bool {
 
     // Define the range of the calendar day in UTC
     let start_of_day_minus_12 = utc_date - (i64::from(MAX_NEGATIVE_TIMEZONE_HOURS) * 3600 * 1000);
-    let end_of_day_plus_14 = utc_date + (i64::from(MAX_POSITIVE_TIMEZONE_HOURS + MAX_SUPPORTED_INGESTION_LAG_HOURS) * 3600 * 1000);
+    let end_of_day_plus_14 = utc_date
+        + (i64::from(MAX_POSITIVE_TIMEZONE_HOURS + MAX_SUPPORTED_INGESTION_LAG_HOURS)
+            * 3600
+            * 1000);
 
     // Check if the current UTC time falls within this range
     now_utc >= start_of_day_minus_12 && now_utc < end_of_day_plus_14
