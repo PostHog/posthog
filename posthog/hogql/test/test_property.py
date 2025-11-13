@@ -998,6 +998,16 @@ class TestProperty(BaseTest):
         with self.assertRaisesMessage(QueryError, "NOT_BETWEEN operator requires a two-element array [min, max]"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": 1})
 
+        with self.assertRaisesMessage(
+            QueryError, "BETWEEN operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(
+            QueryError, "NOT_BETWEEN operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [10, 1]})
+
     def test_property_to_expr_min_max_operators(self):
         # Test MIN operator (alias for GTE)
         self.assertEqual(

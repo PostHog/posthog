@@ -246,6 +246,8 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.BETWEEN:
         if not isinstance(value, list) or len(value) != 2:
             raise QueryError("BETWEEN operator requires a two-element array [min, max]")
+        if value[0] > value[1]:
+            raise QueryError("BETWEEN operator requires min value to be less than or equal to max value")
         return ast.And(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
@@ -255,6 +257,8 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_BETWEEN:
         if not isinstance(value, list) or len(value) != 2:
             raise QueryError("NOT_BETWEEN operator requires a two-element array [min, max]")
+        if value[0] > value[1]:
+            raise QueryError("NOT_BETWEEN operator requires min value to be less than or equal to max value")
         return ast.Or(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
