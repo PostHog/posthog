@@ -7,6 +7,9 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type { textViewLogicType } from './textViewLogicType'
 
+const TEXT_REPR_API_TIMEOUT_MS = 10000 // 10 seconds
+const FALLBACK_DELAY_MS = 1500 // 1.5 seconds
+
 interface TraceTreeNode {
     event: LLMTraceEvent
     children?: TraceTreeNode[]
@@ -92,7 +95,7 @@ export const textViewLogic = kea<textViewLogicType>([
 
                 // Create abort controller for timeout
                 const abortController = new AbortController()
-                const timeoutId = setTimeout(() => abortController.abort(), 10000) // 10 second timeout
+                const timeoutId = setTimeout(() => abortController.abort(), TEXT_REPR_API_TIMEOUT_MS)
 
                 try {
                     // Call Django API with timeout
@@ -127,7 +130,7 @@ export const textViewLogic = kea<textViewLogicType>([
                 // Small delay to show the fallback message briefly
                 setTimeout(() => {
                     props.onFallback?.()
-                }, 1500)
+                }, FALLBACK_DELAY_MS)
             }
         },
     })),
