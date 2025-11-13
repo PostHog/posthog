@@ -39,7 +39,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'launch_features',
         title: 'Launch features with confidence',
-        description: 'Control feature rollouts and run A/B tests to see what performs best',
+        description: 'Control feature rollouts or run A/B tests to see what performs best',
         iconKey: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         products: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
