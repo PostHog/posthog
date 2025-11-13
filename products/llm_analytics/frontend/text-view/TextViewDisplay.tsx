@@ -28,12 +28,14 @@ export function TextViewDisplay({
     tree,
     onFallback,
     lineNumber,
+    onCopyPermalink,
 }: {
     event?: LLMTraceEvent
     trace?: LLMTrace
     tree?: TraceTreeNode[]
     onFallback?: () => void
     lineNumber?: number | null
+    onCopyPermalink?: (lineNumber: number) => void
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
 
@@ -159,6 +161,7 @@ export function TextViewDisplay({
                                     traceId={traceId}
                                     activeLineNumber={lineNumber}
                                     lineNumberPadding={lineNumberPadding}
+                                    onCopyPermalink={onCopyPermalink}
                                 />
                             </span>
                         )

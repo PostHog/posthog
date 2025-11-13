@@ -19,6 +19,7 @@ interface NestedContentRendererProps {
     setPopoutSegment: (index: number | string | null) => void
     activeLineNumber?: number | null
     lineNumberPadding?: number
+    onCopyPermalink?: (lineNumber: number) => void
 }
 
 export function NestedContentRenderer({
@@ -31,6 +32,7 @@ export function NestedContentRenderer({
     setPopoutSegment,
     activeLineNumber,
     lineNumberPadding,
+    onCopyPermalink,
 }: NestedContentRendererProps): JSX.Element {
     const nestedSegments = parseTruncatedSegments(content)
 
@@ -65,6 +67,7 @@ export function NestedContentRenderer({
                                 traceId={traceId}
                                 activeLineNumber={activeLineNumber}
                                 lineNumberPadding={lineNumberPadding}
+                                onCopyPermalink={onCopyPermalink}
                             />
                         </span>
                     )
@@ -110,6 +113,7 @@ export function NestedContentRenderer({
                                         traceId={traceId}
                                         activeLineNumber={activeLineNumber}
                                         lineNumberPadding={lineNumberPadding}
+                                        onCopyPermalink={onCopyPermalink}
                                     />
                                     {'\n\n'}
                                 </span>
@@ -133,6 +137,7 @@ export function NestedContentRenderer({
                                                         traceId={traceId}
                                                         activeLineNumber={activeLineNumber}
                                                         lineNumberPadding={lineNumberPadding}
+                                                        onCopyPermalink={onCopyPermalink}
                                                     />
                                                     {'\n\n'}
                                                 </span>
@@ -155,6 +160,7 @@ export function NestedContentRenderer({
                                     traceId={traceId}
                                     activeLineNumber={activeLineNumber}
                                     lineNumberPadding={lineNumberPadding}
+                                    onCopyPermalink={onCopyPermalink}
                                 />
                                 <button
                                     onClick={() => toggleNestedSegment(nestedIdx)}

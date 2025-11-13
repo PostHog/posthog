@@ -652,7 +652,7 @@ const EventContent = React.memo(
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
-        const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
@@ -819,14 +819,16 @@ const EventContent = React.memo(
                                                     <TextViewDisplay
                                                         event={event}
                                                         lineNumber={lineNumber}
-                                                        onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
                                                 ) : !isLLMEvent(event) ? (
                                                     <TextViewDisplay
                                                         trace={event}
                                                         tree={tree}
                                                         lineNumber={lineNumber}
-                                                        onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
                                                 ) : null
                                             ) : (

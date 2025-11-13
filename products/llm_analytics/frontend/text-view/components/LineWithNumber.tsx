@@ -6,16 +6,21 @@ import { useEffect, useRef } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
 interface LineWithNumberProps {
     lineNumber: number
     content: string
     isActive: boolean
     padding: number
+    onCopyPermalink?: (lineNumber: number) => void
 }
 
-export function LineWithNumber({ lineNumber, content, isActive, padding }: LineWithNumberProps): JSX.Element {
+export function LineWithNumber({
+    lineNumber,
+    content,
+    isActive,
+    padding,
+    onCopyPermalink,
+}: LineWithNumberProps): JSX.Element {
     const lineRef = useRef<HTMLSpanElement>(null)
 
     useEffect(() => {
@@ -30,9 +35,9 @@ export function LineWithNumber({ lineNumber, content, isActive, padding }: LineW
     }, [isActive])
 
     const handleCopyPermalink = (): void => {
-        const url = new URL(window.location.href)
-        url.searchParams.set('line', lineNumber.toString())
-        copyToClipboard(url.toString(), 'permalink')
+        if (onCopyPermalink) {
+            onCopyPermalink(lineNumber)
+        }
     }
 
     const paddedLineNumber = padding > 0 ? lineNumber.toString().padStart(padding, '0') : lineNumber.toString()

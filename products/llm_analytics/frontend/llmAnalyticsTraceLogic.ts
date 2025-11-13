@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -66,6 +67,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         hideAllMessages: (type: 'input' | 'output') => ({ type }),
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
+        handleTextViewFallback: true,
+        copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
     }),
 
@@ -143,6 +146,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             persistConfig,
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
+                handleTextViewFallback: () => DisplayOption.ExpandAll,
             },
         ],
         eventTypeExpandedMap: [
@@ -266,6 +270,12 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     router.actions.replace(urls.llmAnalyticsTrace(traceId, params))
                 }
             }
+        },
+        copyLinePermalink: ({ lineNumber }) => {
+            // Copy permalink to clipboard with line number in URL
+            const url = new URL(window.location.href)
+            url.searchParams.set('line', lineNumber.toString())
+            copyToClipboard(url.toString(), 'permalink')
         },
     })),
 
