@@ -152,7 +152,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
+    let person = Person::from_distinct_id(&mut *conn, team_id, &distinct_id).await?;
     let (person_id, person_props) = person
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
@@ -744,7 +744,10 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                AND (
+                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
+                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                )
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -1044,7 +1047,12 @@ async fn try_should_write_hash_key_override(
         FROM posthog_persondistinctid p
         LEFT JOIN posthog_featureflaghashkeyoverride existing
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
-        WHERE p.team_id = $1 AND p.distinct_id = ANY($2)
+        WHERE p.team_id = $1
+            AND p.distinct_id = ANY($2)
+            AND (
+                EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
+                OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+            )
     "#;
 
     // Query 2: Get feature flags from non-person pool
