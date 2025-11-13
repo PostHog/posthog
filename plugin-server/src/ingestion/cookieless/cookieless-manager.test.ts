@@ -22,6 +22,7 @@ import {
     extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,
+    isCalendarDateValid,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
@@ -110,6 +111,55 @@ describe('CookielessManager', () => {
             const date = new Date('2025-01-01T12:00:00Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'UTC')
             expect(result).toEqual('2025-01-02')
+        })
+    })
+
+    describe('isCalendarDateValid', () => {
+        it('should accept today', () => {
+            const today = new Date()
+            const yyyymmdd = today.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        })
+
+        it('should accept yesterday', () => {
+            const yesterday = new Date()
+            yesterday.setDate(yesterday.getDate() - 1)
+            const yyyymmdd = yesterday.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        })
+
+        it('should accept a date 3 days ago (72h ingestion lag)', () => {
+            const threeDaysAgo = new Date()
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+            const yyyymmdd = threeDaysAgo.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        })
+
+        it('should accept a date 4 days ago (within buffer including timezones)', () => {
+            const fourDaysAgo = new Date()
+            fourDaysAgo.setDate(fourDaysAgo.getDate() - 4)
+            const yyyymmdd = fourDaysAgo.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        })
+
+        it('should reject a date 5 days ago (beyond 72h + timezone buffer)', () => {
+            const fiveDaysAgo = new Date()
+            fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
+            const yyyymmdd = fiveDaysAgo.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(false)
+        })
+
+        it('should reject tomorrow', () => {
+            const tomorrow = new Date()
+            tomorrow.setDate(tomorrow.getDate() + 1)
+            const yyyymmdd = tomorrow.toISOString().split('T')[0]
+            expect(isCalendarDateValid(yyyymmdd)).toBe(false)
+        })
+
+        it('should reject invalid date format', () => {
+            expect(isCalendarDateValid('not-a-date')).toBe(false)
+            expect(isCalendarDateValid('2025/01/01')).toBe(false)
+            expect(isCalendarDateValid('2025-13-01')).toBe(false)
         })
     })
 
