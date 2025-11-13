@@ -599,6 +599,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
+            useCase,
+            recommendedProducts,
+        }),
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
         reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
@@ -1443,6 +1447,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSubscribedDuringOnboarding: ({ productKey }) => {
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
+            })
+        },
+        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
+            posthog.capture('onboarding use case selected', {
+                use_case: useCase,
+                recommended_products: recommendedProducts,
             })
         },
         reportSDKSelected: ({ sdk }) => {
