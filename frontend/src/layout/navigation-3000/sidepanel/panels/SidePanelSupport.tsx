@@ -421,7 +421,7 @@ export function SidePanelSupport(): JSX.Element {
                                             icon={<IconBug />}
                                             targetBlank
                                         >
-                                            Request a feature
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
