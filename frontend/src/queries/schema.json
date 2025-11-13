@@ -23924,6 +23924,10 @@
                     },
                     "type": "array"
                 },
+                "session_recording_id": {
+                    "description": "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters",
+                    "type": "string"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
