@@ -246,45 +246,28 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 (_, props: InsightSceneLogicProps) => props.tabId,
                 s.sceneSource,
             ],
-            (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
+            (insightLogicRef, insight, insightQuery, tabId, sceneSource): Breadcrumb[] => {
                 return [
-                    ...(dashboardId !== null && dashboardName
-                        ? [
-                              {
-                                  key: Scene.Dashboards,
-                                  name: 'Dashboards',
-                                  path: urls.dashboards(),
-                                  iconType: 'dashboard' as FileSystemIconType,
-                              },
-                              {
-                                  key: Scene.Dashboard,
-                                  name: dashboardName,
-                                  path: urls.dashboard(dashboardId),
-                                  iconType: 'dashboard' as FileSystemIconType,
-                              },
-                          ]
-                        : [
-                              sceneSource === 'web-analytics'
-                                  ? {
-                                        key: Scene.WebAnalytics,
-                                        name: 'Web analytics',
-                                        path: urls.webAnalytics(),
-                                        iconType: 'web_analytics' as FileSystemIconType,
-                                    }
-                                  : sceneSource === 'llm-analytics'
-                                    ? {
-                                          key: 'LLMAnalytics',
-                                          name: 'LLM analytics',
-                                          path: urls.llmAnalyticsDashboard(),
-                                          iconType: 'llm_analytics' as FileSystemIconType,
-                                      }
-                                    : {
-                                          key: Scene.SavedInsights,
-                                          name: 'Product analytics',
-                                          path: urls.savedInsights(),
-                                          iconType: 'product_analytics' as FileSystemIconType,
-                                      },
-                          ]),
+                    sceneSource === 'web-analytics'
+                        ? {
+                              key: Scene.WebAnalytics,
+                              name: 'Web analytics',
+                              path: urls.webAnalytics(),
+                              iconType: 'web_analytics' as FileSystemIconType,
+                          }
+                        : sceneSource === 'llm-analytics'
+                          ? {
+                                key: 'LLMAnalytics',
+                                name: 'LLM analytics',
+                                path: urls.llmAnalyticsDashboard(),
+                                iconType: 'llm_analytics' as FileSystemIconType,
+                            }
+                          : {
+                                key: Scene.SavedInsights,
+                                name: 'Product analytics',
+                                path: urls.savedInsights(),
+                                iconType: 'product_analytics' as FileSystemIconType,
+                            },
                     {
                         key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
                         name: insightLogicRef?.logic.values.insightName,

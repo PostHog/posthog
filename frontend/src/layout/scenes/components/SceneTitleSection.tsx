@@ -180,14 +180,10 @@ export function SceneTitleSection({
                 )}
             >
                 <div
-                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group pb-2 pt-2.5"
                     data-editable={canEdit}
                 >
-                    <div
-                        className={cn('flex gap-1 flex-1 min-w-0', {
-                            '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
-                        })}
-                    >
+                    <div className="flex gap-1 flex-1 min-w-0">
                         {willShowBreadcrumbs && <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />}
                         {name !== null && (
                             <>
@@ -216,7 +212,7 @@ export function SceneTitleSection({
                         )}
                     </div>
                     {actions && (
-                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first -mt-0.5">
                             {actions}
                             <SceneTitlePanelButton />
                         </div>

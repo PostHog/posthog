@@ -94,7 +94,7 @@ export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     return (
         <>
-            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+            <div className="mb-2">
                 <SceneBreadcrumbBackButton />
             </div>
             <ErrorTrackingSetupPrompt>

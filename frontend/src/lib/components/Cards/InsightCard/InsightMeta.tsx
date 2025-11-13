@@ -30,6 +30,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
@@ -106,6 +107,7 @@ export function InsightMeta({
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { setBackToUrl } = useActions(navigationLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
@@ -221,6 +223,23 @@ export function InsightMeta({
                     loading={loading}
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
+                    onLinkClick={
+                        currentDashboard
+                            ? () =>
+                                  setBackToUrl({
+                                      url: urls.dashboard(currentDashboard.id),
+                                      name: currentDashboard.name || 'Dashboard',
+                                      resourceType: AccessControlResourceType.Dashboard,
+                                      destinationUrl: urls.insightView(
+                                          short_id,
+                                          dashboardId,
+                                          variablesOverride,
+                                          filtersOverride,
+                                          tile?.filters_overrides
+                                      ),
+                                  })
+                            : undefined
+                    }
                 />
             }
             metaDetails={
@@ -428,6 +447,7 @@ export function InsightMetaContent({
     loading,
     loadingQueued,
     tags,
+    onLinkClick,
 }: {
     title: string
     fallbackTitle?: string
@@ -436,6 +456,7 @@ export function InsightMetaContent({
     loading?: boolean
     loadingQueued?: boolean
     tags?: string[]
+    onLinkClick?: () => void
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
@@ -454,7 +475,16 @@ export function InsightMetaContent({
         </h4>
     )
     if (link) {
-        titleEl = <Link to={link}>{titleEl}</Link>
+        titleEl = (
+            <Link
+                to={link}
+                onClick={() => {
+                    onLinkClick?.()
+                }}
+            >
+                {titleEl}
+            </Link>
+        )
     }
 
     return (

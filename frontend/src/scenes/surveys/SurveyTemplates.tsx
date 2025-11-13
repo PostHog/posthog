@@ -105,7 +105,7 @@ export function SurveyTemplates(): JSX.Element {
     }
     return (
         <>
-            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+            <div className="mb-2">
                 <SceneBreadcrumbBackButton
                     forceBackTo={{
                         key: Scene.Surveys,

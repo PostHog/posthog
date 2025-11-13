@@ -60,7 +60,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
+                <div className="flex justify-between mb-2">
                     <SceneBreadcrumbBackButton />
                     {hasIssueSplitting && (
                         <DropdownMenu>

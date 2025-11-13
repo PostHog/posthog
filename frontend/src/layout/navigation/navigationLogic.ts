@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 
 import api from 'lib/api'
@@ -27,11 +28,13 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount'], router, ['location']],
+        actions: [eventUsageLogic, ['reportProjectNoticeDismissed'], router, ['push']],
     })),
     actions({
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        setBackToUrl: (params: { url: string; name: string; resourceType: string; destinationUrl: string }) => params,
+        clearBackToUrl: true,
     }),
     loaders({
         navigationStatus: [
@@ -56,6 +59,14 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        backToUrl: [
+            null as { url: string; name: string; resourceType: string; destinationUrl: string } | null,
+            { persist: true },
+            {
+                setBackToUrl: (_, params) => params,
+                clearBackToUrl: () => null,
             },
         ],
     }),
