@@ -2,6 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 import { splitProtocolPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -29,6 +30,13 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
         ],
     })),
     reducers(() => ({
+        pinnedFolderSource: [
+            'loading://',
+            { persist: true, prefix: `${getCurrentTeamIdOrNone()}__${getCurrentUserIdOrNone()}__` },
+            {
+                setPinnedFolder: (_, { id }) => id,
+            },
+        ],
         selectedFolder: [
             'products://',
             {
