@@ -458,6 +458,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         },
 
+        // setHref is called when the page url changes
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
                 actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
@@ -465,8 +466,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
             actions.maybeLoadClickmap()
         },
+
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
+                actions.setDataHref(href)
+            }
+            actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()

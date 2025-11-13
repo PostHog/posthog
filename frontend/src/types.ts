@@ -244,6 +244,7 @@ export enum ProductKey {
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -858,6 +859,7 @@ export enum ExperimentsTabs {
 
 export enum ActivityTab {
     ExploreEvents = 'explore',
+    ExploreSessions = 'sessions',
     LiveEvents = 'live',
 }
 
@@ -1587,6 +1589,10 @@ export interface RecordingEventType
     distinct_id?: EventType['distinct_id']
 }
 
+export interface SessionEventType extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp'> {
+    fullyLoaded: boolean
+    distinct_id?: EventType['distinct_id']
+}
 export interface PlaylistCollectionCount {
     count: number
     watched_count: number
@@ -3950,6 +3956,14 @@ export interface Experiment {
     user_access_level: AccessControlLevel
 }
 
+export interface ExperimentVelocityStats {
+    launched_last_30d: number
+    launched_previous_30d: number
+    percent_change: number
+    active_experiments: number
+    completed_last_30d: number
+}
+
 export interface FunnelExperimentVariant {
     key: string
     success_count: number
@@ -5302,7 +5316,7 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
-    RECOMMENDED = 'Recommended',
+    POPULAR = 'Most popular',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
@@ -5391,6 +5405,7 @@ export type AvailableOnboardingProducts = Record<
 export type OnboardingProduct = {
     name: string
     breadcrumbsName?: string
+    description: string
     icon: string
     iconColor: string
     url: string

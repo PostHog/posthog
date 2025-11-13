@@ -102,7 +102,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             hogFlow.status === 'active' &&
             (hogFlow.trigger?.type === 'webhook' ||
                 hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual')
+                hogFlow.trigger?.type === 'manual' ||
+                hogFlow.trigger?.type === 'schedule')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -208,6 +209,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
@@ -247,6 +249,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     hogFlow,
                     {} as HogFunctionFilterGlobals
                 )
+
+                const scheduledAt = req.body?.$scheduled_at
+                if (scheduledAt) {
+                    const scheduledDateTime = DateTime.fromISO(scheduledAt)
+                    if (!scheduledDateTime.isValid) {
+                        addLog('warn', `Invalid scheduled_at date format: ${scheduledAt}`)
+                    } else {
+                        hogFlowInvocation.queueScheduledAt = scheduledDateTime
+                        addLog('info', `Workflow run scheduled for ${scheduledAt}`)
+                    }
+                }
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 

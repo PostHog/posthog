@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
+        duplicateTemplate: true,
+        deleteTemplate: true,
     }),
     selectors({
         breadcrumbs: [
@@ -122,7 +125,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
             template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
@@ -138,6 +141,42 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 description: message.description,
                 content: {
                     email: message.inputs?.email?.value,
+                },
+            })
+        },
+        duplicateTemplate: async () => {
+            if (values.templateChanged) {
+                lemonToast.error('Please save your changes before duplicating')
+                return
+            }
+            const template = values.template
+            try {
+                const duplicatedTemplate = await api.messaging.createTemplate({
+                    name: `${template.name} (copy)`,
+                    description: template.description,
+                    content: template.content,
+                })
+                lemonToast.success('Template duplicated successfully')
+                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
+            } catch {
+                lemonToast.error('Failed to duplicate template')
+            }
+        },
+        deleteTemplate: async () => {
+            const template = values.template
+            if (!template || template.id === 'new') {
+                return
+            }
+            await deleteWithUndo({
+                endpoint: `environments/@current/messaging_templates`,
+                object: {
+                    id: template.id,
+                    name: template.name,
+                },
+                callback: (undo) => {
+                    if (!undo) {
+                        router.actions.push(urls.workflows('library'))
+                    }
                 },
             })
         },

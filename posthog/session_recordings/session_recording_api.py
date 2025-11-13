@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from json import JSONDecodeError
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -241,7 +241,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     def get_viewers(self, obj: SessionRecording) -> list[str]:
         return getattr(obj, "viewers", [])
 
-    def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
+    def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
 
     class Meta:
@@ -418,16 +418,18 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, str], context: dict[str, Any]
+    listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
 ) -> Response:
-    (recordings, more_recordings_available, timings_header) = listing_result
+    (recordings, more_recordings_available, timings_header, next_cursor) = listing_result
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response = Response(
-        {"results": results, "has_next": more_recordings_available, "version": 4},
-    )
+    response_data = {"results": results, "has_next": more_recordings_available, "version": 4}
+    if next_cursor is not None:
+        response_data["next_cursor"] = next_cursor
+
+    response = Response(response_data)
     response.headers["Server-Timing"] = timings_header
 
     return response
@@ -649,7 +651,7 @@ class SessionRecordingViewSet(
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
+        results, _, timings, _ = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
         response = JsonResponse(
             data=MatchingEventsResponse(
@@ -792,7 +794,7 @@ class SessionRecordingViewSet(
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
 
         # Filter recordings based on access control - only allow deletion of recordings user has editor access to
         user_access_control = self.user_access_control
@@ -1570,7 +1572,7 @@ class SessionRecordingViewSet(
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
-) -> tuple[list[SessionRecording], bool, str]:
+) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -1587,6 +1589,7 @@ def list_recordings_from_query(
     recordings: list[SessionRecording] = []
     more_recordings_available = False
     hogql_timings: list[QueryTiming] | None = None
+    next_cursor: str | None = None
 
     timer = ServerTimingsGathered()
 
@@ -1612,12 +1615,16 @@ def list_recordings_from_query(
             posthoganalytics.new_context(),
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
-            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
+            query_result = SessionRecordingListFromQuery(
                 query=query,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
             ).run()
+            ch_session_recordings = query_result.results
+            more_recordings_available = query_result.has_more_recording
+            hogql_timings = query_result.timings
+            next_cursor = query_result.next_cursor
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
@@ -1667,7 +1674,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, timer.to_header_string(hogql_timings)
+    return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:

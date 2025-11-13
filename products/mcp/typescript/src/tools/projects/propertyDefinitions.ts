@@ -1,13 +1,17 @@
+import type { z } from 'zod'
+
 import { PropertyDefinitionSchema } from '@/schema/properties'
 import { ProjectPropertyDefinitionsInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = ProjectPropertyDefinitionsInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const propertyDefinitionsHandler = async (context: Context, params: Params) => {
+export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     if (!params.eventName && params.type === 'event') {
@@ -25,9 +29,7 @@ export const propertyDefinitionsHandler = async (context: Context, params: Param
     })
 
     if (!propDefsResult.success) {
-        throw new Error(
-            `Failed to get property definitions for ${params.type}s: ${propDefsResult.error.message}`
-        )
+        throw new Error(`Failed to get property definitions for ${params.type}s: ${propDefsResult.error.message}`)
     }
 
     const simplifiedProperties = PropertyDefinitionSchema.array().parse(propDefsResult.data)
