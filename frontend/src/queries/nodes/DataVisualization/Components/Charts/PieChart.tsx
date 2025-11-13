@@ -3,12 +3,11 @@ import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
 import { useEffect, useRef } from 'react'
 
+import { LemonTable } from '@posthog/lemon-ui'
+
 import { Chart, ChartDataset, ChartItem, ChartOptions, Plugin } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
-import { hexToRGBA } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-
-import { LemonTable } from '@posthog/lemon-ui'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 
@@ -27,13 +26,7 @@ function getPercentageForDataPoint(context: Context): number {
     return ((context.dataset.data[context.dataIndex] as number) / total) * 100
 }
 
-export function PieChart({
-    xData,
-    yData,
-    chartSettings,
-    presetChartHeight,
-    className,
-}: PieChartProps): JSX.Element {
+export function PieChart({ xData, yData, chartSettings, presetChartHeight, className }: PieChartProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const { getTooltip } = useInsightTooltip()
 

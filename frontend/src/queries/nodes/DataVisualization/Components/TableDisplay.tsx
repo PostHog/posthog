@@ -45,7 +45,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     label: 'Area chart',
                 },
                 {
-                    value: ChartDisplayType.ActionsUnstackedBar,
+                    value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
                 },
