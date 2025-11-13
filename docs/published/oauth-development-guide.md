@@ -63,17 +63,20 @@ You can view and test the OAuth flow from Django admin:
 #### Basic Information
 
 **Name** (required)
+
 - Display name for the application
 - Shown to users during authorization
 - Example: "PostHog Mobile App", "Analytics Dashboard"
 
 **Client ID** (auto-generated)
+
 - Unique identifier for your application
 - Automatically generated but can be customized
 - Used in authorization requests
 - Example: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`
 
 **Client Secret** (auto-generated)
+
 - Confidential credential for the application
 - Only shown once during creation
 - Gets hashed after saving
@@ -81,6 +84,7 @@ You can view and test the OAuth flow from Django admin:
 - ⚠️ **Copy this before you save the application - you cannot view it again after creation**
 
 **Client Type** (required)
+
 - `Confidential`: For server-side applications that can securely store secrets
 - `Public`: For client-side apps (mobile, SPA) that cannot securely store secrets
 
@@ -89,9 +93,11 @@ See [Client Types](#client-types) section for detailed explanation.
 #### Authorization Settings
 
 **Authorization Grant Type** (required, fixed)
+
 - Only `Authorization code` is supported
 
 **Redirect URIs** (required)
+
 - Whitespace-separated list of valid redirect URIs
 - PostHog will only redirect to these URIs after authorization
 - **HTTPS required** for non-localhost URIs
@@ -105,6 +111,7 @@ See [Client Types](#client-types) section for detailed explanation.
   ```
 
 **Algorithm** (required, fixed)
+
 - Only `RS256` (RSA with SHA-256) is supported
 - Used for signing ID tokens
 - More secure than symmetric algorithms (HS256)
@@ -113,11 +120,13 @@ See [Client Types](#client-types) section for detailed explanation.
 #### Ownership
 
 **User**
+
 - The PostHog user who created the application
 - Not used for access control
 - Helps track who created the app
 
 **Organization**
+
 - The organization that owns this application
 - In the future, we will allow organizations to manage their apps in their settings
 - If organization is deleted, app becomes orphaned but remains active.
@@ -129,11 +138,13 @@ See [Client Types](#client-types) section for detailed explanation.
 **Use for**: Server-side applications, backend services, traditional web apps
 
 **Characteristics**:
+
 - Can securely store the client secret
 - Runs in a trusted environment (your servers)
 - Must authenticate with both client_id and client_secret when exchanging authorization code for tokens
 
 **Examples**:
+
 - Django/Rails/Express web applications
 - Backend services
 - Server-to-server integrations
@@ -145,11 +156,13 @@ See [Client Types](#client-types) section for detailed explanation.
 **Use for**: Single-page apps (SPAs), mobile apps, desktop apps
 
 **Characteristics**:
+
 - Cannot securely store secrets (code is distributed to users)
 - Relies on PKCE for security instead of client secret
 - Only needs client_id for token exchange
 
 **Examples**:
+
 - React/Vue/Angular applications
 - iOS/Android mobile apps
 - Electron desktop applications
@@ -159,6 +172,7 @@ See [Client Types](#client-types) section for detailed explanation.
 ### Standard Authorization Code Flow with PKCE
 
 1. **Generate PKCE parameters** (client-side):
+
    ```python
    import secrets
    import hashlib
@@ -173,6 +187,7 @@ See [Client Types](#client-types) section for detailed explanation.
    ```
 
 2. **Redirect user to authorization URL**:
+
    ```
    GET /oauth/authorize/
      ?response_type=code
@@ -187,11 +202,13 @@ See [Client Types](#client-types) section for detailed explanation.
 3. **User authorizes** the application and selects access level
 
 4. **Receive authorization code** at redirect_uri:
+
    ```
    http://localhost:3000/callback?code=<authorization_code>&state=<state_value>
    ```
 
 5. **Exchange code for tokens**:
+
    ```bash
    POST /oauth/token/
    Content-Type: application/x-www-form-urlencoded
@@ -315,19 +332,23 @@ print(tokens)
 ## Troubleshooting
 
 ### "Invalid client_id"
+
 - Check the client_id matches exactly
 - Verify the application exists in `https://localhost:8010/admin/posthog/oauthapplication/`
 
 ### "Redirect URI mismatch"
+
 - Ensure redirect_uri in request matches one configured in application, make sure you included the path and not just the base url
 - Check for trailing slashes
 - Verify HTTP vs HTTPS
 
 ### "Invalid code_verifier"
+
 - The code_verifier used in token exchange must match the one used to generate code_challenge
 - Ensure code_challenge was generated correctly using SHA256, you should send the hashed version as the code_challenge in the authorize request, and the original as the code_verifier in the token request
 
 ### "Invalid client_secret"
+
 - For confidential clients, ensure you saved the secret during creation, after creation you will see a hashed version in Django admin which is not your client secret
 - Secrets cannot be retrieved after creation - you'll need to create a new application
 
