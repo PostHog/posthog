@@ -243,6 +243,24 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.BETWEEN:
+        if not isinstance(value, list) or len(value) != 2:
+            raise QueryError("BETWEEN operator requires a two-element array [min, max]")
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+            ]
+        )
+    elif operator == PropertyOperator.NOT_BETWEEN:
+        if not isinstance(value, list) or len(value) != 2:
+            raise QueryError("NOT_BETWEEN operator requires a two-element array [min, max]")
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+            ]
+        )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -518,7 +536,7 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list):
+        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:
