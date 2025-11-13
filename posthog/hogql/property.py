@@ -52,6 +52,9 @@ from posthog.utils import get_from_dict_or_attr
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
+# Property scope type - subset of PropertyFilterType values plus replay-specific scopes
+PropertyScope = Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
+
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
 
@@ -163,7 +166,7 @@ def _expr_to_compare_op(
     property: Property,
     is_json_field: bool,
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
+    scope: PropertyScope = "event",
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
@@ -172,7 +175,10 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        if property.type == "person" and scope == "person" and property.key.startswith("$virt"):
+        # Virtual properties on person and group scopes don't need JSONHas check
+        if (property.type == "person" and scope == "person" and property.key.startswith("$virt")) or (
+            property.type == "group" and scope == "group" and property.key.startswith("$virt")
+        ):
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=expr,
@@ -317,7 +323,7 @@ def property_to_expr(
         | LogPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
+    scope: PropertyScope = "event",
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):

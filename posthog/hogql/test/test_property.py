@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
+    PropertyScope,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -37,9 +38,7 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[
-            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
-        ] = None,
+        scope: Optional[PropertyScope] = None,
         strict: bool = True,
     ):
         return clear_locations(
@@ -910,6 +909,28 @@ class TestProperty(BaseTest):
             },
             scope="group",
         ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
+        assert self._property_to_expr(
+            {
+                "type": "group",
+                "key": "$virt_revenue_last_30_days",
+                "value": "is_set",
+                "operator": "is_set",
+                "group_type_index": 0,
+            },
+            scope="group",
+        ) == self._parse_expr("$virt_revenue_last_30_days != NULL")
+
+        assert self._property_to_expr(
+            {
+                "type": "group",
+                "key": "$virt_revenue_last_30_days",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "group_type_index": 0,
+            },
+            scope="group",
+        ) == self._parse_expr("$virt_revenue_last_30_days = NULL")
 
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
