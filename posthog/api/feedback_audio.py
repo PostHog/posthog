@@ -115,7 +115,7 @@ class FeedbackAudioSerializer(serializers.Serializer):
 @require_http_methods(["POST", "OPTIONS"])
 def feedback_audio_upload(request):
     """
-    Public endpoint for audio feedback uploads at /ingest/api/feedback/audio/
+    Public endpoint for audio feedback uploads at /api/feedback/audio/
     Accepts JSON data with base64-encoded audio and metadata.
     """
     if request.method == "OPTIONS":
@@ -202,7 +202,7 @@ def feedback_audio_upload(request):
 def feedback_audio_download(request, feedback_audio_id):
     """
     Download feedback audio file by ID using API token for authentication.
-    URL: /api/feedback_audio/{id}/download?token=<api_key>
+    URL: /api/feedback/audio/{id}/download?token=<api_key>
     Requires both authenticated user and valid API token with team access.
     """
     if request.method == "OPTIONS":
