@@ -456,8 +456,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         if not is_file_system_type_registered(entry.type):
-            entry.delete()
-            return deleted_objects
+            raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
 
         if remaining > 0:
             entry.delete()
