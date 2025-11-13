@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import asyncify
+
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -16,13 +18,14 @@ class CleanupSandboxInput:
 
 
 @activity.defn
-async def cleanup_sandbox(input: CleanupSandboxInput) -> None:
-    async with log_activity_execution(
+@asyncify
+def cleanup_sandbox(input: CleanupSandboxInput) -> None:
+    with log_activity_execution(
         "cleanup_sandbox",
         sandbox_id=input.sandbox_id,
     ):
         try:
-            sandbox = await Sandbox.get_by_id(input.sandbox_id)
-            await sandbox.destroy()
+            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox.destroy()
         except SandboxNotFoundError:
             pass

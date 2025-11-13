@@ -9,7 +9,6 @@ from django.db import models
 from django.utils import timezone
 
 import structlog
-from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -453,9 +452,9 @@ class SandboxSnapshot(UUIDModel):
         if self.external_id:
             from products.tasks.backend.services.sandbox import Sandbox
 
-            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+            if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
-                    async_to_sync(Sandbox.delete_snapshot)(self.external_id)
+                    Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:
                     raise Exception(
                         f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
