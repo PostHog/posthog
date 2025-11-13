@@ -395,18 +395,24 @@ function StepTriggerConfigurationSchedule({
     )
 }
 
-function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element {
+function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const logic = batchTriggerLogic({ id: actionId, filters })
-    const { blastRadiusLoading, affectedUsers, totalUsers } = useValues(logic)
+    const { blastRadiusLoading, blastRadius } = useValues(logic)
 
     if (blastRadiusLoading) {
         return <Spinner />
     }
 
-    if (affectedUsers !== undefined && totalUsers !== null) {
+    if (!blastRadius) {
+        return null
+    }
+
+    const { users_affected, total_users } = blastRadius
+
+    if (users_affected !== undefined && total_users !== null) {
         return (
             <div className="text-muted">
-                Affects approximately {humanFriendlyNumber(affectedUsers)} of {humanFriendlyNumber(totalUsers)} users.
+                approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} users.
             </div>
         )
     }
@@ -429,41 +435,42 @@ function StepTriggerConfigurationBatch({
 
     return (
         <div className="flex flex-col gap-2 my-2">
-            <LemonField.Pure label="Which group?" error={validationResult?.errors?.cohort_id}>
-                <div>
-                    <PropertyFilters
-                        pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
-                        propertyFilters={config.filters.properties}
-                        addText="Add condition"
-                        orFiltering
-                        sendAllKeyUpdates
-                        allowRelativeDateOptions
-                        exactMatchFeatureFlagCohortOperators
-                        hideBehavioralCohorts
-                        logicalRowDivider
-                        onChange={(properties) =>
-                            partialSetWorkflowActionConfig(action.id, {
-                                filters: {
-                                    properties,
-                                },
-                            })
-                        }
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.FeatureFlags,
-                            TaxonomicFilterGroupType.Metadata,
-                        ]}
-                        taxonomicFilterOptionsFromProp={{
-                            [TaxonomicFilterGroupType.Metadata]: [
-                                { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
-                            ],
-                        }}
-                        hasRowOperator={false}
-                    />
-                </div>
-            </LemonField.Pure>
-            <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
+            <div className="flex gap-1">
+                <span className="font-semibold">This batch will include</span>{' '}
+                <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
+            </div>
+            <div>
+                <PropertyFilters
+                    pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
+                    propertyFilters={config.filters.properties}
+                    addText="Add condition"
+                    orFiltering
+                    sendAllKeyUpdates
+                    allowRelativeDateOptions
+                    exactMatchFeatureFlagCohortOperators
+                    hideBehavioralCohorts
+                    logicalRowDivider
+                    onChange={(properties) =>
+                        partialSetWorkflowActionConfig(action.id, {
+                            filters: {
+                                properties,
+                            },
+                        })
+                    }
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.Metadata,
+                    ]}
+                    taxonomicFilterOptionsFromProp={{
+                        [TaxonomicFilterGroupType.Metadata]: [
+                            { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                        ],
+                    }}
+                    hasRowOperator={false}
+                />
+            </div>
             <LemonDivider />
             <div className="flex gap-2">
                 <span className="font-semibold">Schedule for later?</span>
