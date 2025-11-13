@@ -109,6 +109,19 @@ describe('elementsToString and chainToElements', () => {
         expect(elementsString).toEqual('.another.something:attr__class="something another"nth-child="0"nth-of-type="0"')
         expect(chainToElements(elementsString, 0)).toEqual([expect.objectContaining(element)])
     })
+
+    it('handles empty attributes', () => {
+        const element = {
+            tag_name: 'div',
+            attributes: {
+                empty: '',
+            },
+        }
+        const elementsString = elementsToString([element])
+
+        expect(elementsString).toEqual('div:empty=""nth-child="0"nth-of-type="0"')
+        expect(chainToElements(elementsString, 0)).toEqual([expect.objectContaining(element)])
+    })
 })
 
 describe('extractElements()', () => {

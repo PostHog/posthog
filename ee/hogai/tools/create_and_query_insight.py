@@ -8,6 +8,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -167,20 +168,24 @@ class CreateAndQueryInsightTool(MaxTool):
         try:
             dict_state = await graph.ainvoke(new_state)
         except SchemaGenerationException as e:
-            return format_prompt_string(
-                INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,
-                output=e.llm_output,
-                error_message=e.validation_message,
-                system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
-            ), None
+            raise MaxToolRetryableError(
+                format_prompt_string(
+                    INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,
+                    output=e.llm_output,
+                    error_message=e.validation_message,
+                    system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
+                )
+            )
 
         updated_state = AssistantState.model_validate(dict_state)
         maybe_viz_message, tool_call_message = updated_state.messages[-2:]
 
         if not isinstance(tool_call_message, AssistantToolCallMessage):
-            return format_prompt_string(
-                INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT, system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT
-            ), None
+            raise MaxToolRetryableError(
+                format_prompt_string(
+                    INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT, system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT
+                )
+            )
 
         # If the previous message is not a visualization message, the agent has requested human feedback.
         if not isinstance(maybe_viz_message, VisualizationMessage):

@@ -40,11 +40,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
         : "Project's default dashboard"
-    const homepageSubtitle = isUsingProjectDefault
-        ? projectDefaultSubtitle
-        : isUsingNewTabHomepage
-          ? 'New tab page'
-          : null
+    const homepageSubtitle = isUsingProjectDefault ? projectDefaultSubtitle : isUsingNewTabHomepage ? 'Search' : null
 
     const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
         { value: null, label: 'No default dashboard / show the "new tab" page' },
@@ -68,8 +64,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         pathname: urls.newTab(),
         search: '',
         hash: '',
-        title: 'New tab',
-        iconType: 'blank',
+        title: 'Search',
+        iconType: 'search',
         active: false,
         pinned: true,
         sceneId: Scene.NewTab,

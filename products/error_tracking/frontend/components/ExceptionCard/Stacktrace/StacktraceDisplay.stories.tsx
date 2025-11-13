@@ -71,6 +71,22 @@ export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
     )
 }
 
+export function GenericDisplayWithMinifiedReactError(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="javascript_minified_react_error">
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+        </ExceptionLogicWrapper>
+    )
+}
+
+export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="javascript_non_error_promise_rejection">
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+        </ExceptionLogicWrapper>
+    )
+}
+
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {

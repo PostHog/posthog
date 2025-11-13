@@ -5,7 +5,9 @@ and bump the package version number at the same time.
 
 ```bash
 git checkout -b "cli/release-v0.1.0-pre1"
-# Bump version number in Cargo.toml and build to update Cargo.lock
+# Bump version number in Cargo.toml
+# Build to update Cargo.lock (cargo build)
+# Update the CHANGELOG.md
 git add .
 git commit -m "Bump version number"
 git tag "posthog-cli-v0.1.0-prerelease.1"

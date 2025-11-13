@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonSegmentedButton,
@@ -13,8 +14,10 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
+import { ListHog } from 'lib/components/hedgehogs'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -23,7 +26,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { ProductKey, PropertyOperator } from '~/types'
 
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
@@ -60,7 +63,7 @@ export function LogsScene(): JSX.Element {
             : {}
 
     return (
-        <SceneContent className="h-screen">
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -68,6 +71,27 @@ export function LogsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
+            <LemonBanner
+                type="warning"
+                dismissKey="logs-beta-banner"
+                action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
+            >
+                <p>
+                    Logs is in beta and things will change as we figure out what works. Right now you have 7-day
+                    retention with ingestion rate limits. Tell us what you need, what's broken, or if you're hitting
+                    limits, we want to hear from you.
+                </p>
+            </LemonBanner>
+            <ProductIntroduction
+                productName="logs"
+                productKey={ProductKey.LOGS}
+                thingName="log"
+                description={sceneConfigurations[Scene.Logs].description ?? ''}
+                docsURL="https://posthog.com/docs/logs"
+                customHog={ListHog}
+                isEmpty={false}
+            />
+            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
@@ -142,24 +166,11 @@ export function LogsScene(): JSX.Element {
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { filterGroup, expandedAttributeBreaksdowns } = useValues(logsLogic)
-    const { setFilterGroup, toggleAttributeBreakdown } = useActions(logsLogic)
+    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
-
-    const addFilter = (key: string, value: string, operator = PropertyOperator.Exact): void => {
-        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
-
-        newGroup.values.push({
-            key,
-            value: [value],
-            operator: operator,
-            type: PropertyFilterType.Log,
-        })
-
-        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
-    }
 
     return (
         <LemonTable
