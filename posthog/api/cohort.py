@@ -72,6 +72,7 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
@@ -667,8 +668,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 # Check if cohort is used in insights
 
-                from posthog.models.insight import Insight
-
                 # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
                 # This finds cohort references at any depth in the JSON structure
                 insights_using_cohort = Insight.objects.filter(
@@ -676,11 +675,11 @@ class CohortSerializer(serializers.ModelSerializer):
                     deleted=False,
                 ).extra(
                     where=[
-                        """jsonb_path_exists(query, '$.**  ? (@.type == "cohort" && @.value == $cohort_id)', %s::jsonb)
+                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
                         OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
-                            AND query->'source'->'breakdownFilter'->'breakdown' @> %s::jsonb)"""
+                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
                     ],
-                    params=[f'{{"cohort_id": {cohort.id}}}', f"[{cohort.id}]"],
+                    params=[cohort.id, cohort.id, cohort.id],
                 )
 
                 if insights_using_cohort.exists():
@@ -694,6 +693,32 @@ class CohortSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         f"This cohort is used in {count} insight(s): {names_str}. "
                         "Please remove the cohort from these insights before deleting it."
+                    )
+
+                # Check if cohort is used as criteria in other cohorts
+                dependent_cohorts = (
+                    Cohort.objects.filter(
+                        team__project_id=cohort.team.project_id,
+                        deleted=False,
+                    )
+                    .exclude(id=cohort.id)
+                    .extra(
+                        where=[
+                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                        ],
+                        params=[cohort.id, cohort.id],
+                    )
+                )
+
+                if dependent_cohorts.exists():
+                    count = dependent_cohorts.count()
+                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    names_str = ", ".join(cohort_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used as criteria in {count} other cohort(s): {names_str}. "
+                        "Please remove this cohort from those cohort definitions before deleting it."
                     )
 
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)

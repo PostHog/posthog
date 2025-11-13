@@ -3756,6 +3756,152 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("This cohort is used in 1 insight(s): Nested Properties Insight", response.json()["detail"])
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_another_cohort(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create dependent cohort that references the base cohort
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Dependent Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "cohort", "key": "id", "value": base_cohort_id}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort", response.json()["detail"]
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_cohorts(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create multiple dependent cohorts
+        for i in range(3):
+            dependent_response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": f"Dependent Cohort {i + 1}",
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"type": "cohort", "key": "id", "value": base_cohort_id}],
+                        }
+                    },
+                },
+            )
+            self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used as criteria in 3 other cohort(s):", response.json()["detail"])
+        self.assertIn("Dependent Cohort", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_nested_cohort_filters(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create dependent cohort with nested AND/OR structure
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Complex Dependent Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"type": "cohort", "key": "id", "value": base_cohort_id},
+                                    {
+                                        "type": "person",
+                                        "key": "email",
+                                        "operator": "icontains",
+                                        "value": "@posthog.com",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort", response.json()["detail"]
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_other_cohorts(self, patch_calculate_cohort, patch_capture):
+        # Create two independent cohorts
+        response1 = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Cohort 1", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort1_id = response1.json()["id"]
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Cohort 2", "groups": [{"properties": {"team_id": 6}}]},
+        )
+
+        # Delete cohort 1 should succeed since cohort 2 doesn't reference it
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort1_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort1_id)
+        self.assertTrue(cohort.deleted)
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
