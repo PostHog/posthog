@@ -152,7 +152,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let person = Person::from_distinct_id(&mut *conn, team_id, &distinct_id).await?;
+    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
     let (person_id, person_props) = person
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
