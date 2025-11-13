@@ -16,8 +16,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { OverviewTab } from './scene/OverviewTab'
-import { ViewsTab } from './scene/ViewsTab'
 import { SourcesTab } from './scene/SourcesTab'
+import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
