@@ -18,22 +18,23 @@ import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { EventConfigModal } from './EventConfigModal'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activeEvent, activeEventSelectionWithDefault, activeUsersInsights, hasActiveEventChanged, tabId } =
+    const { activityEvent, activityEventSelectionWithDefault, activeUsersInsights, hasActivityEventChanged, tabId } =
         useValues(customerAnalyticsSceneLogic)
-    const { setActiveEventSelection, saveActiveEvent, toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
-    const isActiveEventPageview = activeEvent === '$pageview'
+    const { setActivityEventSelection, saveActivityEvent, toggleEventConfigModal } =
+        useActions(customerAnalyticsSceneLogic)
+    const isActivityEventPageview = activityEvent === '$pageview'
 
     return (
         <div className="space-y-2 mb-0">
-            {isActiveEventPageview && (
+            {isActivityEventPageview && (
                 <LemonBanner type="warning">
                     You are currently using pageview event to define user activity. Consider using a more specific
                     event, so that you're tracking activity accurately.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
                         <ActionFilter
-                            filters={activeEventSelectionWithDefault}
-                            setFilters={setActiveEventSelection}
-                            typeKey="customer-analytics-active-event"
+                            filters={activityEventSelectionWithDefault}
+                            setFilters={setActivityEventSelection}
+                            typeKey="customer-analytics-activity-event"
                             mathAvailability={MathAvailability.None}
                             hideDeleteBtn={true}
                             hideRename={true}
@@ -45,23 +46,23 @@ export function ActiveUsersInsights(): JSX.Element {
                         />
                         <LemonButton
                             type="primary"
-                            disabledReason={hasActiveEventChanged ? null : 'No changes'}
-                            onClick={saveActiveEvent}
+                            disabledReason={hasActivityEventChanged ? null : 'No changes'}
+                            onClick={saveActivityEvent}
                         >
-                            Save active event
+                            Save activity event
                         </LemonButton>
                     </div>
                 </LemonBanner>
             )}
             <div className="flex items-center gap-2 ml-1">
                 <h2 className="m-0">Active Users</h2>
-                {!isActiveEventPageview && (
+                {!isActivityEventPageview && (
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         onClick={() => toggleEventConfigModal()}
-                        tooltip="Configure active event"
+                        tooltip="Configure activity event"
                     />
                 )}
             </div>
@@ -80,7 +81,7 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { activeEvent, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { activityEvent, tabId } = useValues(customerAnalyticsSceneLogic)
     const query = {
         kind: NodeKind.DataTableNode,
         source: {
@@ -89,7 +90,7 @@ function PowerUsersTable(): JSX.Element {
                 SELECT person_id,
                        count() as event_count
                 FROM events
-                WHERE event = ${activeEvent}
+                WHERE event = ${activityEvent}
                   and timestamp
                     > now() - interval '30 days'
                 GROUP BY person_id

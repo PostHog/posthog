@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -23,17 +24,17 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
-        setActiveEventSelection: (filters: FilterType) => ({
+        setActivityEventSelection: (filters: FilterType) => ({
             filters,
         }),
-        saveActiveEvent: true,
+        saveActivityEvent: true,
         toggleEventConfigModal: (isOpen?: boolean) => ({ isOpen }),
     }),
     reducers({
-        activeEventSelection: [
+        activityEventSelection: [
             null as FilterType | null,
             {
-                setActiveEventSelection: (_, { filters }) => filters,
+                setActivityEventSelection: (_, { filters }) => filters,
             },
         ],
         isEventConfigModalOpen: [
@@ -44,7 +45,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     }),
     selectors({
-        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabId) => tabId],
+        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp) => tabIdProp],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -56,55 +57,55 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
             ],
         ],
-        activeEventSelectionWithDefault: [
-            (s) => [s.activeEventSelection, s.activeEvent],
-            (activeEventSelection, activeEvent): FilterType => {
+        activityEventSelectionWithDefault: [
+            (s) => [s.activityEventSelection, s.activityEvent],
+            (activityEventSelection, activityEvent): FilterType => {
                 return (
-                    activeEventSelection ?? {
+                    activityEventSelection ?? {
                         insight: InsightType.TRENDS,
-                        events: [{ id: activeEvent, type: EntityTypes.EVENTS, order: 0 }],
+                        events: [{ id: activityEvent, type: EntityTypes.EVENTS, order: 0 }],
                     }
                 )
             },
         ],
-        hasActiveEventChanged: [
-            (s) => [s.activeEventSelection],
-            (activeEventSelection): boolean => {
-                return activeEventSelection !== null
+        hasActivityEventChanged: [
+            (s) => [s.activityEventSelection],
+            (activityEventSelection): boolean => {
+                return activityEventSelection !== null
             },
         ],
         customerAnalyticsEvents: [
             (s) => [s.currentTeam],
             (currentTeam) => currentTeam?.extra_settings?.customer_analytics_events || {},
         ],
-        activeEvent: [
+        activityEvent: [
             (s) => [s.customerAnalyticsEvents],
-            (customerAnalyticsEvents) => customerAnalyticsEvents?.active_event || '$pageview',
+            (customerAnalyticsEvents) => customerAnalyticsEvents?.activity_event || '$pageview',
         ],
         dauSeries: [
-            (s) => [s.activeEvent],
-            (activeEvent) => ({
+            (s) => [s.activityEvent],
+            (activityEvent) => ({
                 kind: NodeKind.EventsNode,
                 math: 'dau',
-                event: activeEvent || null,
+                event: activityEvent || null,
                 properties: [],
             }),
         ],
         wauSeries: [
-            (s) => [s.activeEvent],
-            (activeEvent) => ({
+            (s) => [s.activityEvent],
+            (activityEvent) => ({
                 kind: NodeKind.EventsNode,
                 math: 'weekly_active',
-                event: activeEvent || null,
+                event: activityEvent || null,
                 properties: [],
             }),
         ],
         mauSeries: [
-            (s) => [s.activeEvent],
-            (activeEvent) => ({
+            (s) => [s.activityEvent],
+            (activityEvent) => ({
                 kind: NodeKind.EventsNode,
                 math: 'monthly_active',
-                event: activeEvent || null,
+                event: activityEvent || null,
                 properties: [],
             }),
         ],
@@ -218,23 +219,33 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     }),
     listeners(({ actions, values }) => ({
-        saveActiveEvent: () => {
-            const selectedEvent = values.activeEventSelectionWithDefault.events?.[0]?.id
+        saveActivityEvent: async () => {
+            const selectedEvent = values.activityEventSelectionWithDefault.events?.[0]?.id
             if (selectedEvent && typeof selectedEvent === 'string') {
-                actions.updateCurrentTeam({
-                    extra_settings: {
-                        customer_analytics_events: {
-                            active_event: selectedEvent,
-                        },
+                let currentTeam = values.currentTeam
+                try {
+                    // Get current team directly so that we have the most up to date extra_settings
+                    currentTeam = await api.get('api/environments/@current')
+                } catch {}
+
+                const currentSettings = currentTeam?.extra_settings
+                const extra_settings = {
+                    ...currentSettings,
+                    customer_analytics_events: {
+                        ...currentSettings.customer_analytics_events,
+                        activity_event: selectedEvent,
                     },
+                }
+                actions.updateCurrentTeam({
+                    extra_settings,
                 })
-                actions.setActiveEventSelection(null as any)
+                actions.setActivityEventSelection(null as any)
             }
         },
         toggleEventConfigModal: ({ isOpen }) => {
             const isClosing = isOpen === false || (isOpen === undefined && values.isEventConfigModalOpen)
             if (isClosing) {
-                actions.setActiveEventSelection(null)
+                actions.setActivityEventSelection(null)
             }
         },
     })),

@@ -9,16 +9,17 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 
 export function EventConfigModal(): JSX.Element {
-    const { isEventConfigModalOpen, activeEventSelectionWithDefault, hasActiveEventChanged } =
+    const { isEventConfigModalOpen, activityEventSelectionWithDefault, hasActivityEventChanged } =
         useValues(customerAnalyticsSceneLogic)
-    const { toggleEventConfigModal, setActiveEventSelection, saveActiveEvent } = useActions(customerAnalyticsSceneLogic)
+    const { toggleEventConfigModal, setActivityEventSelection, saveActivityEvent } =
+        useActions(customerAnalyticsSceneLogic)
 
     const handleClose = (): void => {
         toggleEventConfigModal(false)
     }
 
     const handleSave = (): void => {
-        saveActiveEvent()
+        saveActivityEvent()
         toggleEventConfigModal(false)
     }
 
@@ -26,15 +27,15 @@ export function EventConfigModal(): JSX.Element {
         <LemonModal
             isOpen={isEventConfigModalOpen}
             onClose={handleClose}
-            title="Configure active event"
+            title="Configure activity event"
             width={600}
-            hasUnsavedInput={hasActiveEventChanged}
+            hasUnsavedInput={hasActivityEventChanged}
         >
             <LemonModal.Content>
                 <p className="mb-4">Select which event defines user activity for your customer analytics dashboard.</p>
                 <ActionFilter
-                    filters={activeEventSelectionWithDefault}
-                    setFilters={setActiveEventSelection}
+                    filters={activityEventSelectionWithDefault}
+                    setFilters={setActivityEventSelection}
                     typeKey="customer-analytics-event-config-modal"
                     mathAvailability={MathAvailability.None}
                     hideDeleteBtn={true}
@@ -52,9 +53,9 @@ export function EventConfigModal(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={handleSave}
-                    disabledReason={hasActiveEventChanged ? null : 'No changes'}
+                    disabledReason={hasActivityEventChanged ? null : 'No changes'}
                 >
-                    Save active event
+                    Save activity event
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>
