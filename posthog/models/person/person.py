@@ -100,20 +100,26 @@ class DualPersonManager(models.Manager):
                 raise Person.DoesNotExist()
 
     def filter(self, *args, **kwargs):
-        """Filter across both tables, returning UNION QuerySet.
+        """Filter across both tables, returning list of Person instances.
 
-        Note: Union QuerySets have limited operations:
-        - Can iterate (for loops work)
+        Note: Returns a list, not a QuerySet, because union QuerySets have limitations:
         - Can't chain most filters after union
         - Can't use .count(), .update(), .delete() on union
         - Can't use .prefetch_related(), .select_related()
 
-        Call sites needing these operations should use get_by_id() or
+        Call sites needing QuerySet operations should use get_by_id() or
         query tables individually.
         """
         old_qs = PersonOld.objects.filter(*args, **kwargs)
         new_qs = PersonNew.objects.filter(*args, **kwargs)
-        return old_qs.union(new_qs)
+        union_qs = old_qs.union(new_qs)
+
+        # Cast instances to Person type
+        results = []
+        for instance in union_qs:
+            instance.__class__ = Person
+            results.append(instance)
+        return results
 
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, routing based on ID cutoff.
