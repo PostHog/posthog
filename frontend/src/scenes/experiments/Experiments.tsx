@@ -422,9 +422,19 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
-    const { setExperimentsTab } = useActions(experimentsLogic)
+    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
+
+    // Register feature flag creation tool so that it's always available on experiments page
+    useMaxTool({
+        identifier: 'create_feature_flag',
+        initialMaxPrompt: 'Create a feature flag for ',
+        suggestions: [],
+        callback: () => {},
+        active: true,
+        context: {},
+    })
 
     return (
         <SceneContent>
@@ -439,7 +449,42 @@ export function Experiments(): JSX.Element {
                             resourceType={AccessControlResourceType.Experiment}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <NewExperimentButton />
+                            <MaxTool
+                                identifier="create_experiment"
+                                initialMaxPrompt="Create an experiment for "
+                                suggestions={[
+                                    'Create an experiment to test…',
+                                    'Set up an A/B test with a 70/30 split between control and test for…',
+                                ]}
+                                callback={(toolOutput: {
+                                    experiment_id?: string | number
+                                    experiment_name?: string
+                                    feature_flag_key?: string
+                                    error?: string
+                                }) => {
+                                    if (toolOutput?.error || !toolOutput?.experiment_id) {
+                                        lemonToast.error(
+                                            `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
+                                        )
+                                        return
+                                    }
+                                    // Refresh experiments list to show new experiment, then redirect to it
+                                    loadExperiments()
+                                    router.actions.push(urls.experiment(toolOutput.experiment_id))
+                                }}
+                                position="bottom-right"
+                                active={true}
+                                context={{}}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    data-attr="create-experiment"
+                                    to={urls.experiment('new')}
+                                >
+                                    <span className="pr-3">New experiment</span>
+                                </LemonButton>
+                            </MaxTool>
                         </AccessControlAction>
                     ) : undefined
                 }
@@ -485,45 +530,5 @@ export function Experiments(): JSX.Element {
                 />
             )}
         </SceneContent>
-    )
-}
-
-function NewExperimentButton(): JSX.Element {
-    const { loadExperiments } = useActions(experimentsLogic)
-
-    useMaxTool({ identifier: 'create_feature_flag', context: {} })
-
-    return (
-        <MaxTool
-            identifier="create_experiment"
-            initialMaxPrompt="Create an experiment for "
-            suggestions={[
-                'Create an experiment to test our new checkout flow',
-                'Set up an A/B test for the pricing page redesign',
-                'Create an experiment to test different call-to-action buttons on the homepage',
-                'Create an experiment for testing our new recommendation algorithm',
-            ]}
-            callback={(toolOutput: {
-                experiment_id?: string | number
-                experiment_name?: string
-                feature_flag_key?: string
-                error?: string
-            }) => {
-                if (toolOutput?.error || !toolOutput?.experiment_id) {
-                    lemonToast.error(`Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`)
-                    return
-                }
-                // Refresh experiments list to show new experiment, then redirect to it
-                loadExperiments()
-                router.actions.push(urls.experiment(toolOutput.experiment_id))
-            }}
-            position="bottom-right"
-            active={true}
-            context={{}}
-        >
-            <LemonButton size="small" type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
-                <span className="pr-3">New experiment</span>
-            </LemonButton>
-        </MaxTool>
     )
 }
