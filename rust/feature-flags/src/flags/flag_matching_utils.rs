@@ -715,7 +715,7 @@ async fn try_set_feature_flag_hash_key_overrides(
     .await?;
     let mut transaction = persons_conn.begin().await?;
 
-    // Query 1: Get all person data - person_ids + existing overrides (person pool)
+    // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
     let person_data_query = r#"
             SELECT DISTINCT
                 p.person_id,
