@@ -217,9 +217,6 @@ class BigQueryField(Field):
         type = data_type_to_bigquery_type(field.type)
         return cls(field.name, type, nullable=field.nullable)
 
-    def to_arrow_field(self) -> pa.Field:
-        return pa.field(self.name, self.data_type)
-
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name

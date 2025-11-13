@@ -121,7 +121,8 @@ class Field[T](typing.Protocol):
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self: ...
 
-    def to_arrow_field(cls) -> pa.Field: ...
+    def to_arrow_field(self) -> pa.Field:
+        return pa.field(self.name, self.data_type)
 
     @classmethod
     def from_destination_field(cls, field: T) -> typing.Self: ...
