@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.tools.create_dashboard import CreateDashboardTool
 from ee.hogai.utils.types import AssistantState, InsightQuery, PartialAssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -143,13 +144,14 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
-                    dashboard_name="Test Dashboard",
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
+                        dashboard_name="Test Dashboard",
+                    )
 
-                self.assertEqual(result, "Dashboard creation failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Dashboard creation failed", error_message)
 
     async def test_execute_returns_failure_message_when_result_has_no_messages(self):
         mock_result = PartialAssistantState(messages=[])
@@ -162,13 +164,14 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode"):
             with patch("ee.hogai.tools.create_dashboard.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
-                    dashboard_name="Test Dashboard",
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
+                        dashboard_name="Test Dashboard",
+                    )
 
-                self.assertEqual(result, "Dashboard creation failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Dashboard creation failed", error_message)
 
     async def test_execute_preserves_original_state(self):
         """Test that the original state is not modified when creating the copied state"""

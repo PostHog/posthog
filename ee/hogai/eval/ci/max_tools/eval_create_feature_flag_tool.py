@@ -365,3 +365,467 @@ async def eval_create_feature_flag_duplicate_handling(pytestconfig, demo_org_tea
         ],
         pytestconfig=pytestconfig,
     )
+
+
+@pytest.mark.django_db
+async def eval_create_multivariate_feature_flag(pytestconfig, demo_org_team_user):
+    """Test multivariate feature flag creation for A/B testing."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Generate unique keys for this test run
+    unique_suffix = uuid.uuid4().hex[:6]
+
+    async def task_create_multivariate_flag(instructions: str):
+        tool = await CreateFeatureFlagTool.create_tool_class(
+            team=team,
+            user=user,
+            state=AssistantState(messages=[]),
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        result_message, artifact = await tool._arun_impl(instructions=instructions)
+
+        flag_key = artifact.get("flag_key")
+
+        # Verify multivariate schema structure if flag was created
+        variant_count = 0
+        schema_valid = False
+        has_multivariate = False
+        if flag_key:
+            try:
+                flag = await FeatureFlag.objects.aget(team=team, key=flag_key)
+                multivariate = flag.filters.get("multivariate")
+
+                if multivariate:
+                    has_multivariate = True
+                    variants = multivariate.get("variants", [])
+                    variant_count = len(variants)
+
+                    # Verify each variant has the required schema structure
+                    schema_valid = True
+                    for variant in variants:
+                        # Verify variant has key and rollout_percentage (name is optional)
+                        if not all(key in variant for key in ["key", "rollout_percentage"]):
+                            schema_valid = False
+                            break
+                        # Verify rollout_percentage is a number
+                        if not isinstance(variant["rollout_percentage"], int | float):
+                            schema_valid = False
+                            break
+            except FeatureFlag.DoesNotExist:
+                pass
+
+        return {
+            "message": result_message,
+            "has_multivariate": has_multivariate,
+            "variant_count": variant_count,
+            "created": flag_key is not None,
+            "schema_valid": schema_valid,
+        }
+
+    await MaxPublicEval(
+        experiment_name="create_multivariate_feature_flag",
+        task=task_create_multivariate_flag,  # type: ignore
+        scores=[FeatureFlagOutputScorer(semantic_fields={"message"})],
+        data=[
+            EvalCase(
+                input=f"Create an A/B test flag called 'ab-test-{unique_suffix}' with control and test variants",
+                expected={
+                    "message": f"Successfully created feature flag 'ab-test-{unique_suffix}' with A/B test",
+                    "has_multivariate": True,
+                    "variant_count": 2,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+            EvalCase(
+                input=f"Create a multivariate flag called 'abc-test-{unique_suffix}' with 3 variants for testing",
+                expected={
+                    "message": f"Successfully created feature flag 'abc-test-{unique_suffix}' with multivariate",
+                    "has_multivariate": True,
+                    "variant_count": 3,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+            EvalCase(
+                input=f"Create an A/B test flag called 'pricing-test-{unique_suffix}' for testing new pricing",
+                expected={
+                    "message": f"Successfully created feature flag 'pricing-test-{unique_suffix}' with A/B test",
+                    "has_multivariate": True,
+                    "variant_count": 2,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+async def eval_create_multivariate_with_rollout(pytestconfig, demo_org_team_user):
+    """Test multivariate feature flags with rollout percentages for targeted experiments."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Generate unique keys for this test run
+    unique_suffix = uuid.uuid4().hex[:6]
+
+    async def task_create_multivariate_with_rollout(instructions: str):
+        tool = await CreateFeatureFlagTool.create_tool_class(
+            team=team,
+            user=user,
+            state=AssistantState(messages=[]),
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        result_message, artifact = await tool._arun_impl(instructions=instructions)
+
+        flag_key = artifact.get("flag_key")
+
+        # Verify multivariate and rollout schema structure
+        has_multivariate = False
+        has_rollout = False
+        variant_count = 0
+        rollout_percentage = None
+        schema_valid = False
+
+        if flag_key:
+            try:
+                flag = await FeatureFlag.objects.aget(team=team, key=flag_key)
+
+                # Check multivariate config
+                multivariate = flag.filters.get("multivariate")
+                if multivariate:
+                    has_multivariate = True
+                    variants = multivariate.get("variants", [])
+                    variant_count = len(variants)
+
+                # Check rollout in groups
+                groups = flag.filters.get("groups", [])
+                if groups and len(groups) > 0:
+                    group = groups[0]
+                    rollout_percentage = group.get("rollout_percentage")
+                    has_rollout = rollout_percentage is not None
+
+                # Verify schema
+                schema_valid = has_multivariate and variant_count > 0
+                if has_rollout:
+                    schema_valid = schema_valid and isinstance(rollout_percentage, int | float)
+
+            except FeatureFlag.DoesNotExist:
+                pass
+
+        return {
+            "message": result_message,
+            "has_multivariate": has_multivariate,
+            "has_rollout": has_rollout,
+            "variant_count": variant_count,
+            "created": flag_key is not None,
+            "schema_valid": schema_valid,
+        }
+
+    await MaxPublicEval(
+        experiment_name="create_multivariate_with_rollout",
+        task=task_create_multivariate_with_rollout,  # type: ignore
+        scores=[FeatureFlagOutputScorer(semantic_fields={"message"})],
+        data=[
+            EvalCase(
+                input=f"Create an A/B test flag called 'ab-rollout-{unique_suffix}' with control and test variants at 50% rollout",
+                expected={
+                    "message": f"Successfully created feature flag 'ab-rollout-{unique_suffix}' with A/B test and 50% rollout",
+                    "has_multivariate": True,
+                    "has_rollout": True,
+                    "variant_count": 2,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+            EvalCase(
+                input=f"Create a multivariate flag called 'experiment-{unique_suffix}' with 3 variants at 10% rollout",
+                expected={
+                    "message": f"Successfully created feature flag 'experiment-{unique_suffix}' with multivariate and 10% rollout",
+                    "has_multivariate": True,
+                    "has_rollout": True,
+                    "variant_count": 3,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+async def eval_create_multivariate_with_property_filters(pytestconfig, demo_org_team_user):
+    """Test multivariate feature flags with property-based targeting for segment-specific experiments."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Generate unique keys for this test run
+    unique_suffix = uuid.uuid4().hex[:6]
+
+    async def task_create_multivariate_with_properties(instructions: str):
+        tool = await CreateFeatureFlagTool.create_tool_class(
+            team=team,
+            user=user,
+            state=AssistantState(messages=[]),
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        result_message, artifact = await tool._arun_impl(instructions=instructions)
+
+        flag_key = artifact.get("flag_key")
+
+        # Verify multivariate and property filter schema structure
+        has_multivariate = False
+        has_properties = False
+        variant_count = 0
+        property_count = 0
+        schema_valid = False
+
+        if flag_key:
+            try:
+                flag = await FeatureFlag.objects.aget(team=team, key=flag_key)
+
+                # Check multivariate config
+                multivariate = flag.filters.get("multivariate")
+                if multivariate:
+                    has_multivariate = True
+                    variants = multivariate.get("variants", [])
+                    variant_count = len(variants)
+
+                # Check properties in groups
+                groups = flag.filters.get("groups", [])
+                for group in groups:
+                    properties = group.get("properties", [])
+                    property_count += len(properties)
+                    # Verify each property has required schema structure
+                    for prop in properties:
+                        if all(key in prop for key in ["key", "type", "value", "operator"]):
+                            has_properties = True
+                        else:
+                            schema_valid = False
+                            break
+
+                # Verify schema
+                schema_valid = has_multivariate and variant_count > 0 and has_properties
+
+            except FeatureFlag.DoesNotExist:
+                pass
+
+        return {
+            "message": result_message,
+            "has_multivariate": has_multivariate,
+            "has_properties": has_properties,
+            "variant_count": variant_count,
+            "created": flag_key is not None,
+            "schema_valid": schema_valid,
+        }
+
+    await MaxPublicEval(
+        experiment_name="create_multivariate_with_property_filters",
+        task=task_create_multivariate_with_properties,  # type: ignore
+        scores=[FeatureFlagOutputScorer(semantic_fields={"message"})],
+        data=[
+            EvalCase(
+                input=f"Create an A/B test flag called 'email-test-{unique_suffix}' for users where email contains @company.com with control and test variants",
+                expected={
+                    "message": f"Successfully created feature flag 'email-test-{unique_suffix}' with A/B test for users where email contains @company.com",
+                    "has_multivariate": True,
+                    "has_properties": True,
+                    "variant_count": 2,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+            EvalCase(
+                input=f"Create a multivariate flag called 'us-experiment-{unique_suffix}' with 3 variants targeting US users",
+                expected={
+                    "message": f"Successfully created feature flag 'us-experiment-{unique_suffix}' with multivariate targeting US users",
+                    "has_multivariate": True,
+                    "has_properties": True,
+                    "variant_count": 3,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+async def eval_create_multivariate_with_custom_percentages(pytestconfig, demo_org_team_user):
+    """Test multivariate feature flags with custom variant percentage distributions."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Generate unique keys for this test run
+    unique_suffix = uuid.uuid4().hex[:6]
+
+    async def task_create_multivariate_custom_percentages(instructions: str):
+        tool = await CreateFeatureFlagTool.create_tool_class(
+            team=team,
+            user=user,
+            state=AssistantState(messages=[]),
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        result_message, artifact = await tool._arun_impl(instructions=instructions)
+
+        flag_key = artifact.get("flag_key")
+
+        # Verify multivariate with custom percentages
+        has_multivariate = False
+        variant_count = 0
+        percentages_sum_to_100 = False
+        schema_valid = False
+
+        if flag_key:
+            try:
+                flag = await FeatureFlag.objects.aget(team=team, key=flag_key)
+
+                multivariate = flag.filters.get("multivariate")
+                if multivariate:
+                    has_multivariate = True
+                    variants = multivariate.get("variants", [])
+                    variant_count = len(variants)
+
+                    # Check if percentages sum to 100
+                    total_percentage = sum(v.get("rollout_percentage", 0) for v in variants)
+                    percentages_sum_to_100 = total_percentage == 100
+
+                    # Verify schema
+                    schema_valid = True
+                    for variant in variants:
+                        if not all(key in variant for key in ["key", "rollout_percentage"]):
+                            schema_valid = False
+                            break
+
+            except FeatureFlag.DoesNotExist:
+                pass
+
+        return {
+            "message": result_message,
+            "has_multivariate": has_multivariate,
+            "variant_count": variant_count,
+            "percentages_valid": percentages_sum_to_100,
+            "created": flag_key is not None,
+            "schema_valid": schema_valid and percentages_sum_to_100,
+        }
+
+    await MaxPublicEval(
+        experiment_name="create_multivariate_with_custom_percentages",
+        task=task_create_multivariate_custom_percentages,  # type: ignore
+        scores=[FeatureFlagOutputScorer(semantic_fields={"message"})],
+        data=[
+            EvalCase(
+                input=f"Create an A/B test flag called 'uneven-test-{unique_suffix}' with control at 70% and test at 30%",
+                expected={
+                    "message": f"Successfully created feature flag 'uneven-test-{unique_suffix}' with A/B test",
+                    "has_multivariate": True,
+                    "variant_count": 2,
+                    "percentages_valid": True,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+            EvalCase(
+                input=f"Create a multivariate flag called 'weighted-test-{unique_suffix}' with control (33%), variant_a (33%), variant_b (34%)",
+                expected={
+                    "message": f"Successfully created feature flag 'weighted-test-{unique_suffix}' with multivariate",
+                    "has_multivariate": True,
+                    "variant_count": 3,
+                    "percentages_valid": True,
+                    "created": True,
+                    "schema_valid": True,
+                },
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+async def eval_create_multivariate_error_handling(pytestconfig, demo_org_team_user):
+    """Test multivariate feature flag error handling for invalid configurations."""
+    _, team, user = demo_org_team_user
+
+    conversation = await Conversation.objects.acreate(team=team, user=user)
+
+    # Generate unique keys for this test run
+    unique_suffix = uuid.uuid4().hex[:6]
+
+    async def task_create_invalid_multivariate(instructions: str):
+        tool = await CreateFeatureFlagTool.create_tool_class(
+            team=team,
+            user=user,
+            state=AssistantState(messages=[]),
+            config={
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "team": team,
+                    "user": user,
+                }
+            },
+        )
+
+        result_message, artifact = await tool._arun_impl(instructions=instructions)
+
+        # Check if error was properly reported
+        has_error = (
+            "error" in artifact or "invalid" in result_message.lower() or "must sum to 100" in result_message.lower()
+        )
+
+        return {
+            "message": result_message,
+            "has_error": has_error,
+        }
+
+    await MaxPublicEval(
+        experiment_name="create_multivariate_error_handling",
+        task=task_create_invalid_multivariate,  # type: ignore
+        scores=[FeatureFlagOutputScorer(semantic_fields={"message"})],
+        data=[
+            EvalCase(
+                input=f"Create an A/B test flag called 'invalid-percentage-{unique_suffix}' with control at 60% and test at 50%",
+                expected={
+                    "message": "The variant percentages you provided (control: 60%, test: 50%) sum to 110%, but they must sum to exactly 100%. Please adjust the percentages so they add up to 100.",
+                    "has_error": True,
+                },
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )

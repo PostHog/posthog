@@ -5,13 +5,12 @@ from celery import shared_task
 from prometheus_client import Counter
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.tasks.utils import CeleryQueue
-
-from ee.session_recordings.session_recording_extensions import (
+from posthog.session_recordings.persist_to_lts.session_recording_extensions import (
     MAXIMUM_AGE_FOR_RECORDING_V2,
     MINIMUM_AGE_FOR_RECORDING,
     persist_recording_v2,
 )
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
