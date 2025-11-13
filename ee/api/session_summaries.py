@@ -303,7 +303,6 @@ class SessionGroupSummarySerializer(serializers.ModelSerializer):
             "session_ids",
             "summary",
             "extra_summary_context",
-            "extra_input_context",
             "run_metadata",
             "created_at",
             "created_by",
