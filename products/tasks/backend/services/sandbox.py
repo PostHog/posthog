@@ -2,7 +2,7 @@ import os
 import uuid
 import logging
 from enum import Enum
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 
@@ -114,7 +114,8 @@ class Sandbox:
 
             secrets = []
             if config.environment_variables:
-                secret = modal.Secret.from_dict(config.environment_variables)
+                env_dict = cast(dict[str, str | None], config.environment_variables)
+                secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -169,10 +170,10 @@ class Sandbox:
         command: str,
         timeout_seconds: Optional[int] = None,
     ) -> ExecutionResult:
-        if not self.get_status() == SandboxStatus.RUNNING:
+        if not self.is_running():
             raise SandboxExecutionError(
-                f"Sandbox not in running state. Current status: {self.status}",
-                {"sandbox_id": self.id, "status": str(self.status)},
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
             )
 
         if timeout_seconds is None:
@@ -187,8 +188,8 @@ class Sandbox:
             stderr = process.stderr.read()
 
             result = ExecutionResult(
-                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,
-                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,
+                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,  # type: ignore[unreachable]
+                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,  # type: ignore[unreachable]
                 exit_code=process.returncode,
                 error=None,
             )
