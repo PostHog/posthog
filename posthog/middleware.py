@@ -30,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
@@ -549,7 +550,8 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
-            login_method = self._get_login_method(request)
+            auth_backend = request.session.get("_auth_user_backend")
+            login_method = AUTH_BACKEND_KEYS.get(auth_backend)
             if login_method:
                 response.set_cookie(
                     key="ph_last_login_method",
@@ -563,27 +565,6 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                 )
 
         return response
-
-    def _get_login_method(self, request):
-        """
-        Determine login method based on the auth backend.
-        Returns SSOProvider format ('password', 'google-oauth2', 'github', 'gitlab', 'saml')
-        to match frontend types.
-        """
-        auth_backend = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
-
-        if auth_backend == "django.contrib.auth.backends.ModelBackend":
-            return "password"
-        if "google" in auth_backend.lower():
-            return "google-oauth2"
-        if "github" in auth_backend.lower():
-            return "github"
-        if "gitlab" in auth_backend.lower():
-            return "gitlab"
-        if "SAML" in auth_backend:
-            return "saml"
-
-        return None
 
 
 def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
