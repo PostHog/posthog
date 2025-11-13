@@ -19,11 +19,12 @@ export interface UseCaseDefinition {
 
 // Single source of truth for use case definitions
 // Used by both UseCaseSelection.tsx UI and product recommendation logic
+// Note: Keep descriptions under 88 characters for better readability
 export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'see_user_behavior',
         title: 'Understand how users behave',
-        description: 'Understand user behavior with event-based analytics, cohorts, and conversion funnels',
+        description: 'Track website traffic and user behavior with analytics and conversion funnels',
         iconKey: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         products: [ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY, ProductKey.WEB_ANALYTICS],
@@ -31,7 +32,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'fix_issues',
         title: 'Find and fix issues',
-        description: 'Track and monitor errors, then watch session recordings to see exactly what happened',
+        description: 'Watch session recordings and monitor errors to debug issues',
         iconKey: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         products: [ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING],
@@ -39,7 +40,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'launch_features',
         title: 'Launch features with confidence',
-        description: 'Control feature rollouts or run A/B tests to see what performs best',
+        description: 'Roll out features gradually and run A/B tests to optimize your product',
         iconKey: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         products: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS],
@@ -47,15 +48,15 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'collect_feedback',
         title: 'Collect user feedback',
-        description: 'Collect feedback with in-app surveys and understand behavior with analytics',
+        description: 'Collect feedback with in-app surveys and watch session recordings',
         iconKey: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
-        products: [ProductKey.SURVEYS, ProductKey.PRODUCT_ANALYTICS],
+        products: [ProductKey.SURVEYS, ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
     },
     {
         key: 'monitor_ai',
         title: 'Monitor AI applications',
-        description: 'Monitor AI/LLM performance with traces, costs, and quality metrics',
+        description: 'Track and analyze LLM usage, costs, and performance for AI applications',
         iconKey: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         products: [ProductKey.LLM_ANALYTICS, ProductKey.PRODUCT_ANALYTICS],
