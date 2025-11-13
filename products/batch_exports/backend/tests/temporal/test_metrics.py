@@ -13,7 +13,6 @@ from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportModel
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgresBatchExportInputs
@@ -106,7 +105,7 @@ async def test_interceptor_calls_histogram_metrics(
             "postgres-export",
             inputs,
             id=workflow_id,
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             execution_timeout=dt.timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

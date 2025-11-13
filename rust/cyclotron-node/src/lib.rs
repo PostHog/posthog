@@ -156,6 +156,7 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct JsJob {
+    pub id: Option<Uuid>,
     pub team_id: i32,
     pub queue_name: String,
     pub priority: i16,
@@ -716,6 +717,7 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
 impl JsJob {
     fn to_job_init(&self, blob: Option<Vec<u8>>) -> JobInit {
         JobInit {
+            id: self.id,
             team_id: self.team_id,
             queue_name: self.queue_name.clone(),
             priority: self.priority,

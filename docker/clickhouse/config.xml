@@ -75,6 +75,9 @@
     <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
+    <!-- how many threads merge files, default is 16 -->
+    <background_pool_size>4</background_pool_size>
+
     <!-- Number of workers to recycle connections in background (see also drain_timeout).
          If the pool is full, connection will be drained synchronously. -->
     <!-- <max_threads_for_connection_collector>10</max_threads_for_connection_collector> -->
@@ -205,6 +208,9 @@
 
         <!-- example of using a different storage policy for a system table -->
         <!-- storage_policy>local_ssd</storage_policy -->
+
+        <ttl>event_date + INTERVAL 12 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_log>
 
     <!-- Query thread log. Has information about all threads participated in query execution.
@@ -218,6 +224,9 @@
         <reserved_size_rows>8192</reserved_size_rows>
         <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
         <flush_on_crash>false</flush_on_crash>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_thread_log>
 
     <!-- Query views log. Has information about all dependent views associated with a query.
@@ -227,6 +236,9 @@
         <table>query_views_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_views_log>
 
 
@@ -235,6 +247,9 @@
         <table>text_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <level>trace</level>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </text_log>
 
     <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected
@@ -244,6 +259,9 @@
         <table>metric_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <collect_interval_milliseconds>1000</collect_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </metric_log>
 
     <!--
@@ -258,6 +276,9 @@
             no need to flush more often.
         -->
         <flush_interval_milliseconds>7000</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </asynchronous_metric_log>
 
     <!--
@@ -306,6 +327,9 @@
 
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </session_log>
 
     <backup_log>
@@ -313,6 +337,9 @@
         <table>backup_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </backup_log>
 
     <!-- Custom TLD lists.
@@ -393,4 +420,10 @@
             <replace>\1(???)</replace>
         </rule>
     </query_masking_rules>
+
+    <merge_tree>
+        <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool>
+        <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
 </clickhouse>

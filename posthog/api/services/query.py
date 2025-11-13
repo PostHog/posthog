@@ -22,7 +22,7 @@ from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -32,7 +32,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.warehouse.models import DataWarehouseJoin
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -116,6 +117,7 @@ def process_query_model(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    cache_age_seconds: Optional[int] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -135,6 +137,7 @@ def process_query_model(
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
+                cache_age_seconds=cache_age_seconds,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -162,10 +165,10 @@ def process_query_model(
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
+            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(
-                tables=serialize_database(context),
+                tables=database.serialize(context),
                 joins=[
                     DataWarehouseViewLink.model_validate(
                         {
@@ -197,6 +200,7 @@ def process_query_model(
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
         )
 
     return result

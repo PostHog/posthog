@@ -81,6 +81,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
+    evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
 }
 
@@ -350,6 +351,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string
+    TEMPORAL_HOST: string
+    TEMPORAL_PORT: string | undefined
+    TEMPORAL_NAMESPACE: string
+    TEMPORAL_CLIENT_ROOT_CA: string | undefined
+    TEMPORAL_CLIENT_CERT: string | undefined
+    TEMPORAL_CLIENT_KEY: string | undefined
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -558,6 +565,7 @@ export interface PluginServerCapabilities {
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
+    evaluationScheduler?: boolean
 }
 
 export interface EnqueuedPluginJob {
@@ -791,6 +799,7 @@ export interface RawOrganization {
     created_at: string
     updated_at: string
     available_product_features: ProductFeature[]
+    default_anonymize_ips: boolean
 }
 
 // NOTE: We don't need to list all options here - only the ones we use

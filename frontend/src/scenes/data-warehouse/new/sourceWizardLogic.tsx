@@ -253,11 +253,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        updateSyncTimeOfDay: (schema: ExternalDataSourceSyncSchema, syncTimeOfDay: string) => ({
-            schema,
-            syncTimeOfDay,
-        }),
-        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
     }),
     connect(() => ({
@@ -324,12 +319,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                 },
-                updateSyncTimeOfDay: (state, { schema, syncTimeOfDay }) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_time_of_day: s.table === schema.table ? syncTimeOfDay : s.sync_time_of_day,
-                    }))
-                },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
                     return state.map((s) => ({
                         ...s,
@@ -390,12 +379,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
                 }),
-            },
-        ],
-        isProjectTime: [
-            false as boolean,
-            {
-                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     }),
@@ -688,7 +671,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmation,
+                    content: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
@@ -793,8 +776,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.source.payload ?? {}
                 )
 
+                let showToast = false
+
                 for (const schema of schemas) {
                     if (schema.sync_type === null) {
+                        showToast = true
                         schema.should_sync = true
 
                         // Use incremental if available
@@ -814,9 +800,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                lemonToast.info(
-                    "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
-                )
+                if (showToast) {
+                    lemonToast.info(
+                        "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+                    )
+                }
 
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()

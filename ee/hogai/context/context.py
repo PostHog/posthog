@@ -414,8 +414,6 @@ class AssistantContextManager(AssistantContextMixin):
     def _inject_context_messages(
         self, state: BaseStateWithMessages, context_prompts: list[str]
     ) -> list[AssistantMessageUnion]:
-        context_messages = [
-            ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
-        ]
+        context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)

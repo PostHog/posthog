@@ -96,43 +96,53 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
 
-        counts = {key: None for key in ENTITY_MAP}
         # get entities to search from params or default to all entities
-        entities = params["entities"] if len(params["entities"]) > 0 else set(ENTITY_MAP.keys())
+        entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
         query = params["q"]
 
-        # empty queryset to union things onto it
-        qs = (
-            Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-            .filter(team__project_id=self.project_id)
-            .none()
-        )
-
-        # add entities
-        for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
-            assert entity_meta is not None
-            klass_qs, entity_name = class_queryset(
-                view=self,
-                klass=entity_meta["klass"],
-                project_id=self.project_id,
-                query=query,
-                search_fields=entity_meta["search_fields"],
-                extra_fields=entity_meta["extra_fields"],
-            )
-            qs = qs.union(klass_qs)
-            counts[entity_name] = klass_qs.count()
-
-        # order by rank
-        if query:
-            qs = qs.order_by("-rank")
-        else:
-            qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
-
-        results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
-        for result in results:
-            result.pop("_sort_name", None)
+        results, counts = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
 
         return Response({"results": results, "counts": counts})
+
+
+def search_entities(
+    entities: set[str],
+    query: str | None,
+    project_id: int,
+    view: TeamAndOrgViewSetMixin,
+    entity_map: dict[str, EntityConfig],
+) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
+    # empty queryset to union things onto it
+    counts: dict[str, int | None] = {key: None for key in entity_map}
+    qs = (
+        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
+        .filter(team__project_id=project_id)
+        .none()
+    )
+
+    # add entities
+    for entity_meta in [entity_map[entity] for entity in entities]:
+        assert entity_meta is not None
+        klass_qs, entity_name = class_queryset(
+            view=view,
+            klass=entity_meta["klass"],
+            project_id=project_id,
+            query=query,
+            search_fields=entity_meta["search_fields"],
+            extra_fields=entity_meta["extra_fields"],
+        )
+        qs = qs.union(klass_qs)
+        counts[entity_name] = klass_qs.count()
+    # order by rank
+    if query:
+        qs = qs.order_by("-rank")
+    else:
+        qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
+
+    results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
+    for result in results:
+        result.pop("_sort_name", None)
+    return results, counts
 
 
 def class_queryset(

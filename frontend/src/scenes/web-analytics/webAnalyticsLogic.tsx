@@ -179,6 +179,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
+        setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        resetTileVisibility: () => true,
     }),
     loaders(({ values }) => ({
         // load the status check query here and pass the response into the component, so the response
@@ -575,6 +577,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }),
             },
         ],
+        hiddenTiles: [
+            [] as TileId[],
+            persistConfig,
+            {
+                setTileVisibility: (state, { tileId, visible }) => {
+                    if (visible) {
+                        return state.filter((id) => id !== tileId)
+                    }
+                    return state.includes(tileId) ? state : [...state, tileId]
+                },
+                resetTileVisibility: () => [],
+            },
+        ],
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
@@ -909,6 +924,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.marketingTiles,
+                s.hiddenTiles,
             ],
             (
                 productTab,
@@ -929,7 +945,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles
+                marketingTiles,
+                hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -2180,6 +2197,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     .filter((tile) =>
                         preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                     )
+                    .filter((tile) => !hiddenTiles.includes(tile.tileId))
             },
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
@@ -2468,8 +2486,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const isPreAggregatedEnabled =
                     values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
                     action?.modifiers?.useWebAnalyticsPreAggregatedTables
+                const hasConversionGoalPreAggFlag =
+                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
 
-                if (isPreAggregatedEnabled && values.conversionGoal) {
+                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
                     actions.setConversionGoal(null)
                     lemonToast.info(
                         'Your conversion goal has been cleared as the new query engine does not support it (yet!)'

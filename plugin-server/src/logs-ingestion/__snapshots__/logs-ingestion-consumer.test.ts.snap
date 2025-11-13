@@ -4,7 +4,6 @@ exports[`LogsIngestionConsumer general should process a valid log message 1`] = 
 [
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -24,7 +23,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
 [
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -39,7 +37,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
   },
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -54,7 +51,6 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
   },
   {
     "headers": {
-      "distinct_id": "user-1",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -63,6 +59,45 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
     "value": {
       "level": "debug",
       "message": "Third log",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer message parsing and validation should overwrite existing headers 1`] = `
+[
+  {
+    "headers": {
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "info",
+      "message": "Test log message",
+      "service": "test-service",
+      "timestamp": "2025-01-01T00:00:00.000Z",
+    },
+  },
+]
+`;
+
+exports[`LogsIngestionConsumer message parsing and validation should preserve kafka message headers 1`] = `
+[
+  {
+    "headers": {
+      "myHeader": "hello",
+      "team_id": "2",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+    },
+    "key": null,
+    "topic": "clickhouse_logs_test",
+    "value": {
+      "level": "info",
+      "message": "Test log message",
       "service": "test-service",
       "timestamp": "2025-01-01T00:00:00.000Z",
     },

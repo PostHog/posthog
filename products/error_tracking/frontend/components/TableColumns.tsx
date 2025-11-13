@@ -1,17 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconMinus } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
@@ -94,6 +94,10 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                 </Link>
                 <div title={record.description || undefined} className="font-medium line-clamp-1 text-[var(--gray-8)]">
                     {record.description}
+                </div>
+                <div className="line-clamp-1 text-[var(--gray-8)] italic">
+                    {record.function}
+                    {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
                 </div>
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect

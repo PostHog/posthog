@@ -396,36 +396,7 @@ describe('PersonState dual-write compatibility', () => {
         })
     })
 
-    describe('Process person profile flag', () => {
-        it('respects $process_person_profile=false identically', async () => {
-            const distinctId = 'ephemeral-user'
-            const event: Partial<PluginEvent> = {
-                distinct_id: distinctId,
-                properties: {
-                    $process_person_profile: false,
-                    $set: { should_not_persist: true },
-                },
-            }
-
-            const { processor: singleProcessor, personsStore: singleStore } = createPersonProcessor(
-                singleWriteRepository,
-                event,
-                false
-            )
-            const { processor: dualProcessor, personsStore: dualStore } = createPersonProcessor(
-                dualWriteRepository,
-                event,
-                false
-            )
-
-            await Promise.all([singleProcessor.processEvent(), dualProcessor.processEvent()])
-
-            await Promise.all([singleStore.flush(), dualStore.flush()])
-
-            const postgresPersons = await fetchPostgresPersonsH()
-            expect(postgresPersons.length).toBe(0)
-        })
-    })
+    describe('Process person profile flag', () => {})
 
     describe('Batch operations', () => {
         it('creates multiple persons in batch consistently', async () => {

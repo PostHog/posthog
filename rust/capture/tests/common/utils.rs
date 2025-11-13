@@ -43,7 +43,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     drop_events_by_token_distinct_id: None,
     enable_historical_rerouting: false,
     historical_rerouting_threshold_days: 1_i64,
-    historical_tokens_keys: None,
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,

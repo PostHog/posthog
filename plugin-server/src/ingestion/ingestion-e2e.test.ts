@@ -643,6 +643,45 @@ describe('Event Pipeline E2E tests', () => {
     })
 
     testWithTeamIngester(
+        'force_upgrade triggers when personless event sent after person creation',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            distinct_id: distinctId,
+                            $set: { prop: 'value' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    new EventBuilder(team, distinctId)
+                        .withEvent('custom event')
+                        .withProperties({
+                            $process_person_profile: false,
+                        })
+                        .withTimestamp(timestamp + 120000) // 2 minutes later (beyond 1-minute grace period)
+                        .build(),
+                ])
+            )
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(2)
+                expect(events[0].event).toEqual('$identify')
+                expect(events[0].person_mode).toEqual('full')
+                expect(events[1].event).toEqual('custom event')
+                expect(events[1].person_mode).toEqual('force_upgrade')
+                expect(events[1].person_properties).toEqual({})
+            })
+        }
+    )
+
+    testWithTeamIngester(
         'can $set and update person properties with top level $set',
         {},
         async (ingester, hub, team) => {

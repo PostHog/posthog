@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict
 
-from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import AssistantToolCall, TaskExecutionStatus
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
@@ -43,18 +43,19 @@ class TaskExecutorNodeImplementation(BaseTaskExecutorNode[MockTestState, MockPar
 
     async def arun(self, state: MockTestState, config: RunnableConfig) -> MockPartialTestState:
         """Forward to the base _arun method."""
-        return await self._arun(state, config)
+        self.state = state
+        input_tuples = state.test_input_tuples
+        tool_calls = [tool_call for tool_call, _, _ in input_tuples]
+        return await self.aexecute(tool_calls, config)
 
-    async def _aget_input_tuples(self, state: MockTestState) -> list[TaskExecutionInputTuple]:
+    async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         self.input_tuples_called = True
         # Return test input tuples based on state
-        return getattr(state, "test_input_tuples", [])
+        return self.state.test_input_tuples
 
-    async def _aget_final_state(
-        self, tasks: list[TaskExecutionItem], task_results: list[TaskResult]
-    ) -> MockPartialTestState:
+    async def _aget_final_state(self, task_results: list[TaskResult]) -> MockPartialTestState:
         self.final_state_called = True
-        return MockPartialTestState(messages=[])
+        return MockPartialTestState(task_results=task_results)
 
 
 class TestBaseTaskExecutorNode(TestCase):
@@ -66,13 +67,11 @@ class TestBaseTaskExecutorNode(TestCase):
         self.mock_user.id = 1
         self.node = TaskExecutorNodeImplementation(self.mock_team, self.mock_user)
 
-    def _create_task(self, task_id: str | None = None, description: str = "Test task") -> TaskExecutionItem:
-        return TaskExecutionItem(
+    def _create_task(self, task_id: str | None = None) -> AssistantToolCall:
+        return AssistantToolCall(
             id=task_id or str(uuid.uuid4()),
-            description=description,
-            prompt="Test prompt",
-            status=TaskExecutionStatus.PENDING,
-            task_type="create_insight",  # Added required field
+            name="test_tool",
+            args={},
         )
 
     def _create_task_result(
@@ -80,7 +79,6 @@ class TestBaseTaskExecutorNode(TestCase):
     ) -> TaskResult:
         return TaskResult(
             id=task_id,
-            description="Test result",
             result="Success",
             artifacts=[],
             status=status,
@@ -96,7 +94,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         async def task_coroutine(_: Any):
             return self._create_task_result("task1")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [(task, [], task_coroutine)]
         config = RunnableConfig()
 
@@ -104,11 +102,6 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
 
         self.assertTrue(self.node.input_tuples_called)
         self.assertTrue(self.node.final_state_called)
-        # Should not send task execution message for single task
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertEqual(len(task_execution_calls), 0)
 
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_multiple_tasks_parallel_execution(self, mock_write_message):
@@ -133,7 +126,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
             execution_order.append("task3")
             return self._create_task_result("task3")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [
             (task1, [], task1_coroutine),
             (task2, [], task2_coroutine),
@@ -145,29 +138,6 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
 
         # Tasks should complete in order of their execution time, not submission
         self.assertEqual(execution_order, ["task3", "task2", "task1"])
-
-        # Should send task execution messages for multiple tasks
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertGreater(len(task_execution_calls), 0)
-
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_task_status_transitions(self, mock_write_message):
-        """Test that task statuses are properly updated during execution."""
-        task = self._create_task("task1")
-
-        async def task_coroutine(_: Any):
-            return self._create_task_result("task1")
-
-        state = MockTestState(messages=[])
-        state.test_input_tuples = [(task, [], task_coroutine)]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
-
-        # Task should start as IN_PROGRESS
-        self.assertEqual(task.status, TaskExecutionStatus.COMPLETED)
 
 
 class TestReasoningCallback(TestBaseTaskExecutorNode):
@@ -182,19 +152,11 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
             await self.node._reasoning_callback("task1", "Processing data")
             return self._create_task_result("task1")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [(task, [], task_coroutine)]
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        # Should send reasoning messages for single task
-        reasoning_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], ReasoningMessage)
-        ]
-        self.assertEqual(len(reasoning_calls), 2)
-        self.assertEqual(reasoning_calls[0][0][0].content, "Starting analysis")
-        self.assertEqual(reasoning_calls[1][0][0].content, "Processing data")
 
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_reasoning_callback_for_multiple_tasks(self, mock_write_message):
@@ -210,7 +172,7 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
             await self.node._reasoning_callback("task2", "Task 2 progress")
             return self._create_task_result("task2")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [
             (task1, [], task1_coroutine),
             (task2, [], task2_coroutine),
@@ -218,18 +180,6 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        # Should update task execution messages for multiple tasks
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertGreater(len(task_execution_calls), 0)
-
-        # No reasoning messages should be sent for multiple tasks
-        reasoning_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], ReasoningMessage)
-        ]
-        self.assertEqual(len(reasoning_calls), 0)
 
 
 class TestErrorHandling(TestBaseTaskExecutorNode):
@@ -245,7 +195,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
         async def task2_coroutine(input_dict):
             return self._create_task_result("task2")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [
             (task1, [], task1_coroutine),
             (task2, [], task2_coroutine),
@@ -263,7 +213,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
         with patch.object(self.node, "_aget_input_tuples") as mock_get_input:
             mock_get_input.side_effect = RuntimeError("General failure")
 
-            state = MockTestState(messages=[])
+            state = MockTestState()
             config = RunnableConfig()
 
             with self.assertRaises(RuntimeError):
@@ -298,7 +248,7 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
         with patch.object(self.node, "_aget_final_state") as mock_final_state:
             mock_final_state.side_effect = RuntimeError("Critical failure in final state")
 
-            state = MockTestState(messages=[])
+            state = MockTestState()
             state.test_input_tuples = [
                 (task1, [], task1_coroutine),
                 (task2, [], task2_coroutine),
@@ -310,27 +260,6 @@ class TestErrorHandling(TestBaseTaskExecutorNode):
 
 
 class TestArtifactHandling(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_artifacts_update_task_items(self, mock_write_message):
-        """Test that artifacts are properly added to task items."""
-        task = self._create_task("task1")
-
-        artifact = TaskArtifact(id=None, task_id="artifact1", content="Test artifact")
-
-        async def task_coroutine(input_dict):
-            result = self._create_task_result("task1")
-            result.artifacts = [artifact]
-            return result
-
-        state = MockTestState(messages=[])
-        state.test_input_tuples = [(task, [], task_coroutine)]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
-
-        # Task should have artifact IDs updated
-        self.assertEqual(task.artifact_ids, ["artifact1"])
-
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_passes_artifacts_to_coroutines(self, mock_write_message):
         """Test that artifacts are passed correctly to task coroutines."""
@@ -368,11 +297,6 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertEqual(len(task_execution_calls), 0)
-
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_task_execution_messages_for_multiple_tasks(self, mock_write_message):
         """Test that TaskExecutionMessages are sent for multiple tasks."""
@@ -391,17 +315,6 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        # Should send initial, update, and final messages
-        self.assertGreaterEqual(len(task_execution_calls), 3)
-
-        # All messages should have the same ID
-        message_ids = {call[0][0].id for call in task_execution_calls}
-        self.assertEqual(len(message_ids), 1)
-        self.assertEqual(message_ids.pop(), self.node._task_execution_message_id)
 
 
 class TestEdgeCases(TestBaseTaskExecutorNode):
@@ -435,3 +348,256 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
 
         # Should handle None gracefully
         self.assertTrue(self.node.final_state_called)
+
+
+class TestDispatcherIntegration(TestBaseTaskExecutorNode):
+    """Test dispatcher message flow in task execution."""
+
+    async def test_dispatcher_sends_tool_call_messages(self):
+        """Test that dispatcher sends AssistantToolCallMessage for each completed task."""
+        from posthog.schema import AssistantToolCall
+
+        task1 = AssistantToolCall(id="tool1", name="test_tool", args={}, type="tool_call")
+        task2 = AssistantToolCall(id="tool2", name="test_tool", args={}, type="tool_call")
+
+        async def task_coroutine(input_dict):
+            task_id = input_dict["task_id"]
+            return self._create_task_result(task_id)
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task1, [], task_coroutine),
+            (task2, [], task_coroutine),
+        ]
+        config = RunnableConfig()
+
+        with patch.object(self.node, "dispatcher") as mock_dispatcher:
+            await self.node.arun(state, config)
+
+            # Verify dispatcher.message was called for each task result
+            self.assertGreaterEqual(mock_dispatcher.message.call_count, 2)
+
+    async def test_dispatcher_called_with_correct_tool_call_id(self):
+        """Test that dispatcher messages include correct tool_call_id."""
+        from posthog.schema import AssistantToolCall, AssistantToolCallMessage
+
+        tool_call_id = "test_tool_123"
+        task = AssistantToolCall(id=tool_call_id, name="test_tool", args={}, type="tool_call")
+
+        async def task_coroutine(input_dict):
+            return self._create_task_result(tool_call_id)
+
+        state = MockTestState()
+        state.test_input_tuples = [(task, [], task_coroutine)]
+        config = RunnableConfig()
+
+        with patch.object(self.node, "dispatcher") as mock_dispatcher:
+            await self.node.arun(state, config)
+
+            # Find the call with AssistantToolCallMessage
+            messages_sent = [call[0][0] for call in mock_dispatcher.message.call_args_list]
+            tool_messages = [m for m in messages_sent if isinstance(m, AssistantToolCallMessage)]
+
+            self.assertGreater(len(tool_messages), 0)
+            self.assertEqual(tool_messages[0].tool_call_id, tool_call_id)
+
+
+class TestPartialFailureScenarios(TestBaseTaskExecutorNode):
+    """Test scenarios where some tasks fail but others succeed."""
+
+    @patch("ee.hogai.graph.parallel_task_execution.nodes.capture_exception")
+    async def test_some_tasks_fail_others_succeed(self, mock_capture):
+        """Test that when some tasks fail, successful tasks still complete."""
+        task1 = self._create_task("task1")
+        task2 = self._create_task("task2")
+        task3 = self._create_task("task3")
+
+        async def task1_coroutine(input_dict):
+            raise ValueError("Task 1 failed")
+
+        async def task2_coroutine(input_dict):
+            return self._create_task_result("task2")
+
+        async def task3_coroutine(input_dict):
+            raise RuntimeError("Task 3 failed")
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task1, [], task1_coroutine),
+            (task2, [], task2_coroutine),
+            (task3, [], task3_coroutine),
+        ]
+        config = RunnableConfig()
+
+        result = await self.node.arun(state, config)
+
+        # Final state should be called even with partial failures
+        self.assertTrue(self.node.final_state_called)
+        # Only task2 should have succeeded
+        self.assertEqual(len(result.task_results), 1)
+        self.assertEqual(result.task_results[0].id, "task2")
+
+    async def test_all_tasks_fail(self):
+        """Test behavior when all tasks fail."""
+        task1 = self._create_task("task1")
+        task2 = self._create_task("task2")
+
+        async def failing_coroutine(input_dict):
+            raise ValueError("Task failed")
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task1, [], failing_coroutine),
+            (task2, [], failing_coroutine),
+        ]
+        config = RunnableConfig()
+
+        result = await self.node.arun(state, config)
+
+        # Should complete with empty results
+        self.assertTrue(self.node.final_state_called)
+        self.assertEqual(len(result.task_results), 0)
+
+
+class TestConcurrentExecution(TestBaseTaskExecutorNode):
+    """Test true parallel execution guarantees."""
+
+    async def test_tasks_run_concurrently_not_sequentially(self):
+        """Test that tasks genuinely run in parallel, not one after another."""
+        import time
+
+        task1 = self._create_task("task1")
+        task2 = self._create_task("task2")
+        task3 = self._create_task("task3")
+
+        start_times = {}
+        end_times = {}
+
+        async def task_coroutine(input_dict):
+            task_id = input_dict["task_id"]
+            start_times[task_id] = time.time()
+            await asyncio.sleep(0.1)  # All tasks take 0.1s
+            end_times[task_id] = time.time()
+            return self._create_task_result(task_id)
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task1, [], task_coroutine),
+            (task2, [], task_coroutine),
+            (task3, [], task_coroutine),
+        ]
+        config = RunnableConfig()
+
+        start = time.time()
+        await self.node.arun(state, config)
+        total_duration = time.time() - start
+
+        # If sequential, would take ~0.3s. If parallel, should take ~0.1s
+        self.assertLess(total_duration, 0.2, "Tasks should run in parallel, not sequentially")
+
+        # All tasks should have overlapping execution times
+        max_start = max(start_times.values())
+        min_end = min(end_times.values())
+        # Some overlap should exist
+        self.assertLess(max_start, min_end, "Tasks should have overlapping execution")
+
+    async def test_results_yielded_in_completion_order(self):
+        """Test that results are yielded as they complete, not in submission order."""
+        task1 = self._create_task("task1")
+        task2 = self._create_task("task2")
+        task3 = self._create_task("task3")
+
+        completion_order = []
+
+        async def task1_coroutine(input_dict):
+            await asyncio.sleep(0.15)
+            completion_order.append("task1")
+            return self._create_task_result("task1")
+
+        async def task2_coroutine(input_dict):
+            await asyncio.sleep(0.05)
+            completion_order.append("task2")
+            return self._create_task_result("task2")
+
+        async def task3_coroutine(input_dict):
+            await asyncio.sleep(0.10)
+            completion_order.append("task3")
+            return self._create_task_result("task3")
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task1, [], task1_coroutine),
+            (task2, [], task2_coroutine),
+            (task3, [], task3_coroutine),
+        ]
+        config = RunnableConfig()
+
+        with patch.object(self.node, "dispatcher"):
+            await self.node.arun(state, config)
+
+            # Verify completion order matches fastest-first
+            self.assertEqual(completion_order, ["task2", "task3", "task1"])
+
+
+class TestTaskDependencies(TestBaseTaskExecutorNode):
+    """Test artifact dependency management between tasks."""
+
+    async def test_artifacts_passed_to_dependent_tasks(self):
+        """Test that artifacts from one task can be used by another."""
+        task1 = self._create_task("task1")
+        artifact_from_task1 = TaskArtifact(id=None, task_id="artifact1", content="Output from task1")
+
+        task2 = self._create_task("task2")
+
+        received_artifacts = None
+
+        async def task1_coroutine(input_dict):
+            result = self._create_task_result("task1")
+            result.artifacts = [artifact_from_task1]
+            return result
+
+        async def task2_coroutine(input_dict):
+            nonlocal received_artifacts
+            received_artifacts = input_dict.get("artifacts")
+            return self._create_task_result("task2")
+
+        state = MockTestState()
+        # task2 depends on task1's artifact
+        state.test_input_tuples = [
+            (task1, [], task1_coroutine),
+            (task2, [artifact_from_task1], task2_coroutine),
+        ]
+        config = RunnableConfig()
+
+        await self.node.arun(state, config)
+
+        # Verify task2 received the artifact
+        self.assertIsNotNone(received_artifacts)
+        self.assertEqual(len(cast(list, received_artifacts)), 1)
+        self.assertEqual(cast(list, received_artifacts)[0].task_id, "artifact1")
+
+    async def test_multiple_artifacts_accumulated(self):
+        """Test that multiple artifacts can be passed to a task."""
+        task = self._create_task("task1")
+
+        artifact1 = TaskArtifact(id=None, task_id="art1", content="First artifact")
+        artifact2 = TaskArtifact(id=None, task_id="art2", content="Second artifact")
+        artifact3 = TaskArtifact(id=None, task_id="art3", content="Third artifact")
+
+        received_artifacts = None
+
+        async def task_coroutine(input_dict):
+            nonlocal received_artifacts
+            received_artifacts = input_dict.get("artifacts")
+            return self._create_task_result("task1")
+
+        state = MockTestState()
+        state.test_input_tuples = [
+            (task, [artifact1, artifact2, artifact3], task_coroutine),
+        ]
+        config = RunnableConfig()
+
+        await self.node.arun(state, config)
+
+        self.assertEqual(len(cast(list, received_artifacts)), 3)
+        self.assertEqual([a.task_id for a in cast(list, received_artifacts)], ["art1", "art2", "art3"])

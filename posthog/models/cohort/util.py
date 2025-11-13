@@ -1,4 +1,3 @@
-import json
 import math
 import uuid
 from datetime import datetime, timedelta
@@ -924,7 +923,7 @@ def _get_cohort_chunking_config(
         return None
 
     try:
-        config_json = posthoganalytics.get_feature_flag_payload(
+        result = posthoganalytics.get_feature_flag_result(
             "cohort-calculation-chunked",
             str(team_uuid),
             groups={"organization": str(organization_id)},
@@ -933,15 +932,13 @@ def _get_cohort_chunking_config(
             send_feature_flag_events=False,
         )
 
-        if config_json is None:
+        if result is None or not result.enabled or result.payload is None:
             return None
 
-        config_payload = json.loads(config_json)
-        if config_payload and isinstance(config_payload, dict):
-            chunk_size = config_payload.get("chunk_size", TARGET_CHUNK_SIZE)
+        chunk_size = result.payload.get("chunk_size")
 
-            if isinstance(chunk_size, int) and chunk_size > 0:
-                return chunk_size
+        if isinstance(chunk_size, int) and chunk_size > 0:
+            return chunk_size
 
         return TARGET_CHUNK_SIZE
 

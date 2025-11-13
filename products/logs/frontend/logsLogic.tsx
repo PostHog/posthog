@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -10,7 +10,6 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
@@ -25,10 +24,6 @@ const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
-
-    connect(() => ({
-        values: [teamLogic, ['timezone']],
-    })),
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
@@ -226,7 +221,7 @@ export const logsLogic = kea<logsLogicType>([
                             limit: 99,
                             offset: values.logs.length,
                             orderBy: values.orderBy,
-                            dateRange: values.projectDateRange,
+                            dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
@@ -256,7 +251,7 @@ export const logsLogic = kea<logsLogicType>([
                     const response = await api.logs.sparkline({
                         query: {
                             orderBy: values.orderBy,
-                            dateRange: values.projectDateRange,
+                            dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
                             filterGroup: values.filterGroup as PropertyGroupFilter,
                             severityLevels: values.severityLevels,
@@ -272,15 +267,14 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     selectors(() => ({
-        // convert the dateRange to be in the project's timezone
-        projectDateRange: [
-            (s) => [s.dateRange, s.timezone],
-            (dateRange, timezone) => ({
+        utcDateRange: [
+            (s) => [s.dateRange],
+            (dateRange) => ({
                 date_from: dayjs(dateRange.date_from).isValid()
-                    ? dayjs(dateRange.date_from).tz(timezone).format('YYYY-MM-DD HH:mm:ss')
+                    ? dayjs(dateRange.date_from).toISOString()
                     : dateRange.date_from,
                 date_to: dayjs(dateRange.date_to).isValid()
-                    ? dayjs(dateRange.date_to).tz(timezone).format('YYYY-MM-DD HH:mm:ss')
+                    ? dayjs(dateRange.date_to).toISOString()
                     : dateRange.date_to,
                 explicitDate: dateRange.explicitDate,
             }),
@@ -360,9 +354,9 @@ export const logsLogic = kea<logsLogicType>([
         setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
             const dates = values.sparklineData.dates
             const dateFrom = dates[startIndex]
-            const dateTo = dates[endIndex]
+            const dateTo = dates[endIndex + 1]
 
-            if (!dateFrom || !dateTo) {
+            if (!dateFrom) {
                 return
             }
 

@@ -53,7 +53,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
             data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}
         >
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
-            <h1 className="text-3xl font-bold mt-4 mb-0">
+            <h1 className="text-2xl font-bold mt-4 mb-0">
                 {appContext?.suggested_users_with_access
                     ? 'Log in as a customer to access this project'
                     : `${capitalizeFirstLetter(object)} not found`}

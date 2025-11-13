@@ -24,7 +24,7 @@ from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
+from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -42,9 +42,9 @@ TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateTyp
 
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
-    TaxonomyReasoningNodeMixin,
-    TaxonomyNodeBound,
     StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    TaxonomyNodeBound,
     ABC,
 ):
     """Base node for taxonomy agents."""
@@ -74,7 +74,7 @@ class TaxonomyAgentNode(
 
     def _get_model(self, state: TaxonomyStateType):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team, disable_streaming=True
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
@@ -112,6 +112,7 @@ class TaxonomyAgentNode(
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
+        self.dispatch_update_message(state)
         progress_messages = state.tool_progress_messages or []
         full_conversation = self._construct_messages(state)
 
@@ -133,7 +134,9 @@ class TaxonomyAgentNode(
             raise ValueError("No tool calls found in the output message.")
 
         tool_calls = output_message.tool_calls
-        intermediate_steps = []
+        # Preserve previous intermediate steps (and their results)
+        previous_steps = state.intermediate_steps or []
+        intermediate_steps = [*previous_steps]
         for tool_call in tool_calls:
             result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
             intermediate_steps.append((result, None))
@@ -152,7 +155,10 @@ class TaxonomyAgentNode(
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    TaxonomyNodeBound,
 ):
     """Base tools node for taxonomy agents."""
 
@@ -173,7 +179,10 @@ class TaxonomyAgentToolsNode(
         invalid_tools = []
         steps = []
         tool_msgs = []
-        for action, _ in intermediate_steps:
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                steps.append((action, observation))
+                continue
             try:
                 tool_input = self._toolkit.get_tool_input_model(action)
             except ValidationError as e:
@@ -214,14 +223,13 @@ class TaxonomyAgentToolsNode(
         if state.iteration_count is not None and state.iteration_count >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
-        # Taxonomy is a separate graph, so it dispatches its own messages
-        reasoning_message = await self.get_reasoning_message(state)
-        if reasoning_message:
-            await self._write_message(reasoning_message)
+        self.dispatch_update_message(state)
 
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
-        for action, _ in intermediate_steps:
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                continue
             if action.log in invalid_tools:
                 continue
             tool_result = tool_results[action.log]

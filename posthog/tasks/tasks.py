@@ -39,6 +39,17 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
 )
 
 
+COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_mark_failure_total",
+    "Times cohort deletion mark failed",
+)
+
+COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
+    "posthog_cohort_deletion_run_failure_total",
+    "Times cohort deletion run failed",
+)
+
+
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
     from posthog.models import ExportedAsset
@@ -461,7 +472,6 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-    from posthog.pagerduty.pd import create_incident
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -469,13 +479,13 @@ def clickhouse_clear_removed_data() -> None:
         cohort_runner.mark_deletions_done()
     except Exception as e:
         logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
-        create_incident("Failed to mark cohort deletions done", "clickhouse_clear_removed_data", severity="error")
+        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
 
     try:
         cohort_runner.run()
     except Exception as e:
         logger.error("Failed to run cohort deletions", error=e, exc_info=True)
-        create_incident("Failed to run cohort deletions", "clickhouse_clear_removed_data", severity="error")
+        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
 
 
 @shared_task(ignore_result=True)

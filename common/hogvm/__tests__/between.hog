@@ -1,0 +1,12 @@
+print(5 between 1 and 10) // 1
+print(1 between 1 and 10) // 1
+print(10 between 1 and 10) // 1
+print(0 between 1 and 10) // 0
+print(11 between 1 and 10) // 0
+print(5 not between 1 and 10) // 0
+print(0 not between 1 and 10) // 1
+print(11 not between 1 and 10) // 1
+print(10 not between 1 and 10) // 0
+print(null between 1 and 10) // 0
+print(5 between null and 10) // 0
+print(5 between 1 and null) // 0

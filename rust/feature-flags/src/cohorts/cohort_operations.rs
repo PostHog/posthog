@@ -11,12 +11,13 @@ use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::PostgresReader;
+use common_types::ProjectId;
 
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
         client: PostgresReader,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
             .await
@@ -435,7 +436,7 @@ mod tests {
             .await
             .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id())
             .await
             .expect("Failed to list cohorts");
 
@@ -510,7 +511,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id)
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id())
             .await
             .expect("Failed to fetch cohorts");
 

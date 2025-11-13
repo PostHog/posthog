@@ -9,6 +9,7 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
+from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.project_inline import ProjectInline
@@ -44,7 +45,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_platform",
         "members_can_invite",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline]
+    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline, OrganizationDomainInline]
     readonly_fields = [
         "id",
         "created_at",

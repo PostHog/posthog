@@ -282,7 +282,10 @@ mod tests {
                 // serialized RawEvent
                 data: payload.to_string(),
                 sent_at: Some(now_offset_datetime),
+                event: "test_event".to_string(),
+                timestamp: chrono::Utc::now(),
                 is_cookieless_mode: false,
+                historical_migration: false,
             }),
             timestamp: std::time::SystemTime::now(),
             headers: Some(headers),

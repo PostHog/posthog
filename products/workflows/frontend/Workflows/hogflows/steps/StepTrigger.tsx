@@ -2,7 +2,7 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconBolt, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
+import { IconBolt, IconButton, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -10,6 +10,7 @@ import {
     LemonLabel,
     LemonSelect,
     LemonTag,
+    Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
 
@@ -38,7 +39,7 @@ export function StepTriggerConfiguration({
     const validationResult = actionValidationErrorsById[node.id]
 
     return (
-        <>
+        <div className="flex flex-col items-start w-full gap-2">
             <span className="flex gap-1">
                 <IconBolt className="text-lg" />
                 <span className="text-md font-semibold">Trigger type</span>
@@ -74,6 +75,19 @@ export function StepTriggerConfiguration({
                             ),
                         },
                         {
+                            label: 'Manual',
+                            value: 'manual',
+                            icon: <IconButton />,
+                            labelInMenu: (
+                                <div className="flex flex-col my-1">
+                                    <div className="font-semibold">Manual</div>
+                                    <p className="text-xs text-muted">
+                                        Trigger your workflow manually... with a button!
+                                    </p>
+                                </div>
+                            ),
+                        },
+                        {
                             label: 'Tracking pixel',
                             value: 'tracking_pixel',
                             icon: <IconAdsClick />,
@@ -98,13 +112,32 @@ export function StepTriggerConfiguration({
                                     template_id: 'template-source-webhook',
                                     inputs: {},
                                 })
-                              : value === 'tracking_pixel'
+                              : value === 'manual'
                                 ? setWorkflowActionConfig(node.id, {
-                                      type: 'tracking_pixel',
-                                      template_id: 'template-source-webhook-pixel',
-                                      inputs: {},
+                                      type: 'manual',
+                                      template_id: 'template-source-webhook',
+                                      inputs: {
+                                          event: {
+                                              order: 0,
+                                              value: '$workflow_triggered',
+                                          },
+                                          distinct_id: {
+                                              order: 1,
+                                              value: '{request.body.user_id}',
+                                          },
+                                          method: {
+                                              order: 2,
+                                              value: 'POST',
+                                          },
+                                      },
                                   })
-                                : null
+                                : value === 'tracking_pixel'
+                                  ? setWorkflowActionConfig(node.id, {
+                                        type: 'tracking_pixel',
+                                        template_id: 'template-source-webhook-pixel',
+                                        inputs: {},
+                                    })
+                                  : null
                     }}
                 />
             </LemonField.Pure>
@@ -112,10 +145,12 @@ export function StepTriggerConfiguration({
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
+            ) : node.data.config.type === 'manual' ? (
+                <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
-        </>
+        </div>
     )
 }
 
@@ -213,6 +248,21 @@ function StepTriggerConfigurationWebhook({
                 }
                 errors={validationResult?.errors}
             />
+        </>
+    )
+}
+
+function StepTriggerConfigurationManual(): JSX.Element {
+    return (
+        <>
+            <div className="flex gap-1">
+                <p className="mb-0">
+                    This workflow can be triggered manually via{' '}
+                    <Tooltip title="It's up there on the top right ⤴︎">
+                        <span className="font-bold cursor-pointer">the trigger button on the top</span>
+                    </Tooltip>
+                </p>
+            </div>
         </>
     )
 }
@@ -351,10 +401,15 @@ function FrequencySection(): JSX.Element {
                         options={FREQUENCY_OPTIONS}
                         value={workflow.trigger_masking?.hash ?? null}
                         onChange={(val) =>
-                            setWorkflowValue('trigger_masking', {
-                                hash: val,
-                                ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
-                            })
+                            setWorkflowValue(
+                                'trigger_masking',
+                                val
+                                    ? {
+                                          hash: val,
+                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                      }
+                                    : null
+                            )
                         }
                     />
                     {workflow.trigger_masking?.hash ? (

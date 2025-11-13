@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -63,9 +64,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         ]
 
         if not metric_queries:
-            return ast.SelectQuery.empty(
-                columns=["id", "name", "format", "display", "interval", "value", "previous", "change_from_previous_pct"]
-            )
+            columns = ["id", "name", "format", "display", "interval", "value", "previous", "change_from_previous_pct"]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 

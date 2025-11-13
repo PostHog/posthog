@@ -142,9 +142,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'ProjectHomepage',
             label: 'Home',
             icon: <IconHome />,
-            to: urls.projectHomepage(),
+            to: urls.projectRoot(),
             onClick: () => {
-                handleStaticNavbarItemClick(urls.projectHomepage(), true)
+                handleStaticNavbarItemClick(urls.projectRoot(), true)
             },
             tooltip: 'Home',
         },

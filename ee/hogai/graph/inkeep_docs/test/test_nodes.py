@@ -67,6 +67,9 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
+            # Tool call message should have the continuation prompt
+            first_message = cast(AssistantToolCallMessage, messages[0])
+            self.assertIn("Continue with the user's data request", first_message.content)
             second_message = cast(AssistantMessage, messages[1])
             self.assertEqual(second_message.content, response_with_continuation)
 
@@ -90,26 +93,6 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[1], LangchainHumanMessage)
         self.assertIsInstance(messages[2], LangchainAIMessage)
         self.assertIsInstance(messages[3], LangchainHumanMessage)
-
-    def test_router_with_data_continuation(self):
-        node = InkeepDocsNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Explain PostHog trends, and show me an example trends insight"),
-                AssistantMessage(content=f"Here's the documentation: XYZ.\n{INKEEP_DATA_CONTINUATION_PHRASE}"),
-            ]
-        )
-        self.assertEqual(node.router(state), "root")  # Going back to root, so that the agent can continue with the task
-
-    def test_router_without_data_continuation(self):
-        node = InkeepDocsNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="How do I use feature flags?"),
-                AssistantMessage(content="Here's how to use feature flags..."),
-            ]
-        )
-        self.assertEqual(node.router(state), "end")  # Ending
 
     async def test_tool_call_id_handling(self):
         """Test that tool_call_id is properly handled in both input and output states."""

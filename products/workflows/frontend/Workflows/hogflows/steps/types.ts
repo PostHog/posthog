@@ -28,6 +28,13 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: ActionFiltersSchema.optional().nullable(),
+    output_variable: z // The Hogflow-level variable to store the output of this action into
+        .object({
+            key: z.string(),
+            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+        })
+        .optional()
+        .nullable(),
 }
 
 const CyclotronInputSchema = z.object({
@@ -40,6 +47,44 @@ const CyclotronInputSchema = z.object({
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
+export const CyclotronJobInputSchemaTypeSchema = z.object({
+    type: z.enum([
+        'string',
+        'number',
+        'boolean',
+        'dictionary',
+        'choice',
+        'json',
+        'integration',
+        'integration_field',
+        'email',
+        'native_email',
+    ]),
+    key: z.string(),
+    label: z.string(),
+    choices: z
+        .array(
+            z.object({
+                value: z.string(),
+                label: z.string(),
+            })
+        )
+        .optional(),
+    required: z.boolean().optional(),
+    default: z.any().optional(),
+    secret: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    templating: z.boolean().optional(),
+    description: z.string().optional(),
+    integration: z.string().optional(),
+    integration_key: z.string().optional(),
+    integration_field: z.string().optional(),
+    requires_field: z.string().optional(),
+    requiredScopes: z.string().optional(),
+})
+
+export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
@@ -51,7 +96,12 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
-
+    z.object({
+        type: z.literal('manual'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
     z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
@@ -186,7 +236,7 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' } }> => {
+): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'manual' | 'tracking_pixel' } }> => {
     if (action.type !== 'trigger') {
         return false
     }

@@ -138,6 +138,7 @@ When unsure, use this tool. Proactive task management shows attentiveness and he
 """.strip()
 
 
+# Has its unique schema that doesn't match the Deep Research schema
 class TodoItem(BaseModel):
     content: str = Field(..., min_length=1)
     status: Literal["pending", "in_progress", "completed"]
@@ -151,9 +152,7 @@ class TodoWriteToolArgs(BaseModel):
 class TodoWriteTool(MaxTool):
     name: Literal["todo_write"] = "todo_write"
     description: str = TODO_WRITE_PROMPT
-    thinking_message: str = "Building and maintaining a structured to-do list"
     args_schema: type[BaseModel] = TodoWriteToolArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
         return (

@@ -6,13 +6,13 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+from ee.hogai.utils.helpers import find_last_message_of_type
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, BaseStateWithTasks, TaskArtifact, TaskResult
 
 logger = structlog.get_logger(__name__)
 
@@ -23,11 +23,11 @@ logger = structlog.get_logger(__name__)
 # 3. A callable that returns a coroutine to execute the actual task logic
 # Note: The callable can return None to indicate a task that produces no result
 TaskExecutionCoroutineCallable = Callable[[dict], Coroutine[Any, Any, TaskResult | None]]
-TaskExecutionInputTuple = tuple[TaskExecutionItem, list[TaskArtifact], TaskExecutionCoroutineCallable]
+TaskExecutionInputTuple = tuple[AssistantToolCall, list[TaskArtifact], TaskExecutionCoroutineCallable]
 
 
 # Type variables for generic state types
-StateT = TypeVar("StateT", bound=BaseStateWithTasks)
+StateT = TypeVar("StateT", bound=BaseState)
 PartialStateT = TypeVar("PartialStateT", bound=BaseStateWithTasks)
 
 
@@ -58,43 +58,34 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
         _send_task_execution_message: Flag to control message type (true for multiple tasks)
     """
 
-    _task_execution_message_id: str
     _reasoning_callback: Callable[[str, str | None], Coroutine[Any, Any, None]]
-    _send_task_execution_message: bool
-
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user)
-        # Generate a unique ID for this execution session
-        self._task_execution_message_id = str(uuid.uuid4())
 
     async def arun(self, state: StateT, config: RunnableConfig) -> PartialStateT:
-        """
-        Main entry point for task execution. Must be implemented by subclasses.
-        Must call self._arun.
+        if not isinstance(state, BaseStateWithMessages):
+            # make mypy happy
+            raise ValueError("State is not a BaseStateWithMessages")
+        messages = state.messages
+        last_message = find_last_message_of_type(messages, AssistantMessage)
+        if not last_message or not last_message.tool_calls:
+            raise ValueError("No last message found or no tool calls found")
+        tool_calls = last_message.tool_calls
+        self.dispatcher.message(last_message)
+        return await self.aexecute(tool_calls, config)
 
-        Args:
-            state: The current state containing task definitions
-            config: Langchain configuration for execution
-
-        Returns:
-            Partial state with execution results
-        """
-        return await self._arun(state, config)
-
-    async def _aget_input_tuples(self, state: StateT) -> list[TaskExecutionInputTuple]:
+    async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         """
         Convert the current state into executable task tuples.
         Must be implemented by subclasses.
 
         Args:
-            state: The current state containing task definitions
+            tool_calls: The current tool calls containing task definitions
 
         Returns:
             List of tuples containing (task, artifacts, coroutine) for each task to execute
         """
         raise NotImplementedError
 
-    async def _aget_final_state(self, tasks: list[TaskExecutionItem], task_results: list[TaskResult]) -> PartialStateT:
+    async def _aget_final_state(self, task_results: list[TaskResult]) -> PartialStateT:
         """
         Aggregate task results into the final state output.
         Must be implemented by subclasses.
@@ -106,103 +97,53 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
         Returns:
             Partial state containing aggregated results and messages
         """
-        await self._asend_task_execution_message(tasks)
         # Cast to PartialStateT since we know subclasses will use compatible types
         return cast(
             PartialStateT,
             BaseStateWithTasks(
                 task_results=task_results,
-                tasks=tasks,
             ),
         )
 
-    async def _arun(self, state: StateT, config: RunnableConfig) -> PartialStateT:
+    async def aexecute(self, tool_calls: list[AssistantToolCall], config: RunnableConfig) -> PartialStateT:
         """
         Core execution logic that orchestrates parallel task execution.
 
         This method:
-        1. Retrieves tasks to execute from the state
+        1. Retrieves tasks to execute from the tool calls
         2. Sets up progress callbacks based on task count
         3. Executes tasks in parallel
         4. Updates task statuses in real-time
         5. Aggregates results into final state
 
         Args:
-            state: The current state containing task definitions
+            tool_calls: The current tool calls containing task definitions
             config: Langchain configuration for execution
 
         Returns:
             Partial state with all task results and messages
         """
         # Get the tasks and their execution coroutines
-        input_tuples = await self._aget_input_tuples(state)
+        input_tuples = await self._aget_input_tuples(tool_calls)
         if len(input_tuples) == 0:
             raise ValueError("No input tuples provided")
 
-        tasks = [task for task, _, _ in input_tuples]
-
-        # Set up the appropriate callback mechanism
-        self.set_reasoning_callback(tasks)
-        # Use TaskExecutionMessage for multiple tasks, ReasoningMessage for single task
-        self._send_task_execution_message = len(input_tuples) > 1
-
-        # Mark all tasks as in-progress and send initial status
-        for task in tasks:
-            task.status = TaskExecutionStatus.IN_PROGRESS
-        await self._asend_task_execution_message(tasks)
-
         # Execute tasks in parallel and collect results as they complete
         task_results: list[TaskResult] = []
+        messages = []
         async for task_id, task_result in self._aexecute_tasks(config, input_tuples):
             task_results.append(task_result)
 
-            # Update the status of the completed task
-            for task in tasks:
-                if task.id != task_id:
-                    continue
-                task.status = task_result.status
-                if task_result.artifacts:
-                    task.artifact_ids = [artifact.task_id for artifact in task_result.artifacts]
-                # Send status update after each task completes
-                await self._asend_task_execution_message(tasks)
-                break
-
-        # Send final status message
-        await self._asend_task_execution_message(tasks)
+            message = AssistantToolCallMessage(
+                content=task_result.result,
+                id=str(uuid.uuid4()),
+                tool_call_id=task_id,
+            )
+            messages.append(message)
+            self.dispatcher.message(message)
 
         # Aggregate all results into the final state
-        return await self._aget_final_state(tasks, task_results)
-
-    def set_reasoning_callback(self, tasks: list[TaskExecutionItem]):
-        """
-        Set up a callback function for progress updates during task execution.
-
-        The callback behavior depends on the number of tasks:
-        - Single task: Progress is sent as ReasoningMessage
-        - Multiple tasks: Progress updates the task's progress_text field in TaskExecutionMessage
-
-        Args:
-            tasks: List of tasks that will be executed
-        """
-
-        async def callback(task_id: str, progress_text: str | None):
-            # Skip if there's no progress text for single-task execution
-            if not self._send_task_execution_message and progress_text is None:
-                return
-
-            # Find the task and update its progress
-            for task in tasks:
-                if task.id == task_id:
-                    if self._send_task_execution_message:
-                        # For multiple tasks, update the task's progress text
-                        task.progress_text = progress_text
-                        await self._asend_task_execution_message(tasks)
-                    elif progress_text:
-                        # For single task, send detailed reasoning message
-                        await self._write_reasoning(content=progress_text)
-                    break
-
-        self._reasoning_callback = callback
+        return await self._aget_final_state(task_results)
 
     async def _aexecute_tasks(
         self, config: RunnableConfig, input_tuples: list[TaskExecutionInputTuple]
@@ -280,28 +221,3 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
                 if not async_task.done():
                     async_task.cancel()
             raise
-
-    async def _asend_task_execution_message(self, tasks: list[TaskExecutionItem]) -> None:
-        """
-        Send a task execution message to update the UI with current task statuses.
-
-        This is only sent when executing multiple tasks (not for single task execution).
-        The message contains all tasks with their current status and progress.
-
-        Args:
-            tasks: List of tasks with their current status and progress
-        """
-        # Only send task execution messages for multiple-task scenarios
-        if not self._send_task_execution_message:
-            return
-
-        # Create a message containing all tasks with their current status
-        # Use copy() to avoid mutations affecting the message
-        task_execution_message = TaskExecutionMessage(id=self._task_execution_message_id, tasks=tasks.copy())
-        await self._write_message(task_execution_message)
-
-    async def _failed_result(self, task: TaskExecutionItem) -> TaskResult:
-        await self._reasoning_callback(task.id, None)
-        return TaskResult(
-            id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
-        )

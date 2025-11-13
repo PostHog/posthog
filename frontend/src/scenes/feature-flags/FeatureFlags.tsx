@@ -25,6 +25,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,7 +33,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -200,12 +200,28 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    void deleteWithUndo({
-                                        endpoint: `projects/${currentProjectId}/feature_flags`,
-                                        object: { name: featureFlag.key, id: featureFlag.id },
-                                        callback: loadFeatureFlags,
-                                    }).catch((e) => {
-                                        lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                    LemonDialog.open({
+                                        title: 'Delete feature flag?',
+                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => {
+                                                void deleteWithUndo({
+                                                    endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                    object: { name: featureFlag.key, id: featureFlag.id },
+                                                    callback: loadFeatureFlags,
+                                                }).catch((e) => {
+                                                    lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                                })
+                                            },
+                                            size: 'small',
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                            type: 'tertiary',
+                                            size: 'small',
+                                        },
                                     })
                                 }}
                                 disabledReason={
@@ -476,7 +492,7 @@ export function OverViewTab({
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
-    const { setActiveTab } = useActions(featureFlagsLogic)
+    const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
@@ -489,18 +505,43 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            to={urls.featureFlag('new')}
-                            data-attr="new-feature-flag"
-                            size="small"
+                        <MaxTool
+                            identifier="create_feature_flag"
+                            initialMaxPrompt="Create a feature flag for "
+                            suggestions={[
+                                'Create a flag to gradually roll out our new checkout experience',
+                                'Create a dark mode toggle that starts at 10% rollout',
+                                'Create an experimental flag for testing our new recommendation algorithm',
+                                'Create a flag to enable advanced analytics for beta testers',
+                            ]}
+                            callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
+                                if (toolOutput?.error || !toolOutput?.flag_id) {
+                                    lemonToast.error(
+                                        `Failed to create feature flag: ${toolOutput?.error || 'Unknown error'}`
+                                    )
+                                    return
+                                }
+
+                                // Refresh feature flags list to show new flag, then redirect to it
+                                loadFeatureFlags()
+                                router.actions.push(urls.featureFlag(toolOutput.flag_id))
+                            }}
+                            position="bottom-right"
+                            active={true}
+                            context={{}}
                         >
-                            New feature flag
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                to={urls.featureFlag('new')}
+                                data-attr="new-feature-flag"
+                                size="small"
+                            >
+                                <span className="pr-4">New feature flag</span>
+                            </LemonButton>
+                        </MaxTool>
                     </AccessControlAction>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}

@@ -42,6 +42,13 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Decompression Worker',
+            entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
+            ...common,
+        },
+        {
             name: 'Exporter',
             globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],

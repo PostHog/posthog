@@ -63,4 +63,11 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.errorTracking(),
         scene: Scene.ErrorTracking,
     },
+    [ProductKey.LLM_ANALYTICS]: {
+        name: 'LLM Analytics',
+        icon: 'IconLlmAnalytics',
+        iconColor: 'rgb(182 42 217)',
+        url: urls.llmAnalyticsDashboard(),
+        scene: Scene.LLMAnalytics,
+    },
 }

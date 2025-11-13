@@ -443,13 +443,25 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "30/minute"
+    rate = "500/minute"
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
     # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
     # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
+    rate = "10000/hour"
+
+
+class LLMProxyBurstRateThrottle(UserRateThrottle):
+    scope = "llm_proxy_burst"
+    rate = "30/minute"
+
+
+class LLMProxySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "llm_proxy_sustained"
     rate = "500/hour"
 
 
@@ -542,9 +554,13 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
-        if not hash:
-            return self.get_ident(request)
-        return f"throttle_wizard_query_{hash}"
+        authorization_header = request.headers.get("Authorization")
+
+        value = (hash or authorization_header or "").strip() or self.get_ident(request)
+
+        sha_hash = hashlib.sha256(value.encode()).hexdigest()
+
+        return f"throttle_wizard_query_{sha_hash}"
 
 
 class BreakGlassBurstThrottle(UserOrEmailRateThrottle):

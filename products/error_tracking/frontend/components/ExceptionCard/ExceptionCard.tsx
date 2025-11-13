@@ -30,7 +30,8 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
 }
 
 export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
-    const { setLoading } = useActions(exceptionCardLogic)
+    const cardLogicProps = { issueId: issue?.id ?? 'no-issue' }
+    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
     useEffect(() => {
         setLoading(eventLoading)
@@ -42,14 +43,16 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
     } as ErrorPropertiesLogicProps
 
     return (
-        <BindLogic logic={errorPropertiesLogic} props={props}>
-            <BindLogic logic={releasePreviewLogic} props={props}>
-                <ExceptionCardContent
-                    issue={issue}
-                    timestamp={event?.timestamp}
-                    issueLoading={issueLoading}
-                    label={label}
-                />
+        <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
+            <BindLogic logic={errorPropertiesLogic} props={props}>
+                <BindLogic logic={releasePreviewLogic} props={props}>
+                    <ExceptionCardContent
+                        issue={issue}
+                        timestamp={event?.timestamp}
+                        issueLoading={issueLoading}
+                        label={label}
+                    />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )

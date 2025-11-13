@@ -147,7 +147,8 @@ export const loginLogic = kea<loginLogicType>([
                         const emailAddress = detail?.email || email
                         actions.setGeneralError(
                             'email_verification_sent',
-                            `Check your email! We've sent a verification link to ${emailAddress}. Click the link to complete your login.`
+                            `For your security, we've sent a verification link to ${emailAddress}. Please check your inbox and click the link to complete
+  your login.`
                         )
                         throw e
                     }

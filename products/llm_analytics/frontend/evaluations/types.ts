@@ -5,7 +5,12 @@ export interface EvaluationConfig {
     name: string
     description?: string
     enabled: boolean
-    prompt: string
+    evaluation_type: 'llm_judge'
+    evaluation_config: {
+        prompt: string
+    }
+    output_type: 'boolean'
+    output_config: Record<string, never>
     conditions: EvaluationConditionSet[]
     total_runs: number
     last_run_at?: string

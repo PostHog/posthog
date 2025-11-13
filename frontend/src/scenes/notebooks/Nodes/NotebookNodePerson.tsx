@@ -115,7 +115,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                         <div className="flex gap-2">
                             <PersonIcon person={person} size="xl" />
                             <div>
-                                <div className="font-semibold">{asDisplay(person)}</div>
+                                <div className="font-semibold ph-no-capture">{asDisplay(person)}</div>
                                 <div>{propertyIcons}</div>
                             </div>
                         </div>

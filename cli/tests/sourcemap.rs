@@ -62,9 +62,6 @@ fn test_search_with_prefix() {
 
 #[test]
 fn test_ignore() {
-    let pairs = read_pairs(&get_case_path(""), &Vec::new(), &None).expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 6);
-
     let pairs = read_pairs(&get_case_path(""), &["**/search/**".to_string()], &None)
         .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 3);
@@ -165,4 +162,39 @@ fn test_reinject_with_new_release() {
         first_pair.sourcemap.get_release_id().unwrap(),
         release_id.clone()
     );
+}
+
+#[test]
+fn test_upload_set() {
+    let case_path = get_case_path("search");
+    let pairs = read_pairs(&case_path, &Vec::new(), &None).expect("Failed to read pairs");
+
+    // Find pairs where source and sourcemap have different chunk IDs
+    let pair_with_different_ids = pairs
+        .into_iter()
+        .find(|p| {
+            let source_chunk_id = p.source.get_chunk_id();
+            let sourcemap_chunk_id = p.sourcemap.get_chunk_id();
+
+            source_chunk_id.is_some()
+                && sourcemap_chunk_id.is_some()
+                && source_chunk_id != sourcemap_chunk_id
+        })
+        .expect("Should find at least one pair with different chunk IDs");
+
+    let source_chunk_id = pair_with_different_ids.source.get_chunk_id().unwrap();
+    let sourcemap_chunk_id = pair_with_different_ids.sourcemap.get_chunk_id().unwrap();
+
+    // Verify they are different
+    assert_ne!(source_chunk_id, sourcemap_chunk_id);
+
+    // Convert to UploadSet
+    use posthog_cli::api::symbol_sets::SymbolSetUpload;
+    let upload_set: SymbolSetUpload = pair_with_different_ids
+        .try_into()
+        .expect("Failed to convert to SymbolSetUpload");
+
+    // Verify that the upload set uses the source's chunk ID, not the sourcemap's
+    assert_eq!(upload_set.chunk_id, source_chunk_id);
+    assert_ne!(upload_set.chunk_id, sourcemap_chunk_id);
 }

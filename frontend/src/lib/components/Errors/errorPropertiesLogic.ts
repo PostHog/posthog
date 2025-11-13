@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 
 import {
     ErrorEventId,
@@ -18,6 +18,7 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -31,6 +32,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
 
     connect(() => ({
         values: [preflightLogic, ['isCloudOrDev']],
+        actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 
     selectors({
@@ -83,5 +85,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+    }),
+
+    afterMount(({ values, actions }) => {
+        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
+        actions.loadFromRawIds(rawIds)
     }),
 ])

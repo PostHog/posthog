@@ -225,11 +225,12 @@ const generateCanonicalProviders = (models: ModelRow[]): void => {
     const providers = allProviders.includes('default') ? ['default', ...otherProviders] : otherProviders
 
     // Generate TypeScript file content
-    const timestamp = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const timestamp = `${now.toISOString().split('.')[0].replace('T', ' ')} UTC`
     const typeUnion = providers.map((p) => `    | '${p}'`).join('\n')
 
     const fileContent = `// Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: ${timestamp}
+// Generated at: ${timestamp}
 
 export type CanonicalProvider =
 ${typeUnion}

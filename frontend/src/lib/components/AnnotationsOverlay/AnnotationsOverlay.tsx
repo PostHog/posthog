@@ -30,6 +30,7 @@ import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
+    second: 'MMMM D, YYYY H:mm:ss',
     minute: 'MMMM D, YYYY H:mm:00',
     hour: 'MMMM D, YYYY H:00',
     day: 'MMMM D, YYYY',

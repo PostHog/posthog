@@ -7,6 +7,7 @@ import { InsightLogicProps } from '~/types'
 
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
+import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
 import { IssuesFilters } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesFilters'
@@ -36,6 +37,7 @@ const ContextualFilters = ({ children, nodeId }: PropsWithChildren<{ nodeId: str
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
+    const { personId, groupKey, groupTypeIndex } = attributes
     const { expanded } = useValues(notebookNodeLogic)
 
     if (!expanded) {
@@ -44,12 +46,20 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
 
     return (
         <ContextualFilters nodeId={attributes.nodeId}>
-            <IssuesQuery personId={attributes.personId} />
+            <ErrorTrackingSetupPrompt className="border-none">
+                <IssuesQuery personId={personId} groupKey={groupKey} groupTypeIndex={groupTypeIndex} />
+            </ErrorTrackingSetupPrompt>
         </ContextualFilters>
     )
 }
 
-const IssuesQuery = ({ personId }: { personId: string }): JSX.Element => {
+interface IssuesQueryProps {
+    personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
+}
+
+const IssuesQuery = ({ personId, groupKey, groupTypeIndex }: IssuesQueryProps): JSX.Element => {
     const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic)
     const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic)
 
@@ -65,9 +75,11 @@ const IssuesQuery = ({ personId }: { personId: string }): JSX.Element => {
         columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
         orderDirection,
         personId,
+        groupKey,
+        groupTypeIndex,
     })
     const insightProps: InsightLogicProps = {
-        dashboardItemId: `new-NotebookNodeIssues-${personId}`,
+        dashboardItemId: `new-NotebookNodeIssues-${personId || groupKey}`,
     }
 
     return (
@@ -91,7 +103,9 @@ export const Settings = ({
 }
 
 type NotebookNodeIssuesAttributes = {
-    personId: string
+    personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
 }
 
 export const NotebookNodeIssues = createPostHogWidgetNode<NotebookNodeIssuesAttributes>({
@@ -104,5 +118,7 @@ export const NotebookNodeIssues = createPostHogWidgetNode<NotebookNodeIssuesAttr
     startExpanded: true,
     attributes: {
         personId: {},
+        groupKey: {},
+        groupTypeIndex: {},
     },
 })

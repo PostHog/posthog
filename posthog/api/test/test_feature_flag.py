@@ -44,6 +44,7 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.db_context_capturing import capture_db_queries
@@ -2473,6 +2474,127 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(sorted_results[1]["created_by"], None)
             self.assertEqual(sorted_results[1]["key"], "flag_role_access")
 
+    def test_getting_flags_with_surveys_is_not_nplus1(self) -> None:
+        """
+        Test that loading feature flags with linked surveys doesn't cause N+1 queries.
+
+        Reproduces the conditions from Zendesk #40875 where a customer
+        had 59 feature flags, all with linked surveys, causing 10+ second page loads.
+
+        The issue was that SurveyAPISerializer accesses related objects
+        (linked_flag.key, targeting_flag.key, internal_targeting_flag.key,
+        and survey.actions.all()) which caused N+1 query problems without
+        proper prefetching.
+        """
+        # Create 5 flags with linked surveys
+        for i in range(5):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                name=f"Flag {i}",
+                filters={"groups": [{"rollout_percentage": 100}]},
+            )
+            Survey.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=f"Survey {i}",
+                type="popover",
+                linked_flag=flag,
+                questions=[{"type": "open", "question": f"What do you think about flag {i}?"}],
+            )
+
+        # Capture query count with 5 flags
+        # With the fix, this should be ~18-20 queries
+        # Without the fix, this was ~24 queries (base queries + N+1 for surveys)
+        with self.assertNumQueries(FuzzyInt(17, 22)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 5)
+
+        # Add 25 more flags with surveys (total 30)
+        for i in range(5, 30):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                name=f"Flag {i}",
+                filters={"groups": [{"rollout_percentage": 100}]},
+            )
+            Survey.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=f"Survey {i}",
+                type="popover",
+                linked_flag=flag,
+                questions=[{"type": "open", "question": f"What do you think about flag {i}?"}],
+            )
+
+        # Query count should remain similar (not scale linearly with flag count)
+        # With the fix: Should stay at ~18-22 queries (constant, regardless of flag count!)
+        # Without the fix: This was ~48 queries (18 base + 30 N+1 queries)
+        # The fix reduced 48 queries down to ~20 queries - a 60% reduction!
+        with self.assertNumQueries(FuzzyInt(17, 24)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 30)
+
+    def test_getting_flags_with_surveys_and_targeting(self) -> None:
+        """
+        Test edge case: surveys with targeting flags and internal targeting flags.
+
+        This tests the case where surveys have additional flag relationships
+        that also need to be prefetched.
+        """
+        # Create a main flag
+        main_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="main_flag",
+            name="Main Flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        # Create targeting flags
+        targeting_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="targeting_flag",
+            name="Targeting Flag",
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="internal_targeting_flag",
+            name="Internal Targeting Flag",
+            filters={"groups": [{"rollout_percentage": 25}]},
+        )
+
+        # Create survey with all flag relationships
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Complex Survey",
+            type="popover",
+            linked_flag=main_flag,
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            questions=[{"type": "open", "question": "Complex survey question?"}],
+        )
+
+        # Should not cause extra queries for the targeting flags
+        with self.assertNumQueries(FuzzyInt(15, 20)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Should include main_flag but not targeting flags (they're filtered out)
+            results = response.json()["results"]
+            result_keys = [r["key"] for r in results]
+            self.assertIn("main_flag", result_keys)
+            # targeting_flag and internal_targeting_flag should be excluded
+            # (they're survey-specific and filtered out from the main list)
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -4753,6 +4875,57 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_validation_empty_groups(self):
+        """Test that creating a flag with empty groups raises validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Empty groups flag", "key": "empty-groups-flag", "filters": {"groups": []}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Feature flags must have at least one condition set (group).",
+                "attr": "filters",
+            },
+        )
+
+    def test_validation_groups_with_empty_properties_allowed(self):
+        """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Valid flag with empty properties",
+                "key": "valid-empty-properties",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_validation_empty_groups_allowed_on_update(self):
+        """Test that updating an existing flag with empty groups is allowed (for scheduled changes)"""
+        # First create a valid flag
+        flag = FeatureFlag.objects.create(
+            name="Test flag",
+            key="test-flag-update",
+            team=self.team,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Now try to update it with empty groups (this should be allowed)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": []}},
+            format="json",
+        )
+        # Should succeed since it's an update, not creation
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def _create_flag_with_properties(
         self,

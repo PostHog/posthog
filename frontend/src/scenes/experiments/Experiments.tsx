@@ -26,7 +26,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     AccessControlLevel,
@@ -446,7 +445,6 @@ export function Experiments(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}

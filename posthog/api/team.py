@@ -16,7 +16,7 @@ from posthog.schema import AttributionMode
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -77,11 +77,14 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     Has all parameters needed for a successful decide request.
     """
 
+    organization_id = serializers.UUIDField(read_only=True)
+
     class Meta:
         model = Team
         fields = [
             "id",
             "project_id",
+            "organization_id",
             "uuid",
             "name",
             "api_token",
@@ -173,6 +176,7 @@ TEAM_CONFIG_FIELDS = (
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
+    "receive_org_level_activity_logs",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -356,12 +360,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_managed_viewsets(self, obj):
-        from posthog.warehouse.models import DataWarehouseManagedViewSet
+        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
 
-        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSet.Kind.choices}
+        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -703,11 +708,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from posthog.warehouse.models import DataWarehouseManagedViewSet
+            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 
@@ -806,6 +812,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(project__organization_id__in=scoped_organizations)
             if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
+                queryset = queryset.filter(id__in=scoped_teams)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
                 queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 

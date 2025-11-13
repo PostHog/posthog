@@ -30,9 +30,14 @@ import {
     personFlushOperationsCounter,
     personMethodCallsPerBatchHistogram,
     personOptimisticUpdateConflictsPerBatchCounter,
+    personProfileBatchIgnoredPropertiesCounter,
+    personProfileBatchUpdateOutcomeCounter,
+    personPropertyKeyUpdateCounter,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { eventToPersonProperties } from './person-property-utils'
+import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
@@ -155,12 +160,104 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
+    /**
+     * Check if a person update should trigger a database write.
+     * Returns the outcome: 'changed' (should write), 'ignored' (filtered properties only), or 'no_change' (no properties changed)
+     *
+     * Also tracks metrics for ignored properties at the batch level.
+     */
+    private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
+        const hasNonPropertyChanges =
+            update.is_identified !== update.original_is_identified ||
+            !update.created_at.equals(update.original_created_at)
+
+        if (hasNonPropertyChanges) {
+            return 'changed'
+        }
+
+        const hasPropertyChanges =
+            Object.keys(update.properties_to_set).length > 0 || update.properties_to_unset.length > 0
+
+        if (!hasPropertyChanges) {
+            return 'no_change'
+        }
+
+        // If there are properties to unset, always write
+        if (update.properties_to_unset.length > 0) {
+            return 'changed'
+        }
+
+        // Check if there are any properties_to_set that should trigger an update
+        const ignoredProperties: string[] = []
+        const hasPropertyTriggeringUpdate = Object.keys(update.properties_to_set).some((key) => {
+            // Check if this is a new property (not in current properties)
+            const isNewProperty = !(key in update.properties)
+            const valueChanged = update.properties[key] !== update.properties_to_set[key]
+
+            if (!valueChanged) {
+                return false
+            }
+
+            if (isNewProperty) {
+                return true
+            }
+
+            const isFiltered = eventToPersonProperties.has(key) || key.startsWith('$geoip_')
+            if (isFiltered) {
+                ignoredProperties.push(key)
+                return false
+            }
+            return true
+        })
+
+        if (!hasPropertyTriggeringUpdate) {
+            // Only track as ignored if ALL properties are filtered
+            ignoredProperties.forEach((property) => {
+                personProfileBatchIgnoredPropertiesCounter.labels({ property }).inc()
+            })
+            return 'ignored'
+        }
+
+        return 'changed'
+    }
+
     async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
+
+        // Track outcomes for all person updates that were actually modified and filter to only those that should write
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
                 const [_, update] = entry
-                return update !== null && update.needs_write
+
+                // Skip null entries - these are deleted persons or cleared cache entries
+                if (!update) {
+                    return false
+                }
+
+                // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
+                // that were cached but never modified (no events tried to update their properties)
+                if (!update.needs_write) {
+                    return false
+                }
+
+                // Determine outcome and track metrics for this person update
+                const outcome = this.getPersonUpdateOutcome(update)
+                personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
+
+                // Track which property keys caused person updates (only for 'changed' outcomes)
+                if (outcome === 'changed') {
+                    const metricsKeys = new Set<string>()
+                    Object.keys(update.properties_to_set).forEach((key) => {
+                        metricsKeys.add(getMetricKey(key))
+                    })
+                    update.properties_to_unset.forEach((key) => {
+                        metricsKeys.add(getMetricKey(key))
+                    })
+                    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
+                }
+
+                // Only write to database if outcome is 'changed'
+                return outcome === 'changed'
             }
         )
 
@@ -732,10 +829,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         if (existingPersonUpdate) {
             // Merge the properties and changesets from both updates
-            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(existingPersonUpdate, {
-                properties: person.properties,
-                is_identified: person.is_identified,
-            } as Partial<InternalPerson>)
+            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(
+                existingPersonUpdate,
+                {
+                    properties: person.properties,
+                    is_identified: person.is_identified,
+                } as Partial<InternalPerson>,
+                false
+            )
 
             // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
             mergedPersonUpdate.properties_to_set = {
@@ -747,6 +848,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             ]
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
+            mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -1168,6 +1270,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
+            original_is_identified: personUpdate.original_is_identified,
+            original_created_at: personUpdate.original_created_at,
         }
 
         return updatedPersonUpdate

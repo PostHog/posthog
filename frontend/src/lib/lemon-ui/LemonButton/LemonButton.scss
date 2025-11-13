@@ -71,11 +71,6 @@
     --lemon-button-icon-opacity: 0.8;
     --lemon-button-color: var(--text-3000);
 
-    // column-gap: 4px;
-    // flex-direction: row;
-    // justify-content: flex-start;
-    position: relative;
-
     // Make sure we override .Link's styles where needed, e.g. padding
     display: flex;
     flex-shrink: 0;
@@ -213,7 +208,6 @@
             --lemon-button-bg-color-active: var(--lemon-button-bg-color);
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
             --lemon-button-color: var(--text-3000-light);
         }
     }

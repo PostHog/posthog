@@ -8,6 +8,7 @@ from django.http import HttpRequest
 
 from rest_framework.request import Request
 
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system_view_log import log_file_system_view, resolve_representation
 
 CacheKey = tuple[int, str, str]
@@ -37,6 +38,9 @@ def log_api_file_system_view(
         return
 
     if not _has_session_cookie(request):
+        return
+
+    if is_impersonated_session(request):
         return
 
     resolved = resolve_representation(obj, team_id=team_id)

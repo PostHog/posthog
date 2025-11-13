@@ -50,7 +50,7 @@ def _nullif_empty_decorator(func):
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     # Toggle this to switch between hybrid (False) and bounce-style (True) conversion query implementations
     # We could've made this a setting, but I think this way will work, but wanted to have them both around for comparing snapshots for a bit
-    USE_BOUNCE_STYLE_CONVERSION_QUERY = True
+    USE_BOUNCE_STYLE_CONVERSION_QUERY = False
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
@@ -470,7 +470,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "conversion_subquery": conversion_subquery,
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(ast.Field(chain=[self.stats_table, "pathname"])),
+                        left=self._get_breakdown_field(),
                         right=ast.Field(chain=["conversions", "breakdown_value"]),
                     ),
                     "filters": self._get_filters(table_name=self.stats_table),

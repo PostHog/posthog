@@ -376,6 +376,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sess_rec_flush_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$session_recording_remote_config": {
+            "label": "Session recording remote config received",
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "used_for_debug": True,
+        },
         "$initialization_time": {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
@@ -739,10 +750,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
-        },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
         },
         "$exception_handled": {
             "label": "Exception was handled",

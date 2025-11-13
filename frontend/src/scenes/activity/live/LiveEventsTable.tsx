@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -9,7 +10,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -17,7 +17,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
@@ -82,6 +81,13 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
+                }}
+            />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
                 tabs={[
@@ -98,15 +104,7 @@ export function LiveEventsTable(): JSX.Element {
                 ]}
                 sceneInset
             />
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.LiveEvents].name}
-                description={sceneConfigurations[Scene.LiveEvents].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
-                }}
-            />
-            <SceneDivider />
-            <div className="mb-4 flex w-full justify-between items-center">
+            <div className="flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
                         <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">

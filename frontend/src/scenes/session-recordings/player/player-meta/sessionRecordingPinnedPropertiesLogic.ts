@@ -12,7 +12,13 @@ export const sessionRecordingPinnedPropertiesLogic = kea<sessionRecordingPinnedP
     }),
     reducers({
         pinnedProperties: [
-            [...HARDCODED_DISPLAY_LABELS, '$referrer', '$geoip_country_code', '$geoip_city_name'] as string[],
+            [
+                ...HARDCODED_DISPLAY_LABELS,
+                '$entry_referring_domain',
+                '$entry_current_url',
+                '$geoip_country_code',
+                '$geoip_city_name',
+            ] as string[],
             { persist: true },
             {
                 setPinnedProperties: (_, { properties }) => properties,

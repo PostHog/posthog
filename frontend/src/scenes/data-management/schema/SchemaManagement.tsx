@@ -9,11 +9,11 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { urls } from '~/scenes/urls'
 
 import { PropertyGroupModal } from './PropertyGroupModal'
+import { PropertyTypeTag } from './PropertyTypeTag'
 import {
     EventDefinitionBasic,
     SchemaPropertyGroup,
@@ -43,7 +43,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
                 </Link>
             </div>
             <div className="w-32">
-                <LemonTag type="muted">{property.property_type}</LemonTag>
+                <PropertyTypeTag propertyName={property.name} schemaPropertyType={property.property_type} />
             </div>
             <div className="w-24">
                 {property.is_required ? (
@@ -137,7 +137,6 @@ export function SchemaManagement(): JSX.Element {
                     forceIcon: <IconApps />,
                 }}
             />
-            <SceneDivider />
             <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2">
                     <LemonInput

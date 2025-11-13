@@ -16,12 +16,13 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
+    SimilarIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
@@ -82,6 +83,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateDescription: (description: string) => ({ description }),
         setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
         setExceptionsCategory: (category: ErrorTrackingIssueSceneExceptionsCategory) => ({ category }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -95,6 +97,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventLoading: true as boolean,
         category: 'exceptions' as ErrorTrackingIssueSceneCategory,
         exceptionsCategory: 'exception' as ErrorTrackingIssueSceneExceptionsCategory,
+        similarIssuesMaxDistance: 0.2 as number,
     }),
 
     reducers(({ values }) => ({
@@ -107,6 +110,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -238,9 +244,19 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         similarIssues: [
-            [],
+            [] as SimilarIssue[],
             {
-                loadSimilarIssues: async () => await api.errorTracking.getSimilarIssues(props.id),
+                loadSimilarIssues: async (refresh: boolean = false) => {
+                    const query = errorTrackingSimilarIssuesQuery({
+                        issueId: props.id,
+                        limit: 10,
+                        maxDistance: values.similarIssuesMaxDistance,
+                    })
+                    const response = await api.query(query, {
+                        refresh: refresh ? 'force_blocking' : 'blocking',
+                    })
+                    return response.results
+                },
             },
         ],
     })),
@@ -355,6 +371,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                 }
+                if (mutationName === 'createIssueCohort') {
+                    actions.loadIssue()
+                }
+            },
+            setSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
             },
         }
     }),

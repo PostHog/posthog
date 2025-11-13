@@ -4,10 +4,11 @@ import asyncio
 import logging
 from typing import Optional
 
+from django.conf import settings
+
 import posthoganalytics
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.constants import TASKS_TASK_QUEUE
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
@@ -31,7 +32,7 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
         workflow_input,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=TASKS_TASK_QUEUE,
+        task_queue=settings.TASKS_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 

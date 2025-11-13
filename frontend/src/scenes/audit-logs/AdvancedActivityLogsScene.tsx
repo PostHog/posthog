@@ -7,7 +7,6 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AvailableFeature } from '~/types'
 
@@ -52,7 +51,6 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                     forceIcon: <IconNotification />,
                 }}
             />
-            <SceneDivider />
             <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
                 <LemonTabs
                     activeKey={activeTab}

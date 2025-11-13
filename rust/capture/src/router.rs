@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::future::ready;
 use std::sync::Arc;
 
@@ -8,6 +7,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use chrono::{DateTime, Duration, Utc};
 use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
@@ -15,6 +15,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::metrics_middleware::track_metrics;
 use crate::test_endpoint;
+use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
 use limiters::token_dropper::TokenDropper;
@@ -46,47 +47,31 @@ pub struct State {
 pub struct HistoricalConfig {
     pub enable_historical_rerouting: bool,
     pub historical_rerouting_threshold_days: i64,
-    pub historical_tokens_keys: HashSet<String>,
 }
 
 impl HistoricalConfig {
     pub fn new(
         enable_historical_rerouting: bool,
         historical_rerouting_threshold_days: i64,
-        tokens_keys: Option<String>,
     ) -> Self {
-        let mut htk = HashSet::new();
-        if let Some(s) = tokens_keys {
-            for entry in s.split(",").filter(|s| !s.trim().is_empty()) {
-                htk.insert(entry.trim().to_string());
-            }
-        }
-
         HistoricalConfig {
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
-            historical_tokens_keys: htk,
         }
     }
 
-    // event_key is one of: "token" "token:ip_addr" or "token:distinct_id"
-    // and self.historical_tokens_keys is a set of the same. if the key
-    // matches any entry in the set, the event should be rerouted
-    pub fn should_reroute(&self, event_key: &str) -> bool {
-        if event_key.is_empty() {
+    pub fn should_reroute(&self, data_type: DataType, timestamp: DateTime<Utc>) -> bool {
+        if !self.enable_historical_rerouting {
             return false;
         }
 
-        // is the event key in the forced_keys list?
-        let key_match = self.historical_tokens_keys.contains(event_key);
+        if data_type != DataType::AnalyticsMain {
+            return false;
+        }
 
-        // is the token (first component of the event key) in the forced_keys list?
-        let token_match = match event_key.split(':').next() {
-            Some(token) => !token.is_empty() && self.historical_tokens_keys.contains(token),
-            None => false,
-        };
-
-        key_match || token_match
+        let days_stale = Duration::days(self.historical_rerouting_threshold_days);
+        let threshold = Utc::now() - days_stale;
+        timestamp <= threshold
     }
 }
 
@@ -112,7 +97,6 @@ pub fn router<
     event_size_limit: usize,
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
-    historical_tokens_keys: Option<String>,
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
@@ -127,7 +111,6 @@ pub fn router<
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
-            historical_tokens_keys,
         ),
         capture_mode: capture_mode.clone(),
         is_mirror_deploy,
@@ -299,38 +282,4 @@ pub fn router<
     } else {
         router
     }
-}
-
-#[test]
-fn test_historical_config_handles_tokens_key_routing_correctly() {
-    let inputs = Some(String::from("token1,token2:user2,")); // 3 entries including empty string!
-    let hcfg = HistoricalConfig::new(true, 100, inputs);
-
-    // event key not in list passes
-    let key = "token3:user3";
-    assert!(!hcfg.should_reroute(key));
-
-    // token not in list passes
-    let key = "token4";
-    assert!(!hcfg.should_reroute(key));
-
-    // full event key in list should always be rerouted
-    let key = "token2:user2";
-    assert!(hcfg.should_reroute(key));
-
-    // event key with token 2 but different suffix should not be rerouted
-    let key = "token2:user7";
-    assert!(!hcfg.should_reroute(key));
-
-    // anything having to do with token1 should be rerouted
-    let key = "token1:user1";
-    assert!(hcfg.should_reroute(key));
-    let key = "token1:user2";
-    assert!(hcfg.should_reroute(key));
-    let key = "token1";
-    assert!(hcfg.should_reroute(key));
-
-    // empty event key/token should not be rerouted, fails open
-    let key = "";
-    assert!(!hcfg.should_reroute(key));
 }

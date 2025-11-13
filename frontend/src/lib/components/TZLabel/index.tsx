@@ -9,6 +9,7 @@ import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-u
 
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -159,21 +160,24 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     const [formattedContent, setFormattedContent] = useState(format())
 
+    const { isVisible: isPageVisible } = usePageVisibility()
+
+    // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
     useEffect(() => {
-        // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
+        if (!isPageVisible) {
+            return
+        }
+
         const run = (): void => {
-            if (format() !== formattedContent) {
-                setFormattedContent(format())
-            }
+            const newContent = format()
+            setFormattedContent((current) => (newContent !== current ? newContent : current))
         }
 
         const interval = setInterval(run, 1000)
-
-        // Run immediately and dont wait 1000ms
         run()
 
         return () => clearInterval(interval)
-    }, [parsedTime, format, formattedContent])
+    }, [parsedTime, format, isPageVisible])
 
     const innerContent = children ?? (
         <span

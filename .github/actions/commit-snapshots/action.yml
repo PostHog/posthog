@@ -1,0 +1,124 @@
+name: Commit Aggregated Snapshots
+description: Applies snapshot patches, counts changes, commits, and posts PR comment
+
+inputs:
+    workflow-type:
+        description: 'Workflow type (storybook or playwright)'
+        required: true
+    patch-path:
+        description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
+        required: true
+    snapshot-path:
+        description: 'Path to snapshot directory (e.g., frontend/__snapshots__/ or playwright/)'
+        required: true
+    commit-message:
+        description: 'Commit message for snapshot changes'
+        required: true
+    pr-number:
+        description: 'Pull request number'
+        required: true
+    repository:
+        description: 'Repository name (owner/repo)'
+        required: true
+    commit-sha:
+        description: 'Commit SHA'
+        required: true
+    github-token:
+        description: 'GitHub token for authentication'
+        required: true
+
+outputs:
+    committed:
+        description: 'Whether snapshots were committed (true/false)'
+        value: ${{ steps.commit.outputs.committed }}
+    changes:
+        description: 'JSON object with change counts'
+        value: ${{ steps.commit.outputs.changes }}
+
+runs:
+    using: composite
+    steps:
+        - name: Apply snapshot patches
+          shell: bash
+          run: |
+              # Apply all patch files from the provided patch directory
+              # Patches handle A/M/D automatically including binary files
+              if [ -d "${{ inputs.patch-path }}" ]; then
+                PATCHES=$(find "${{ inputs.patch-path }}" -name "*.patch" | sort)
+                if [ -n "$PATCHES" ]; then
+                  echo "Applying patches from ${{ inputs.patch-path }}..."
+                  for patch in $PATCHES; do
+                    echo "Applying $patch"
+                    git apply --index "$patch"
+                  done
+                  echo "Applied all patches successfully"
+                else
+                  echo "No patch files found in ${{ inputs.patch-path }}"
+                fi
+              else
+                echo "Patch directory ${{ inputs.patch-path }} does not exist"
+              fi
+
+        - name: Configure git
+          shell: bash
+          run: |
+              git config --global --add safe.directory '*'
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        - name: Count and commit changes
+          id: commit
+          shell: bash
+          run: |
+              CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})
+              echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+              echo "Snapshot changes: $CHANGES_JSON"
+
+              TOTAL=$(echo "$CHANGES_JSON" | jq -r '.total')
+              if [ "$TOTAL" -gt 0 ]; then
+                git add ${{ inputs.snapshot-path }} -A
+                git commit -m "${{ inputs.commit-message }}"
+                # Pull before push to avoid race condition when multiple workflows commit simultaneously
+                # Only fetch current branch to avoid verbose output from fetching all branches
+                CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                git fetch origin "$CURRENT_BRANCH" --quiet
+                git rebase origin/"$CURRENT_BRANCH" --autostash
+                git push --quiet
+                SNAPSHOT_SHA=$(git rev-parse HEAD)
+                echo "committed=true" >> $GITHUB_OUTPUT
+                echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
+              else
+                echo "No snapshot changes to commit"
+                echo "committed=false" >> $GITHUB_OUTPUT
+              fi
+
+        - name: Disable auto-merge
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
+              echo "Snapshot changes require human review"
+
+        - name: Post snapshot comment
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              .github/scripts/post-snapshot-comment.js \
+                "${{ inputs.workflow-type }}" \
+                "update" \
+                '${{ steps.commit.outputs.changes }}' \
+                "${{ inputs.pr-number }}" \
+                "${{ inputs.repository }}" \
+                "${{ inputs.commit-sha }}" \
+                "${{ steps.commit.outputs.snapshot-sha }}"
+
+        - name: Fail workflow to trigger CHECK mode
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          run: |
+              echo "::notice::Snapshots were updated. Workflow will fail to trigger CHECK mode on next run."
+              exit 1

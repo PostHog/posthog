@@ -10,6 +10,8 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         setHideNullValues: (enabled: boolean) => ({ enabled }),
         pinPersonProperty: (prop: string) => ({ prop }),
         unpinPersonProperty: (prop: string) => ({ prop }),
+        pinGroupProperty: (prop: string) => ({ prop }),
+        unpinGroupProperty: (prop: string) => ({ prop }),
     }),
     reducers(() => ({
         hidePostHogPropertiesInTable: [
@@ -26,6 +28,14 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             {
                 pinPersonProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
                 unpinPersonProperty: (state, { prop }) => state.filter((p) => p !== prop),
+            },
+        ],
+        pinnedGroupProperties: [
+            [] as string[],
+            { persist: true },
+            {
+                pinGroupProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
+                unpinGroupProperty: (state, { prop }) => state.filter((p) => p !== prop),
             },
         ],
     })),

@@ -26,6 +26,7 @@ from ee.hogai.utils.types import AssistantState
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
+    _parent_tool_call_id: str | None = None
     pass
 
 

@@ -133,6 +133,43 @@ async function expectStoryToMatchSnapshot(
     browser: SupportedBrowserName
 ): Promise<void> {
     await waitForPageReady(page)
+
+    // set up iframe load tracking early, before they start loading
+    await page.evaluate(() => {
+        // use MutationObserver to catch iframes as they're added to the DOM
+        const trackIframeLoad = (iframe: HTMLIFrameElement): void => {
+            if (!iframe.hasAttribute('data-load-tracked')) {
+                iframe.setAttribute('data-load-tracked', 'loading')
+                iframe.addEventListener(
+                    'load',
+                    () => {
+                        iframe.setAttribute('data-load-tracked', 'loaded')
+                    },
+                    { once: true }
+                )
+            }
+        }
+
+        // track existing iframes
+        document.querySelectorAll('iframe').forEach(trackIframeLoad)
+
+        // track future iframes
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node instanceof HTMLIFrameElement) {
+                        trackIframeLoad(node)
+                    }
+                    if (node instanceof Element) {
+                        node.querySelectorAll('iframe').forEach(trackIframeLoad)
+                    }
+                })
+            })
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
+        ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
+    })
+
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
@@ -191,7 +228,77 @@ async function takeSnapshotWithTheme(
             return areAllImagesLoaded
         })
     }
-    await page.waitForTimeout(2000)
+
+    // wait for iframes to load their content
+    const iframeCount = await page.locator('iframe').count()
+    if (iframeCount > 0) {
+        await page
+            .waitForFunction(
+                () => {
+                    const iframes = Array.from(document.querySelectorAll('iframe'))
+                    return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
+                },
+                { timeout: 8000 }
+            )
+            .catch(() => {
+                // if timeout, that's okay - some iframes might not fire load events
+            })
+        // give iframe content a moment to render after load event
+        await page.waitForTimeout(1000)
+    }
+
+    // reset scroll positions to ensure consistent snapshots
+    await page.evaluate(() => {
+        // scroll main viewport to top
+        window.scrollTo(0, 0)
+        // scroll all overflow containers to top
+        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                el.scrollTop = 0
+                el.scrollLeft = 0
+            }
+        })
+    })
+
+    // wait for content to stabilize - detects when DOM stops changing
+    await page
+        .waitForFunction(
+            () => {
+                return new Promise<boolean>((resolve) => {
+                    let lastHeight = document.body.scrollHeight
+                    let lastWidth = document.body.scrollWidth
+                    let stableCount = 0
+
+                    const checkStability = (): void => {
+                        const currentHeight = document.body.scrollHeight
+                        const currentWidth = document.body.scrollWidth
+
+                        if (currentHeight === lastHeight && currentWidth === lastWidth) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastHeight = currentHeight
+                            lastWidth = currentWidth
+                        }
+
+                        setTimeout(checkStability, 100)
+                    }
+
+                    checkStability()
+                })
+            },
+            { timeout: 3000 }
+        )
+        .catch(() => {
+            // if content keeps changing, that's okay - we'll proceed anyway
+        })
+
+    // final wait for any remaining renders
+    await page.waitForTimeout(1000)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)

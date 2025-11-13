@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
@@ -34,15 +34,22 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
+        self.dispatcher.update("Checking PostHog documentation...")
+
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
+
         message: LangchainAIMessage = await self._get_model().ainvoke(messages, config)
+        should_continue = INKEEP_DATA_CONTINUATION_PHRASE in message.content
+
+        tool_prompt = "Checking PostHog documentation..."
+        if should_continue:
+            tool_prompt = "The documentation search results are provided in the next Assistant message.\n<system_reminder>Continue with the user's data request.</system_reminder>"
+
         return PartialAssistantState(
             messages=[
-                AssistantToolCallMessage(
-                    content="Checking PostHog documentation...", tool_call_id=state.root_tool_call_id, id=str(uuid4())
-                ),
+                AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
                 AssistantMessage(content=message.content, id=str(uuid4())),
             ],
             root_tool_call_id=None,
@@ -112,16 +119,3 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     ) -> list[BaseMessage]:
         # Original node has Anthropic messages, but Inkeep expects OpenAI messages
         return convert_to_openai_messages(conversation_window, tool_result_messages)
-
-    def router(self, state: AssistantState) -> Literal["end", "root"]:
-        last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage) and INKEEP_DATA_CONTINUATION_PHRASE in last_message.content:
-            # The continuation phrase solution is a little weird, but seems it's the best one for agentic capabilities
-            # I've found here. The alternatives that definitively don't work are:
-            # 1. Using tool calls in this node - the Inkeep API only supports providing their own pre-defined tools
-            #    (for including extra search metadata), nothing else
-            # 2. Always going back to root, for root to judge whether to continue or not - GPT-4o is terrible at this,
-            #    and I was unable to stop it from repeating the context from the last assistant message, i.e. the Inkeep
-            #    output message (doesn't quite work to tell it to output an empty message, or to call an "end" tool)
-            return "root"
-        return "end"
