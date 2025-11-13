@@ -373,6 +373,32 @@ export const logsLogic = kea<logsLogicType>([
             (s) => [s.pinnedLogs],
             (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
+        visibleLogsTimeRange: [
+            (s) => [s.parsedLogs, s.orderBy],
+            (
+                parsedLogs: ParsedLogMessage[],
+                orderBy: LogsQuery['orderBy']
+            ): { date_from: string; date_to: string } | null => {
+                if (parsedLogs.length === 0) {
+                    return null
+                }
+                const firstTimestamp = parsedLogs[0].timestamp
+                const lastTimestamp = parsedLogs[parsedLogs.length - 1].timestamp
+
+                // When orderBy is 'latest', first log is newest, last log is oldest
+                // When orderBy is 'earliest', first log is oldest, last log is newest
+                if (orderBy === 'latest') {
+                    return {
+                        date_from: dayjs(lastTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).toISOString(),
+                    }
+                }
+                return {
+                    date_from: dayjs(firstTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).toISOString(),
+                }
+            },
+        ],
         sparklineData: [
             (s) => [s.sparkline],
             (sparkline) => {

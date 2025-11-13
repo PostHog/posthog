@@ -69,6 +69,18 @@ export function LogsScene(): JSX.Element {
         runQuery()
     }, [runQuery])
 
+    useEffect(() => {
+        if (!logsLoading && highlightedLogId && tableContainerRef.current) {
+            // Wait a tick for the DOM to update
+            setTimeout(() => {
+                const highlightedRow = tableContainerRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
+                if (highlightedRow) {
+                    highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+            }, 0)
+        }
+    }, [logsLoading, highlightedLogId])
+
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
     }

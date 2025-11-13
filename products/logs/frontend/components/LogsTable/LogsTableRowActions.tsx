@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
 
@@ -16,7 +16,18 @@ interface LogsTableRowActionsProps {
 }
 
 export function LogsTableRowActions({ log }: LogsTableRowActionsProps): JSX.Element {
-    const { setHighlightedLogId } = useActions(logsLogic)
+    const { visibleLogsTimeRange } = useValues(logsLogic)
+
+    const handleCopyLink = (): void => {
+        const url = new URL(window.location.href)
+        url.searchParams.set('highlightedLogId', log.uuid)
+
+        if (visibleLogsTimeRange) {
+            url.searchParams.set('dateRange', JSON.stringify(visibleLogsTimeRange))
+        }
+
+        void copyToClipboard(url.toString(), 'link to log')
+    }
 
     return (
         <More
@@ -33,14 +44,12 @@ export function LogsTableRowActions({ log }: LogsTableRowActionsProps): JSX.Elem
                         Copy log message
                     </LemonButton>
                     <LemonButton
-                        onClick={() => {
-                            setHighlightedLogId(log.uuid)
-                        }}
+                        onClick={handleCopyLink}
                         fullWidth
                         sideIcon={<IconLink />}
-                        data-attr="logs-table-highlight-log"
+                        data-attr="logs-table-copy-link"
                     >
-                        Highlight log
+                        Copy link to log
                     </LemonButton>
                 </>
             }
