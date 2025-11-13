@@ -92,7 +92,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                         let projectDate = date.tz(timezone, true)
 
                                         if (batchExportConfig && batchExportConfig.interval === 'day') {
-                                            projectDate = projectDate.hour(0).minute(0).second(0)
+                                            projectDate = projectDate.hour(0).minute(0).second(0).tz('UTC')
                                         }
 
                                         onChange(projectDate)
