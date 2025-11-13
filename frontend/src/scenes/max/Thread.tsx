@@ -304,9 +304,20 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {actionsElement}
                             </div>
                         )
-                    } else if (isAssistantToolCallMessage(message) && message.ui_payload) {
+                    } else if (
+                        isAssistantToolCallMessage(message) &&
+                        message.ui_payload &&
+                        Object.keys(message.ui_payload).length > 0
+                    ) {
                         const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
-                        return <UIPayloadAnswer key={key} toolName={toolName} toolPayload={toolPayload} />
+                        return (
+                            <UIPayloadAnswer
+                                key={key}
+                                toolCallId={message.tool_call_id}
+                                toolName={toolName}
+                                toolPayload={toolPayload}
+                            />
+                        )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer

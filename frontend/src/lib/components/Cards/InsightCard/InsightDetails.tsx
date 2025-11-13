@@ -293,8 +293,8 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
     return (
         <>
-            {formulaNodes.map((node) => (
-                <div className="SeriesDisplay">
+            {formulaNodes.map((node, index) => (
+                <div className="SeriesDisplay" key={index}>
                     <IconCalculate className="text-xl m-px text-text-secondary-3000" />
                     <span>
                         Formula

@@ -17,19 +17,33 @@ import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings']
 
-export function UIPayloadAnswer({ toolName, toolPayload }: { toolName: string; toolPayload: any }): JSX.Element | null {
+export function UIPayloadAnswer({
+    toolCallId,
+    toolName,
+    toolPayload,
+}: {
+    toolCallId: string
+    toolName: string
+    toolPayload: any
+}): JSX.Element | null {
     if (toolName === 'search_session_recordings') {
         const filters = toolPayload as RecordingUniversalFilters
-        return <RecordingsWidget filters={filters} />
+        return <RecordingsWidget toolCallId={toolCallId} filters={filters} />
     }
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out
     // in maxThreadLogic.selectors.threadGrouped, but better safe than sorry - there can be deployments mismatches etc.
     return null
 }
 
-function RecordingsWidget({ filters }: { filters: RecordingUniversalFilters }): JSX.Element {
+function RecordingsWidget({
+    toolCallId,
+    filters,
+}: {
+    toolCallId: string
+    filters: RecordingUniversalFilters
+}): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'ai-recordings-widget',
+        logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
         updateSearchParams: false,
         autoPlay: false,
