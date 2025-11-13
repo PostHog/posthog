@@ -10,7 +10,6 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
-from django.dispatch import receiver
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -66,7 +65,7 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import Property
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -1133,8 +1132,10 @@ class FeatureFlagViewSet(
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
                 queryset = queryset.filter(
-                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
-                )
+                    Q(key__icontains=request.GET["search"])
+                    | Q(name__icontains=request.GET["search"])
+                    | Q(experiment__name__icontains=request.GET["search"], experiment__deleted=False)
+                ).distinct()
             elif key == "type":
                 type = request.GET["type"]
                 if type == "boolean":
@@ -1753,7 +1754,7 @@ class FeatureFlagViewSet(
         return activity_page_response(activity_page, limit, page, request)
 
 
-@receiver(model_activity_signal, sender=FeatureFlag)
+@mutable_receiver(model_activity_signal, sender=FeatureFlag)
 def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
     # Extract scheduled change context if present
     scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})

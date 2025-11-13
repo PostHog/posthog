@@ -274,6 +274,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_MERGE_ASYNC_ENABLED: boolean
     // Batch size for sync person merge processing (0 = unlimited)
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Enable person table cutover migration
+    PERSON_TABLE_CUTOVER_ENABLED: boolean
+    // New person table name for cutover migration
+    PERSON_NEW_TABLE_NAME: string
+    // Person ID offset threshold - person IDs >= this value route to new table
+    PERSON_NEW_TABLE_ID_OFFSET: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -1006,6 +1012,16 @@ export interface RawPerson extends BasePerson {
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Mutable fields that can be updated on a Person via updatePerson. */
+export interface PersonUpdateFields {
+    properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation | null
+    is_identified: boolean
+    created_at: DateTime
+    version?: number // Optional: allows forcing a specific version (used for dual-write sync)
 }
 
 /** Person model exposed outside of person-specific DB logic. */

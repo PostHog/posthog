@@ -97,8 +97,6 @@ class HogQLCohortQuery:
         cohort_query: Optional[CohortQuery] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
-        chunk_index: Optional[int] = None,
-        total_chunks: Optional[int] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
@@ -118,9 +116,6 @@ class HogQLCohortQuery:
             self.team = team or cohort_query._team
         else:
             raise
-
-        self.chunk_index = chunk_index
-        self.total_chunks = total_chunks
 
     def get_query_executor(self) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
@@ -464,45 +459,6 @@ class HogQLCohortQuery:
             send_feature_flag_events=False,
         )
 
-    def _add_chunk_filter(self, query: ast.SelectQuery) -> ast.SelectQuery:
-        """Add hash-based chunking filter to a query"""
-        # Hash-based filtering
-        if self.chunk_index is not None and self.total_chunks is not None and self.total_chunks > 1:
-            # Create the hash condition: cityHash64(id) % total_chunks = chunk_index
-            hash_condition = ast.CompareOperation(
-                left=ast.Call(
-                    name="modulo",
-                    args=[
-                        ast.Call(name="cityHash64", args=[ast.Field(chain=["id"])]),
-                        ast.Constant(value=self.total_chunks),
-                    ],
-                ),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.chunk_index),
-            )
-
-            # Add to WHERE clause
-            if query.where is None:
-                query.where = hash_condition
-            else:
-                query.where = ast.And(exprs=[query.where, hash_condition])
-
-        return query
-
-    def _add_chunk_filter_to_query_tree(
-        self, query: Union[ast.SelectQuery, ast.SelectSetQuery]
-    ) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        """Recursively add chunk filter to all SelectQuery nodes in the query tree"""
-        if isinstance(query, ast.SelectQuery):
-            return self._add_chunk_filter(query)
-        elif isinstance(query, ast.SelectSetQuery):
-            # Apply to initial query
-            query.initial_select_query = self._add_chunk_filter_to_query_tree(query.initial_select_query)
-            # Apply to all subsequent queries
-            for node in query.subsequent_select_queries:
-                node.select_query = self._add_chunk_filter_to_query_tree(node.select_query)
-        return query
-
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
         should_combine_person_properties = self._should_combine_person_properties()
@@ -616,6 +572,4 @@ class HogQLCohortQuery:
         condition = build_conditions(self.property_groups)
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
-
-        # Apply chunking filter to the final query
-        return self._add_chunk_filter_to_query_tree(condition.query)
+        return condition.query

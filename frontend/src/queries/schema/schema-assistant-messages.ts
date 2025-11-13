@@ -273,7 +273,6 @@ export type AssistantTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
-    | 'navigate'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
@@ -287,7 +286,9 @@ export type AssistantTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'filter_web_analytics'
     | 'create_feature_flag'
+    | 'create_experiment'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

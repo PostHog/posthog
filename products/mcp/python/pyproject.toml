@@ -19,7 +19,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "datamodel-code-generator[http]>=0.25.0",
     "ruff>=0.1.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -45,9 +44,6 @@ exclude = [
 target-version = "py311"
 line-length = 160
 indent-width = 4
-exclude = [
-    "schema/tool_inputs.py",  # Auto-generated file
-]
 
 [tool.ruff.lint]
 select = [

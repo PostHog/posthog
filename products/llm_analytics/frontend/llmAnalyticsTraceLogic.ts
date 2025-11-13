@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -17,6 +18,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export enum DisplayOption {
     ExpandAll = 'expand_all',
     CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
+    TextView = 'text_view',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -52,6 +54,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
@@ -64,12 +67,15 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         hideAllMessages: (type: 'input' | 'output') => ({ type }),
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
+        handleTextViewFallback: true,
+        copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
             {
@@ -140,6 +146,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             persistConfig,
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
+                handleTextViewFallback: () => DisplayOption.ExpandAll,
             },
         ],
         eventTypeExpandedMap: [
@@ -264,12 +271,19 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 }
             }
         },
+        copyLinePermalink: ({ lineNumber }) => {
+            // Copy permalink to clipboard with line number in URL
+            const url = new URL(window.location.href)
+            url.searchParams.set('line', lineNumber.toString())
+            copyToClipboard(url.toString(), 'permalink')
+        },
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
+            actions.setLineNumber(line ? parseInt(line, 10) : null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
             } else if (exception_ts) {

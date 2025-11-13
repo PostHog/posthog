@@ -32,7 +32,7 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
+    const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
     const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
         useValues(logic)
     const { recalculateTimeseries, loadTimeseries } = useActions(logic)
