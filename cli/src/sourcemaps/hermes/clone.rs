@@ -42,7 +42,7 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
 
     let mut minified_map = SourceMapFile::load(minified_map_path).map_err(|e| {
         anyhow!(
-            "Failed to load minfied map at '{}': {}",
+            "Failed to load minified map at '{}': {}",
             minified_map_path.display(),
             e
         )
@@ -51,7 +51,7 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
     let mut composed_map = SourceMapFile::load(composed_map_path).map_err(|e| {
         anyhow!(
             "Failed to load composed map at '{}': {}",
-            minified_map_path.display(),
+            composed_map_path.display(),
             e
         )
     })?;
