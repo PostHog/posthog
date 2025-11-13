@@ -80,6 +80,7 @@ export class LogsIngestionConsumer {
                     value: message.message.value,
                     key: null,
                     headers: {
+                        ...parseKafkaHeaders(message.message.headers),
                         token: message.token,
                         team_id: message.teamId.toString(),
                     },
@@ -113,7 +114,7 @@ export class LogsIngestionConsumer {
 
                     if (!team) {
                         // Write to DLQ topic maybe?
-                        logger.error('team_not_found')
+                        logger.error('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found' })
                         return
                     }

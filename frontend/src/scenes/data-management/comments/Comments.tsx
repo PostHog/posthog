@@ -19,7 +19,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CommentType, ProductKey } from '~/types'
 
@@ -136,7 +135,6 @@ export function Comments(): JSX.Element {
                     type: sceneConfigurations[Scene.Comments].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
                     <LemonInput

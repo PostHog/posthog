@@ -111,7 +111,7 @@ export function ResultDetails({
         {
             key: 'variant',
             title: 'Variant',
-            render: (_, item) => <VariantTag experimentId={experiment.id} variantKey={item.key} />,
+            render: (_, item) => <VariantTag variantKey={item.key} />,
         },
         {
             key: 'total-users',

@@ -2,7 +2,7 @@ import { PostHog } from 'posthog-node'
 
 let _client: PostHog | undefined
 
-export const getPostHogClient = () => {
+export const getPostHogClient = (): PostHog => {
     if (!_client) {
         _client = new PostHog('sTMFPsFhdP1Ssg', {
             host: 'https://us.i.posthog.com',

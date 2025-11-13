@@ -27,8 +27,7 @@ from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboarding
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
-from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState
-from ee.hogai.graph.root.tools.todo_write import TodoItem
+from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState, TodoItem
 from ee.hogai.utils.types.base import TaskResult
 from ee.models.assistant import Conversation
 

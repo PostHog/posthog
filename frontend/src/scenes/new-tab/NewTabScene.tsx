@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { Results } from './components/Results'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -23,9 +23,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(newTabSceneLogic({ tabId }))
-    const { showSceneDashboardChoiceModal } = useActions(
-        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setSearchInputRef } = useActions(
+        newTabSceneLogic({ tabId })
     )
 
     const handleAskAi = (question?: string): void => {
@@ -44,6 +43,12 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
+
+    // Set the ref in the logic so it can be accessed from other components
+    useEffect(() => {
+        setSearchInputRef(commandInputRef)
+    }, [setSearchInputRef])
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     return (
         <>
@@ -111,11 +116,14 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             size="xxs"
                                             data-attr="project-home-customize-homepage"
                                             className="ml-auto text-xs"
-                                            onClick={showSceneDashboardChoiceModal}
+                                            onClick={() => setIsConfigurePinnedTabsOpen(true)}
                                         >
                                             Customize homepage
                                         </ButtonPrimitive>
-                                        <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                        <ConfigurePinnedTabsModal
+                                            isOpen={isConfigurePinnedTabsOpen}
+                                            onClose={() => setIsConfigurePinnedTabsOpen(false)}
+                                        />
                                     </>
                                 ) : null}
                             </div>

@@ -92,7 +92,22 @@ class SecretAlert(APIView):
     permission_classes = [AllowAny]
     parser_classes = [JSONParser]
 
+    def initialize_request(self, request, *args, **kwargs):
+        """
+        Store the raw body before DRF parses it.
+        This is called before the parsers consume the body.
+        """
+        # Store raw body for signature verification
+        request._raw_body = request.body
+        return super().initialize_request(request, *args, **kwargs)
+
     def post(self, request):
+        # Get the raw body we stored earlier
+        try:
+            raw_body = request._raw_body.decode("utf-8")
+        except Exception:
+            raise ValidationError(detail="Unable to read request body")
+
         kid = (request.headers.get("Github-Public-Key-Identifier") or "").strip()
         sig = (request.headers.get("Github-Public-Key-Signature") or "").strip()
 
@@ -114,7 +129,7 @@ class SecretAlert(APIView):
             )
 
         try:
-            verify_github_signature(request.body.decode("utf-8"), kid, sig)
+            verify_github_signature(raw_body, kid, sig)
         except SignatureVerificationError:
             return Response({"detail": "Invalid signature"}, status=401)
 

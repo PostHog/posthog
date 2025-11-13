@@ -133,6 +133,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
         "project_id": 997,
+        "receive_org_level_activity_logs": false,
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],

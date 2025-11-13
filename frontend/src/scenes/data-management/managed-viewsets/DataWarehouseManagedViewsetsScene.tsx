@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
@@ -55,7 +54,6 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element {
                 resourceType={{ type: 'managed_viewsets' }}
                 description="Configure automatically managed database views for analytics features. These views are created and maintained by PostHog to provide optimized data access."
             />
-            <SceneDivider />
 
             <div className="space-y-4">
                 {(Object.keys(managedViewsets) as DataWarehouseManagedViewsetKind[]).map((kind) => (

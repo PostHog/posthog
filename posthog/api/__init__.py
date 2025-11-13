@@ -8,7 +8,16 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import (
+
+import products.logs.backend.api as logs
+import products.links.backend.api as link
+import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
+import products.revenue_analytics.backend.api as revenue_analytics
+import products.early_access_features.backend.api as early_access_feature
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -21,16 +30,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
-from posthog.warehouse.api.lineage import LineageViewSet
-
-import products.logs.backend.api as logs
-import products.links.backend.api as link
-import products.tasks.backend.api as tasks
-import products.endpoints.backend.api as endpoints
-import products.live_debugger.backend.api as live_debugger
-import products.revenue_analytics.backend.api as revenue_analytics
-import products.early_access_features.backend.api as early_access_feature
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
@@ -68,6 +69,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    cli_auth,
     comments,
     dead_letter_queue,
     debug_ch_queries,
@@ -103,6 +105,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_home_settings,
     web_vitals,
 )
 from .dashboards import dashboard, dashboard_templates
@@ -520,7 +523,13 @@ router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_p
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
+router.register(
+    r"user_home_settings",
+    user_home_settings.UserHomeSettingsViewSet,
+    "user_home_settings",
+)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
@@ -943,5 +952,12 @@ environments_router.register(
     r"evaluation_runs",
     EvaluationRunViewSet,
     "environment_evaluation_runs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/text_repr",
+    LLMAnalyticsTextReprViewSet,
+    "environment_llm_analytics_text_repr",
     ["team_id"],
 )

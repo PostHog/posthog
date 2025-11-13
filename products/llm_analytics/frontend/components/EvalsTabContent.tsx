@@ -8,15 +8,27 @@ import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 
-export function EvalsTabContent({ generationEventId }: { generationEventId: string }): JSX.Element {
+export function EvalsTabContent({
+    generationEventId,
+    timestamp,
+}: {
+    generationEventId: string
+    timestamp: string
+}): JSX.Element {
     return (
         <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <EvalsTabContentInner generationEventId={generationEventId} />
+            <EvalsTabContentInner generationEventId={generationEventId} timestamp={timestamp} />
         </BindLogic>
     )
 }
 
-function EvalsTabContentInner({ generationEventId }: { generationEventId: string }): JSX.Element {
+function EvalsTabContentInner({
+    generationEventId,
+    timestamp,
+}: {
+    generationEventId: string
+    timestamp: string
+}): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
@@ -48,11 +60,12 @@ function EvalsTabContentInner({ generationEventId }: { generationEventId: string
                         icon={<IconCheckCircle />}
                         onClick={() => {
                             if (selectedEvaluationId) {
-                                runEvaluation(selectedEvaluationId, generationEventId)
+                                runEvaluation(selectedEvaluationId, generationEventId, timestamp)
                             }
                         }}
                         loading={evaluationRunLoading}
                         disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
+                        data-attr="run-evaluation-manual"
                     >
                         Run Evaluation
                     </LemonButton>

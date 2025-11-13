@@ -24,7 +24,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the cohort:{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the cohort:{' '}
                     {nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -35,7 +35,8 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the cohort: {logItem.detail.name}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the cohort:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -45,7 +46,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated the cohort:{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the cohort:{' '}
                     {nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),

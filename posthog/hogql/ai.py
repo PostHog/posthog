@@ -1509,10 +1509,6 @@ Here is the taxonomy for event properties:
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
@@ -2521,13 +2517,6 @@ Here is the taxonomy for event properties:
             "label": "AI input tokens (LLM)",
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
-        },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
         },
         "$ai_output_choices": {
             "label": "AI output (LLM)",

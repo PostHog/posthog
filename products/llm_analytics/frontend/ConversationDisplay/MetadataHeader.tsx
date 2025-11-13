@@ -45,10 +45,10 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && (
-                <MetadataTag label="Cache read">{`${cacheReadTokens} tokens`}</MetadataTag>
+                <MetadataTag label="Cache read">{`${cacheReadTokens} cache read tokens`}</MetadataTag>
             )}
             {typeof cacheWriteTokens === 'number' && cacheWriteTokens > 0 && (
-                <MetadataTag label="Cache write">{`${cacheWriteTokens} tokens`}</MetadataTag>
+                <MetadataTag label="Cache write">{`${cacheWriteTokens} cache write tokens`}</MetadataTag>
             )}
             {model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>

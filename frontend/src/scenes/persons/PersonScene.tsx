@@ -185,7 +185,6 @@ export function PersonScene(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
 
             <PersonCaption person={person} />
 

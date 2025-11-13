@@ -32,6 +32,8 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -55,6 +57,8 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -83,6 +87,8 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v4
+              with:
+                  clean: false
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -133,6 +139,13 @@ jobs:
         steps:
             - name: Code check out
               uses: actions/checkout@v4
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -157,13 +170,8 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
-            - uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      rust/target
-                  key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               working-directory: rust

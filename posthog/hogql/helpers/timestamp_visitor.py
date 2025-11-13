@@ -88,6 +88,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return False
 
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
+
     def visit_and(self, node: ast.And) -> bool:
         return False
 
@@ -176,6 +179,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
+        return False
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
@@ -254,6 +260,9 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_call(self, node: ast.Call) -> bool:
@@ -389,6 +398,9 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_between_expr(self, node: ast.BetweenExpr) -> bool:
         return False
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:

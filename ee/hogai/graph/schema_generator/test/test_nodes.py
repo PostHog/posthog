@@ -13,12 +13,16 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
 
-from ee.hogai.graph.schema_generator.nodes import RETRIES_ALLOWED, SchemaGeneratorNode, SchemaGeneratorToolsNode
+from ee.hogai.graph.schema_generator.nodes import (
+    RETRIES_ALLOWED,
+    SchemaGenerationException,
+    SchemaGeneratorNode,
+    SchemaGeneratorToolsNode,
+)
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName, IntermediateStep
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import IntermediateStep
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
@@ -27,10 +31,6 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     INSIGHT_NAME = "Test"
     OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
     OUTPUT_SCHEMA = {}
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.TRENDS_GENERATOR
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
@@ -258,7 +258,7 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(action.log, "Field validation failed")
 
     async def test_quality_check_failure_with_retries_exhausted(self):
-        """Test quality check failure with retries exhausted still returns VisualizationMessage."""
+        """Test quality check failure with retries exhausted raises SchemaGenerationException."""
         node = DummyGeneratorNode(self.team, self.user)
         with (
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
@@ -273,26 +273,25 @@ class TestSchemaGeneratorNode(BaseTest):
             )
 
             # Start with RETRIES_ALLOWED intermediate steps (so no more allowed)
-            new_state = await node.arun(
-                AssistantState(
-                    messages=[HumanMessage(content="Text", id="0")],
-                    start_id="0",
-                    intermediate_steps=cast(
-                        list[IntermediateStep],
-                        [
-                            (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), "retry"),
-                        ],
-                    )
-                    * RETRIES_ALLOWED,
-                ),
-                {},
-            )
+            with self.assertRaises(SchemaGenerationException) as cm:
+                await node.arun(
+                    AssistantState(
+                        messages=[HumanMessage(content="Text", id="0")],
+                        start_id="0",
+                        intermediate_steps=cast(
+                            list[IntermediateStep],
+                            [
+                                (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), "retry"),
+                            ],
+                        )
+                        * RETRIES_ALLOWED,
+                    ),
+                    {},
+                )
 
-            # Should return VisualizationMessage despite quality check failure
-            self.assertEqual(new_state.intermediate_steps, None)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertEqual(new_state.messages[0].type, "ai/viz")
-            self.assertEqual(cast(VisualizationMessage, new_state.messages[0]).answer, self.basic_trends)
+            # Verify the exception contains the expected information
+            self.assertEqual(cm.exception.llm_output, '{"query": "test"}')
+            self.assertEqual(cm.exception.validation_message, "Quality check failed")
 
     async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -329,20 +328,17 @@ class TestSchemaGeneratorNode(BaseTest):
             schema = DummySchema.model_construct(query=[]).model_dump()  # type: ignore
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            new_state = await node.arun(
-                AssistantState(
-                    messages=[HumanMessage(content="Text")],
-                    intermediate_steps=[
-                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
-                        (AgentAction(tool="", tool_input="", log="exception"), "exception"),
-                    ],
-                ),
-                {},
-            )
-            self.assertEqual(new_state.intermediate_steps, None)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], FailureMessage)
-            self.assertEqual(new_state.plan, None)
+            with self.assertRaises(SchemaGenerationException):
+                await node.arun(
+                    AssistantState(
+                        messages=[HumanMessage(content="Text")],
+                        intermediate_steps=[
+                            (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                            (AgentAction(tool="", tool_input="", log="exception"), "exception"),
+                        ],
+                    ),
+                    {},
+                )
 
     async def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
@@ -525,15 +521,9 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(len(new_state.intermediate_steps or []), 1)
 
 
-class MockSchemaGeneratorToolsNode(SchemaGeneratorToolsNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.TRENDS_GENERATOR_TOOLS
-
-
 class TestSchemaGeneratorToolsNode(BaseTest):
     async def test_tools_node(self):
-        node = MockSchemaGeneratorToolsNode(self.team, self.user)
+        node = SchemaGeneratorToolsNode(self.team, self.user)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node.arun(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)

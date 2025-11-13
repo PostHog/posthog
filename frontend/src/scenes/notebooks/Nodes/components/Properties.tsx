@@ -1,5 +1,5 @@
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -48,10 +48,10 @@ function PropertyItem({ name, value, isLast, isPinned = false, onPin, onUnpin }:
 
     return (
         <div key={name} className="mb-1">
-            <LemonLabel className="flex justify-between leading-4">
+            <div className="flex justify-between leading-4">
                 <PropertyKeyInfo value={name} />
                 <LemonButton noPadding size="small" icon={<Icon />} onClick={onClick} />
-            </LemonLabel>
+            </div>
             <div className={`${!isLast && 'border-b border-primary pb-1'}`}>
                 <PropertiesTable properties={value} rootKey={name} type={PropertyDefinitionType.Person} />
             </div>

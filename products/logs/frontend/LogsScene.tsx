@@ -1,8 +1,7 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -16,7 +15,6 @@ import {
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -27,10 +25,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
+
 import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { SearchTermFilter } from './filters/SearchTermFilter'
 import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
@@ -40,7 +39,8 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
+        useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -68,7 +68,6 @@ export function LogsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
@@ -90,11 +89,17 @@ export function LogsScene(): JSX.Element {
             <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
-                    dataSource={logs}
+                    dataSource={parsedLogs}
                     loading={logsLoading}
                     size="small"
                     embedded
                     columns={[
+                        {
+                            title: '',
+                            key: 'actions',
+                            width: 0,
+                            render: (_, record) => <LogsTableRowActions log={record} />,
+                        },
                         {
                             title: 'Timestamp',
                             key: 'timestamp',
@@ -113,9 +118,17 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (_, { body }) => (
-                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
-                            ),
+                            render: (_, { cleanBody, parsedBody }) => {
+                                if (parsedBody && prettifyJson) {
+                                    return (
+                                        <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                            {JSON.stringify(parsedBody, null, 2)}
+                                        </pre>
+                                    )
+                                }
+
+                                return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                            },
                         },
                     ]}
                     expandable={{
@@ -230,7 +243,6 @@ const Filters = (): JSX.Element => {
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
-                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <LemonButton
@@ -257,14 +269,14 @@ const Filters = (): JSX.Element => {
                     </LemonButton>
                 </div>
             </div>
-            <SearchTermFilter />
+            <LogsFilterGroup />
         </div>
     )
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
 
     return (
         <div className="flex gap-2">
@@ -284,6 +296,13 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonCheckbox
+                checked={prettifyJson}
+                bordered
+                onChange={setPrettifyJson}
+                label="Prettify JSON"
+                size="small"
+            />
             <LemonSelect
                 value={timestampFormat}
                 icon={<IconClock />}

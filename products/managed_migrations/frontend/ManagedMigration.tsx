@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconSort } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -14,12 +15,10 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconSort } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { managedMigrationLogic } from './managedMigrationLogic'
@@ -60,7 +59,6 @@ export function ManagedMigration(): JSX.Element {
                         name: 'Managed migrations',
                     }}
                 />
-                <SceneDivider />
                 <LemonField name="source_type" label="Source">
                     <LemonSelect
                         value={managedMigration.source_type}
@@ -216,6 +214,7 @@ export function ManagedMigration(): JSX.Element {
 
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
+    const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
 
     const calculateProgress = (migration: ManagedMigration): { progress: number; completed: number; total: number } => {
         if (migration.state?.parts && Array.isArray(migration.state.parts)) {
@@ -256,7 +255,6 @@ export function ManagedMigrations(): JSX.Element {
                             </LemonButton>
                         }
                     />
-                    <SceneDivider />
                     <LemonTable
                         dataSource={migrations}
                         loading={migrationsLoading}
@@ -401,6 +399,36 @@ export function ManagedMigrations(): JSX.Element {
                                 title: 'Status Message',
                                 dataIndex: 'status_message',
                                 render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
+                            },
+                            {
+                                title: 'Actions',
+                                key: 'actions',
+                                render: (_: any, migration: ManagedMigration) => {
+                                    if (migration.status === 'running') {
+                                        return (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => pauseMigration(migration.id)}
+                                                loading={migrationsLoading}
+                                            >
+                                                Pause
+                                            </LemonButton>
+                                        )
+                                    } else if (migration.status === 'paused') {
+                                        return (
+                                            <LemonButton
+                                                type="primary"
+                                                size="small"
+                                                onClick={() => resumeMigration(migration.id)}
+                                                loading={migrationsLoading}
+                                            >
+                                                Resume
+                                            </LemonButton>
+                                        )
+                                    }
+                                    return null
+                                },
                             },
                         ]}
                         emptyState="No migrations found. Create a new migration to get started."

@@ -12,7 +12,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.warehouse.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 
 
 class TestLazyJoins(BaseTest):

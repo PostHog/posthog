@@ -13,6 +13,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
+    [Scene.CLIAuthorize]: () => import('./authentication/CLIAuthorize'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
@@ -38,6 +39,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
+    [Scene.ExploreSessions]: () => import('./activity/explore/SessionsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.Group]: () => import('./groups/Group'),
@@ -85,6 +87,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.Site]: () => import('./sites/Site'),

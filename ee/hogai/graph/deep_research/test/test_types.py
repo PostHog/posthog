@@ -12,9 +12,9 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
     PartialDeepResearchState,
+    TodoItem,
     _SharedDeepResearchState,
 )
-from ee.hogai.graph.root.tools.todo_write import TodoItem
 from ee.hogai.utils.types.base import InsightArtifact, TaskResult
 
 """
