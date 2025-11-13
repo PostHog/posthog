@@ -175,8 +175,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         queries: list[ast.SelectQuery] = []
         for expr in gathered_exprs:
+            # Increased LIMIT from 10000 to 1000000 to handle cases where:
+            # 1. Session recording sampling is enabled (only small % of sessions have recordings)
+            # 2. Replay was recently disabled (recent sessions have no recordings)
+            # With the original 10000 limit, we might miss all sessions that actually have recordings.
             queries.append(
-                self._select_from_events(select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=10000))
+                self._select_from_events(select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=1000000))
             )
 
         negative_guard_query = self._negative_guard_query()
@@ -383,7 +387,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
                 where_expr=gathered_exprs,
                 group_by=[ast.Field(chain=["$session_id"])],
-                limit_expr=ast.Constant(value=10000),
+                limit_expr=ast.Constant(value=1000000),
             )
         else:
             return None
