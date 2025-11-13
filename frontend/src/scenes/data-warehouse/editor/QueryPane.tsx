@@ -9,6 +9,7 @@ import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
@@ -79,6 +80,10 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             identifier={hasAgentModesFeatureFlag ? 'execute_sql' : 'generate_hogql_query'}
                             context={{
                                 current_query: props.queryInput,
+                            }}
+                            contextDescription={{
+                                text: 'Current query',
+                                icon: iconForType('sql_editor'),
                             }}
                             callback={(toolOutput: string) => {
                                 setSuggestedQueryInput(toolOutput, 'max_ai')

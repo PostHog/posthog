@@ -31,6 +31,7 @@ import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -414,6 +415,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         identifier={hasAgentModesFeatureFlag ? 'create_insight' : 'create_and_query_insight'}
                         context={{
                             current_query: querySource,
+                        }}
+                        contextDescription={{
+                            text: 'Current query',
+                            icon: iconForType('insight/hog'),
                         }}
                         callback={(
                             toolOutput:
