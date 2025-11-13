@@ -72,7 +72,7 @@ export function LogsScene(): JSX.Element {
     useEffect(() => {
         if (!logsLoading && highlightedLogId && tableContainerRef.current) {
             // Wait a tick for the DOM to update
-            setTimeout(() => {
+            requestAnimationFrame(() => {
                 const highlightedRow = tableContainerRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
                 if (highlightedRow) {
                     highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
