@@ -215,7 +215,7 @@ class TestProcessTaskWorkflow:
             await asyncio.sleep(10)
 
             sandbox = Sandbox.get_by_id(result.sandbox_id)
-            assert sandbox.status == SandboxStatus.SHUTDOWN.value
+            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -237,7 +237,7 @@ class TestProcessTaskWorkflow:
 
             await asyncio.sleep(10)
             sandbox = Sandbox.get_by_id(sandbox_id)
-            assert sandbox.status == SandboxStatus.SHUTDOWN.value
+            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
         finally:
             await sync_to_async(snapshot.delete)()

@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.services.sandbox import Sandbox, SandboxStatus
 from products.tasks.backend.temporal.conftest import get_or_create_test_snapshots
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import (
     GetSandboxForSetupInput,
@@ -100,7 +100,7 @@ class TestGetSandboxForSetupActivity:
             sandbox = Sandbox.get_by_id(sandbox_id)
             assert sandbox.id == sandbox_id
 
-            assert sandbox.status in ["pending", "initializing", "running"]
+            assert sandbox.get_status() == SandboxStatus.RUNNING
 
         finally:
             if sandbox_id:

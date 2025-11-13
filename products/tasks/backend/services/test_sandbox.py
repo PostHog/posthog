@@ -20,8 +20,8 @@ class TestSandboxIntegration:
         sandbox = Sandbox.create(config)
 
         assert sandbox.id is not None
-        assert sandbox.status == SandboxStatus.RUNNING
-        assert sandbox.is_running
+        assert sandbox.get_status() == SandboxStatus.RUNNING
+        assert sandbox.is_running()
 
         result = sandbox.execute("echo 'Hello World'")
         assert result.exit_code == 0
@@ -29,7 +29,7 @@ class TestSandboxIntegration:
         assert result.stderr == ""
 
         sandbox.destroy()
-        assert sandbox.status == SandboxStatus.SHUTDOWN
+        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
     @pytest.mark.parametrize(
         "command,expected_exit_code,expected_in_stdout",
@@ -82,8 +82,8 @@ class TestSandboxIntegration:
         try:
             retrieved = Sandbox.get_by_id(original.id)
             assert retrieved.id == original.id
-            assert retrieved.status == SandboxStatus.RUNNING
-            assert retrieved.is_running
+            assert retrieved.get_status() == SandboxStatus.RUNNING
+            assert retrieved.is_running()
         finally:
             original.destroy()
 
@@ -91,10 +91,10 @@ class TestSandboxIntegration:
         config = SandboxConfig(name="posthog-test-context")
 
         with Sandbox.create(config) as sandbox:
-            assert sandbox.is_running
+            assert sandbox.is_running()
 
             result = sandbox.execute("echo 'context test'")
             assert result.exit_code == 0
             assert "context test" in result.stdout
 
-        assert sandbox.status == SandboxStatus.SHUTDOWN
+        assert sandbox.get_status() == SandboxStatus.SHUTDOWN

@@ -82,14 +82,12 @@ class Sandbox:
     """
 
     id: str
-    status: SandboxStatus
     config: SandboxConfig
     _sandbox: modal.Sandbox
     _app: modal.App
 
-    def __init__(self, sandbox: modal.Sandbox, status: SandboxStatus, config: SandboxConfig):
+    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig):
         self.id = sandbox.object_id
-        self.status = status
         self.config = config
         self._sandbox = sandbox
         self._app = Sandbox._get_default_app()
@@ -116,8 +114,7 @@ class Sandbox:
 
             secrets = []
             if config.environment_variables:
-                env_vars: dict[str, str | None] = config.environment_variables
-                secret = modal.Secret.from_dict(env_vars)
+                secret = modal.Secret.from_dict(config.environment_variables)
                 secrets.append(secret)
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -140,8 +137,7 @@ class Sandbox:
             if config.metadata:
                 sb.set_tags(config.metadata)
 
-            initial_status: SandboxStatus = SandboxStatus.RUNNING
-            sandbox = Sandbox(sandbox=sb, status=initial_status, config=config)
+            sandbox = Sandbox(sandbox=sb, config=config)
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -158,25 +154,22 @@ class Sandbox:
 
             config = SandboxConfig(name=getattr(sb, "name", f"sandbox-{sandbox_id}"))
 
-            status: SandboxStatus = SandboxStatus.RUNNING if sb.poll() is None else SandboxStatus.SHUTDOWN
-
-            sandbox = Sandbox(sandbox=sb, status=status, config=config)
-
-            logger.info(f"Retrieved sandbox {sandbox_id} with status {status}")
-
-            return sandbox
+            return Sandbox(sandbox=sb, config=config)
 
         except Exception as e:
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
             capture_exception(e)
             raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)})
 
+    def get_status(self) -> SandboxStatus:
+        return SandboxStatus.RUNNING if self._sandbox.poll() is None else SandboxStatus.SHUTDOWN
+
     def execute(
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
     ) -> ExecutionResult:
-        if not self.is_running:
+        if not self.get_status() == SandboxStatus.RUNNING:
             raise SandboxExecutionError(
                 f"Sandbox not in running state. Current status: {self.status}",
                 {"sandbox_id": self.id, "status": str(self.status)},
@@ -194,8 +187,8 @@ class Sandbox:
             stderr = process.stderr.read()
 
             result = ExecutionResult(
-                stdout=stdout.decode("utf-8"),
-                stderr=stderr.decode("utf-8"),
+                stdout=stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout,
+                stderr=stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr,
                 exit_code=process.returncode,
                 error=None,
             )
@@ -217,8 +210,8 @@ class Sandbox:
             )
 
     def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
-        if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+        if not self.is_running():
+            raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_url = (
@@ -240,8 +233,8 @@ class Sandbox:
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
-        if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+        if not self.is_running():
+            raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -258,8 +251,8 @@ class Sandbox:
         return result
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
-        if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+        if not self.is_running():
+            raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -270,8 +263,8 @@ class Sandbox:
         return is_clean, result.stdout
 
     def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
-        if not self.is_running:
-            raise RuntimeError(f"Sandbox not in running state. Current status: {self.status}")
+        if not self.is_running():
+            raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -301,10 +294,10 @@ class Sandbox:
         return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 1"
 
     def create_snapshot(self) -> str:
-        if not self.is_running:
+        if not self.is_running():
             raise SandboxExecutionError(
-                f"Sandbox not in running state. Current status: {self.status}",
-                {"sandbox_id": self.id, "status": str(self.status)},
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
             )
 
         try:
@@ -331,7 +324,6 @@ class Sandbox:
     def destroy(self) -> None:
         try:
             self._sandbox.terminate()
-            self.status = SandboxStatus.SHUTDOWN
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
@@ -343,9 +335,8 @@ class Sandbox:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.destroy()
 
-    @property
     def is_running(self) -> bool:
-        return self.status == SandboxStatus.RUNNING
+        return self.get_status() == SandboxStatus.RUNNING
 
     @property
     def name(self) -> str:
