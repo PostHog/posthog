@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { PropertyFilterValue } from '~/types'
 
@@ -10,21 +10,12 @@ export interface PropertyFilterBetweenLogicProps {
 }
 
 function parseNumericValue(value: PropertyFilterValue, index: number): number | null {
+    if (!Array.isArray(value) || value.length !== 2) {
+        return null
+    }
     const valueAtIndex = Array.isArray(value) ? value[index] : null
     const numValue = Number(valueAtIndex)
     return Number.isNaN(numValue) || valueAtIndex === null ? null : numValue
-}
-
-function handleValueChange(
-    minValue: number | null,
-    maxValue: number | null,
-    onSet: (value: PropertyFilterValue) => void
-): void {
-    if (minValue === null || maxValue === null) {
-        onSet(null)
-    } else if (minValue <= maxValue) {
-        onSet([minValue, maxValue])
-    }
 }
 
 export const propertyFilterBetweenLogic = kea<propertyFilterBetweenLogicType>([
@@ -49,19 +40,8 @@ export const propertyFilterBetweenLogic = kea<propertyFilterBetweenLogicType>([
             },
         ],
     })),
-    selectors({
-        errorMessage: [
-            (s) => [s.localMin, s.localMax],
-            (localMin, localMax): string | null => {
-                if (localMin != null && localMax != null && localMin > localMax) {
-                    return 'Min must be less than or equal to max'
-                }
-                return null
-            },
-        ],
-    }),
     listeners(({ values, props }) => ({
-        setLocalMin: ({ value }) => handleValueChange(value, values.localMax, props.onSet),
-        setLocalMax: ({ value }) => handleValueChange(values.localMin, value, props.onSet),
+        setLocalMin: ({ value }) => props.onSet([value ?? NaN, values.localMax ?? NaN]),
+        setLocalMax: ({ value }) => props.onSet([values.localMin ?? NaN, value ?? NaN]),
     })),
 ])

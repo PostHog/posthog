@@ -14,7 +14,7 @@ export interface PropertyFilterBetweenProps {
 
 export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetweenProps): JSX.Element {
     const logic = propertyFilterBetweenLogic({ value, onSet })
-    const { localMin, localMax, errorMessage } = useValues(logic)
+    const { localMin, localMax } = useValues(logic)
     const { setLocalMin, setLocalMax } = useActions(logic)
 
     return (
@@ -26,7 +26,6 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                 onChange={(value) => setLocalMin(value ?? null)}
                 placeholder="min"
                 size={size}
-                status={errorMessage ? 'danger' : undefined}
             />
             <span className="font-medium">and</span>
             <LemonInput
@@ -36,9 +35,7 @@ export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetw
                 onChange={(value) => setLocalMax(value ?? null)}
                 placeholder="max"
                 size={size}
-                status={errorMessage ? 'danger' : undefined}
             />
-            {errorMessage && <span className="text-danger text-xs">{errorMessage}</span>}
         </div>
     )
 }
