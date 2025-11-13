@@ -3459,6 +3459,7 @@ export interface TileFilters {
     date_to?: string | null | undefined
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
+    explicitDate?: boolean | undefined
 }
 
 export interface InsightsThresholdBounds {

@@ -35,7 +35,8 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
                         showCustom
                         dateFrom={overrides.date_from ?? null}
                         dateTo={overrides.date_to ?? null}
-                        onChange={(from, to) => setDates(from, to)}
+                        explicitDate={overrides.explicitDate}
+                        onChange={(from, to, explicitDate) => setDates(from, to, explicitDate)}
                         makeLabel={(key) => (
                             <>
                                 <IconCalendar />
