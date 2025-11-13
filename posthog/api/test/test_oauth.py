@@ -1988,9 +1988,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response_data["error"], "invalid_request")
         self.assertIn("Invalid JSON", response_data["error_description"])
 
-    def _create_access_and_refresh_tokens(
-        self, scopes: str = "openid"
-    ) -> tuple[OAuthAccessToken, OAuthRefreshToken]:
+    def _create_access_and_refresh_tokens(self, scopes: str = "openid") -> tuple[OAuthAccessToken, OAuthRefreshToken]:
         response = self.client.post(
             "/oauth/authorize/",
             {**self.base_authorization_post_body, "scope": scopes},
