@@ -44,8 +44,7 @@ export const SeriesTab = (): JSX.Element => {
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const isPieChart = visualizationType === ChartDisplayType.ActionsPie
-    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
-    const isTotalValueChart = isPieChart || isBarValue
+    const isTotalValueChart = isPieChart
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
@@ -74,17 +73,11 @@ export const SeriesTab = (): JSX.Element => {
     }))
 
     const xAxisLabel = isTotalValueChart ? 'Labels' : 'X-axis'
-    const xAxisTooltip = isTotalValueChart
-        ? isPieChart
-            ? 'Column used to create pie slices (categories)'
-            : 'Column used to create bar labels (categories)'
-        : undefined
+    const xAxisTooltip = isTotalValueChart ? 'Column used to create pie slices (categories)' : undefined
 
     const yAxisLabel = isTotalValueChart ? 'Values' : 'Y-axis'
     const yAxisTooltip = isTotalValueChart
-        ? isPieChart
-            ? 'Column(s) with numeric values to size the pie slices'
-            : 'Column(s) with numeric values to determine bar lengths'
+        ? 'Column(s) with numeric values to size the pie slices'
         : undefined
 
     return (
@@ -260,8 +253,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
     const isPieChart = visualizationType === ChartDisplayType.ActionsPie
-    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
-    const isTotalValueChart = isPieChart || isBarValue
+    const isTotalValueChart = isPieChart
 
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn

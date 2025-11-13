@@ -17,8 +17,7 @@ export const DisplayTab = (): JSX.Element => {
 
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = visualizationType === ChartDisplayType.ActionsPie
-    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
-    const isTotalValueChart = isPieChart || isBarValue
+    const isTotalValueChart = isPieChart
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         return (
@@ -131,7 +130,7 @@ export const DisplayTab = (): JSX.Element => {
                         : [
                               {
                                   key: 'left-y-axis',
-                                  header: isBarValue ? 'X-axis' : 'Left Y-axis',
+                                  header: 'Left Y-axis',
                                   className: 'p-2 flex flex-col gap-2',
                                   content: renderYAxisSettings('leftYAxisSettings'),
                               },

@@ -64,11 +64,6 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconPieChart />,
                     label: 'Pie chart',
                 },
-                {
-                    value: ChartDisplayType.ActionsBarValue,
-                    icon: <IconGraph className="rotate-90" />,
-                    label: 'Bar chart',
-                },
             ],
         },
     ]

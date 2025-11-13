@@ -31,7 +31,6 @@ import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { BarValue } from './Components/Charts/BarValue'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
 import { Table } from './Components/Table'
@@ -232,18 +231,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <PieChart
-                className="p-2"
-                xData={_xData}
-                yData={_yData}
-                chartSettings={chartSettings}
-                presetChartHeight={presetChartHeight}
-            />
-        )
-    } else if (visualizationType === ChartDisplayType.ActionsBarValue) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
-        component = (
-            <BarValue
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
