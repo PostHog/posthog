@@ -132,11 +132,18 @@ class TestFileSystemAPI(APIBaseTest):
         """
         Test deleting a FileSystem object.
         """
+        dashboard = Dashboard.objects.create(team=self.team, name="Delete me", created_by=self.user)
         file_obj = FileSystem.objects.create(
-            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+            team=self.team,
+            path="DeleteMe/DeleteDashboard",
+            type="dashboard",
+            ref=str(dashboard.id),
+            created_by=self.user,
         )
+
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_delete_folder_obj(self):
@@ -144,14 +151,26 @@ class TestFileSystemAPI(APIBaseTest):
         Test deleting a FileSystem folder.
         """
         folder_obj = FileSystem.objects.create(team=self.team, path="DeleteMe", type="folder", created_by=self.user)
+        dashboard_one = Dashboard.objects.create(team=self.team, name="File one", created_by=self.user)
+        dashboard_two = Dashboard.objects.create(team=self.team, name="File two", created_by=self.user)
         file1_obj = FileSystem.objects.create(
-            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+            team=self.team,
+            path="DeleteMe/file1.txt",
+            type="dashboard",
+            ref=str(dashboard_one.id),
+            created_by=self.user,
         )
         file2_obj = FileSystem.objects.create(
-            team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
+            team=self.team,
+            path="DeleteMe/file2.txt",
+            type="dashboard",
+            ref=str(dashboard_two.id),
+            created_by=self.user,
         )
+
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder_obj.pk}/")
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
@@ -1060,23 +1079,25 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
 
         # Create two files:
-        # file_a => (type="doc", ref="FileA")
-        # file_b => (type="doc", ref="FileB")
-        # That way, we can create AccessControl rows that match resource="doc", resource_id="FileB"
+        # file_a => (type="dashboard", ref=str(dashboard_a.id))
+        # file_b => (type="dashboard", ref=str(dashboard_b.id))
+        # That way, we can create AccessControl rows that match resource="dashboard"
+        dashboard_a = Dashboard.objects.create(team=self.team, name="FileA", created_by=self.user)
+        dashboard_b = Dashboard.objects.create(team=self.team, name="FileB", created_by=self.user)
         self.file_a = FileSystem.objects.create(
             team=self.team,
             path="Docs/FileA",
             depth=2,
-            type="doc",
-            ref="FileA",
+            type="dashboard",
+            ref=str(dashboard_a.id),
             created_by=self.user,
         )
         self.file_b = FileSystem.objects.create(
             team=self.team,
             path="Docs/FileB",
             depth=2,
-            type="doc",
-            ref="FileB",
+            type="dashboard",
+            ref=str(dashboard_b.id),
             created_by=self.other_user,
         )
         self.folder = FileSystem.objects.create(
@@ -1102,7 +1123,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
-        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         # The user is not staff, not the creator of file_b => 'none' should exclude it
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
@@ -1126,7 +1147,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_excludes_none_access_objects(self, mock_flag):
-        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
 
         # Attempt to delete file_b => expect 404 because user doesn't see it
         url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/"
@@ -1136,12 +1157,12 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # Confirm we can still delete file_a (which isn't restricted).
         url_a = f"/api/projects/{self.team.id}/file_system/{self.file_a.id}/"
         resp_a = self.client.delete(url_a)
-        self.assertEqual(resp_a.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
         self.assertFalse(FileSystem.objects.filter(pk=self.file_a.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_move_excludes_none_access_objects(self, mock_flag):
-        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/move"
         resp = self.client.post(url, {"new_path": "NewDocs/FileB"})
         # Because user doesn't see file_b => 404
@@ -1149,7 +1170,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_link_and_count_on_none_access(self, mock_flag):
-        self._create_access_control(resource="doc", resource_id="FileB", access_level="none")
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
 
         # link
         link_url = f"/api/projects/{self.team.id}/file_system/{self.file_b.id}/link"
@@ -1165,8 +1186,8 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # Mark file_b => none for everyone
         AccessControl.objects.create(
             team=self.team,
-            resource="doc",
-            resource_id="FileB",
+            resource="dashboard",
+            resource_id=self.file_b.ref,
             access_level="none",
         )
         # Confirm by default we don't see file_b
@@ -1198,8 +1219,8 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         AccessControl.objects.create(
             team=self.team,
-            resource="doc",
-            resource_id="FileB",
+            resource="dashboard",
+            resource_id=self.file_b.ref,
             access_level="none",
         )
         list_url = f"/api/projects/{self.team.id}/file_system/"
@@ -1517,11 +1538,13 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             type="folder",
             created_by=self.user,
         )
+        dashboard_t1 = Dashboard.objects.create(team=self.team, name="Doc-1", created_by=self.user)
         self.doc_t1 = FileSystem.objects.create(
             team=self.team,
             path="Shared/Doc-1.txt",
             depth=2,
-            type="doc",
+            type="dashboard",
+            ref=str(dashboard_t1.id),
             created_by=self.user,
         )
 
@@ -1537,7 +1560,7 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
     def test_destroy_folder_repairs_for_leftover_items(self):
         delete_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/"
         resp = self.client.delete(delete_url)
-        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
 
         self.assertFalse(
             FileSystem.objects.filter(team=self.team, path__startswith="Shared").exists(),
