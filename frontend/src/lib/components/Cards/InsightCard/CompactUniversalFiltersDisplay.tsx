@@ -42,47 +42,20 @@ export function CompactUniversalFiltersDisplay({
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    // Handle both UniversalFiltersGroup and PropertyGroupFilter
-    const isPropertyGroupFilter =
-        groupFilter &&
-        'values' in groupFilter &&
-        Array.isArray(groupFilter.values) &&
-        groupFilter.values.length > 0 &&
-        'values' in groupFilter.values[0]
-
-    let filtersToRender: UniversalFiltersGroupValue[] = []
-    let filterType = FilterLogicalOperator.And
-
-    if (!groupFilter) {
-        return <i>None</i>
-    }
-
-    if (isPropertyGroupFilter) {
-        // PropertyGroupFilter has nested structure: { type, values: [{ type, values: [...] }] }
-        const propertyGroup = groupFilter as PropertyGroupFilter
-        filtersToRender = propertyGroup.values
-        filterType = propertyGroup.type || FilterLogicalOperator.And
-    } else {
-        // UniversalFiltersGroup has flat structure: { type, values: [...] }
-        const universalGroup = groupFilter as UniversalFiltersGroup
-        filtersToRender = universalGroup.values
-        filterType = universalGroup.type || FilterLogicalOperator.And
-    }
-
-    if (!filtersToRender.length) {
+    if (!groupFilter || !groupFilter.values.length) {
         return <i>None</i>
     }
 
     return (
         <>
-            {filtersToRender.map((filterOrGroup, index) => {
+            {groupFilter.values.map((filterOrGroup, index) => {
                 if (isUniversalFiltersGroup(filterOrGroup)) {
                     // Nested group
                     return (
                         <React.Fragment key={index}>
                             {index > 0 && (
                                 <em className="text-[11px] font-semibold leading-5">
-                                    {filterType === FilterLogicalOperator.Or ? 'OR' : 'AND'}
+                                    {groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
                                 </em>
                             )}
                             <CompactUniversalFiltersDisplay groupFilter={filterOrGroup} embedded={embedded} />
@@ -95,7 +68,7 @@ export function CompactUniversalFiltersDisplay({
                         <div key={index} className="SeriesDisplay__condition">
                             <span>
                                 {embedded && index === 0 ? 'where ' : null}
-                                {index > 0 ? (filterType === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
+                                {index > 0 ? (groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
                                 Performed action
                                 <Link
                                     to={urls.action(filterOrGroup.id as number)}
@@ -117,7 +90,7 @@ export function CompactUniversalFiltersDisplay({
                         <span>
                             {isFirstFilterOverall && embedded ? 'where ' : null}
                             {index > 0 ? (
-                                <strong>{filterType === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
+                                <strong>{groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
                             ) : null}
                             {isCohortPropertyFilter(filterOrGroup) ? (
                                 <>
