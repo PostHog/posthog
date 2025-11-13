@@ -5,6 +5,7 @@ import json
 import typing as t
 import datetime as dt
 import operator
+import collections.abc
 from collections import deque
 from uuid import uuid4
 
@@ -370,7 +371,7 @@ async def assert_clickhouse_records_in_snowflake(
     expected_fields: list[str] | None = None,
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
-    uppercase_columns: list[str] | None = None,
+    timestamp_columns: collections.abc.Sequence[str] = (),
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -397,15 +398,18 @@ async def assert_clickhouse_records_in_snowflake(
     # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
     # We rely on the order of the columns in each row matching the order set in cursor.description.
     # This seems to be the case, at least for now.
-    inserted_records = [
-        {
-            columns[index]: json.loads(row[index])
-            if columns[index] in json_columns and row[index] is not None
-            else row[index]
-            for index in columns.keys()
-        }
-        for row in rows
-    ]
+    inserted_records = []
+    for row in rows:
+        record = {}
+
+        for index in columns.keys():
+            if columns[index] in json_columns and row[index] is not None:
+                record[columns[index]] = json.loads(row[index])
+            elif isinstance(row[index], int) and columns[index] in timestamp_columns:
+                record[columns[index]] = dt.datetime.fromtimestamp(row[index])
+            else:
+                record[columns[index]] = row[index]
+        inserted_records.append(record)
 
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
