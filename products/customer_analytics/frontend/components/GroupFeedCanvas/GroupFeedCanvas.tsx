@@ -29,6 +29,7 @@ export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Ele
                             attrs: {
                                 groupKey,
                                 groupTypeIndex,
+                                tabId,
                                 nodeId: uuid(),
                                 children: [
                                     {
@@ -62,7 +63,7 @@ export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Ele
                         },
                         {
                             type: 'ph-issues',
-                            attrs: { groupKey, groupTypeIndex, nodeId: uuid() },
+                            attrs: { groupKey, groupTypeIndex, tabId, nodeId: uuid() },
                         },
                         {
                             type: 'ph-llm-trace',
