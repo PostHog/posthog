@@ -49,16 +49,10 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.SESSION_SUMMARIZATION
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -276,9 +270,7 @@ class _SessionSearch:
 
     def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
         """Convert current filters into recordings query format"""
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            convert_filters_to_recordings_query,
-        )
+        from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 
         # Create a temporary playlist object to use the conversion function
         temp_playlist = SessionRecordingPlaylist(filters=current_filters)

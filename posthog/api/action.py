@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.db.models import Count
-from django.dispatch import receiver
 
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
@@ -17,7 +16,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -174,7 +173,7 @@ class ActionViewSet(
         return Response({"results": actions_list})
 
 
-@receiver(model_activity_signal, sender=Action)
+@mutable_receiver(model_activity_signal, sender=Action)
 def handle_action_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
     # Detect soft delete/restore by checking the deleted field
     if before_update and after_update:

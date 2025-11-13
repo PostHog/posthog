@@ -1,3 +1,5 @@
+
+
 import { DashboardAddInsightSchema } from '@/schema/tool-inputs'
 import { resolveInsightId } from '@/tools/insights/utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -8,15 +10,13 @@ const schema = DashboardAddInsightSchema
 
 type Params = z.infer<typeof schema>
 
-export const addInsightHandler = async (context: Context, params: Params) => {
+export const addInsightHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
 
     const numericInsightId = await resolveInsightId(context, data.insightId, projectId)
 
-    const insightResult = await context.api
-        .insights({ projectId })
-        .get({ insightId: data.insightId })
+    const insightResult = await context.api.insights({ projectId }).get({ insightId: data.insightId })
 
     if (!insightResult.success) {
         throw new Error(`Failed to get insight: ${insightResult.error.message}`)

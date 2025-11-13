@@ -1,3 +1,5 @@
+
+
 import { SurveyDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
@@ -6,7 +8,7 @@ import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 const schema = SurveyDeleteSchema
 type Params = z.infer<typeof schema>
 
-export const deleteHandler = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { surveyId } = params
     const projectId = await context.stateManager.getProjectId()
 

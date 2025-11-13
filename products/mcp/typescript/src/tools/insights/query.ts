@@ -1,3 +1,5 @@
+
+
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
@@ -7,7 +9,7 @@ const schema = InsightQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const queryHandler = async (context: Context, params: Params) => {
+export const queryHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
     const projectId = await context.stateManager.getProjectId()
 

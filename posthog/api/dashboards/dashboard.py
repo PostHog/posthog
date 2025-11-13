@@ -6,7 +6,6 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
-from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 
@@ -41,7 +40,7 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -935,7 +934,7 @@ class DashboardsViewSet(
                 creation_mode="unlisted",
             )
 
-            create_from_template(dashboard, template, cast(User, request.user))
+            create_from_template(dashboard, template, cast(User, request.user), force_system_tags=True)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
@@ -956,7 +955,7 @@ class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
 
 
-@receiver(model_activity_signal, sender=Dashboard)
+@mutable_receiver(model_activity_signal, sender=Dashboard)
 def handle_dashboard_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

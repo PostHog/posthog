@@ -1,3 +1,5 @@
+
+
 import { ExperimentResultsResponseSchema } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -13,7 +15,7 @@ type Params = z.infer<typeof schema>
  * This tool fetches the experiment details and executes the necessary queries
  * to get metrics results (both primary and secondary) and exposure data
  */
-export const getResultsHandler = async (context: Context, params: Params) => {
+export const getResultsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.experiments({ projectId }).getMetricResults({

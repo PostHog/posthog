@@ -1,7 +1,9 @@
+
+
 import { ExperimentUpdateTransformSchema } from '@/schema/experiments'
 import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import type { Context, Tool } from '@/tools/types'
+import type { Context, Tool, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
@@ -9,7 +11,7 @@ const schema = ExperimentUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { experimentId, data } = params
     const projectId = await context.stateManager.getProjectId()
 

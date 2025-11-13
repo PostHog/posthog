@@ -1,13 +1,16 @@
 import { FeatureFlagGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+<<<<<<< LEFT
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
+||||||| BASE
+import type { z } from 'zod'
+=======
+>>>>>>> RIGHT
 
 const schema = FeatureFlagGetAllSchema
 
-type Params = z.infer<typeof schema>
-
-export const getAllHandler = async (context: Context, _params: Params) => {
+export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const projectId = await context.stateManager.getProjectId()
 
     const flagsResult = await context.api.featureFlags({ projectId }).list()

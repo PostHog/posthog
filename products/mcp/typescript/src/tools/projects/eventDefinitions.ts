@@ -1,3 +1,5 @@
+
+
 import { EventDefinitionSchema } from '@/schema/properties'
 import { ProjectEventDefinitionsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -8,12 +10,13 @@ const schema = ProjectEventDefinitionsSchema
 
 type Params = z.infer<typeof schema>
 
-export const eventDefinitionsHandler = async (context: Context, _params: Params) => {
+export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async (
+    context: Context,
+    _params: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
-    const eventDefsResult = await context.api
-        .projects()
-        .eventDefinitions({ projectId, search: _params.q })
+    const eventDefsResult = await context.api.projects().eventDefinitions({ projectId, search: _params.q })
 
     if (!eventDefsResult.success) {
         throw new Error(`Failed to get event definitions: ${eventDefsResult.error.message}`)

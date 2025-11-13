@@ -1,3 +1,5 @@
+
+
 import { FeatureFlagDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
@@ -7,7 +9,7 @@ const schema = FeatureFlagDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { flagKey } = params
     const projectId = await context.stateManager.getProjectId()
 

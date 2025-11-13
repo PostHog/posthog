@@ -1,13 +1,16 @@
 import { OrganizationGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+<<<<<<< LEFT
 import type { z } from 'zod'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
+||||||| BASE
+import type { z } from 'zod'
+=======
+>>>>>>> RIGHT
 
 const schema = OrganizationGetAllSchema
 
-type Params = z.infer<typeof schema>
-
-export const getOrganizationsHandler = async (context: Context, _params: Params) => {
+export const getOrganizationsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgsResult = await context.api.organizations().list()
     if (!orgsResult.success) {
         throw new Error(`Failed to get organizations: ${orgsResult.error.message}`)

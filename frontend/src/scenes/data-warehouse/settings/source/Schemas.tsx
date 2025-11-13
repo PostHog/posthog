@@ -218,6 +218,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Enabled',
                         key: 'should_sync',
+                        sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                         render: function RenderShouldSync(_, schema) {
                             return (
                                 <LemonSwitch

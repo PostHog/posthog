@@ -1,3 +1,5 @@
+
+
 import { SurveyCreateSchema } from '@/schema/tool-inputs'
 import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -7,7 +9,7 @@ import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 const schema = SurveyCreateSchema
 type Params = z.infer<typeof schema>
 
-export const createHandler = async (context: Context, params: Params) => {
+export const createHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
 
     // Process questions to handle branching logic
