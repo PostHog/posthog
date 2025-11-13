@@ -19,6 +19,8 @@ import {
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ChartDisplayType } from '~/types'
+
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
@@ -34,11 +36,16 @@ export const SeriesTab = (): JSX.Element => {
         tabularColumns,
         selectedXAxis,
         dataVisualizationProps,
+        visualizationType,
     } = useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { showSeriesBreakdown } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
+
+    const isPieChart = visualizationType === ChartDisplayType.ActionsPie
+    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
+    const isTotalValueChart = isPieChart || isBarValue
 
     const hideAddYSeries = yData.length >= numericalColumns.length
     const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
@@ -66,9 +73,25 @@ export const SeriesTab = (): JSX.Element => {
         ),
     }))
 
+    const xAxisLabel = isTotalValueChart ? 'Labels' : 'X-axis'
+    const xAxisTooltip = isTotalValueChart
+        ? isPieChart
+            ? 'Column used to create pie slices (categories)'
+            : 'Column used to create bar labels (categories)'
+        : undefined
+
+    const yAxisLabel = isTotalValueChart ? 'Values' : 'Y-axis'
+    const yAxisTooltip = isTotalValueChart
+        ? isPieChart
+            ? 'Column(s) with numeric values to size the pie slices'
+            : 'Column(s) with numeric values to determine bar lengths'
+        : undefined
+
     return (
         <div className="flex flex-col w-full p-3">
-            <LemonLabel className="mb-1">X-axis</LemonLabel>
+            <LemonLabel className="mb-1" info={xAxisTooltip}>
+                {xAxisLabel}
+            </LemonLabel>
             <LemonSelect
                 className="w-full"
                 value={xData !== null ? xData.column.name : 'None'}
@@ -94,7 +117,9 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakdown && <SeriesBreakdownSelector />}
 
-            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
+            <LemonLabel className="mt-4 mb-1" info={yAxisTooltip}>
+                {yAxisLabel}
+            </LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
@@ -106,7 +131,7 @@ export const SeriesTab = (): JSX.Element => {
                     icon={<IconPlusSmall />}
                     fullWidth
                 >
-                    Add Y-series
+                    {isTotalValueChart ? 'Add value' : 'Add Y-series'}
                 </LemonButton>
             )}
         </div>
@@ -230,9 +255,13 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 }
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps, visualizationType } = useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
+
+    const isPieChart = visualizationType === ChartDisplayType.ActionsPie
+    const isBarValue = visualizationType === ChartDisplayType.ActionsBarValue
+    const isTotalValueChart = isPieChart || isBarValue
 
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
@@ -290,7 +319,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     )}
                 </div>
             )}
-            {!showTableSettings && (
+            {!showTableSettings && !isTotalValueChart && (
                 <>
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">
