@@ -630,14 +630,17 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
-                Person.objects.filter(
-                    team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
-                )
+                Person.objects.filter(team_id=self.team.pk, id=pdi.person_id if pdi else None)
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -653,14 +656,17 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
-                Person.objects.filter(
-                    team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
-                )
+                Person.objects.filter(team_id=self.team.pk, id=pdi.person_id if pdi else None)
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -741,14 +747,17 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
-                Person.objects.filter(
-                    team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
-                )
+                Person.objects.filter(team_id=self.team.pk, id=pdi.person_id if pdi else None)
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -786,14 +795,20 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             data={"properties": [{"key": "created_at", "value": "2d", "type": "person", "operator": "is_date_after"}]}
         )
 
-        with self.assertNumQueries(1), freeze_time("2021-04-06T10:00:00"):
+        with self.assertNumQueries(2), freeze_time("2021-04-06T10:00:00"):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -808,7 +823,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             data={"properties": [{"key": "registration_ts", "value": "4", "type": "person", "operator": "gt"}]}
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -821,10 +840,12 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -867,7 +888,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -880,10 +905,12 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         # This shouldn't pass because we have an AND condition with a broken lte operator
         # (we should never have a lte operator comparing against a list of values)
@@ -933,7 +960,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             },
         )
         filter = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]})
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -946,10 +977,12 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         # This should now pass because the cohort filter still has one valid condition
         self.assertTrue(matched_person)
@@ -989,7 +1022,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 }
             }
         )
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.annotate(
                     **{
@@ -1002,10 +1039,12 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
         self.assertTrue(matched_person)
 
@@ -1020,11 +1059,15 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             data={"properties": [{"key": "created_at", "value": "2m", "type": "person", "operator": "is_date_after"}]}
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):  # 1 extra query for PersonDistinctId lookup
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(
                     properties_to_Q(
@@ -1034,6 +1077,8 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     )
                 )
                 .exists()
+                if pdi
+                else False
             )
         self.assertFalse(matched_person)
 
@@ -1054,13 +1099,19 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         )
 
         with snapshot_postgres_queries_context(self):
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
             # needs an exact match
             self.assertFalse(matched_person)
@@ -1072,13 +1123,19 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         )
 
         with snapshot_postgres_queries_context(self):
+            # Dual-table support: Query PersonDistinctId first to get person_id
+            from posthog.models.person import PersonDistinctId
+
+            pdi = PersonDistinctId.objects.filter(team_id=self.team.pk, distinct_id=person1_distinct_id).first()
             matched_person = (
                 Person.objects.filter(
                     team_id=self.team.pk,
-                    persondistinctid__distinct_id=person1_distinct_id,
+                    id=pdi.person_id if pdi else None,
                 )
                 .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
                 .exists()
+                if pdi
+                else False
             )
             self.assertFalse(matched_person)
 
