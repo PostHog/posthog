@@ -185,7 +185,8 @@ function LogsTable({
     showHeader = true,
 }: LogsTableProps): JSX.Element {
     const { togglePinLog } = useActions(logsLogic)
-
+    const { highlightedLogId } = useValues(logsLogic)
+    
     return (
         <LemonTable
             hideScrollbar
@@ -194,6 +195,8 @@ function LogsTable({
             loading={loading}
             size="small"
             embedded
+            rowKey="uuid"
+            rowStatus={(record) => (record.uuid === highlightedLogId ? 'highlighted' : null)}
             rowClassName={(record) =>
                 isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
             }
