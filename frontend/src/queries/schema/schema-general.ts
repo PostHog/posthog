@@ -2683,6 +2683,7 @@ export type FileSystemIconType =
     | 'apps'
     | 'live'
     | 'chat'
+    | 'search'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
