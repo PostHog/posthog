@@ -119,6 +119,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
+        // Separate action to set explicitDate so we don't lose the flag value when changing dates in the selector
+        setExplicitDate: (explicitDate: boolean) => ({ explicitDate }),
     }),
 
     reducers({
@@ -552,8 +554,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 dateRange: {
                     ...values.dateRange,
                     ...dateRange,
+                    explicitDate: values.dateRange?.explicitDate ?? dateRange.explicitDate,
                 },
                 ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            })
+        },
+        setExplicitDate: ({ explicitDate }) => {
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    explicitDate,
+                },
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {

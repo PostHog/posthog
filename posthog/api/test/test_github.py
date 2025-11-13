@@ -277,3 +277,18 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         # Verify the response is about signature, not about body access
         self.assertEqual(response.json(), {"detail": "Invalid signature"})
+
+    def test_accepts_json_content_type(self):
+        """Test that the endpoint accepts application/json content type (not 415 error)."""
+        # Test without signature headers first to verify content type is accepted
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(self.valid_payload),
+            content_type="application/json",
+        )
+
+        # Should get 400 for missing headers, not 415 for unsupported content type
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST])
+        # Verify it's complaining about headers, not content type
+        data = response.json()
+        self.assertIn("Github-Public-Key-Identifier", str(data))

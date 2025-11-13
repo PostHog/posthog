@@ -117,7 +117,7 @@ describe('postgres parity', () => {
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
-                team_id: teamId.toString(),
+                team_id: teamId,
                 properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
@@ -160,15 +160,15 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
             {
                 distinct_id: 'distinct2',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
         ])
@@ -332,8 +332,8 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
         ])
@@ -431,15 +431,15 @@ describe('postgres parity', () => {
             {
                 distinct_id: 'another_distinct_id',
                 person_id: anotherPerson.uuid,
-                team_id: teamId.toString(),
-                version: '0',
+                team_id: teamId,
+                version: 0,
                 is_deleted: 0,
             },
             {
                 distinct_id: 'distinct1',
                 person_id: anotherPerson.uuid,
-                team_id: teamId.toString(),
-                version: '1',
+                team_id: teamId,
+                version: 1,
                 is_deleted: 0,
             },
         ])
