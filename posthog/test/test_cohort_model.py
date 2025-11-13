@@ -323,8 +323,8 @@ class TestCohort(BaseTest):
             "fe3876bc-c75c-4c79-ae55-2af6892b9da7",
             "345b621a-26e1-4888-a9eb-175329f7923b",
         ]
-        for uuid in uuids:
-            Person.objects.create(team=self.team, uuid=uuid)
+        for the_uuid in uuids:
+            Person.objects.create(team=self.team, uuid=the_uuid)
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
 
         # Insert all users into the cohort using batching (batchsize=3)
