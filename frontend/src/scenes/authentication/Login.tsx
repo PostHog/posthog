@@ -61,7 +61,7 @@ export const scene: SceneExport = {
 }
 
 export function Login(): JSX.Element {
-    const { precheck, resendEmailMFA, clearGeneralError } = useActions(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError, resetLogin } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -75,12 +75,16 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
+    const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
 
     useEffect(() => {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
+        } else {
+            // clear form when password field becomes hidden
+            resetLogin()
         }
     }, [isPasswordHidden])
 
@@ -154,9 +158,10 @@ export function Login(): JSX.Element {
                         formKey="login"
                         enableFormOnSubmit
                         onSubmitCapture={(e) => {
-                            if (isPasswordHidden) {
+                            if (isPasswordHidden || preventPasswordError.current) {
                                 e.preventDefault()
                                 e.stopPropagation()
+                                preventPasswordError.current = false
                             }
                         }}
                         className="deprecated-space-y-4"
@@ -173,6 +178,7 @@ export function Login(): JSX.Element {
                                 onPressEnter={(e) => {
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
+                                        passwordInputRef.current?.focus()
                                     }
                                 }}
                             />
@@ -214,6 +220,12 @@ export function Login(): JSX.Element {
                                 center
                                 loading={isLoginSubmitting || precheckResponseLoading}
                                 size="large"
+                                onMouseDown={() => {
+                                    if (isPasswordHidden) {
+                                        // prevent empty password error
+                                        preventPasswordError.current = true
+                                    }
+                                }}
                             >
                                 Log in
                             </LemonButton>
