@@ -1,5 +1,6 @@
-import { kea, path, props } from 'kea'
+import { actions, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -25,7 +26,37 @@ export interface EventDefinitionFormType {
 export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
     path(['scenes', 'data-management', 'events', 'eventDefinitionModalLogic']),
     props({} as EventDefinitionModalLogicProps),
-    forms(({ props, actions }) => ({
+    actions({
+        checkEventNameExists: (name: string) => ({ name }),
+    }),
+    loaders(() => ({
+        existingEvent: [
+            null as EventDefinition | null,
+            {
+                checkEventNameExists: async ({ name }) => {
+                    if (!name || name.trim().length === 0) {
+                        return null
+                    }
+                    try {
+                        const response = await api.eventDefinitions.list({
+                            event: name.trim(),
+                        })
+                        // Find exact match
+                        const exactMatch = response.results?.find((e: EventDefinition) => e.name === name.trim())
+                        return exactMatch || null
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
+    })),
+    reducers({
+        existingEvent: {
+            resetEventDefinitionForm: () => null,
+        },
+    }),
+    forms(({ props, actions, values }) => ({
         eventDefinitionForm: {
             defaults: {
                 name: '',
@@ -34,7 +65,11 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                 tags: [],
             } as EventDefinitionFormType,
             errors: ({ name }) => ({
-                name: !name ? 'Event name is required' : undefined,
+                name: !name
+                    ? 'Event name is required'
+                    : values.existingEvent
+                      ? `Event "${name}" already exists`
+                      : undefined,
             }),
             submit: async (formValues) => {
                 try {
@@ -64,6 +99,19 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ actions }) => ({
+        setEventDefinitionFormValue: ({ name, value }) => {
+            if (name === 'name' && typeof value === 'string') {
+                // Debounce check by only checking when user stops typing
+                const trimmedValue = value.trim()
+                if (trimmedValue.length > 0) {
+                    actions.checkEventNameExists(trimmedValue)
+                } else {
+                    actions.checkEventNameExistsSuccess(null)
+                }
+            }
         },
     })),
 ])

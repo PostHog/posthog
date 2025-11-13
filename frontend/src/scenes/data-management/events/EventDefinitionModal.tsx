@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -20,7 +21,7 @@ export interface EventDefinitionModalProps {
 
 export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalProps): JSX.Element {
     const logic = eventDefinitionModalLogic({ onClose })
-    const { eventDefinitionForm, isEventDefinitionFormSubmitting } = useValues(logic)
+    const { eventDefinitionForm, isEventDefinitionFormSubmitting, existingEvent } = useValues(logic)
     const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
@@ -42,6 +43,7 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
                         type="primary"
                         onClick={submitEventDefinitionForm}
                         loading={isEventDefinitionFormSubmitting}
+                        disabled={!eventDefinitionForm.name || !!existingEvent}
                     >
                         Create event
                     </LemonButton>
@@ -52,6 +54,13 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
                 <LemonBanner type="info">
                     <strong>Note:</strong> Event names cannot be changed after creation. Choose your name carefully.
                 </LemonBanner>
+
+                {existingEvent && (
+                    <LemonBanner type="warning">
+                        An event with the name "{existingEvent.name}" already exists.{' '}
+                        <Link to={urls.eventDefinition(existingEvent.id)}>View existing event</Link>
+                    </LemonBanner>
+                )}
 
                 <LemonField name="name" label="Event name">
                     <LemonInput
