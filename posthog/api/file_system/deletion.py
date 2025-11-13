@@ -354,6 +354,16 @@ def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
     )
 
 
+def _experiment_post_delete(context: DeleteContext, experiment: Any) -> None:
+    _log_file_system_activity(
+        context.viewset,
+        scope="Experiment",
+        activity="deleted",
+        item_id=experiment.id,
+        name=experiment.name or "Untitled experiment",
+    )
+
+
 def _insight_post_delete(context: DeleteContext, insight: Any) -> None:
     _log_file_system_activity(
         context.viewset,
@@ -558,6 +568,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "experiment": ModelConfig(
         app_label="posthog",
         model_name="Experiment",
+        post_delete_hook=_experiment_post_delete,
         post_restore_hook=_experiment_post_restore,
     ),
     "insight": ModelConfig(
