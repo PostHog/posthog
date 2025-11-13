@@ -127,6 +127,10 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             scheduledAt,
         }),
+        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
