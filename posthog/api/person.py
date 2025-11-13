@@ -397,7 +397,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+            # Use dual-table-aware helper instead of reverse FK relation
+            from posthog.models.person.util import get_persons_by_distinct_ids
+
+            persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")

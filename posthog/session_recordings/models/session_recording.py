@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
+from posthog.models.person.person import Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -138,14 +138,12 @@ class SessionRecording(UUIDTModel):
         if self._person:
             return
 
-        try:
-            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
-                persondistinctid__distinct_id=self.distinct_id,
-                persondistinctid__team_id=self.team.pk,
-                team=self.team,
-            )
-        except Person.DoesNotExist:
-            pass
+        # Use dual-table-aware helper instead of reverse FK relation
+        from posthog.models.person.util import get_persons_by_distinct_ids
+
+        persons = get_persons_by_distinct_ids(self.team.pk, [self.distinct_id])
+        if persons:
+            self.person = persons[0]
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:

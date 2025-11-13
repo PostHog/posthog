@@ -515,11 +515,28 @@ class FeatureFlagMatcher:
                 # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
                 # and not just the database query.
                 all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
-                    team_id=self.team_id,
-                    persondistinctid__distinct_id=self.distinct_id,
-                    persondistinctid__team_id=self.team_id,
+
+                # Dual-table support: Query PersonDistinctId first to get person_id,
+                # then filter Person by id instead of using reverse FK relation
+                from posthog.models.person import PersonDistinctId
+
+                distinct_id_obj = (
+                    PersonDistinctId.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS)
+                    .filter(
+                        team_id=self.team_id,
+                        distinct_id=self.distinct_id,
+                    )
+                    .first()
                 )
+
+                if distinct_id_obj:
+                    person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                        team_id=self.team_id,
+                        id=distinct_id_obj.person_id,
+                    )
+                else:
+                    # No person found for this distinct_id
+                    person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).none()
                 basic_group_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
                     team_id=self.team_id
                 )
