@@ -609,7 +609,11 @@ The tool will automatically:
 
 **Group-based:**
 - "Create a flag targeting organizations"
-- "Create a flag for companies where employee count > 100"
+- "Create a flag for companies where employee count > 100
+
+**For experiments**: If creating a flag for an A/B test or experiment, after creating
+the flag, you should navigate to the experiments page and use create_experiment with
+this flag's key to complete the experiment setup."
     """.strip()
     context_prompt_template: str = "Creates a new feature flag in the project with optional property-based targeting and multivariate variants for A/B testing"
     args_schema: type[BaseModel] = CreateFeatureFlagArgs

@@ -23,6 +23,7 @@ import { ParsedLogMessage } from './types'
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -43,6 +44,9 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
                 actions.setServiceNames(params.serviceNames)
+            }
+            if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
+                actions.setOrderBy(params.orderBy)
             }
         }
         return {
@@ -65,6 +69,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 actions.runQuery()
                 return params
             })
@@ -76,6 +81,7 @@ export const logsLogic = kea<logsLogicType>([
             setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
+            setOrderBy: () => buildURL(),
         }
     }),
 
@@ -119,7 +125,7 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         orderBy: [
-            'latest' as LogsQuery['orderBy'],
+            DEFAULT_ORDER_BY,
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
