@@ -132,11 +132,6 @@ TOOL_USAGE_POLICY_PROMPT = """
 </tool_usage_policy>
 """.strip()
 
-CORE_MEMORY_INSTRUCTIONS_PROMPT = """
-{{{core_memory}}}
-New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
-""".strip()
-
 AGENT_PROMPT = """
 {{{role}}}
 
@@ -155,8 +150,11 @@ AGENT_PROMPT = """
 {{{tool_usage_policy}}}
 
 {{{billing_context}}}
+""".strip()
 
-{{{core_memory_instructions}}}
+AGENT_CORE_MEMORY_PROMPT = """
+{{{core_memory}}}
+New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
 """.strip()
 
 # Conditional prompts
