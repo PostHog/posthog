@@ -672,9 +672,8 @@ pub async fn set_feature_flag_hash_key_overrides(
         )
         .await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+            Err(e) => {
                 // Track error classification
                 classify_and_track_error(e, "set_hash_key_overrides", true);
 
@@ -695,17 +694,10 @@ pub async fn set_feature_flag_hash_key_overrides(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
-                    "Hash key override setting failed due to person deletion, will retry"
+                    "Hash key override setting failed, will retry"
                 );
 
                 // Return error to trigger retry
-                result
-            }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "set_hash_key_overrides", false);
-
                 result
             }
             // Success case - return the result
@@ -733,7 +725,7 @@ async fn try_set_feature_flag_hash_key_overrides(
     .await?;
     let mut transaction = persons_conn.begin().await?;
 
-    // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
+    // Query 1: Get all person data - person_ids + existing overrides (person pool)
     let person_data_query = r#"
             SELECT DISTINCT
                 p.person_id,
@@ -744,10 +736,6 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND (
-                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-                )
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
