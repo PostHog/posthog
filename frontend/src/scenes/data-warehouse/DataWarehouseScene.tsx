@@ -70,7 +70,7 @@ export function DataWarehouseScene(): JSX.Element {
                         content: <SourcesTab />,
                     },
                     {
-                        key: DataWarehouseTab.QUERIES,
+                        key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <QueriesTab />,
                     },
