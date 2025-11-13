@@ -13,6 +13,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DashboardPlacement } from '~/types'
 
+import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
+import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
+import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 export function LLMAnalyticsReloadAction(): JSX.Element {
@@ -36,6 +39,11 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
     const { triggerDashboardRefresh } = useActions(dashboardLogicInstance)
 
     const { reloadAll } = useActions(dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }))
+    const { reloadAll: reloadEvaluationMetrics } = useActions(
+        dataNodeCollectionLogic({ key: EVALUATION_METRICS_COLLECTION_ID })
+    )
+    const { refreshMetrics: refreshEvaluationMetrics } = useActions(evaluationMetricsLogic)
+    const { loadEvaluations } = useActions(llmEvaluationsLogic)
 
     const isLoading = shouldUseDashboardLogic ? dashboardLoading : oldTilesRefreshing
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
@@ -49,6 +57,11 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
                 // Old hardcoded tiles
                 refreshAllDashboardItems()
             }
+        } else if (activeTab === 'evaluations') {
+            // Refresh evaluations list and metrics
+            loadEvaluations()
+            refreshEvaluationMetrics()
+            reloadEvaluationMetrics()
         } else {
             reloadAll()
         }

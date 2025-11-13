@@ -57,8 +57,8 @@ dependencies = [
     "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",
     "google-genai==1.46.0",
+    "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
-    "gunicorn==20.1.0",
     "hogql-parser==1.2.11",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -86,7 +86,7 @@ dependencies = [
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics>=6.9.1",
+    "posthoganalytics==6.9.3",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -358,7 +358,6 @@ python-version = "3.12"
 [tool.ty.src]
 exclude = [
     "bin/**",
-    "gunicorn.config.py",
     "manage.py",
     "posthog/hogql/grammar/**",
 ]

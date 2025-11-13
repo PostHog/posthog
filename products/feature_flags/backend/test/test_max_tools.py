@@ -272,6 +272,76 @@ class TestCreateFeatureFlagTool(APIBaseTest):
             exists = await FeatureFlag.objects.filter(key="invalid-group", team=self.team).aexists()
             assert not exists
 
+    async def test_create_flag_key_validation(self):
+        """Test that feature flag keys follow the required regex pattern: ^[a-zA-Z0-9_-]+$"""
+        import re
+
+        tool = self._create_tool()
+
+        # Test valid keys
+        valid_keys = [
+            "simple-flag",
+            "flag_with_underscores",
+            "Flag-With-Mixed-CASE-123",
+            "123-numeric-start",
+            "a",
+            "flag-123_test",
+        ]
+
+        for key in valid_keys:
+            mock_schema = FeatureFlagCreationSchema(
+                key=key,
+                name=f"Test Flag {key}",
+            )
+
+            with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+                result, artifact = await tool._arun_impl(instructions=f"Create a flag called {key}")
+
+                assert "Successfully created" in result, f"Valid key '{key}' should be accepted"
+                assert artifact["flag_key"] == key
+                assert re.match(r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]), f"Key '{key}' should match regex pattern"
+
+                # Clean up for next iteration
+                await FeatureFlag.objects.filter(key=key, team=self.team).adelete()
+
+        # Test invalid keys that should be rejected
+        invalid_keys = [
+            "flag with spaces",
+            "flag@special",
+            "flag#chars",
+            "flag.dot",
+            "flag!exclamation",
+            "flag$dollar",
+            "flag%percent",
+            "flag&ampersand",
+            "flag(paren",
+            "flag+plus",
+        ]
+
+        for key in invalid_keys:
+            mock_schema = FeatureFlagCreationSchema(
+                key=key,
+                name=f"Test Flag {key}",
+            )
+
+            with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+                result, artifact = await tool._arun_impl(instructions=f"Create a flag called {key}")
+
+                # Either the key should be rejected with an error, or it should be sanitized
+                if artifact.get("error"):
+                    assert (
+                        "invalid" in result.lower() or "key" in result.lower()
+                    ), f"Invalid key '{key}' should produce an error message"
+                else:
+                    # If not rejected, the key must be sanitized to match the regex
+                    assert re.match(
+                        r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]
+                    ), f"Invalid key '{key}' should be sanitized to match regex pattern, got '{artifact['flag_key']}'"
+
+                # Clean up if flag was created
+                if not artifact.get("error"):
+                    await FeatureFlag.objects.filter(key=artifact["flag_key"], team=self.team).adelete()
+
     @staticmethod
     async def _get_tag_names(flag: FeatureFlag) -> list[str]:
         """Helper to get tag names for a flag."""
