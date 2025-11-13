@@ -1,7 +1,9 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -26,6 +28,23 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     path(['products', 'error_tracking', 'components', 'IssueFilters', 'issueFiltersLogic']),
     props({} as IssueFiltersLogicProps),
     key(({ logicKey }) => logicKey),
+
+    connect(() => ({
+        actions: [
+            taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'error-tracking',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.ErrorTrackingProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingIssues,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            }),
+            ['setSearchQuery as setTaxonomicSearchQuery'],
+        ],
+    })),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -76,6 +95,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             }
             if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
                 actions.setSearchQuery(params.searchQuery)
+                actions.setTaxonomicSearchQuery(params.searchQuery)
             }
         }
         return {
