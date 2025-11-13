@@ -1093,15 +1093,16 @@ describe('PostgresPersonRepository', () => {
                 },
             })
 
-            const size = await repository.personPropertiesSize(person.id)
+            const size = await repository.personPropertiesSize(person.id, team.id)
 
             expect(size).toBeGreaterThan(0)
             expect(typeof size).toBe('number')
         })
 
         it('should return 0 for non-existent person', async () => {
+            const team = await getFirstTeam(hub)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
-            const size = await repository.personPropertiesSize(fakePersonId)
+            const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
             expect(size).toBe(0)
         })
@@ -1117,11 +1118,11 @@ describe('PostgresPersonRepository', () => {
             const person2 = await createTestPerson(team2Id, 'different-distinct', { name: 'Team 2 Person' })
 
             // Check size for person 1
-            const size1 = await repository.personPropertiesSize(person1.id)
+            const size1 = await repository.personPropertiesSize(person1.id, team1.id)
             expect(size1).toBeGreaterThan(0)
 
             // Check size for person 2
-            const size2 = await repository.personPropertiesSize(person2.id)
+            const size2 = await repository.personPropertiesSize(person2.id, team2Id)
             expect(size2).toBeGreaterThan(0)
         })
 
@@ -1130,7 +1131,7 @@ describe('PostgresPersonRepository', () => {
 
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
-            const minimalSize = await repository.personPropertiesSize(minimalPerson.id)
+            const minimalSize = await repository.personPropertiesSize(minimalPerson.id, team.id)
 
             // Create person with extensive properties
             const extensiveProperties = {
@@ -1159,7 +1160,7 @@ describe('PostgresPersonRepository', () => {
                 },
             }
             const extensivePerson = await createTestPerson(team.id, 'extensive-person', extensiveProperties)
-            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id)
+            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id, team.id)
 
             expect(extensiveSize).toBeGreaterThan(minimalSize)
         })
@@ -2500,6 +2501,567 @@ describe('PostgresPersonRepository', () => {
             // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
             // even though the values haven't changed from the person object
             expect(observeCalls).toHaveLength(3)
+        })
+    })
+
+    describe('Table Cutover', () => {
+        let cutoverRepository: PostgresPersonRepository
+        const NEW_TABLE_NAME = 'posthog_person_new'
+        const ID_OFFSET = 1000000
+
+        beforeEach(async () => {
+            // Drop the new table if it exists from previous test
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `DROP TABLE IF EXISTS ${NEW_TABLE_NAME} CASCADE`,
+                [],
+                'dropNewPersonTableIfExists'
+            )
+
+            // Create the new person table with the same structure as posthog_person
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `CREATE TABLE ${NEW_TABLE_NAME} (
+                    id BIGSERIAL PRIMARY KEY,
+                    uuid VARCHAR(200) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    properties JSONB NOT NULL,
+                    properties_last_updated_at JSONB NOT NULL,
+                    properties_last_operation JSONB NOT NULL,
+                    is_user_id INTEGER,
+                    is_identified BOOLEAN NOT NULL,
+                    version BIGINT NOT NULL DEFAULT 0
+                )`,
+                [],
+                'createNewPersonTable'
+            )
+
+            // Add indexes
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `CREATE UNIQUE INDEX ${NEW_TABLE_NAME}_uuid_key ON ${NEW_TABLE_NAME} (uuid)`,
+                [],
+                'createUuidIndex'
+            )
+
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `CREATE INDEX ${NEW_TABLE_NAME}_team_id_idx ON ${NEW_TABLE_NAME} (team_id)`,
+                [],
+                'createTeamIdIndex'
+            )
+
+            // Drop the FK constraint on posthog_persondistinctid temporarily for testing
+            // This simulates a migration scenario where the constraint would be updated
+            try {
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `ALTER TABLE posthog_persondistinctid DROP CONSTRAINT posthog_persondistinctid_person_id_fkey`,
+                    [],
+                    'dropForeignKeyConstraint'
+                )
+            } catch (error) {
+                // Constraint might not exist or already dropped, ignore
+            }
+
+            // Create repository with cutover enabled
+            cutoverRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
+                tableCutoverEnabled: true,
+                newTableName: NEW_TABLE_NAME,
+                newTableIdOffset: ID_OFFSET,
+            })
+        })
+
+        afterEach(async () => {
+            // Clean up the new table
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `DROP TABLE IF EXISTS ${NEW_TABLE_NAME} CASCADE`,
+                [],
+                'dropNewPersonTable'
+            )
+
+            // Recreate the FK constraint on posthog_persondistinctid if it doesn't exist
+            try {
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `ALTER TABLE posthog_persondistinctid
+                     ADD CONSTRAINT posthog_persondistinctid_person_id_fkey
+                     FOREIGN KEY (person_id) REFERENCES posthog_person(id) DEFERRABLE INITIALLY IMMEDIATE`,
+                    [],
+                    'recreateForeignKeyConstraint'
+                )
+            } catch (error) {
+                // Constraint might already exist, ignore
+            }
+        })
+
+        describe('createPerson()', () => {
+            it('should create new persons in the new table when cutover is enabled', async () => {
+                const team = await getFirstTeam(hub)
+                const uuid = new UUIDT().toString()
+
+                const result = await cutoverRepository.createPerson(
+                    TIMESTAMP,
+                    { name: 'New Table Person' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    [{ distinctId: 'new-table-distinct' }]
+                )
+
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Failed to create person')
+                }
+
+                // Verify person is in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE uuid = $1`,
+                    [uuid],
+                    'checkNewTable'
+                )
+                expect(newTableResult.rows).toHaveLength(1)
+
+                // Verify person is NOT in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE uuid = $1`,
+                    [uuid],
+                    'checkOldTable'
+                )
+                expect(oldTableResult.rows).toHaveLength(0)
+            })
+        })
+
+        describe('fetchPerson()', () => {
+            it('should fetch person from old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person directly in old table with low ID
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['old-table-distinct', lowId, team.id, 0],
+                    'insertOldTableDistinctId'
+                )
+
+                const person = await cutoverRepository.fetchPerson(team.id, 'old-table-distinct')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(lowId))
+                expect(person!.uuid).toBe(uuid)
+                expect(person!.properties.name).toBe('Old Table')
+            })
+
+            it('should fetch person from new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person directly in new table with high ID
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['new-table-distinct', highId, team.id, 0],
+                    'insertNewTableDistinctId'
+                )
+
+                const person = await cutoverRepository.fetchPerson(team.id, 'new-table-distinct')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(highId))
+                expect(person!.uuid).toBe(uuid)
+                expect(person!.properties.name).toBe('New Table')
+            })
+
+            it('should return undefined for non-existent distinct ID', async () => {
+                const team = await getFirstTeam(hub)
+                const person = await cutoverRepository.fetchPerson(team.id, 'non-existent')
+                expect(person).toBeUndefined()
+            })
+        })
+
+        describe('fetchPersonsByDistinctIds()', () => {
+            it('should fetch persons from both tables', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in old table
+                const oldId = 100
+                const oldUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId,
+                        oldUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Old' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['old-distinct', oldId, team.id, 0],
+                    'insertOldDistinctId'
+                )
+
+                // Create person in new table
+                const newId = ID_OFFSET + 100
+                const newUuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        newId,
+                        newUuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'New' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['new-distinct', newId, team.id, 0],
+                    'insertNewDistinctId'
+                )
+
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'old-distinct' },
+                    { teamId: team.id, distinctId: 'new-distinct' },
+                ])
+
+                expect(result).toHaveLength(2)
+
+                const oldPerson = result.find((p) => p.distinct_id === 'old-distinct')
+                expect(oldPerson).toBeDefined()
+                expect(oldPerson!.id).toBe(String(oldId))
+                expect(oldPerson!.properties.name).toBe('Old')
+
+                const newPerson = result.find((p) => p.distinct_id === 'new-distinct')
+                expect(newPerson).toBeDefined()
+                expect(newPerson!.id).toBe(String(newId))
+                expect(newPerson!.properties.name).toBe('New')
+            })
+
+            it('should return empty array when no persons found', async () => {
+                const team = await getFirstTeam(hub)
+                const result = await cutoverRepository.fetchPersonsByDistinctIds([
+                    { teamId: team.id, distinctId: 'non-existent-1' },
+                    { teamId: team.id, distinctId: 'non-existent-2' },
+                ])
+                expect(result).toEqual([])
+            })
+        })
+
+        describe('updatePerson()', () => {
+            it('should update person in old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldPerson'
+                )
+
+                const person = {
+                    id: String(lowId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'Original' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                const [updatedPerson] = await cutoverRepository.updatePerson(person, {
+                    properties: { name: 'Updated' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                expect(updatedPerson.properties.name).toBe('Updated')
+                expect(updatedPerson.version).toBe(1)
+
+                // Verify update happened in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1`,
+                    [lowId],
+                    'checkOldTableUpdate'
+                )
+                expect(oldTableResult.rows[0].properties.name).toBe('Updated')
+            })
+
+            it('should update person in new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        highId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Original' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewPerson'
+                )
+
+                const person = {
+                    id: String(highId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: { name: 'Original' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                const [updatedPerson] = await cutoverRepository.updatePerson(person, {
+                    properties: { name: 'Updated' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                expect(updatedPerson.properties.name).toBe('Updated')
+                expect(updatedPerson.version).toBe(1)
+
+                // Verify update happened in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1`,
+                    [highId],
+                    'checkNewTableUpdate'
+                )
+                expect(newTableResult.rows[0].properties.name).toBe('Updated')
+            })
+        })
+
+        describe('deletePerson()', () => {
+            it('should delete person from old table when ID < offset', async () => {
+                const team = await getFirstTeam(hub)
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [lowId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertOldPerson'
+                )
+
+                const person = {
+                    id: String(lowId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: {},
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                await cutoverRepository.deletePerson(person)
+
+                // Verify person is deleted from old table
+                const result = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE id = $1`,
+                    [lowId],
+                    'checkOldTableDelete'
+                )
+                expect(result.rows).toHaveLength(0)
+            })
+
+            it('should delete person from new table when ID >= offset', async () => {
+                const team = await getFirstTeam(hub)
+                const highId = ID_OFFSET + 100
+                const uuid = new UUIDT().toString()
+
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO ${NEW_TABLE_NAME} (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [highId, uuid, TIMESTAMP.toISO(), team.id, JSON.stringify({}), '{}', '{}', null, true, 0],
+                    'insertNewPerson'
+                )
+
+                const person = {
+                    id: String(highId),
+                    uuid,
+                    created_at: TIMESTAMP,
+                    team_id: team.id,
+                    properties: {},
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_user_id: null,
+                    is_identified: true,
+                    version: 0,
+                }
+
+                await cutoverRepository.deletePerson(person)
+
+                // Verify person is deleted from new table
+                const result = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE id = $1`,
+                    [highId],
+                    'checkNewTableDelete'
+                )
+                expect(result.rows).toHaveLength(0)
+            })
+        })
+
+        describe('Cutover disabled', () => {
+            it('should use old table when cutover is disabled', async () => {
+                const disabledRepository = new PostgresPersonRepository(postgres, {
+                    calculatePropertiesSize: 0,
+                    personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                    personPropertiesTrimTargetBytes: 512 * 1024,
+                    tableCutoverEnabled: false,
+                    newTableName: NEW_TABLE_NAME,
+                    newTableIdOffset: ID_OFFSET,
+                })
+
+                const team = await getFirstTeam(hub)
+                const uuid = new UUIDT().toString()
+
+                const result = await disabledRepository.createPerson(
+                    TIMESTAMP,
+                    { name: 'Disabled Cutover' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    [{ distinctId: 'disabled-distinct' }]
+                )
+
+                expect(result.success).toBe(true)
+
+                // Verify person is in old table
+                const oldTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_person WHERE uuid = $1`,
+                    [uuid],
+                    'checkOldTable'
+                )
+                expect(oldTableResult.rows).toHaveLength(1)
+
+                // Verify person is NOT in new table
+                const newTableResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM ${NEW_TABLE_NAME} WHERE uuid = $1`,
+                    [uuid],
+                    'checkNewTable'
+                )
+                expect(newTableResult.rows).toHaveLength(0)
+            })
         })
     })
 })
