@@ -5,10 +5,8 @@ import api from 'lib/api'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS } from './constants'
 import type { textViewLogicType } from './textViewLogicType'
-
-const TEXT_REPR_API_TIMEOUT_MS = 10000 // 10 seconds
-const FALLBACK_DELAY_MS = 1500 // 1.5 seconds
 
 interface TraceTreeNode {
     event: LLMTraceEvent

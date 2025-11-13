@@ -6,6 +6,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { VISIBLE_TOOLS_COUNT } from '../constants'
 import { TextSegment } from '../parsing'
 import { NestedContentRenderer } from './NestedContentRenderer'
 import { TextWithLinks } from './TextWithLinks'
@@ -106,9 +107,9 @@ export function SegmentRenderer({
             toolBlocks.push(currentBlock.join('\n'))
         }
 
-        // Split into first 5 and remaining
-        const visibleTools = toolBlocks.slice(0, 5)
-        const hiddenTools = toolBlocks.slice(5)
+        // Split into visible and remaining tools
+        const visibleTools = toolBlocks.slice(0, VISIBLE_TOOLS_COUNT)
+        const hiddenTools = toolBlocks.slice(VISIBLE_TOOLS_COUNT)
 
         return (
             <span>
