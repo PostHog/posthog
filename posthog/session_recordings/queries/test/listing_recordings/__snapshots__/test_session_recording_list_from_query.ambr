@@ -4200,14 +4200,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -4217,7 +4234,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.2
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.3
   '''
   
   SELECT DISTINCT p.id
@@ -4265,7 +4282,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.3
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4305,7 +4322,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.4
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4370,14 +4387,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -4387,7 +4421,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.2
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.3
   '''
   
   SELECT DISTINCT p.id
@@ -4435,7 +4469,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.3
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4475,7 +4509,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.4
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4540,14 +4574,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -4557,7 +4608,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.2
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.3
   '''
   
   SELECT DISTINCT p.id
@@ -4605,7 +4656,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.3
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4645,7 +4696,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.4
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4710,14 +4761,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -4727,7 +4795,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.2
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.3
   '''
   
   SELECT DISTINCT p.id
@@ -4775,7 +4843,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.3
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -4815,7 +4883,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.4
+# name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -11638,14 +11706,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -11655,7 +11740,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.2
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.3
   '''
   
   SELECT DISTINCT p.id
@@ -11703,7 +11788,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.3
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -11743,7 +11828,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.4
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -11808,14 +11893,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -11825,7 +11927,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.2
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.3
   '''
   
   SELECT DISTINCT p.id
@@ -11873,7 +11975,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.3
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -11913,7 +12015,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.4
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -11978,14 +12080,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -11995,7 +12114,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.2
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.3
   '''
   
   SELECT DISTINCT p.id
@@ -12043,7 +12162,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.3
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -12083,7 +12202,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.4
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -12148,14 +12267,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -12165,7 +12301,7 @@
     AND version = 0
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.2
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.3
   '''
   
   SELECT DISTINCT p.id
@@ -12213,7 +12349,7 @@
                  AND ((has(['yes'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$is_internal'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) ))
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.3
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.4
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
@@ -12253,7 +12389,7 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.4
+# name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.5
   '''
   SELECT s.session_id AS session_id,
          any(s.team_id) AS `any(s.team_id)`,
