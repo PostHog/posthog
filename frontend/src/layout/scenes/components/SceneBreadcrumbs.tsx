@@ -49,7 +49,7 @@ export function SceneBreadcrumbBackButton({
         <>
             <ButtonGroupPrimitive groupVariant="outline" className="mr-1">
                 {/* Show the back button based on breadcrumbs / forced back to  */}
-                {(!!forceBackTo || breadcrumbs.length > 1) && (
+                {!shouldShowLogicalBackButton && (!!forceBackTo || breadcrumbs.length > 1) && (
                     <Link
                         {...normalBackTo}
                         className={cn('items-center gap-1 text-tertiary text-xs', className)}
@@ -82,7 +82,7 @@ export function SceneBreadcrumbBackButton({
                         }
                         tooltipCloseDelayMs={0}
                     >
-                        <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary rotate-45" />
+                        <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary" />
                     </Link>
                 )}
             </ButtonGroupPrimitive>
