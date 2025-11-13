@@ -13,7 +13,7 @@ import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'sce
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
@@ -191,6 +191,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
+                // Web analytics queries should not use funnel steps logic. They sometimes have funnel-like results
+                // because of the way the backend structures data, but they are not funnels so we make sure to return
+                // early here.
+                if (isWebStatsTableQuery(querySource) || isWebOverviewQuery(querySource)) {
+                    return []
+                }
+
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
