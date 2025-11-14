@@ -80,6 +80,12 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ConvexSourceConfig(config.Config):
+    deployment_url: str
+    access_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 

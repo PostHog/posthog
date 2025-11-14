@@ -2,6 +2,7 @@ from .bigquery.source import BigQuerySource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
+from .convex.source import ConvexSource
 from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
@@ -37,6 +38,7 @@ __all__ = [
     "BigQuerySource",
     "BrazeSource",
     "ChargebeeSource",
+    "ConvexSource",
     "DoItSource",
     "GoogleAdsSource",
     "GoogleSheetsSource",
