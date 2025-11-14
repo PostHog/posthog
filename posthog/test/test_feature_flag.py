@@ -823,7 +823,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
@@ -842,7 +843,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -861,7 +863,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(3):
+        # TODO(dual-table): Revert to 3 after Person table migration completes
+        with self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -946,7 +949,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # regular flag evaluation when outside holdout
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
@@ -1169,7 +1173,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(7):
             self.assertEqual(
                 self.match_flag(feature_flag, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -1198,7 +1203,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # test with a flag where the property is a number
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(7):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
@@ -1685,7 +1691,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(7):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
@@ -3165,12 +3172,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             }
         )
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
@@ -3200,7 +3209,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             }
         )
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
@@ -3219,7 +3229,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
@@ -3266,7 +3277,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # force the query to load group types
         cache.group_type_index_to_name  # noqa: B018
 
-        with self.assertNumQueries(12):
+        # TODO(dual-table): Revert to 12 after Person table migration completes
+        with self.assertNumQueries(14):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3390,7 +3402,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
@@ -3422,7 +3435,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             }
         )
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # None in both because all conditions don't match
             # and user doesn't exist yet
             self.assertEqual(
@@ -3446,7 +3460,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -3529,7 +3544,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "email", "operator": "is_not_set"}]}]}
         )
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
@@ -3548,7 +3564,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
@@ -3571,7 +3588,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # one extra query to check existence
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
                     feature_flag
@@ -3603,7 +3621,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # one extra query to check existence
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
                     feature_flag
@@ -3653,7 +3672,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # no extra query to check existence because it doesn't matter - since not a pure condition
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
                     feature_flag1
@@ -3661,7 +3681,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
         # still goes to DB because no company override, and then fails because person doesn't exist
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3677,7 +3698,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # This will get sorted in the rewrite.
         #
         # goes to DB because no email override, and then FAILS because person doesn't exist (should pass ideally)
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3702,7 +3724,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # now dealing with existing person
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
                     feature_flag1
@@ -3711,7 +3734,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
         # since not all conditions are available in overrides, goes to DB, but then correctly matches is_not_set condition
         # using the given override
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3745,7 +3769,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # 1 extra query to get existence clause
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
                     feature_flag1
@@ -3779,7 +3804,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # now dealing with existing person
         # one extra query to check existence
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
                     feature_flag1
@@ -3800,7 +3826,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # without email, person exists though, should thus return True
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag1], "another_id_without_email"
@@ -3897,7 +3924,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # one extra query for existence clause
-        with self.assertNumQueries(9):
+        # TODO(dual-table): Revert to 9 after Person table migration completes
+        with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag], "", {"organization": "target_group"}
@@ -3905,14 +3933,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(9):
+        # TODO(dual-table): Revert to 9 after Person table migration completes
+        with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
-        with self.assertNumQueries(9):
+        # TODO(dual-table): Revert to 9 after Person table migration completes
+        with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag], "", {"organization": "unknown-new-org"}
@@ -3921,7 +3951,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # now with overrides - only query to get group type mappings
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3933,7 +3964,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3949,7 +3981,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # now queries with additional flags - check if existence queries are made for different group types / persons
 
         # no extra query for second group type because groups not passed in
-        with self.assertNumQueries(9):
+        # TODO(dual-table): Revert to 9 after Person table migration completes
+        with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3962,7 +3995,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # no extra query for second group type because unknown group not passed in
-        with self.assertNumQueries(9):
+        # TODO(dual-table): Revert to 9 after Person table migration completes
+        with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3975,7 +4009,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
         # 4 extra query to query group (including setting timeout)
         # second extra query to check existence
-        with self.assertNumQueries(11):
+        # TODO(dual-table): Revert to 11 after Person table migration completes
+        with self.assertNumQueries(13):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -3989,7 +4024,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # override means one less query to fetch group property values
         # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
-        with self.assertNumQueries(10):
+        # TODO(dual-table): Revert to 10 after Person table migration completes
+        with self.assertNumQueries(12):
             matcher = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
@@ -4008,7 +4044,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # 9 queries same as before for groups, 4 extra for person existence check (including timeouts), 1 extra for person query
-        with self.assertNumQueries(11):
+        # TODO(dual-table): Revert to 11 after Person table migration completes
+        with self.assertNumQueries(13):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4022,7 +4059,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # 9 queries same as before for groups, 1 extra for person existence check, no person query because overrides
         # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
-        with self.assertNumQueries(10):
+        # TODO(dual-table): Revert to 10 after Person table migration completes
+        with self.assertNumQueries(12):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4036,7 +4074,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # no existence check for person because flag has not is_not_set condition
-        with self.assertNumQueries(10):
+        # TODO(dual-table): Revert to 10 after Person table migration completes
+        with self.assertNumQueries(12):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4125,7 +4164,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # single query for all cohorts
             # no team queries
             self.assertEqual(
@@ -4188,7 +4228,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4200,7 +4241,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
@@ -4214,7 +4256,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4227,7 +4270,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4240,7 +4284,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4281,7 +4326,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4293,7 +4339,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             # property id override shouldn't confuse the matcher
@@ -4308,7 +4355,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(7):
+        # TODO(dual-table): Revert to 7 after Person table migration completes
+        with self.assertNumQueries(9):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4321,7 +4369,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4376,7 +4425,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]},
         )
 
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4388,7 +4438,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(5):
+        # TODO(dual-table): Revert to 5 after Person table migration completes
+        with self.assertNumQueries(7):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4447,7 +4498,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}
@@ -4455,7 +4507,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4709,7 +4762,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             rollout_percentage=50,
             filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
         )
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
