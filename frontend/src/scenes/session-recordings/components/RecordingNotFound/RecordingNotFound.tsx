@@ -1,19 +1,29 @@
 import { useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { SessionRecordingRetentionPeriod } from '~/types'
 
-export function RecordingNotFoundOld(): JSX.Element {
+import { RecordingNotFoundLogicProps, recordingNotFoundLogic } from './recordingNotFoundLogic'
+
+export function RecordingNotFound({ sessionRecordingId }: RecordingNotFoundLogicProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.REPLAY_SHOW_NEW_404] === 'show') {
+        return <RecordingNotFoundV2 sessionRecordingId={sessionRecordingId} />
+    }
 
     return (
         <NotFound
@@ -292,22 +302,104 @@ function SessionMissingCard(): JSX.Element {
     )
 }
 
-export function RecordingNotFound(): JSX.Element {
+function DomainNotAllowedCard(): JSX.Element {
     return (
-        <NotFound
-            object="Recording"
-            hideLostInSpace={true}
-            caption={
-                <>
-                    <SessionMissingCard />
-                    <ExpiredCard />
-                    <ReplayDisabledCard />
-                    <GeneralInfoCard />
-                    <MinimumDurationCard />
-                    <SamplingRateCard />
-                    <TriggersCard />
-                </>
-            }
-        />
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">Domain not allowed</LemonTag>
+                <div className="grow">
+                    <p className="mb-1">
+                        We don't have a recording for this session because the page's domain isn't allowed in your
+                        recording settings.
+                    </p>
+                </div>
+            </div>
+            <LemonDivider className="my-3" />
+            <LemonBanner
+                type="info"
+                className="mt-1"
+                action={{
+                    to: urls.settings('project-replay'),
+                    children: 'Edit settings',
+                    size: 'small',
+                    type: 'secondary',
+                    'data-attr': 'recording-404-edit-settings',
+                }}
+            >
+                To avoid this in the future, add the domain to your allowed list.
+            </LemonBanner>
+        </LemonCard>
     )
+}
+
+function UrlBlocklistedCard(): JSX.Element {
+    return (
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">URL blocklisted</LemonTag>
+                <div className="grow">
+                    <p className="mb-1">
+                        We don't have a recording for this session because this URL is blocklisted in your recording
+                        settings.
+                    </p>
+                </div>
+            </div>
+            <LemonDivider className="my-3" />
+            <LemonBanner
+                type="info"
+                className="mt-1"
+                action={{
+                    to: urls.settings('project-replay'),
+                    children: 'Edit settings',
+                    size: 'small',
+                    type: 'secondary',
+                    'data-attr': 'recording-404-edit-settings',
+                }}
+            >
+                To avoid this in the future, remove or adjust the URL blocklist pattern.
+            </LemonBanner>
+        </LemonCard>
+    )
+}
+
+export function RecordingNotFoundV2({ sessionRecordingId }: RecordingNotFoundLogicProps): JSX.Element {
+    const logic = recordingNotFoundLogic({ sessionRecordingId: sessionRecordingId })
+    const { isLoading, missingReason } = useValues(logic)
+
+    if (isLoading) {
+        return <LemonSkeleton />
+    }
+
+    var caption = <GeneralInfoCard />
+    switch (missingReason) {
+        case 'session_missing':
+            caption = <SessionMissingCard />
+            break
+        case 'retention_expired':
+            caption = <ExpiredCard />
+            break
+        case 'replay_disabled':
+            caption = <ReplayDisabledCard />
+            break
+        case 'domain_not_allowed':
+            caption = <DomainNotAllowedCard />
+            break
+        case 'url_blocklisted':
+            caption = <UrlBlocklistedCard />
+            break
+        case 'below_min_duration':
+            caption = <MinimumDurationCard />
+            break
+        case 'sampled_out':
+            caption = <SamplingRateCard />
+            break
+        case 'triggers_not_matched':
+            caption = <TriggersCard />
+            break
+        case 'unknown':
+            caption = <GeneralInfoCard />
+            break
+    }
+
+    return <NotFound object="Recording" hideLostInSpace={true} caption={caption} />
 }

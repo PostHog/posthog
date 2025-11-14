@@ -3169,6 +3169,11 @@ const api = {
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get({ headers })
         },
+        async getMissingReason(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ reason: string; confidence: 'high' | 'medium' | 'low'; details: Record<string, any> }> {
+            return await new ApiRequest().recording(recordingId).withAction('missing-reason').get()
+        },
         async update(
             recordingId: SessionRecordingType['id'],
             data: Partial<SessionRecordingUpdateType>

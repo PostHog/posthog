@@ -7,14 +7,16 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { RecordingNotFound } from 'scenes/session-recordings/components/RecordingNotFound/RecordingNotFound'
 import {
     SessionRecordingDetailLogicProps,
     sessionRecordingDetailLogic,
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
-import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { SessionRecordingId } from '~/types'
 
 export const scene: SceneExport<SessionRecordingDetailLogicProps> = {
     logic: sessionRecordingDetailLogic,
@@ -46,7 +48,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps)
                 {id ? (
                     <SessionRecordingPlayer sessionRecordingId={id} playerKey={`${id}-detail`} />
                 ) : (
-                    <RecordingNotFound />
+                    <RecordingNotFound sessionRecordingId={id as SessionRecordingId} />
                 )}
             </div>
         </div>

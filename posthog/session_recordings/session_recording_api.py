@@ -50,8 +50,9 @@ from posthog.schema import (
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
+from posthog.api.utils import ServerTimingsGathered, action, hostname_in_allowed_url_list, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.clickhouse.client.execute import query_with_columns
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
@@ -70,7 +71,7 @@ from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -1089,6 +1090,401 @@ class SessionRecordingViewSet(
             )
 
             return Response({"error": message}, status=response_status)
+
+    @extend_schema(
+        exclude=True,
+        description="""
+        Returns a best-effort reason why a session does not have a recording.
+        This is an initial scaffold and will be expanded to include detailed decision logic.
+        """,
+    )
+    @action(methods=["GET"], detail=True, url_path="missing-reason")
+    def missing_reason(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Diagnose why a given session does not have a playable recording yet.
+
+        Overview
+        --------
+        This endpoint takes a `session_id` (detail route) and returns a single "best" reason, with a
+        confidence level and a compact `details` object. The logic is ordered so we can short-circuit
+        on definitive causes and avoid ambiguous explanations.
+
+        Response shape
+        --------------
+        {
+            "reason": "<enum string>",                  # see Reason enum below
+            "confidence": "high|medium|low",            # rough confidence calibration
+            "details": { ... }                          # small set of useful fields per reason
+        }
+
+        Reason (enum)
+        -------------
+        - "recorded"             : Fast-path - we can already load a recording (or CH rows are present)
+        - "session_missing"      : There are no analytics events for this `session_id`
+        - "retention_expired"    : Session is older than team's replay retention TTL
+        - "replay_disabled"      : Team has session recording turned off
+        - "domain_not_allowed"   : First pageview hostname is not in the team's allowed list
+        - "url_blocklisted"      : First pageview URL matches a configured blocklist pattern
+        - "below_min_duration"   : Session measured duration is below team's minimum threshold
+        - "sampled_out"          : Team sampling < 100% and nothing else explains the absence (best-effort)
+        - "triggers_not_matched" : URL/event/flag triggers were configured but not satisfied (best-effort)
+        - "unknown"              : We couldn't identify a single "best" reason with confidence
+
+        Confidence notes
+        ----------------
+        - "high"   : Strong, deterministic causes (e.g. disabled, TTL exceeded, duration below threshold)
+        - "medium" : Likely, but not entirely certain (e.g. domain not allowed based on first pageview)
+        - "low"    : Heuristic/best-effort (e.g. sampled out)
+
+        Data sources (all read-only)
+        ----------------------------
+        - Postgres: Team settings and small SessionRecording metadata (via model methods). We DO NOT query
+                    event rows via Django ORM (events live in ClickHouse).
+        - ClickHouse:
+            * quick event existence + min/max timestamps for this session (via query_with_columns)
+            * first `$pageview` URL (for hostname and URL-based checks)
+            * trigger heuristics using event names in-session (URL regexes + event triggers)
+            * optional feature flag exposure (`$feature_flag_called`) for "linked flag" best-effort checks
+
+        Order of evaluation (short-circuit)
+        -----------------------------------
+        1. "recorded"            : Metadata loads OR CH replay rows exist
+        2. events summary        : min/max timestamps + event count per session
+        3. "session_missing"     : No analytics events exist for this session
+        4. first pageview URL    : derive hostname for domain + blocklist checks (if available)
+        5. "retention_expired"   : older than TTL days
+        6. "replay_disabled"     : feature is off at the team-level
+        7. "domain_not_allowed"  : hostname not in team's allow-list
+        8. "url_blocklisted"     : URL matches blocklist regex
+        9. "below_min_duration"  : measured duration below team's floor
+        10. "sampled_out"        : sampling < 1.0 and no other reason explains absence (low confidence)
+        11. "triggers_not_matched": URL/event/flag triggers configured but not satisfied (best-effort)
+        12. "unknown"            : Fallback – include minimal context in `details`
+
+        Notes and caveats
+        -----------------
+        - We use ClickHouse directly for session-oriented analytics (events and replay); Django ORM is
+          intentionally not used for those rows.
+        - "sampled_out" cannot be proven post hoc – it's a probability-based configuration, so we return
+          low confidence when this is the only viable explanation.
+        - "triggers_not_matched" is best-effort – client-side trigger evaluation can be more nuanced,
+          but the server can still approximate using first URL + in-session event names + linked flag.
+        """
+        tag_queries(product=Product.REPLAY)
+        session_id = str(self.kwargs.get("pk"))
+
+        # Use a conservative, fast-path scaffold: recorded vs unknown
+        # We'll expand this with full decision logic (sampling, triggers, duration, retention, etc.)
+        try:
+            recording = SessionRecording.get_or_build(session_id=session_id, team=self.team)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.get_or_build", "session_id": session_id}
+            )
+            return Response({"reason": "unknown", "confidence": "low", "details": {"error": "init_failed"}}, status=200)
+
+        try:
+            # If metadata loads or CH has rows, we consider it recorded
+            loaded = recording.load_metadata()
+            if loaded or SessionReplayEvents().exists(session_id=session_id, team=self.team):
+                return Response(
+                    {"reason": "recorded", "confidence": "high", "details": {"session_id": session_id}},
+                    status=200,
+                )
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.fast_path", "session_id": session_id}
+            )
+            # Fall through to unknown
+
+        # Build minimal session context from analytics events in ClickHouse:
+        # - min(timestamp) and max(timestamp) give us a coarse duration; used for min-duration and TTL checks
+        # - a simple count() confirms session analytics existence quickly
+        start_time: datetime | None = None
+        end_time: datetime | None = None
+        event_count: int = 0
+        first_url: str | None = None
+        first_hostname: str | None = None
+
+        try:
+            rows = query_with_columns(
+                """
+                SELECT
+                    min(timestamp) AS start_time,
+                    max(timestamp) AS end_time,
+                    count() AS cnt
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND $session_id = %(session_id)s
+                """,
+                args={"team_id": self.team.id, "session_id": session_id},
+                team_id=self.team.id,
+            )
+            if rows:
+                start_time = rows[0].get("start_time")
+                end_time = rows[0].get("end_time")
+                event_count = int(rows[0].get("cnt") or 0)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.events_summary", "session_id": session_id}
+            )
+
+        if event_count == 0:
+            # No analytics events -> there is no session to be recorded in the first place
+            return Response(
+                {
+                    "reason": "session_missing",
+                    "confidence": "high",
+                    "details": {"session_id": session_id},
+                },
+                status=200,
+            )
+
+        # Try to get first pageview URL for domain + URL-based checks
+        try:
+            url_rows = query_with_columns(
+                """
+                SELECT
+                    JSONExtractString(properties, '$current_url') AS url
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND $session_id = %(session_id)s
+                  AND event = '$pageview'
+                ORDER BY timestamp ASC
+                LIMIT 1
+                """,
+                args={"team_id": self.team.id, "session_id": session_id},
+                team_id=self.team.id,
+            )
+            if url_rows and url_rows[0].get("url"):
+                first_url = url_rows[0]["url"]
+                try:
+                    first_hostname = urlparse(first_url).hostname
+                except Exception:
+                    first_hostname = None
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.first_url", "session_id": session_id}
+            )
+
+        # Assemble a minimal `details` object – we populate progressively as we learn more
+        team = self.team
+        # TODO: we need to dig deeper into what were the settings at the time of the session
+        now = datetime.now(tz=UTC)
+        details: dict[str, Any] = {
+            "session_id": session_id,
+            "start_time": start_time.isoformat() if start_time else None,
+            "end_time": end_time.isoformat() if end_time else None,
+            "first_url": first_url,
+        }
+
+        # 1) Retention expired (strong, deterministic)
+        # If the session start time is older than the effective TTL we can return a definitive answer
+        try:
+            ttl = ttl_days(team)
+            if start_time and (now - start_time).days > ttl:
+                details["ttl_days"] = ttl
+                return Response({"reason": "retention_expired", "confidence": "high", "details": details}, status=200)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.retention", "session_id": session_id}
+            )
+
+        # 2) Replay disabled (strong, deterministic)
+        if not team.session_recording_opt_in:
+            return Response({"reason": "replay_disabled", "confidence": "high", "details": details}, status=200)
+
+        # 3) Domain not allowed (medium confidence)
+        # Based on first pageview hostname – might be missing for some sessions (no pageview)
+        try:
+            if team.recording_domains and first_hostname:
+                if not hostname_in_allowed_url_list(team.recording_domains, first_hostname):
+                    return Response(
+                        {
+                            "reason": "domain_not_allowed",
+                            "confidence": "medium",
+                            "details": {**details, "hostname": first_hostname},
+                        },
+                        status=200,
+                    )
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.domain_check", "session_id": session_id}
+            )
+
+        # 4) URL blocklist (strong if pattern matches)
+        try:
+            blocklist = getattr(team, "session_recording_url_blocklist_config", None) or []
+            if first_url and isinstance(blocklist, list) and len(blocklist) > 0:
+                for entry in blocklist:
+                    pattern = entry.get("url") if isinstance(entry, dict) else None
+                    if pattern:
+                        try:
+                            if re.search(pattern, first_url):
+                                return Response(
+                                    {
+                                        "reason": "url_blocklisted",
+                                        "confidence": "high",
+                                        "details": {**details, "pattern": pattern},
+                                    },
+                                    status=200,
+                                )
+                        except re.error:
+                            # ignore invalid regex
+                            continue
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.url_blocklist", "session_id": session_id}
+            )
+
+        # 5) Minimum duration (strong, deterministic if we have start/end)
+        try:
+            min_ms = team.session_recording_minimum_duration_milliseconds
+            if min_ms and start_time and end_time:
+                session_duration_seconds = (end_time - start_time).total_seconds()
+                if session_duration_seconds < (min_ms / 1000):
+                    details["sessionDurationSeconds"] = session_duration_seconds
+                    details["minDurationSeconds"] = min_ms / 1000
+                    return Response(
+                        {"reason": "below_min_duration", "confidence": "high", "details": details}, status=200
+                    )
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.min_duration", "session_id": session_id}
+            )
+
+        # 6) Sampled out (heuristic, low confidence)
+        # Sampling cannot be proven post hoc – use this only when no other reason explains the absence.
+        try:
+            sample_rate = team.session_recording_sample_rate
+            if sample_rate is not None:
+                try:
+                    sr = float(sample_rate)
+                except Exception:
+                    sr = None
+                if sr is not None and sr < 1.0:
+                    details["sampleRate"] = sample_rate
+                    return Response({"reason": "sampled_out", "confidence": "low", "details": details}, status=200)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.sample_rate", "session_id": session_id}
+            )
+
+        # 7) Triggers not matched (best-effort)
+        # Server-side approximation of client trigger evaluation:
+        # - URL triggers: regex patterns against first URL
+        # - Event triggers: check in-session event names
+        # - Linked flag (optional): exposure events `$feature_flag_called` and variant matches
+        # This is folded into 'all' vs 'any' match-type semantics.
+        try:
+            # Load distinct event names in session
+            events_list: list[str] = []
+            try:
+                event_rows = query_with_columns(
+                    """
+                    SELECT groupUniqArray(event) AS events
+                    FROM events
+                    WHERE team_id = %(team_id)s
+                      AND $session_id = %(session_id)s
+                    """,
+                    args={"team_id": self.team.id, "session_id": session_id},
+                    team_id=self.team.id,
+                )
+                if event_rows and isinstance(event_rows[0].get("events"), list):
+                    events_list = [str(x) for x in event_rows[0]["events"] if isinstance(x, str)]
+            except Exception as e:
+                posthoganalytics.capture_exception(
+                    e, additional_properties={"location": "missing_reason.events_names", "session_id": session_id}
+                )
+
+            url_triggers = getattr(team, "session_recording_url_trigger_config", None) or []
+            event_triggers = getattr(team, "session_recording_event_trigger_config", None) or []
+            match_type = getattr(team, "session_recording_trigger_match_type_config", None) or "all"
+            match_all = str(match_type).lower() == "all"
+
+            url_checks: list[bool] = []
+            if first_url and isinstance(url_triggers, list) and len(url_triggers) > 0:
+                for entry in url_triggers:
+                    pattern = entry.get("url") if isinstance(entry, dict) else None
+                    if not pattern:
+                        continue
+                    try:
+                        url_checks.append(bool(re.search(pattern, first_url)))
+                    except re.error:
+                        url_checks.append(False)
+
+            event_checks: list[bool] = []
+            if isinstance(event_triggers, list) and len(event_triggers) > 0:
+                event_set = set(events_list)
+                for ev in event_triggers:
+                    if not isinstance(ev, str):
+                        continue
+                    event_checks.append(ev in event_set)
+
+            # Feature-flag link (best effort via exposure events)
+            flag_check: bool | None = None
+            flag_key: str | None = None
+            flag_variants: list[str] | None = None
+            try:
+                linked_flag = getattr(team, "session_recording_linked_flag", None)
+                if isinstance(linked_flag, dict):
+                    flag_key = linked_flag.get("key") or None
+                    expected_variant = linked_flag.get("variant") or None
+                    if flag_key:
+                        rows = query_with_columns(
+                            """
+                            SELECT
+                                count() AS cnt,
+                                groupUniqArray(JSONExtractString(properties, '$feature_flag_response')) AS variants
+                            FROM events
+                            WHERE team_id = %(team_id)s
+                              AND $session_id = %(session_id)s
+                              AND event = '$feature_flag_called'
+                              AND JSONExtractString(properties, '$feature_flag') = %(flag_key)s
+                            """,
+                            args={"team_id": self.team.id, "session_id": session_id, "flag_key": flag_key},
+                            team_id=self.team.id,
+                        )
+                        if rows:
+                            cnt = int(rows[0].get("cnt") or 0)
+                            variants = rows[0].get("variants")
+                            if isinstance(variants, list):
+                                # Clean None/empty
+                                flag_variants = [v for v in variants if isinstance(v, str) and v != ""]
+                            if cnt > 0:
+                                if expected_variant:
+                                    flag_check = expected_variant in (flag_variants or [])
+                                else:
+                                    flag_check = True
+                            else:
+                                flag_check = False
+            except Exception as e:
+                posthoganalytics.capture_exception(
+                    e, additional_properties={"location": "missing_reason.flag_link", "session_id": session_id}
+                )
+
+            has_any_triggers = (len(url_checks) + len(event_checks)) > 0
+            # If a linked flag is set, include it in evaluation if we could determine a boolean
+            if has_any_triggers or isinstance(flag_check, bool):
+                all_checks = url_checks + event_checks + ([flag_check] if isinstance(flag_check, bool) else [])
+                matched = all(all_checks) if match_all else any(all_checks)
+                if not matched:
+                    details["triggers"] = {  # type: ignore[assignment]
+                        "matchType": "all" if match_all else "any",
+                        "url": url_checks,
+                        "events": event_checks,
+                        "flag": {"key": flag_key, "matched": flag_check, "variants": flag_variants},
+                    }
+                    return Response(
+                        {"reason": "triggers_not_matched", "confidence": "medium", "details": details}, status=200
+                    )
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e, additional_properties={"location": "missing_reason.triggers", "session_id": session_id}
+            )
+
+        # 8) Unknown – fall back to a generic answer with minimal context for the UI
+        return Response({"reason": "unknown", "confidence": "low", "details": details}, status=200)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """

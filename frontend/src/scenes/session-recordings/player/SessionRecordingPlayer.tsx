@@ -14,7 +14,7 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { RecordingNotFound } from 'scenes/session-recordings/components/RecordingNotFound/RecordingNotFound'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -243,7 +243,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     if (isNotFound) {
         return (
             <div className="text-center">
-                <RecordingNotFound />
+                <RecordingNotFound sessionRecordingId={sessionRecordingId} />
             </div>
         )
     }
