@@ -95,6 +95,13 @@ class GithubSourceConfig(config.Config):
 
 
 @config.config
+class GitlabSourceConfig(config.Config):
+    access_token: str
+    base_url: str | None = None
+    project_id: str | None = None
+
+
+@config.config
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -264,6 +271,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
+        ExternalDataSourceType.GITLAB: GitlabSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,

@@ -4360,6 +4360,7 @@ export interface SourceConfig {
 export const externalDataSources = [
     'CustomerIO',
     'Github',
+    'Gitlab',
     'Stripe',
     'Hubspot',
     'Postgres',

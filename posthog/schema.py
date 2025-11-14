@@ -1407,6 +1407,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 class ExternalDataSourceType(StrEnum):
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
+    GITLAB = "Gitlab"
     STRIPE = "Stripe"
     HUBSPOT = "Hubspot"
     POSTGRES = "Postgres"

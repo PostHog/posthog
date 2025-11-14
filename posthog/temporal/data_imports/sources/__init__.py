@@ -5,6 +5,7 @@ from .common.registry import SourceRegistry
 from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
+from .gitlab.source import GitlabSource
 from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
@@ -33,6 +34,7 @@ from .zendesk.source import ZendeskSource
 __all__ = [
     "CustomerIOSource",
     "GithubSource",
+    "GitlabSource",
     "SourceRegistry",
     "BigQuerySource",
     "BrazeSource",

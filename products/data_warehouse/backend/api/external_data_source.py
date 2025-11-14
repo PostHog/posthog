@@ -198,6 +198,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # gitlab
+            "base_url",
+            "project_id",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
