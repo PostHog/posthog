@@ -113,7 +113,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (isCloudOrDev) {
                     if (status.includes('outage')) {
-                        // We push it to the top if their is an active outage
+                        // We push it to the top if there is an active outage
                         tabs.unshift(SidePanelTab.Status)
                     } else {
                         tabs.push(SidePanelTab.Status)
