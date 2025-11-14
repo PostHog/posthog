@@ -86,6 +86,7 @@ class Integration(models.Model):
         CLICKUP = "clickup"
         VERCEL = "vercel"
         DATABRICKS = "databricks"
+        NOTION = "notion"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -175,6 +176,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "notion",
     ]
     integration: Integration
 
@@ -409,6 +411,21 @@ class OauthIntegration:
                 scope="",
                 id_path="user.id",
                 name_path="user.email",
+            )
+        elif kind == "notion":
+            if not settings.NOTION_CLIENT_ID or not settings.NOTION_CLIENT_SECRET:
+                raise NotImplementedError("Notion app not configured")
+
+            return OauthConfig(
+                authorize_url="https://api.notion.com/v1/oauth/authorize",
+                token_url="https://api.notion.com/v1/oauth/token",
+                token_info_url="https://api.notion.com/v1/users/me",
+                token_info_config_fields=["workspace_id", "workspace_name"],
+                client_id=settings.NOTION_CLIENT_ID,
+                client_secret=settings.NOTION_CLIENT_SECRET,
+                scope="",
+                id_path="workspace_id",
+                name_path="workspace_name",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")

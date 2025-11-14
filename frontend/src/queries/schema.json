@@ -13915,7 +13915,8 @@
                 "LinkedinAds",
                 "RedditAds",
                 "TikTokAds",
-                "Shopify"
+                "Shopify",
+                "Notion"
             ],
             "type": "string"
         },

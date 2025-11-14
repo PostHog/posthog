@@ -198,6 +198,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # notion
+            "notion_integration_id",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
