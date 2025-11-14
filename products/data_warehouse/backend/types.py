@@ -34,6 +34,7 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    AIRTABLE = "Airtable", "Airtable"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
     GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"

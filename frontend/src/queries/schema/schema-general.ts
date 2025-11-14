@@ -4358,6 +4358,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Airtable',
     'CustomerIO',
     'Github',
     'Stripe',

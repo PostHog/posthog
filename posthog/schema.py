@@ -1405,6 +1405,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    AIRTABLE = "Airtable"
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
     STRIPE = "Stripe"

@@ -164,7 +164,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "ssh_tunnel",
             "using_ssl",
             # vitally
-            "region"
+            "region",
             # chargebee
             "site_name",
             # zendesk
@@ -179,7 +179,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # bigquery
             "dataset_id",
             "temporary_dataset",
-            "dataset_project"
+            "dataset_project",
             # google ads
             "customer_id",
             "google_ads_integration_id",

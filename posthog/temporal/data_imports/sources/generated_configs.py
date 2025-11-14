@@ -10,6 +10,11 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AirtableSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -258,6 +263,7 @@ class ZendeskSourceConfig(config.Config):
 
 def get_config_for_source(source: ExternalDataSourceType):
     return {
+        ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
