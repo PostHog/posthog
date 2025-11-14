@@ -70,7 +70,9 @@ class BigQuerySourceConfig(config.Config):
 
 @config.config
 class BrazeSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str
+    start_date: str
 
 
 @config.config
