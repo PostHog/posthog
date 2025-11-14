@@ -80,6 +80,11 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ClerkSourceConfig(config.Config):
+    secret_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 
