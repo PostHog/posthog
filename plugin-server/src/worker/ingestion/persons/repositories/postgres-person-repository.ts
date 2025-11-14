@@ -75,7 +75,7 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
-    private getTableName(personId: string, person?: InternalPerson): string {
+    private getTableName(personId?: string, person?: InternalPerson): string {
         if (!this.options.tableCutoverEnabled || !this.options.newTableName || !this.options.newTableIdOffset) {
             return 'posthog_person'
         }
@@ -86,6 +86,10 @@ export class PostgresPersonRepository
         }
 
         // Fall back to ID-based routing
+        if (!personId) {
+            return 'posthog_person'
+        }
+
         const numericPersonId = parseInt(personId, 10)
         if (isNaN(numericPersonId)) {
             return 'posthog_person'
