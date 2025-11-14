@@ -257,6 +257,16 @@ class DualPersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
+    def bulk_create(self, objs, **kwargs):
+        """Bulk create persons.
+
+        TODO: In tests, randomly distribute between old and new tables to verify
+        dual-table manager works correctly. Currently disabled due to ID sequence issues.
+        """
+        # For now, use default behavior (old table)
+        # TODO: Implement random distribution for better test coverage
+        return super().bulk_create(objs, **kwargs)
+
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, trying preferred table first then falling back."""
         # Try preferred table first
