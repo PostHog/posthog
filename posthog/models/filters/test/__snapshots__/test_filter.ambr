@@ -509,12 +509,15 @@
 # ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]'::jsonb)
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
   LIMIT 1
   '''
 # ---
@@ -522,8 +525,31 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999
+         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]'::jsonb)
+  LIMIT 1
+  '''
+# ---
+# name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.2
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.3
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
          AND "posthog_person"."team_id" = 99999
          AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"'::jsonb)
   LIMIT 1
