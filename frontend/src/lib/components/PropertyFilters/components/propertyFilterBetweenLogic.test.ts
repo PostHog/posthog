@@ -14,6 +14,7 @@ describe('propertyFilterBetweenLogic', () => {
     describe('initialization', () => {
         it('initializes with null values when value is null', () => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: null,
                 onSet: mockOnSet,
             })
@@ -25,6 +26,7 @@ describe('propertyFilterBetweenLogic', () => {
 
         it('initializes with numeric values from array', () => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: [10, 20],
                 onSet: mockOnSet,
             })
@@ -36,6 +38,7 @@ describe('propertyFilterBetweenLogic', () => {
 
         it('handles string numeric values from array', () => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: ['5', '15'],
                 onSet: mockOnSet,
             })
@@ -47,6 +50,7 @@ describe('propertyFilterBetweenLogic', () => {
 
         it('handles NaN values', () => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: ['invalid', 'values'],
                 onSet: mockOnSet,
             })
@@ -58,6 +62,7 @@ describe('propertyFilterBetweenLogic', () => {
 
         it('handles empty array values', () => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: [],
                 onSet: mockOnSet,
             })
@@ -71,6 +76,7 @@ describe('propertyFilterBetweenLogic', () => {
     describe('setLocalMin', () => {
         beforeEach(() => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: [10, 20],
                 onSet: mockOnSet,
             })
@@ -116,6 +122,7 @@ describe('propertyFilterBetweenLogic', () => {
     describe('setLocalMax', () => {
         beforeEach(() => {
             logic = propertyFilterBetweenLogic({
+                key: 'test-key',
                 value: [10, 20],
                 onSet: mockOnSet,
             })
@@ -155,6 +162,72 @@ describe('propertyFilterBetweenLogic', () => {
             logic.actions.setLocalMax(10)
             expect(logic.values.localMax).toBe(10)
             expect(mockOnSet).toHaveBeenCalledWith([10, 10])
+        })
+    })
+
+    describe('propsChanged cycle prevention', () => {
+        it('calls onSet only once when setting local value', () => {
+            logic = propertyFilterBetweenLogic({
+                key: 'test-key',
+                value: [10, 20],
+                onSet: mockOnSet,
+            })
+            logic.mount()
+            mockOnSet.mockClear()
+
+            logic.actions.setLocalMin(15)
+
+            expect(mockOnSet).toHaveBeenCalledTimes(1)
+            expect(mockOnSet).toHaveBeenCalledWith([15, 20])
+        })
+
+        it('handles NaN values without infinite recursion', () => {
+            logic = propertyFilterBetweenLogic({
+                key: 'test-key',
+                value: [10, 20],
+                onSet: mockOnSet,
+            })
+            logic.mount()
+            mockOnSet.mockClear()
+
+            logic.actions.setLocalMin(null)
+            expect(mockOnSet).toHaveBeenCalledWith([NaN, 20])
+            expect(mockOnSet).toHaveBeenCalledTimes(1)
+
+            mockOnSet.mockClear()
+            logic.actions.setLocalMax(null)
+            expect(mockOnSet).toHaveBeenCalledWith([NaN, NaN])
+            expect(mockOnSet).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not call setLocalMin/Max when props have same values', () => {
+            const onSetSpy = jest.fn()
+
+            logic = propertyFilterBetweenLogic({
+                key: 'test-key',
+                value: [10, 20],
+                onSet: onSetSpy,
+            })
+            logic.mount()
+
+            expect(logic.values.localMin).toBe(10)
+            expect(logic.values.localMax).toBe(20)
+            expect(onSetSpy).not.toHaveBeenCalled()
+        })
+
+        it('valuesMatch handles NaN correctly to prevent recursion', () => {
+            logic = propertyFilterBetweenLogic({
+                key: 'test-key',
+                value: [NaN, 20],
+                onSet: mockOnSet,
+            })
+            logic.mount()
+
+            const firstCallCount = mockOnSet.mock.calls.length
+
+            logic.actions.setLocalMin(null)
+
+            expect(mockOnSet.mock.calls.length - firstCallCount).toBe(1)
         })
     })
 })

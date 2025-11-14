@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
@@ -7,13 +8,22 @@ import { PropertyFilterValue } from '~/types'
 import { propertyFilterBetweenLogic } from './propertyFilterBetweenLogic'
 
 export interface PropertyFilterBetweenProps {
+    logicKey?: string
     value: PropertyFilterValue
     onSet: (newValue: PropertyFilterValue) => void
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-export function PropertyFilterBetween({ value, onSet, size }: PropertyFilterBetweenProps): JSX.Element {
-    const logic = propertyFilterBetweenLogic({ value, onSet })
+let uniqueMemoizedIndex = 0
+const usePropertyFilterBetweenLogic = (
+    props: PropertyFilterBetweenProps
+): ReturnType<typeof propertyFilterBetweenLogic.build> => {
+    const logicKey = useMemo(() => props.logicKey || `prop-filter-between-${uniqueMemoizedIndex++}`, [props.logicKey])
+    return propertyFilterBetweenLogic({ ...props, key: logicKey })
+}
+
+export function PropertyFilterBetween({ logicKey, value, onSet, size }: PropertyFilterBetweenProps): JSX.Element {
+    const logic = usePropertyFilterBetweenLogic({ logicKey, value, onSet, size })
     const { localMin, localMax } = useValues(logic)
     const { setLocalMin, setLocalMax } = useActions(logic)
 

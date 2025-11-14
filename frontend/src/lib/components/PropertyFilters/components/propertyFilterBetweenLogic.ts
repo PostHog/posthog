@@ -1,10 +1,11 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { PropertyFilterValue } from '~/types'
+import { PropertyFilterBaseValue, PropertyFilterValue } from '~/types'
 
 import type { propertyFilterBetweenLogicType } from './propertyFilterBetweenLogicType'
 
 export interface PropertyFilterBetweenLogicProps {
+    key: string
     value: PropertyFilterValue
     onSet: (newValue: PropertyFilterValue) => void
 }
@@ -13,15 +14,29 @@ function parseNumericValue(value: PropertyFilterValue, index: number): number | 
     if (!Array.isArray(value) || value.length !== 2) {
         return null
     }
-    const valueAtIndex = Array.isArray(value) ? value[index] : null
+    const valueAtIndex = value[index]
     const numValue = Number(valueAtIndex)
     return Number.isNaN(numValue) || valueAtIndex === null ? null : numValue
 }
 
+function valuesMatch(a?: PropertyFilterBaseValue, b?: PropertyFilterBaseValue): boolean {
+    return Number.isNaN(a) === Number.isNaN(b) ? true : a === b
+}
+
 export const propertyFilterBetweenLogic = kea<propertyFilterBetweenLogicType>([
-    props({} as PropertyFilterBetweenLogicProps),
-    key((props) => JSON.stringify(props.value)),
     path(['lib', 'components', 'PropertyFilters', 'components', 'propertyFilterBetweenLogic']),
+    props({} as PropertyFilterBetweenLogicProps),
+    key((props) => props.key),
+    propsChanged(({ actions, props }, oldProps) => {
+        const [newMin, newMax] = Array.isArray(props.value) ? props.value : []
+        const [oldMin, oldMax] = Array.isArray(oldProps.value) ? oldProps.value : []
+        if (!valuesMatch(newMin, oldMin)) {
+            actions.setLocalMin(parseNumericValue(props.value, 0))
+        }
+        if (!valuesMatch(newMax, oldMax)) {
+            actions.setLocalMax(parseNumericValue(props.value, 1))
+        }
+    }),
     actions({
         setLocalMin: (value: number | null) => ({ value }),
         setLocalMax: (value: number | null) => ({ value }),
