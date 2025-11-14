@@ -540,6 +540,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
                         limit: RECORDINGS_LIMIT,
+                        // If a recording is selected from URL, ensure it's always included in results
+                        session_recording_id: values.selectedRecordingId ?? undefined,
                     }
 
                     if (values.allowEventPropertyExpansion) {
@@ -788,6 +790,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (values.sessionRecordingsResponseLoading) {
                 return // We don't want to load if we are currently loading
             }
+
             actions.loadSessionRecordings(direction)
         },
 
@@ -799,8 +802,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
 
-            // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+
+            // If recording not found in current list, reload with the new selected recording
+            // The backend will automatically include it via session_recording_id parameter
+            if (recordingIndex === -1 && values.selectedRecordingId) {
+                actions.loadSessionRecordings()
+            }
+
+            // If we are at the end of the list then try to load more
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
