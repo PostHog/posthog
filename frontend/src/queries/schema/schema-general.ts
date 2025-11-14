@@ -1075,6 +1075,8 @@ interface DataTableNodeViewProps {
     showOpenEditorButton?: boolean
     /** Show a results table */
     showResultsTable?: boolean
+    /** Show actors query options and back to source */
+    showSourceQueryOptions?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
