@@ -73,3 +73,29 @@ jobs:
                     --metrics=off \
                     --verbose \
                     livestream/
+
+    semgrep-rust:
+        runs-on: ubuntu-latest
+        container:
+            image: returntocorp/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Run Semgrep
+              env:
+                  SEMGREP_ENABLE_VERSION_CHECK: 'false'
+              run: |
+                  semgrep \
+                    --config "p/rust" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
+                    rust/
