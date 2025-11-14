@@ -318,7 +318,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -372,7 +372,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
@@ -422,7 +422,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_person_and_recordings_and_events(self):
@@ -463,7 +463,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
@@ -501,7 +501,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -540,7 +540,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         self.assertEqual(response.content, b"")  # Empty response
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -1181,7 +1181,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         assert response.content == b""  # Empty response
 
         # Person still exists
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(len(Person.objects.filter(team=self.team)), 1)
 
         # async deletion scheduled
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
