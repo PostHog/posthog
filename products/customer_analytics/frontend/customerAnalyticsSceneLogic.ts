@@ -2,15 +2,19 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, Breadcrumb, ChartDisplayType, EntityTypes, FilterType, InsightType } from '~/types'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { BaseMathType, Breadcrumb, ChartDisplayType, FilterType, InsightType } from '~/types'
 
 import { InsightDefinition } from 'products/customer_analytics/frontend/insightDefinitions'
+import { CustomerAnalyticsEventsConfig } from 'products/customer_analytics/frontend/types'
 
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
@@ -61,13 +65,19 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         activityEventSelectionWithDefault: [
             (s) => [s.activityEventSelection, s.activityEvent],
-            (activityEventSelection, activityEvent): FilterType => {
-                return (
-                    activityEventSelection ?? {
-                        insight: InsightType.TRENDS,
-                        events: [{ id: activityEvent, type: EntityTypes.EVENTS, order: 0 }],
-                    }
-                )
+            (
+                activityEventSelection: FilterType | null,
+                activityEvent: (EventsNode | ActionsNode) | null
+            ): FilterType => {
+                if (activityEventSelection) {
+                    return activityEventSelection
+                }
+                // Convert activity event to FilterType format using the conversion helper
+                const converted = seriesToActionsAndEvents(activityEvent ? [activityEvent] : [])
+                return {
+                    insight: InsightType.TRENDS,
+                    ...converted,
+                }
             },
         ],
         hasActivityEventChanged: [
@@ -78,42 +88,60 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         customerAnalyticsEvents: [
             (s) => [s.currentTeam],
-            (currentTeam): any => currentTeam?.extra_settings?.customer_analytics_events || {},
+            (currentTeam): CustomerAnalyticsEventsConfig =>
+                ((currentTeam?.extra_settings as any)?.customer_analytics_events as CustomerAnalyticsEventsConfig) || {
+                    activity_event: null,
+                },
         ],
         activityEvent: [
             (s) => [s.customerAnalyticsEvents],
-            (customerAnalyticsEvents): string => (customerAnalyticsEvents as any)?.activity_event || '$pageview',
+            (customerAnalyticsEvents: CustomerAnalyticsEventsConfig): EventsNode | ActionsNode => {
+                // Default to $pageview if no event configured
+                if (!customerAnalyticsEvents.activity_event) {
+                    return {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                        properties: [],
+                    }
+                }
+                return customerAnalyticsEvents.activity_event
+            },
         ],
         dauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent): EventsNode => ({
-                kind: NodeKind.EventsNode,
-                math: BaseMathType.UniqueUsers,
-                event: activityEvent || null,
-                properties: [],
-            }),
+            (activityEvent: EventsNode | ActionsNode): EventsNode | ActionsNode => {
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.UniqueUsers,
+                }
+            },
         ],
         wauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent): EventsNode => ({
-                kind: NodeKind.EventsNode,
-                math: BaseMathType.WeeklyActiveUsers,
-                event: activityEvent || null,
-                properties: [],
-            }),
+            (activityEvent: EventsNode | ActionsNode): EventsNode | ActionsNode => {
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.WeeklyActiveUsers,
+                }
+            },
         ],
         mauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent): EventsNode => ({
-                kind: NodeKind.EventsNode,
-                math: BaseMathType.MonthlyActiveUsers,
-                event: activityEvent || null,
-                properties: [],
-            }),
+            (activityEvent: EventsNode | ActionsNode): EventsNode | ActionsNode => {
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.MonthlyActiveUsers,
+                }
+            },
         ],
         activeUsersInsights: [
             (s) => [s.dauSeries, s.wauSeries, s.mauSeries],
-            (dauSeries, wauSeries, mauSeries): InsightDefinition[] => [
+            (
+                dauSeries: EventsNode | ActionsNode,
+                wauSeries: EventsNode | ActionsNode,
+                mauSeries: EventsNode | ActionsNode
+            ): InsightDefinition[] => [
                 {
                     name: 'Active Users (DAU/WAU/MAU)',
                     needsConfig: false,
@@ -222,8 +250,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     }),
     listeners(({ actions, values }) => ({
         saveActivityEvent: async () => {
-            const selectedEvent = values.activityEventSelectionWithDefault.events?.[0]?.id
-            if (selectedEvent && typeof selectedEvent === 'string') {
+            const filters = values.activityEventSelectionWithDefault
+            // Convert FilterType to EventsNode[] using the conversion helper
+            const activityEvents = actionsAndEventsToSeries(filters as any, true, MathAvailability.None)
+
+            if (activityEvents.length > 0) {
                 let currentTeam = values.currentTeam
                 try {
                     // Get current team directly so that we have the most up to date extra_settings
@@ -231,11 +262,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 } catch {}
 
                 const currentSettings = currentTeam?.extra_settings || {}
+                const currentConfig = (currentSettings as any).customer_analytics_events || {}
+
                 const extra_settings = {
                     ...currentSettings,
                     customer_analytics_events: {
-                        ...(currentSettings as any).customer_analytics_events,
-                        activity_event: selectedEvent,
+                        ...currentConfig,
+                        activity_event: activityEvents[0], // Take the first (and only) event
                     },
                 }
                 actions.updateCurrentTeam({

@@ -9745,6 +9745,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
+                    "type": "boolean"
+                },
                 "showTestAccountFilters": {
                     "description": "Show filter to exclude test accounts",
                     "type": "boolean"
@@ -25506,6 +25510,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
                 "showTable": {

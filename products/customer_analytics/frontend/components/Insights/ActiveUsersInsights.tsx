@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -15,11 +16,11 @@ import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { EventConfigModal } from './EventConfigModal'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activityEvents, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
     const { toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
 
-    // Check if using only pageview as default
-    const isOnlyPageview = activityEvents.length === 1 && activityEvents[0].event === '$pageview'
+    // Check if using pageview as default
+    const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
 
     return (
         <div className="space-y-2 mb-0">
@@ -60,7 +61,7 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { activityEvents, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { activityEvent, tabId } = useValues(customerAnalyticsSceneLogic)
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -73,7 +74,7 @@ function PowerUsersTable(): JSX.Element {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
                     kind: NodeKind.TrendsQuery,
-                    series: activityEvents,
+                    series: [activityEvent],
                     dateRange: {
                         date_from: '-30d',
                     },
