@@ -229,6 +229,15 @@ class DualPersonManager(models.Manager):
     - Helper methods for explicit routing (get_by_id, get_by_uuid)
     """
 
+    def db_manager(self, using=None, hints=None):
+        """Override to return a manager that still uses dual-table logic."""
+        # Create a new instance of this manager with the specified database
+        manager = self.__class__()
+        manager._db = using
+        manager._hints = hints
+        manager.model = self.model
+        return manager
+
     def _get_table_preference(self):
         """Get primary and fallback table models based on read preference.
 

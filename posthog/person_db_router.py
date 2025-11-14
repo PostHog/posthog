@@ -4,6 +4,8 @@
 # Add other models from the plan here as needed.
 PERSONS_DB_MODELS = {
     "person",
+    "personold",  # Dual-table migration: old person table
+    "personnew",  # Dual-table migration: new person table
     "persondistinctid",
     "personlessdistinctid",
     "personoverridemapping",
