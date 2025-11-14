@@ -146,6 +146,78 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
+def create_persons_tables():
+    """Create person/cohort/group tables using sqlx migrations.
+
+    Drops any Django-created tables first, then runs sqlx migrations to create
+    tables with correct schema. Runs once at test session start, parallel to ClickHouse setup.
+
+    No transaction handling needed - matches ClickHouse pattern which just executes statements directly.
+    """
+    from django.db import connection
+
+    # Drop Django-created tables and clear sqlx migration tracking
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            DROP TABLE IF EXISTS posthog_person CASCADE;
+            DROP TABLE IF EXISTS posthog_person_new CASCADE;
+            DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+            DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+            DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+            DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+            DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+            DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+            DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+            DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+            DROP TABLE IF EXISTS posthog_group CASCADE;
+            DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+
+            -- Clear sqlx migration tracking so sqlx recreates dropped tables
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT FROM pg_tables WHERE tablename = '_sqlx_migrations') THEN
+                    DELETE FROM _sqlx_migrations;
+                END IF;
+            END $$;
+        """)
+
+    # Run sqlx migrations to create tables
+    run_persons_sqlx_migrations()
+
+    # Set sequence defaults for posthog_person_new
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
+            ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
+        """)
+
+
+def reset_persons_tables():
+    """Truncate person/cohort/group tables between test runs.
+
+    Similar to reset_clickhouse_tables(), this clears data while preserving schema.
+    Matches ClickHouse pattern - simple execution without transaction handling.
+    """
+    from django.db import connection
+
+    # Truncate all sqlx-managed tables (CASCADE handles foreign keys)
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            TRUNCATE TABLE posthog_cohortpeople CASCADE;
+            TRUNCATE TABLE posthog_person_new CASCADE;
+            TRUNCATE TABLE posthog_person CASCADE;
+            TRUNCATE TABLE posthog_persondistinctid CASCADE;
+            TRUNCATE TABLE posthog_personlessdistinctid CASCADE;
+            TRUNCATE TABLE posthog_personoverridemapping CASCADE;
+            TRUNCATE TABLE posthog_personoverride CASCADE;
+            TRUNCATE TABLE posthog_pendingpersonoverride CASCADE;
+            TRUNCATE TABLE posthog_flatpersonoverride CASCADE;
+            TRUNCATE TABLE posthog_featureflaghashkeyoverride CASCADE;
+            TRUNCATE TABLE posthog_group CASCADE;
+            TRUNCATE TABLE posthog_grouptypemapping CASCADE;
+        """)
+
+
 def run_persons_sqlx_migrations():
     """Run sqlx migrations for persons tables in test database.
 
@@ -206,63 +278,8 @@ def run_persons_sqlx_migrations():
 @pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
-    from django.db import connection
 
-    # Drop all Django-created tables that sqlx manages
-    # This gives us a clear slate - sqlx will recreate them fresh
-    with django_db_blocker.unblock():
-        # Use autocommit mode for DDL to avoid leaving connection in transaction state
-        old_autocommit = connection.get_autocommit()
-        connection.set_autocommit(True)
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    DROP TABLE IF EXISTS posthog_person CASCADE;
-                    DROP TABLE IF EXISTS posthog_person_new CASCADE;
-                    DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
-                    DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
-                    DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
-                    DROP TABLE IF EXISTS posthog_personoverride CASCADE;
-                    DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
-                    DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
-                    DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
-                    DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
-                    DROP TABLE IF EXISTS posthog_group CASCADE;
-                    DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
-
-                    -- Clear sqlx migration tracking so sqlx knows to recreate these tables
-                    -- when database is reused (--reuse-db). Without this, sqlx sees migrations
-                    -- as already applied and skips recreating the dropped tables.
-                    -- Only delete if table exists (first run it won't exist yet).
-                    DO $$
-                    BEGIN
-                        IF EXISTS (SELECT FROM pg_tables WHERE tablename = '_sqlx_migrations') THEN
-                            DELETE FROM _sqlx_migrations;
-                        END IF;
-                    END $$;
-                """)
-        finally:
-            # Restore original autocommit setting
-            connection.set_autocommit(old_autocommit)
-
-    # Run sqlx migrations to create all person/cohort/group tables fresh
-    run_persons_sqlx_migrations()
-
-    # Ensure posthog_person_new has proper id sequence defaults
-    # This fixes cases where Django explicitly passes NULL for id column
-    with django_db_blocker.unblock():
-        # Use autocommit mode for DDL
-        old_autocommit = connection.get_autocommit()
-        connection.set_autocommit(True)
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
-                    ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
-                """)
-        finally:
-            connection.set_autocommit(old_autocommit)
-
+    # ClickHouse setup
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -280,8 +297,11 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
             pass
 
     database.create_database()  # Create database if it doesn't exist
-
     create_clickhouse_tables()
+
+    # Persons tables setup (parallel to ClickHouse)
+    with django_db_blocker.unblock():
+        create_persons_tables()
 
     yield
 
@@ -289,6 +309,8 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
         if not settings.IN_EVAL_TESTING:
             reset_clickhouse_tables()
+            with django_db_blocker.unblock():
+                reset_persons_tables()
     else:
         database.drop_database()
 
