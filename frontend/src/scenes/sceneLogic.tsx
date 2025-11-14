@@ -1129,7 +1129,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
                                 // Default to false (products page) if feature flags haven't loaded yet
                                 const useUseCaseSelection =
-                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'true'
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
 
                                 if (useUseCaseSelection) {
                                     router.actions.replace(
