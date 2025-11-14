@@ -235,7 +235,7 @@ def ingestion_lag() -> None:
     FROM events
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
-        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+        AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
     GROUP BY event
     """
 
