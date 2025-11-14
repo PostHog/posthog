@@ -2,7 +2,12 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
 
@@ -44,6 +49,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         user_access_level: AccessControlLevel.Admin,
         status: 'ACTIVE',
         has_encrypted_payloads: false,

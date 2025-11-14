@@ -267,6 +267,20 @@ const featureFlagActionsMapping: Record<
 
         return { description: [<>{describeChange} experience continuity</>] }
     },
+    bucketing_identifier: function onBucketingIdentifier(change) {
+        const identifierAfter = change?.after as string
+        const identifierBefore = change?.before as string
+
+        if (!identifierBefore || !identifierAfter) {
+            return null
+        }
+
+        const displayName = identifierAfter === 'device_id' ? 'Device ID' : 'User ID (distinct_id)'
+
+        return {
+            description: [<>changed bucketing identifier to {displayName}</>],
+        }
+    },
     evaluation_runtime: function onEvaluationRuntime(change) {
         const runtimeAfter = change?.after as string
         const runtimeBefore = change?.before as string

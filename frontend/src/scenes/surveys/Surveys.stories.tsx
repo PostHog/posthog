@@ -11,6 +11,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     AccessControlLevel,
     FeatureFlagBasicType,
+    FeatureFlagBucketingIdentifier,
     MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
@@ -134,6 +135,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         deleted: false,
         active: true,
         ensure_experience_continuity: false,
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     },
     linked_flag_id: 7,
     targeting_flag: {
@@ -162,6 +164,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         deleted: false,
         active: true,
         ensure_experience_continuity: false,
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     },
     targeting_flag_filters: undefined,
     start_date: '2023-04-29T10:04:37.977401Z',
