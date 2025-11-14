@@ -1891,14 +1891,14 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.11
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  SELECT (("posthog_person_new"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person_new"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person_new"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.12
@@ -1930,14 +1930,14 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.13
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  SELECT (("posthog_person_new"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person_new"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person_new"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.2
@@ -9473,14 +9473,14 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.30
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  SELECT (("posthog_person_new"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person_new"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person_new"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.31
@@ -10012,14 +10012,14 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.41
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  SELECT (("posthog_person_new"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
+          AND "posthog_person_new"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person_new"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.5
