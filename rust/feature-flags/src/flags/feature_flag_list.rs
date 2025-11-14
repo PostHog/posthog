@@ -113,7 +113,7 @@ impl FeatureFlagList {
                       ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
-                  NULL::text AS bucketing_identifier
+                  bucketing_identifier
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
               -- Evaluation tags are distinct from organizational tags. This bridge table links
