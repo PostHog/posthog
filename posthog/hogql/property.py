@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Optional, cast
+from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
 from django.db.models import Q
@@ -156,7 +156,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _validate_between_values(value: ValueT, operator: PropertyOperator) -> None:
+def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
     try:
@@ -164,6 +164,7 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> None:
             raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     except (ValueError, TypeError):
         raise QueryError(f"{operator} operator requires numeric values")
+    return True
 
 
 def _expr_to_compare_op(
@@ -255,6 +256,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
+        assert isinstance(value, list)
         return ast.And(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
@@ -263,6 +265,7 @@ def _expr_to_compare_op(
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
+        assert isinstance(value, list)
         return ast.Or(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
