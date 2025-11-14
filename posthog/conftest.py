@@ -237,8 +237,13 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             cursor.execute("""
-                ALTER TABLE posthog_person
-                ALTER COLUMN id DROP IDENTITY IF EXISTS
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'posthog_person') THEN
+                        ALTER TABLE posthog_person
+                        ALTER COLUMN id DROP IDENTITY IF EXISTS;
+                    END IF;
+                END $$;
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
