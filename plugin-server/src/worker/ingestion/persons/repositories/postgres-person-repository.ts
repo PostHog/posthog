@@ -336,51 +336,57 @@ export class PostgresPersonRepository
 
                 // Opportunistically copy person to new table
                 // This allows all future operations to go directly to new table (avoiding slow triggers)
-                try {
-                    const copyQuery = `
-                        INSERT INTO ${newTableName} (
-                            id,
-                            uuid,
-                            created_at,
-                            team_id,
-                            properties,
-                            properties_last_updated_at,
-                            properties_last_operation,
-                            is_user_id,
-                            version,
-                            is_identified
+                // Skip copy when using read replica to maintain read-only intent
+                if (!options.useReadReplica) {
+                    try {
+                        const copyQuery = `
+                            INSERT INTO ${newTableName} (
+                                id,
+                                uuid,
+                                created_at,
+                                team_id,
+                                properties,
+                                properties_last_updated_at,
+                                properties_last_operation,
+                                is_user_id,
+                                version,
+                                is_identified
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (team_id, id) DO NOTHING
+                            RETURNING id`
+
+                        await this.postgres.query(
+                            PostgresUse.PERSONS_WRITE,
+                            copyQuery,
+                            [
+                                person.id,
+                                person.uuid,
+                                person.created_at.toISO(),
+                                person.team_id,
+                                sanitizeJsonbValue(person.properties),
+                                sanitizeJsonbValue(person.properties_last_updated_at),
+                                sanitizeJsonbValue(person.properties_last_operation),
+                                person.is_user_id,
+                                person.version,
+                                person.is_identified,
+                            ],
+                            'copyPersonToNewTable'
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                        ON CONFLICT (team_id, id) DO NOTHING
-                        RETURNING id`
 
-                    await this.postgres.query(
-                        PostgresUse.PERSONS_WRITE,
-                        copyQuery,
-                        [
-                            person.id,
-                            person.uuid,
-                            person.created_at.toISO(),
-                            person.team_id,
-                            sanitizeJsonbValue(person.properties),
-                            sanitizeJsonbValue(person.properties_last_updated_at),
-                            sanitizeJsonbValue(person.properties_last_operation),
-                            person.is_user_id,
-                            person.version,
-                            person.is_identified,
-                        ],
-                        'copyPersonToNewTable'
-                    )
-
-                    // Person is now in new table, future operations can use it
-                    ;(person as any).__useNewTable = true
-                } catch (error) {
-                    // If copy fails for any reason, log but continue with old table routing
-                    logger.warn('Failed to copy person to new table', {
-                        error: error instanceof Error ? error.message : String(error),
-                        person_id: person.id,
-                        team_id: person.team_id,
-                    })
+                        // Person is now in new table, future operations can use it
+                        ;(person as any).__useNewTable = true
+                    } catch (error) {
+                        // If copy fails for any reason, log but continue with old table routing
+                        logger.warn('Failed to copy person to new table', {
+                            error: error instanceof Error ? error.message : String(error),
+                            person_id: person.id,
+                            team_id: person.team_id,
+                        })
+                        ;(person as any).__useNewTable = false
+                    }
+                } else {
+                    // When using read replica, don't attempt write operation
                     ;(person as any).__useNewTable = false
                 }
 
