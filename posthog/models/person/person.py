@@ -15,7 +15,7 @@ MAX_LIMIT_DISTINCT_IDS = 2500
 PERSON_ID_CUTOFF = 1000000000  # IDs < 1B in old table, >= 1B in new table
 
 # Dual-table read preference: "old" = try old table first, "new" = try new table first
-DUAL_TABLE_READ_PREFERENCE = "old"
+DUAL_TABLE_READ_PREFERENCE = "new"
 
 if "persons_db_reader" in connections:
     READ_DB_FOR_PERSONS = "persons_db_reader"
