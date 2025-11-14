@@ -21,12 +21,11 @@ from posthog.session_recordings.session_recording_playlist_api import log_playli
 
 def _first_non_blank(*values: str | None) -> str | None:
     for value in values:
-        if isinstance(value, str):
-            candidate = value.strip()
-            if candidate:
-                return value if value == candidate else candidate
-        elif value:
-            return value
+        if value is None:
+            continue
+        candidate = value.strip()
+        if candidate:
+            return candidate
     return None
 
 
