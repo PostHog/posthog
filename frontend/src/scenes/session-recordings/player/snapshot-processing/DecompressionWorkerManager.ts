@@ -9,6 +9,7 @@ interface PendingRequest {
     reject: (error: Error) => void
     startTime: number
     dataSize: number
+    blockCount?: number
 }
 
 interface DecompressionStats {
@@ -34,6 +35,7 @@ export class DecompressionWorkerManager {
     private pendingRequests = new Map<number, PendingRequest>()
     private stats: DecompressionStats = { totalTime: 0, count: 0, totalSize: 0 }
     private readonly mode: DecompressionMode
+    private isColdStart = true
 
     constructor(
         mode?: string | DecompressionMode,
@@ -80,7 +82,13 @@ export class DecompressionWorkerManager {
 
                 const totalDuration = performance.now() - pending.startTime
 
-                this.updateStats(totalDuration, pending.dataSize, undefined, workerDecompressDuration)
+                this.updateStats(
+                    totalDuration,
+                    pending.dataSize,
+                    undefined,
+                    workerDecompressDuration,
+                    pending.blockCount
+                )
 
                 if (error || !decompressedData) {
                     pending.reject(new Error(error || 'Decompression failed'))
@@ -112,16 +120,19 @@ export class DecompressionWorkerManager {
         this.snappyInitialized = true
     }
 
-    async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
+    async decompress(compressedData: Uint8Array, metadata?: { blockCount?: number }): Promise<Uint8Array> {
         await this.readyPromise
 
         if (this.mode === 'worker' && this.worker) {
-            return this.decompressWithWorker(compressedData)
+            return this.decompressWithWorker(compressedData, metadata)
         }
-        return this.decompressMainThread(compressedData)
+        return this.decompressMainThread(compressedData, metadata)
     }
 
-    private async decompressWithWorker(compressedData: Uint8Array): Promise<Uint8Array> {
+    private async decompressWithWorker(
+        compressedData: Uint8Array,
+        metadata?: { blockCount?: number }
+    ): Promise<Uint8Array> {
         const id = this.messageId++
         const startTime = performance.now()
 
@@ -131,6 +142,7 @@ export class DecompressionWorkerManager {
                 reject,
                 startTime,
                 dataSize: compressedData.length,
+                blockCount: metadata?.blockCount,
             })
 
             const message: DecompressionRequest = {
@@ -142,7 +154,10 @@ export class DecompressionWorkerManager {
         })
     }
 
-    private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
+    private async decompressMainThread(
+        compressedData: Uint8Array,
+        metadata?: { blockCount?: number }
+    ): Promise<Uint8Array> {
         const startTime = performance.now()
         const dataSize = compressedData.length
 
@@ -159,7 +174,7 @@ export class DecompressionWorkerManager {
             const decompressDuration = performance.now() - decompressStart
 
             const totalDuration = performance.now() - startTime
-            this.updateStats(totalDuration, dataSize, yieldDuration, decompressDuration)
+            this.updateStats(totalDuration, dataSize, yieldDuration, decompressDuration, metadata?.blockCount)
             return result
         } catch (error) {
             console.error('Decompression error:', error)
@@ -167,18 +182,30 @@ export class DecompressionWorkerManager {
         }
     }
 
-    private updateStats(duration: number, dataSize: number, yieldDuration?: number, decompressDuration?: number): void {
+    private updateStats(
+        duration: number,
+        dataSize: number,
+        yieldDuration?: number,
+        decompressDuration?: number,
+        blockCount?: number
+    ): void {
         this.stats.totalTime += duration
         this.stats.count += 1
         this.stats.totalSize += dataSize
-        this.reportTiming(duration, dataSize, yieldDuration, decompressDuration)
+        const isColdStart = this.isColdStart
+        if (this.isColdStart) {
+            this.isColdStart = false
+        }
+        this.reportTiming(duration, dataSize, isColdStart, yieldDuration, decompressDuration, blockCount)
     }
 
     private reportTiming(
         durationMs: number,
         sizeBytes: number,
+        isColdStart: boolean,
         yieldDuration?: number,
-        decompressDuration?: number
+        decompressDuration?: number,
+        blockCount?: number
     ): void {
         if (!this.posthog) {
             return
@@ -188,6 +215,7 @@ export class DecompressionWorkerManager {
             method: this.mode,
             duration_ms: durationMs,
             size_bytes: sizeBytes,
+            is_cold_start: isColdStart,
             aggregate_total_time_ms: this.stats.totalTime,
             aggregate_count: this.stats.count,
             aggregate_total_size_bytes: this.stats.totalSize,
@@ -201,6 +229,11 @@ export class DecompressionWorkerManager {
         if (decompressDuration !== undefined) {
             properties.decompress_duration_ms = decompressDuration
             properties.overhead_duration_ms = durationMs - decompressDuration - (yieldDuration || 0)
+        }
+
+        if (blockCount !== undefined) {
+            properties.block_count = blockCount
+            properties.is_parallel = blockCount > 1
         }
 
         this.posthog.capture('replay_decompression_timing', properties)
@@ -250,4 +283,17 @@ export function terminateDecompressionWorker(): void {
         workerManager = null
     }
     currentConfig = null
+}
+
+/**
+ * Pre-warm the WASM decompression module.
+ * Call this during app initialization to avoid cold start penalty.
+ * Safe to call multiple times - will only initialize once.
+ */
+export function preWarmDecompression(): void {
+    // Initialize WASM module in background
+    // Don't await - let it warm up while app loads
+    snappyInit().catch((error) => {
+        console.error('[DecompressionWorkerManager] Failed to pre-warm WASM:', error)
+    })
 }
