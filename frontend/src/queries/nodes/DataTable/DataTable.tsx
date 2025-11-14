@@ -215,6 +215,7 @@ export function DataTable({
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showSourceQueryOptions,
     } = queryWithDefaults
 
     const isReadOnly = !!readOnly
