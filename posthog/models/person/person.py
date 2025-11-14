@@ -43,6 +43,21 @@ class PersonOld(models.Model):
         managed = False
         db_table = "posthog_person"
 
+    @property
+    def distinct_ids(self) -> list[str]:
+        from posthog.models.person.person import PersonDistinctId
+
+        if hasattr(self, "distinct_ids_cache"):
+            return [id.distinct_id for id in self.distinct_ids_cache]
+        if hasattr(self, "_distinct_ids") and self._distinct_ids:
+            return self._distinct_ids
+        # PersonOld doesn't have the reverse relation, so query directly
+        return list(
+            PersonDistinctId.objects.filter(person_id=self.id, team_id=self.team_id)
+            .order_by("id")
+            .values_list("distinct_id", flat=True)
+        )
+
 
 class PersonNew(models.Model):
     """New hash-partitioned person table (posthog_person_new)."""
@@ -61,6 +76,21 @@ class PersonNew(models.Model):
     class Meta:
         managed = False
         db_table = "posthog_person_new"
+
+    @property
+    def distinct_ids(self) -> list[str]:
+        from posthog.models.person.person import PersonDistinctId
+
+        if hasattr(self, "distinct_ids_cache"):
+            return [id.distinct_id for id in self.distinct_ids_cache]
+        if hasattr(self, "_distinct_ids") and self._distinct_ids:
+            return self._distinct_ids
+        # PersonNew doesn't have the reverse relation, so query directly
+        return list(
+            PersonDistinctId.objects.filter(person_id=self.id, team_id=self.team_id)
+            .order_by("id")
+            .values_list("distinct_id", flat=True)
+        )
 
 
 class DualPersonQuerySet:
@@ -126,6 +156,11 @@ class DualPersonQuerySet:
             new_qs = new_qs.order_by(*self.ordering)
 
         return old_qs.count() + new_qs.count()
+
+    def first(self):
+        """Get the first Person from both tables based on ordering."""
+        results = self._execute()
+        return results[0] if results else None
 
     def values_list(self, *fields, flat=False):
         """Execute on both tables and return merged list of values."""
