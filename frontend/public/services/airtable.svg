@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FCB400;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FD7900;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="20" fill="url(#grad)"/>
+  <g transform="translate(50, 60)">
+    <path d="M 50 10 L 90 30 L 50 50 L 10 30 Z" fill="white" opacity="0.9"/>
+    <path d="M 10 30 L 10 70 L 50 90 L 50 50 Z" fill="white" opacity="0.7"/>
+    <path d="M 50 50 L 50 90 L 90 70 L 90 30 Z" fill="white" opacity="0.5"/>
+  </g>
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white" text-anchor="middle">Airtable</text>
+</svg>

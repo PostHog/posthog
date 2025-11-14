@@ -64,6 +64,7 @@ class ExternalDataSourceType(models.TextChoices):
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
     SHOPIFY = "Shopify", "Shopify"
+    AIRTABLE = "Airtable", "Airtable"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

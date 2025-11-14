@@ -1,3 +1,4 @@
+from .airtable.source import AirtableSource
 from .bigquery.source import BigQuerySource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
@@ -31,6 +32,7 @@ from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
 __all__ = [
+    "AirtableSource",
     "CustomerIOSource",
     "GithubSource",
     "SourceRegistry",

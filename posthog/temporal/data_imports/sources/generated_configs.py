@@ -10,6 +10,12 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AirtableSourceConfig(config.Config):
+    access_token: str
+    base_id: str | None = None
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)

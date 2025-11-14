@@ -198,6 +198,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # airtable
+            "base_id",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):

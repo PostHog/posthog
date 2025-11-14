@@ -1435,6 +1435,7 @@ class ExternalDataSourceType(StrEnum):
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
     SHOPIFY = "Shopify"
+    AIRTABLE = "Airtable"
 
 
 class ExternalQueryErrorCode(StrEnum):
