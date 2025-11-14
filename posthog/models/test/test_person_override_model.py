@@ -434,16 +434,17 @@ def _merge_people(
     This mimics how we expect the code to do person merges, i.e. in a transaction
     that deletes the old person, adds old person->override person override and updates
     all old person as override person rows to now point to the new override person.
-    Note that we don't actually handle the merge on the posthog_person table,
+    Note that we don't actually handle the merge on the Person table,
     but rather simply DELETE the record associated with `old_person_id`. It may
     be that we remove the implmentation of deleting merged persons, in which
     case we'll need to update the constraint to also include e.g. the
     `is_deleted` flag we may add.
     """
+    person_table = Person._meta.db_table
     cursor.execute(
-        """
+        f"""
             DELETE FROM
-                posthog_person
+                {person_table}
             WHERE
                 uuid = %(old_person_uuid)s
                 AND team_id = %(team_id)s;
