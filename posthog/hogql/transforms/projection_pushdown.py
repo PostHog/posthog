@@ -28,7 +28,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.subquery_map: dict[int, ast.SelectQuery | ast.SelectSetQuery] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        # Phase 1: Register subqueries for demand tracking
+        # Phase 1: Register subqueries and CTEs for demand tracking
+        if node.ctes:
+            self._register_ctes(node.ctes)
         if node.select_from:
             self._register_subqueries(node.select_from)
 
@@ -60,12 +62,16 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         # Phase 3: Propagate parent demands down to child subqueries
         self._propagate_demands_to_children(node)
 
-        # Phase 4: Recursively visit and optimize child subqueries
+        # Phase 4: Recursively visit and optimize child subqueries and CTEs
+        if node.ctes:
+            self._visit_ctes(node.ctes)
         if node.select_from:
             self.visit(node.select_from)
 
-        # Phase 5: Prune unreferenced asterisk columns from this query
+        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs
         self._prune_columns(node)
+        if node.ctes:
+            self._prune_cte_columns(node.ctes)
 
         return node
 
@@ -183,8 +189,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         return self.subquery_map.get(id(table_type))
 
     def visit_field(self, node: ast.Field) -> ast.Field:
-        """Record demand when field references subquery column"""
-        if not isinstance(node.type, ast.FieldType):
+        """Record demand when field references subquery or CTE column"""
+        # Handle both FieldType and ExpressionFieldType
+        if not isinstance(node.type, ast.FieldType | ast.ExpressionFieldType):
             return node
 
         table_type = node.type.table_type
@@ -193,13 +200,24 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             subquery = self._get_subquery(table_type)
             if subquery:
                 self.demands[id(subquery)].add(node.type.name)
+        elif isinstance(table_type, ast.CTETableType | ast.CTETableAliasType):
+            # For CTE types, get the underlying SelectQueryType and demand from it
+            cte_select_query_type = (
+                table_type.cte_table_type.select_query_type
+                if isinstance(table_type, ast.CTETableAliasType)
+                else table_type.select_query_type
+            )
+            cte_query = self._get_subquery(cte_select_query_type)
+            if cte_query:
+                self.demands[id(cte_query)].add(node.type.name)
 
         return node
 
     def _collect_join_constraint_column_demands(self, from_clause: ast.JoinExpr) -> None:
         """Collect demands from JOIN constraints"""
-        if from_clause.constraint:
-            self.visit(from_clause.constraint)
+        if from_clause.constraint and from_clause.constraint.expr:
+            # Visit the constraint expression (not the JoinConstraint wrapper)
+            self.visit(from_clause.constraint.expr)
 
         if from_clause.next_join:
             self._collect_join_constraint_column_demands(from_clause.next_join)
@@ -231,6 +249,26 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         elif isinstance(expr, ast.Alias):
             return expr.alias
         return None
+
+    def _register_ctes(self, ctes: dict[str, ast.CTE]) -> None:
+        """Register all CTEs for demand tracking"""
+        for cte in ctes.values():
+            if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
+                # Map the CTE's SelectQueryType to its expr for demand tracking
+                if cte.expr.type:
+                    self.subquery_map[id(cte.expr.type)] = cte.expr
+
+    def _visit_ctes(self, ctes: dict[str, ast.CTE]) -> None:
+        """Visit and optimize CTEs"""
+        for cte in ctes.values():
+            if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
+                self.visit(cte.expr)
+
+    def _prune_cte_columns(self, ctes: dict[str, ast.CTE]) -> None:
+        """Prune asterisk-expanded columns from CTEs that aren't demanded"""
+        for cte in ctes.values():
+            if isinstance(cte.expr, ast.SelectQuery):
+                self._prune_columns(cte.expr)
 
 
 def pushdown_projections(node: _T_AST, context: HogQLContext) -> _T_AST:

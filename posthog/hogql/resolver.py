@@ -350,7 +350,7 @@ class Resolver(CloningVisitor):
 
             cte_table = self.ctes.get(".".join(table_name_chain))
             if cte_table:
-                assert isinstance(cte_table.expr.type, ast.SelectQueryType)
+                assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
                 cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
                 node_type = cte_table_type
