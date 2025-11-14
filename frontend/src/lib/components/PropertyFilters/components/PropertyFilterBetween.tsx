@@ -32,7 +32,8 @@ export function PropertyFilterBetween({ logicKey, value, onSet, size }: Property
             <LemonInput
                 type="number"
                 value={localMin ?? undefined}
-                data-attr="prop-val"
+                data-attr="prop-val-min"
+                aria-label="Minimum value"
                 onChange={(value) => setLocalMin(value ?? null)}
                 placeholder="min"
                 size={size}
@@ -41,7 +42,8 @@ export function PropertyFilterBetween({ logicKey, value, onSet, size }: Property
             <LemonInput
                 type="number"
                 value={localMax ?? undefined}
-                data-attr="prop-val"
+                data-attr="prop-val-max"
+                aria-label="Maximum value"
                 onChange={(value) => setLocalMax(value ?? null)}
                 placeholder="max"
                 size={size}
