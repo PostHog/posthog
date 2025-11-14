@@ -15,6 +15,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -54,6 +55,7 @@ export function DashboardItems(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { featureFlags } = useValues(featureFlagLogic)
+    const bestSurveyOpportunityFunnel = getBestSurveyOpportunityFunnel(tiles || [])
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -184,6 +186,7 @@ export function DashboardItems(): JSX.Element {
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     filtersOverride={effectiveEditBarFilters}
                                     variablesOverride={effectiveDashboardVariableOverrides}
+                                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
