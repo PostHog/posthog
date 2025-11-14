@@ -140,7 +140,8 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
