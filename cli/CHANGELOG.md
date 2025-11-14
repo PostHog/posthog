@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.12
+
+- Bug fixes and improvements
+
 # 0.5.11
 
 - Do not read bundle files as part of hermes sourcemap commands
