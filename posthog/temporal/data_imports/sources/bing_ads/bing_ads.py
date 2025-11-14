@@ -14,6 +14,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 from .client import BingAdsClient
 from .schemas import RESOURCE_SCHEMAS, BingAdsResource
+from .utils import fetch_data_in_yearly_chunks
 
 logger = structlog.get_logger()
 
@@ -57,53 +58,6 @@ def get_schemas() -> dict[str, BingAdsSchema]:
         schemas[schema.name] = schema
 
     return schemas
-
-
-def _fetch_data_in_yearly_chunks(
-    client: BingAdsClient,
-    resource: BingAdsResource,
-    account_id: int,
-    start_date: dt.date,
-    end_date: dt.date,
-) -> collections.abc.Iterator[list[dict]]:
-    current_start = start_date
-    errors: list[dict[str, typing.Any]] = []
-
-    while current_start < end_date:
-        chunk_end = min(
-            dt.date(current_start.year + 1, current_start.month, current_start.day),
-            end_date,
-        )
-
-        try:
-            data_pages = client.get_data_by_resource(
-                resource=resource,
-                account_id=account_id,
-                start_date=dt.datetime.combine(current_start, dt.time.min),
-                end_date=dt.datetime.combine(chunk_end, dt.time.max),
-            )
-
-            for page in data_pages:
-                if page:
-                    yield page
-        except Exception as e:
-            errors.append(
-                {
-                    "start_date": current_start.isoformat(),
-                    "end_date": chunk_end.isoformat(),
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                }
-            )
-
-        current_start = chunk_end
-
-    if errors:
-        logger.exception(
-            "Some data chunks failed to fetch",
-            failed_chunks=len(errors),
-            total_errors=errors,
-        )
 
 
 def bing_ads_source(
@@ -156,7 +110,7 @@ def bing_ads_source(
                     else:
                         start_date = initial_datetime.date()
 
-                yield from _fetch_data_in_yearly_chunks(
+                yield from fetch_data_in_yearly_chunks(
                     client=client,
                     resource=resource,
                     account_id=account_id_int,
@@ -165,7 +119,7 @@ def bing_ads_source(
                 )
             else:
                 start_date = today - dt.timedelta(days=365 * 5)
-                yield from _fetch_data_in_yearly_chunks(
+                yield from fetch_data_in_yearly_chunks(
                     client=client,
                     resource=resource,
                     account_id=account_id_int,

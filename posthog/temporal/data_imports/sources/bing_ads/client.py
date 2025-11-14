@@ -1,10 +1,5 @@
-import csv
-import uuid
-import zipfile
-import tempfile
 from collections.abc import Generator
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -14,12 +9,15 @@ from bingads.v13 import reporting
 from posthog.settings import integrations
 
 from .schemas import REPORT_CONFIG, RESOURCE_SCHEMAS, BingAdsResource
+from .utils import (
+    ENVIRONMENT,
+    REPORT_POLL_INTERVAL_MS,
+    build_report_request,
+    download_and_extract_report_csv,
+    parse_csv_to_dicts,
+)
 
 logger = structlog.get_logger(__name__)
-
-ENVIRONMENT = "production"
-REPORT_POLL_INTERVAL_MS = 5000
-REPORT_TIMEOUT_MS = 360000
 
 
 class BingAdsClient:
@@ -117,63 +115,25 @@ class BingAdsClient:
             environment=ENVIRONMENT,
         )
 
-        reporting_service = reporting_service_manager._service_client
+        # Build report request using SDK's factory pattern
+        report_request = build_report_request(
+            service_factory=reporting_service_manager._service_client.factory,
+            report_config=report_config,
+            field_names=schema["field_names"],
+            account_id=account_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
-        report_request = reporting_service.factory.create(report_config["report_type"])
-        report_request.Aggregation = "Daily"
-        report_request.ExcludeColumnHeaders = False
-        report_request.ExcludeReportFooter = False
-        report_request.ExcludeReportHeader = False
-        report_request.Format = "Csv"
-        report_request.ReturnOnlyCompleteData = False
-        report_request.ReportName = report_config["report_name"]
+        # Download and extract CSV from ZIP
+        csv_data = download_and_extract_report_csv(
+            reporting_service_manager=reporting_service_manager,
+            report_request=report_request,
+            report_type=report_config["report_type"],
+            account_id=account_id,
+        )
 
-        report_columns = reporting_service.factory.create(report_config["column_array_type"])
-        setattr(report_columns, report_config["column_field"], schema["field_names"])
-        report_request.Columns = report_columns
-
-        scope = reporting_service.factory.create(report_config["scope_type"])
-        scope.AccountIds = {"long": [account_id]}
-        scope.Campaigns = None
-        if report_config["scope_type"] == "AccountThroughAdGroupReportScope":
-            scope.AdGroups = None
-        report_request.Scope = scope
-
-        report_time = reporting_service.factory.create("ReportTime")
-        custom_date_range_start = reporting_service.factory.create("Date")
-        custom_date_range_start.Day = start_date.day
-        custom_date_range_start.Month = start_date.month
-        custom_date_range_start.Year = start_date.year
-        report_time.CustomDateRangeStart = custom_date_range_start
-
-        custom_date_range_end = reporting_service.factory.create("Date")
-        custom_date_range_end.Day = end_date.day
-        custom_date_range_end.Month = end_date.month
-        custom_date_range_end.Year = end_date.year
-        report_time.CustomDateRangeEnd = custom_date_range_end
-
-        report_request.Time = report_time
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filename = f"{report_config['report_type']}_{account_id}_{uuid.uuid4()}.zip"
-            reporting_download_parameters = reporting.ReportingDownloadParameters(
-                report_request=report_request,
-                result_file_directory=tmpdir,
-                result_file_name=filename,
-                overwrite_result_file=True,
-                timeout_in_milliseconds=REPORT_TIMEOUT_MS,
-            )
-
-            result_file_path = reporting_service_manager.download_file(reporting_download_parameters)
-
-            result_path = Path(result_file_path)
-            with zipfile.ZipFile(result_path, "r") as zip_file:
-                csv_files = [name for name in zip_file.namelist() if name.endswith(".csv")]
-                if not csv_files:
-                    raise ValueError("No CSV file found in report ZIP")
-                csv_data = zip_file.read(csv_files[0]).decode("utf-8")
-
-        return self._parse_csv_to_dicts(csv_data)
+        return parse_csv_to_dicts(csv_data)
 
     def get_data_by_resource(
         self,
@@ -194,48 +154,3 @@ class BingAdsClient:
             yield self.get_performance_report(resource, account_id, customer_id, start_date, end_date)
         else:
             raise ValueError(f"Unsupported resource: {resource}")
-
-    @staticmethod
-    def _parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
-        if not csv_data or not csv_data.strip():
-            return []
-
-        if csv_data.startswith("\ufeff"):
-            csv_data = csv_data[1:]
-
-        lines = csv_data.strip().split("\n")
-
-        header_line_index = None
-        for i, line in enumerate(lines):
-            if "TimePeriod" in line and ":" not in line:
-                header_line_index = i
-                break
-
-        if header_line_index is None:
-            for i, line in enumerate(lines):
-                if any(col in line for col in ["CampaignName", "CampaignId", "Impressions"]) and ":" not in line:
-                    header_line_index = i
-                    break
-
-        if header_line_index is None:
-            logger.warning("Could not find header line in CSV data")
-            return []
-
-        data_lines = []
-        for i in range(header_line_index, len(lines)):
-            line = lines[i]
-            if line.startswith("©") or line.startswith('"©'):
-                break
-            data_lines.append(line)
-
-        if not data_lines:
-            return []
-
-        reader = csv.DictReader(data_lines)
-        result = []
-
-        for row in reader:
-            cleaned_row = {key: None if value in ("--", "") else value for key, value in row.items()}
-            result.append(cleaned_row)
-
-        return result
