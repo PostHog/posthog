@@ -200,7 +200,7 @@ def run_persons_sqlx_migrations():
         ) from e
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
     from django.db import connection
