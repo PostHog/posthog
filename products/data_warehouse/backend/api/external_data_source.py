@@ -184,6 +184,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "customer_id",
             "google_ads_integration_id",
             "is_mcc_account",
+            # google analytics
+            "property_id",
+            "google_analytics_integration_id",
             # google sheets
             "spreadsheet_url",
             # linkedin ads

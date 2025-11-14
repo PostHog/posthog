@@ -1421,6 +1421,7 @@ class ExternalDataSourceType(StrEnum):
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
+    GOOGLE_ANALYTICS = "GoogleAnalytics"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"

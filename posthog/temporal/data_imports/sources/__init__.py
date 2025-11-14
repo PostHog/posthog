@@ -6,6 +6,7 @@ from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
+from .google_analytics.source import GoogleAnalyticsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
 from .klaviyo.source import KlaviyoSource
@@ -39,6 +40,7 @@ __all__ = [
     "ChargebeeSource",
     "DoItSource",
     "GoogleAdsSource",
+    "GoogleAnalyticsSource",
     "GoogleSheetsSource",
     "HubspotSource",
     "KlaviyoSource",

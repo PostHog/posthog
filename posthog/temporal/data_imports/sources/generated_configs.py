@@ -102,6 +102,12 @@ class GoogleAdsSourceConfig(config.Config):
 
 
 @config.config
+class GoogleAnalyticsSourceConfig(config.Config):
+    property_id: str
+    google_analytics_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class GoogleSheetsSourceConfig(config.Config):
     spreadsheet_url: str
 

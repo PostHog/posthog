@@ -4374,6 +4374,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleAnalytics',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
