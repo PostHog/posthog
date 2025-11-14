@@ -23,7 +23,7 @@ from posthog.models.activity_logging.batch_import_utils import (
 )
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 
@@ -469,7 +469,7 @@ class BatchImportContext(ActivityContextBase):
     created_by_user_name: str | None
 
 
-@receiver(model_activity_signal, sender=BatchImport)
+@mutable_receiver(model_activity_signal, sender=BatchImport)
 def handle_batch_import_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

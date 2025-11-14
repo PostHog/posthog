@@ -10,7 +10,6 @@ from posthog.temporal.weekly_digest.types import (
     DigestExternalDataSource,
     DigestFeatureFlag,
     DigestFilter,
-    DigestRecording,
     DigestSurvey,
     EventDefinitionList,
     ExperimentList,
@@ -18,7 +17,7 @@ from posthog.temporal.weekly_digest.types import (
     FeatureFlagList,
     FilterList,
     OrganizationDigest,
-    RecordingList,
+    RecordingCount,
     SurveyList,
     TeamDigest,
 )
@@ -90,7 +89,7 @@ def test_team_digest_is_empty():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -106,7 +105,7 @@ def test_team_digest_is_empty():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -125,7 +124,7 @@ def test_team_digest_count_items():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[DigestFeatureFlag(name="Feature", id=1, key="feature")]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=5),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -138,7 +137,6 @@ def test_team_digest_render_payload():
     event = DigestEventDefinition(name="pageview", id=uuid4())
     flag = DigestFeatureFlag(name="Feature", id=1, key="feature")
     filter = DigestFilter(name="Filter", short_id="abc", view_count=5, recording_count=10)
-    recording = DigestRecording(session_id="session123", recording_ttl=7)
 
     digest = TeamDigest(
         id=1,
@@ -150,7 +148,7 @@ def test_team_digest_render_payload():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[flag]),
         filters=FilterList(root=[filter]),
-        recordings=RecordingList(root=[recording]),
+        expiring_recordings=RecordingCount(recording_count=7),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -165,9 +163,10 @@ def test_team_digest_render_payload():
     assert len(report["new_event_definitions"]) == 1
     assert len(report["new_feature_flags"]) == 1
     assert len(report["interesting_saved_filters"]) == 1
-    assert len(report["expiring_recordings"]) == 1
-    assert report["expiring_recordings"][0]["session_id"] == "session123"
-    assert report["expiring_recordings"][0]["recording_ttl"] == 7
+    assert "expiring_recordings" in report
+    expiring_recordings = report["expiring_recordings"]
+    assert isinstance(expiring_recordings, dict)
+    assert expiring_recordings["recording_count"] == 7
 
 
 def test_team_digest_render_payload_empty_recordings():
@@ -184,7 +183,7 @@ def test_team_digest_render_payload_empty_recordings():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -193,7 +192,9 @@ def test_team_digest_render_payload_empty_recordings():
     report = payload["report"]
     assert isinstance(report, dict)
     assert "expiring_recordings" in report
-    assert len(report["expiring_recordings"]) == 0
+    expiring_recordings = report["expiring_recordings"]
+    assert isinstance(expiring_recordings, dict)
+    assert expiring_recordings["recording_count"] == 0
 
 
 def test_organization_digest_filter_for_user():
@@ -208,7 +209,7 @@ def test_organization_digest_filter_for_user():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -222,7 +223,7 @@ def test_organization_digest_filter_for_user():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -236,7 +237,7 @@ def test_organization_digest_filter_for_user():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -265,7 +266,7 @@ def test_organization_digest_is_empty():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -283,7 +284,7 @@ def test_organization_digest_is_empty():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -304,7 +305,7 @@ def test_organization_digest_count_items():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -318,7 +319,7 @@ def test_organization_digest_count_items():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[DigestFeatureFlag(name="Flag", id=1, key="flag")]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -340,7 +341,7 @@ def test_organization_digest_render_payload():
         external_data_sources=ExternalDataSourceList(root=[]),
         feature_flags=FeatureFlagList(root=[]),
         filters=FilterList(root=[]),
-        recordings=RecordingList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
         surveys_launched=SurveyList(root=[]),
     )
 
@@ -388,12 +389,11 @@ def test_digest_experiment_without_end_date():
     assert experiment.end_date is None
 
 
-def test_digest_recording():
-    """Test that DigestRecording correctly stores recording data."""
-    recording = DigestRecording(session_id="session123", recording_ttl=7)
+def test_recording_count():
+    """Test that RecordingCount correctly stores recording count data."""
+    recording_count = RecordingCount(recording_count=7)
 
-    assert recording.session_id == "session123"
-    assert recording.recording_ttl == 7
+    assert recording_count.recording_count == 7
 
 
 def test_digest_survey():

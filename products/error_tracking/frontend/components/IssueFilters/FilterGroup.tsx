@@ -15,17 +15,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
+import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
-
-export const taxonomicFilterLogicKey = 'error-tracking'
-export const taxonomicGroupTypes = [
-    TaxonomicFilterGroupType.ErrorTrackingProperties,
-    TaxonomicFilterGroupType.ErrorTrackingIssues,
-    TaxonomicFilterGroupType.EventProperties,
-    TaxonomicFilterGroupType.PersonProperties,
-    TaxonomicFilterGroupType.Cohorts,
-    TaxonomicFilterGroupType.HogQLExpression,
-]
 
 export const FilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(issueFiltersLogic)
@@ -33,10 +24,10 @@ export const FilterGroup = (): JSX.Element => {
 
     return (
         <UniversalFilters
-            rootKey={taxonomicFilterLogicKey}
+            rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-            taxonomicGroupTypes={taxonomicGroupTypes}
+            taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
             <UniversalSearch />
@@ -59,8 +50,8 @@ const UniversalSearch = (): JSX.Element => {
     }
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        taxonomicFilterLogicKey,
-        taxonomicGroupTypes,
+        taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
+        taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             searchInputRef.current?.blur()
             setVisible(false)
