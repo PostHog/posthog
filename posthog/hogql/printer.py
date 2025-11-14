@@ -315,8 +315,7 @@ class _Printer(Visitor[str]):
         return response
 
     def visit_cte(self, node: ast.CTE):
-        # Special case: if a column CTE contains a SELECT query, treat it as a subquery CTE
-        if node.cte_type == "subquery" or isinstance(node.expr, ast.SelectQuery | ast.SelectSetQuery):
+        if node.cte_type == "subquery":
             return f"{node.name} AS {self.visit(node.expr)}"
 
         return f"{self.visit(node.expr)} AS {node.name}"
@@ -598,6 +597,9 @@ class _Printer(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.type, ast.CTETableType):
+            join_strings.append(self._print_identifier(node.type.name))
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
             join_strings.append(self.visit(node.table))

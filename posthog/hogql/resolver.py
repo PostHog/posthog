@@ -365,10 +365,9 @@ class Resolver(CloningVisitor):
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = ast.CTETableType(
-                    name=table_alias or cte_table.name, select_query_type=cte_table.expr.type
-                )
+                node.table.type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
                 node.next_join = self.visit(node.next_join)
+                node.alias = table_alias
 
                 if node.constraint and node.constraint.constraint_type == "ON":
                     node.constraint = self.visit_join_constraint(node.constraint)
@@ -698,12 +697,12 @@ class Resolver(CloningVisitor):
 
                 assert isinstance(cte.type, ast.CTETableType)
 
-                # Check if the CTE expression is actually a SELECT query, regardless of cte_type
-                # (The grammar allows (SELECT ...) AS name, which gets parsed as cte_type="column")
-                if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
-                    # For subquery CTEs, they should only be used in FROM clauses (handled in visit_join_expr)
-                    # If we get here, it means someone is trying to use a subquery CTE as a value
-                    raise QueryError(f"Cannot use subquery CTE {cte.name} as a value. Use it in a FROM clause instead.")
+                # Check if this is a table CTE (subquery style) vs scalar CTE (column style)
+                # Table CTE: WITH x AS (SELECT ...) - can only be used in FROM clauses
+                # Scalar CTE: WITH expr AS x or WITH (SELECT 1) AS x - can be used as scalar values
+                if cte.cte_type == "subquery":
+                    # Table CTE: can only be used in FROM clauses (handled in visit_join_expr)
+                    raise QueryError(f"Cannot use table CTE {cte.name} as a value. Use it in a FROM clause instead.")
                 elif cte.cte_type == "column":
                     # Try to extract the actual return type from the scalar CTE's SELECT query
                     # Scalar CTEs should return a single column, so we get the type of the first selected column

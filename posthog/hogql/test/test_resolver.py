@@ -280,6 +280,32 @@ class TestResolver(BaseTest):
             "WITH cte1 AS (SELECT 1 AS a), cte2 AS (SELECT 2 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL SELECT a FROM cte2 LIMIT 50000 UNION ALL SELECT a FROM cte1 LIMIT 50000",
         )
 
+    def test_ctes_scalar_subquery(self):
+        self.assertEqual(
+            self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events"),
+            "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000",
+        )
+
+        self.assertEqual(
+            self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events"),
+            "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000",
+        )
+
+        self.assertEqual(
+            self._print_hogql(
+                "WITH params AS (SELECT 1 AS a, 2 AS b), "
+                "(SELECT a FROM params) AS val_a, "
+                "(SELECT b FROM params) AS val_b "
+                "SELECT val_a + val_b FROM events"
+            ),
+            "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000",
+        )
+
+    def test_ctes_table_subquery_as_scalar_error(self):
+        with self.assertRaises(QueryError) as e:
+            self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
+        self.assertIn("Cannot use table CTE", str(e.exception))
+
     def test_join_using(self):
         node = self._select(
             "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
@@ -291,7 +317,7 @@ class TestResolver(BaseTest):
         assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
         constraint = node.select_from.next_join.constraint
         assert constraint.constraint_type == "USING"
-        assert cast(ast.Field, constraint.expr).chain == ["a"]
+        assert cast(ast.Alias, constraint.expr).alias == "a"
 
         node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
         node = resolve_types(node, self.context, dialect="clickhouse")
