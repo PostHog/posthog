@@ -86,28 +86,34 @@ def create_chunks(
 ):
     """
     Divide ID space into chunks of chunk_size.
-    Yields DynamicOutput for each chunk.
+    Yields DynamicOutput for each chunk in reverse order (highest IDs first, lowest IDs last).
+    This ensures that if the job fails partway through, the final chunk to process will be
+    the one starting at the source table's min_id.
     """
     min_id, max_id = id_range
     chunk_size = config.chunk_size
 
+    # First, collect all chunks
+    chunks = []
     chunk_min = min_id
     chunk_num = 0
 
     while chunk_min <= max_id:
         chunk_max = min(chunk_min + chunk_size - 1, max_id)
-        chunk_key = f"chunk_{chunk_min}_{chunk_max}"
-
-        context.log.info(f"Creating chunk {chunk_num}: {chunk_min} to {chunk_max}")
-        yield dagster.DynamicOutput(
-            value=(chunk_min, chunk_max),
-            mapping_key=chunk_key,
-        )
-
+        chunks.append((chunk_min, chunk_max, chunk_num))
         chunk_min = chunk_max + 1
         chunk_num += 1
 
     context.log.info(f"Created {chunk_num} chunks total")
+
+    # Yield chunks in reverse order (highest IDs first)
+    for chunk_min, chunk_max, chunk_num in reversed(chunks):
+        chunk_key = f"chunk_{chunk_min}_{chunk_max}"
+        context.log.info(f"Yielding chunk {chunk_num}: {chunk_min} to {chunk_max}")
+        yield dagster.DynamicOutput(
+            value=(chunk_min, chunk_max),
+            mapping_key=chunk_key,
+        )
 
 
 def _get_table_columns(connection: psycopg2.extensions.connection, schema: str, table_name: str) -> list[str]:
