@@ -83,12 +83,17 @@ def get_flags_from_cache(team: Team) -> list[dict[str, Any]]:
     """
     Get feature flags from the cache for a team.
 
+    Only operates when FLAGS_REDIS_URL is configured to avoid reading from/writing to shared cache.
+
     Args:
         team: The team to get flags for
 
     Returns:
-        List of flag dictionaries (empty list if not found)
+        List of flag dictionaries (empty list if not found or FLAGS_REDIS_URL not configured)
     """
+    if not settings.FLAGS_REDIS_URL:
+        return []
+
     result = flags_hypercache.get_from_cache(team)
     if result is None:
         return []
@@ -100,10 +105,14 @@ def update_flags_cache(team: Team) -> None:
     Update the flags cache for a team.
 
     This explicitly updates both Redis and S3 with the latest flag data.
+    Only operates when FLAGS_REDIS_URL is configured to avoid writing to shared cache.
 
     Args:
         team: The team to update cache for
     """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     flags_hypercache.update_cache(team)
 
 
@@ -111,10 +120,15 @@ def clear_flags_cache(team: Team, kinds: list[str] | None = None) -> None:
     """
     Clear the flags cache for a team.
 
+    Only operates when FLAGS_REDIS_URL is configured to avoid writing to shared cache.
+
     Args:
         team: The team to clear cache for
         kinds: Optional list of cache kinds to clear ("redis", "s3")
     """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     flags_hypercache.clear_cache(team, kinds=kinds)
 
 

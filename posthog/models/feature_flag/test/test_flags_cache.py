@@ -23,6 +23,7 @@ from posthog.models.feature_flag.flags_cache import (
 )
 
 
+@override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsCache(BaseTest):
     """Test basic cache operations for service flags HyperCache."""
 
@@ -275,6 +276,7 @@ class TestServiceFlagsSignals(BaseTest):
         # In production, this prevents stale cache entries
 
 
+@override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsCeleryTasks(BaseTest):
     """Test Celery task integration for service flags cache updates."""
 
@@ -311,6 +313,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         update_team_service_flags_cache(999999)
 
 
+@override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsDataFormat(BaseTest):
     """Test that cached data format matches service expectations."""
 
@@ -389,3 +392,39 @@ class TestServiceFlagsDataFormat(BaseTest):
         assert "flags" in deserialized
         assert len(deserialized["flags"]) == 1
         assert deserialized["flags"][0]["key"] == "json-test-flag"
+
+
+@override_settings(FLAGS_REDIS_URL=None)
+class TestServiceFlagsGuards(BaseTest):
+    """Test that cache functions guard against writes when FLAGS_REDIS_URL is not set."""
+
+    def setUp(self):
+        super().setUp()
+        # Create a flag for testing
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def test_get_flags_from_cache_returns_empty_without_redis_url(self):
+        """Test that get_flags_from_cache returns empty list when FLAGS_REDIS_URL is not set."""
+        flags = get_flags_from_cache(self.team)
+        assert flags == []
+
+    def test_update_flags_cache_no_op_without_redis_url(self):
+        """Test that update_flags_cache is a no-op when FLAGS_REDIS_URL is not set."""
+        # This should not raise an error and should be a no-op
+        update_flags_cache(self.team)
+
+        # Since it's a no-op, attempting to get from cache should return empty
+        flags = get_flags_from_cache(self.team)
+        assert flags == []
+
+    def test_clear_flags_cache_no_op_without_redis_url(self):
+        """Test that clear_flags_cache is a no-op when FLAGS_REDIS_URL is not set."""
+        # This should not raise an error and should be a no-op
+        clear_flags_cache(self.team)
+
+        # Should complete without error (nothing to verify as it's a no-op)
