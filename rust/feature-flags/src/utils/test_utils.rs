@@ -12,7 +12,7 @@ use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, ProjectId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
@@ -557,22 +557,10 @@ pub async fn get_person_id_by_distinct_id(
     distinct_id: &str,
 ) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (PersonId,) = sqlx::query_as(
-        r#"SELECT id FROM posthog_person
-           WHERE team_id = $1 AND id = (
-               SELECT person_id FROM posthog_persondistinctid
-               WHERE team_id = $1 AND distinct_id = $2
-               LIMIT 1
-           )
-           LIMIT 1"#,
-    )
-    .bind(team_id)
-    .bind(distinct_id)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|_| anyhow::anyhow!("Person not found"))?;
-
-    Ok(row.0)
+    Person::from_distinct_id(&mut conn, team_id, distinct_id)
+        .await?
+        .map(|p| p.id)
+        .ok_or_else(|| anyhow::anyhow!("Person not found"))
 }
 
 pub async fn add_person_to_cohort(
