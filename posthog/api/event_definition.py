@@ -326,7 +326,7 @@ class EventDefinitionViewSet(
 
         # Add updated_by only for EnterpriseEventDefinition
         if hasattr(serializer.Meta.model, "updated_by"):
-            save_kwargs["updated_by"] = user.id
+            save_kwargs["updated_by"] = user
 
         event_definition = serializer.save(**save_kwargs)
 
