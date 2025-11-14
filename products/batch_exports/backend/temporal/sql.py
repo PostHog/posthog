@@ -1043,6 +1043,12 @@ FROM (
             person_distinct_id2
         where
             team_id = {team_id}::Int64
+            and person_id in (
+                select
+                    id
+                from
+                    new_persons
+            )
         group by
             distinct_id,
             person_id
