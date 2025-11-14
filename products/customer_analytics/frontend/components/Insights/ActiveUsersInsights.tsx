@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -51,7 +53,6 @@ export function ActiveUsersInsights(): JSX.Element {
                     )
                 })}
             </div>
-            <h2 className="ml-1 -mb-2">Power Users</h2>
             <PowerUsersTable />
             <EventConfigModal />
         </div>
@@ -89,10 +90,23 @@ function PowerUsersTable(): JSX.Element {
     }
 
     return (
-        <Query
-            uniqueKey={`power-users-${tabId}`}
-            attachTo={customerAnalyticsSceneLogic}
-            query={{ ...query, showTimings: false, showOpenEditorButton: false }}
-        />
+        <>
+            <div className="flex items-center gap-2 ml-1">
+                <h2 className="-mb-2">Power Users</h2>
+                <LemonButton
+                    size="small"
+                    noPadding
+                    targetBlank
+                    to={urls.persons()}
+                    tooltip="Open people list"
+                    className="-mb-2"
+                />
+            </div>
+            <Query
+                uniqueKey={`power-users-${tabId}`}
+                attachTo={customerAnalyticsSceneLogic}
+                query={{ ...query, showTimings: false, showOpenEditorButton: false }}
+            />
+        </>
     )
 }
