@@ -1783,7 +1783,7 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
-            name=(after_update.name or after_update.key or "Untitled feature flag"),
+            name=after_update.key,
             trigger=trigger,
         ),
     )
