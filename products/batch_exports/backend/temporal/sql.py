@@ -944,11 +944,11 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_PERSONS = Template("""
 INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
+    s3(
+        '$s3_folder/export_{{_partition_id}}.arrow',
+        '$s3_key',
+        '$s3_secret',
+        'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
@@ -962,77 +962,70 @@ SELECT
     persons._inserted_at AS _inserted_at,
     persons.is_deleted AS is_deleted
 FROM (
-    with new_persons as (
-        select
+    WITH new_persons AS (
+        SELECT
             id,
-            max(version) as version2,
+            max(version) AS version2,
             argMax(_timestamp, person.version) AS _timestamp2
-        from
+        FROM
             person
-        where
+        WHERE
             team_id = {team_id}::Int64
-            and
-                _timestamp >= {interval_start}::DateTime64
-                AND _timestamp < {interval_end}::DateTime64
-        group by
+            AND _timestamp >= {interval_start}::DateTime64
+            AND _timestamp < {interval_end}::DateTime64
+        GROUP BY
             id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
     ),
-    new_distinct_ids as (
+    new_distinct_ids AS (
         SELECT
             distinct_id,
             person_id,
-            max(version) as version2,
+            max(version) AS version2,
             argMax(_timestamp, person_distinct_id2.version) AS _timestamp2
-        from
+        FROM
             person_distinct_id2
-        where
+        WHERE
             team_id = {team_id}::Int64
-            and _timestamp >= {interval_start}::DateTime64
+            AND _timestamp >= {interval_start}::DateTime64
             AND _timestamp < {interval_end}::DateTime64
-        group by
+        GROUP BY
             distinct_id,
             person_id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
     ),
-    all_new_person_distinct_id_pairs as (
+    all_new_person_distinct_id_pairs AS (
         SELECT
             distinct_id,
             person_id,
-            max(version) as version
-        from
+            max(version) AS version
+        FROM
             person_distinct_id2
-        where
+        WHERE
             team_id = {team_id}::Int64
-            and (
-                distinct_id in (
-                    select
+            AND (
+                distinct_id IN (
+                    SELECT
                         distinct_id
-                    from
+                    FROM
                         new_distinct_ids
                 )
-                or (
-                    person_id in (
-                        select
-                            id
-                        from
-                            new_persons
-                    )
+                OR person_id IN (
+                    SELECT
+                        id
+                    FROM
+                        new_persons
                 )
             )
-        group by
+        GROUP BY
             distinct_id,
             person_id
     )
-    select
+    SELECT
         pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
         toString(pd.person_id) AS person_id,
@@ -1062,7 +1055,7 @@ FROM (
             argMax(p._timestamp, p.version),
             least(argMax(p._timestamp, p.version), argMax(pd._timestamp, p.version))
         ) AS _inserted_at
-    from
+    FROM
         person p
         INNER JOIN person_distinct_id2 pd
             ON p.id = pd.person_id
@@ -1071,8 +1064,15 @@ FROM (
         $filter_distinct_ids
     WHERE
         pd.team_id = {team_id}::Int64
-        AND (pd.distinct_id, pd.person_id, pd.version) in all_new_person_distinct_id_pairs
-    group by
+        AND (pd.distinct_id, pd.person_id, pd.version) IN (
+            SELECT
+                distinct_id,
+                person_id,
+                version
+            FROM
+                all_new_person_distinct_id_pairs
+        )
+    GROUP BY
         pd.team_id,
         pd.distinct_id,
         pd.person_id
