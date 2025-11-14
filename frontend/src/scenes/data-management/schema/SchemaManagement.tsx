@@ -169,7 +169,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Events Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Events</h3>
-                                    <div className="border rounded overflow-hidden">
+                                    <div className="border rounded overflow-hidden bg-bg-light">
                                         {propertyGroup.events && propertyGroup.events.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
@@ -190,7 +190,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Properties Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Properties</h3>
-                                    <div className="border rounded overflow-hidden">
+                                    <div className="border rounded overflow-hidden bg-bg-light">
                                         {propertyGroup.properties && propertyGroup.properties.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">

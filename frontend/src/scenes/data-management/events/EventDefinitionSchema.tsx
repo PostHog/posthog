@@ -67,7 +67,7 @@ function PropertyGroupCard({
     const insightUrl = useMemo(() => urls.insightNew({ query: linkQuery }), [linkQuery])
 
     return (
-        <div className="border rounded overflow-hidden">
+        <div className="border rounded overflow-hidden bg-bg-light">
             <div className="flex items-center justify-between p-4 bg-bg-light border-b">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{schema.property_group.name}</span>
