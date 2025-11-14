@@ -185,6 +185,71 @@ function ExpiredCard(): JSX.Element {
     )
 }
 
+function TriggersCard(): JSX.Element {
+    return (
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">Recording triggers</LemonTag>
+                <div className="grow">
+                    <p className="mb-1">
+                        We don't have a recording for this session because it didn't match your recording triggers.
+                    </p>
+                </div>
+            </div>
+            <LemonDivider className="my-3" />
+            <LemonBanner
+                type="info"
+                className="mt-1"
+                action={{
+                    to: urls.settings('project-replay'),
+                    children: 'Edit settings',
+                    size: 'small',
+                    type: 'secondary',
+                    'data-attr': 'recording-404-edit-settings',
+                }}
+            >
+                To avoid this in the future, change your recording triggers.
+            </LemonBanner>
+        </LemonCard>
+    )
+}
+
+function ReplayDisabledCard(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">Session replay</LemonTag>
+                <div className="grow">
+                    <p className="mb-1">
+                        We don't have a recording for this session because session replay is turned off.
+                    </p>
+                    {typeof currentTeam?.session_recording_opt_in === 'boolean' ? (
+                        <p className="text-muted text-sm mb-0">
+                            Current status: {currentTeam.session_recording_opt_in ? 'On' : 'Off'}
+                        </p>
+                    ) : null}
+                </div>
+            </div>
+            <LemonDivider className="my-3" />
+            <LemonBanner
+                type="info"
+                className="mt-1"
+                action={{
+                    to: urls.settings('project-replay'),
+                    children: 'Edit settings',
+                    size: 'small',
+                    type: 'secondary',
+                    'data-attr': 'recording-404-edit-settings',
+                }}
+            >
+                To avoid this in the future, turn on session recordings.
+            </LemonBanner>
+        </LemonCard>
+    )
+}
+
 export function RecordingNotFound(): JSX.Element {
     return (
         <NotFound
@@ -193,8 +258,10 @@ export function RecordingNotFound(): JSX.Element {
             caption={
                 <>
                     <ExpiredCard />
+                    <ReplayDisabledCard />
                     <MinimumDurationCard />
                     <SamplingRateCard />
+                    <TriggersCard />
                 </>
             }
         />
