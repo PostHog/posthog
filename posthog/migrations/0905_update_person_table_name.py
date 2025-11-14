@@ -3,36 +3,14 @@
 from django.db import migrations
 
 
-def drop_person_fk_constraints(apps, schema_editor):
-    """
-    Drop FK constraints pointing to posthog_person to allow dual-table migration.
-    These constraints will be recreated by Django pointing to posthog_person_new.
-    """
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute("""
-            DO $$
-            DECLARE r RECORD;
-            BEGIN
-                -- Drop all FK constraints pointing to posthog_person
-                FOR r IN
-                    SELECT conname, conrelid::regclass AS table_name
-                    FROM pg_constraint
-                    WHERE contype = 'f'
-                    AND confrelid = 'posthog_person'::regclass
-                LOOP
-                    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', r.table_name, r.conname);
-                END LOOP;
-            END $$;
-        """)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0904_alter_dashboard_creation_mode"),
     ]
 
     operations = [
-        migrations.RunPython(drop_person_fk_constraints, reverse_code=migrations.RunPython.noop),
+        # Update Django migration state to reflect Person model using posthog_person_new
+        # Actual FK constraints are dropped by sqlx migration (prod) and conftest.py (tests)
         migrations.AlterModelTable(
             name="person",
             table="posthog_person_new",
