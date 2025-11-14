@@ -43,6 +43,7 @@
   
   def get_config_for_source(source: ExternalDataSourceType):
       return {
+          ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
           ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
