@@ -58,6 +58,11 @@ class VitallyRegionConfig(config.Config):
 
 
 @config.config
+class AttioSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
@@ -258,6 +263,7 @@ class ZendeskSourceConfig(config.Config):
 
 def get_config_for_source(source: ExternalDataSourceType):
     return {
+        ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
