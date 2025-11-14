@@ -114,6 +114,7 @@ export const logsLogic = kea<logsLogicType>([
             value,
             operator,
         }),
+        togglePinLog: (logId: string) => ({ logId }),
     }),
 
     reducers({
@@ -226,6 +227,19 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
+        pinnedLogIds: [
+            [] as string[],
+            { persist: true },
+            {
+                togglePinLog: (state, { logId }) => {
+                    const index = state.indexOf(logId)
+                    if (index >= 0) {
+                        return state.filter((id) => id !== logId)
+                    }
+                    return [...state, logId]
+                },
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -314,6 +328,16 @@ export const logsLogic = kea<logsLogicType>([
                     return { ...log, cleanBody, parsedBody }
                 })
             },
+        ],
+        pinnedLogs: [
+            (s) => [s.parsedLogs, s.pinnedLogIds],
+            (parsedLogs: ParsedLogMessage[], pinnedLogIds: string[]): ParsedLogMessage[] => {
+                return parsedLogs.filter((log) => pinnedLogIds.includes(log.uuid))
+            },
+        ],
+        isPinned: [
+            (s) => [s.pinnedLogIds],
+            (pinnedLogIds: string[]) => (logId: string) => pinnedLogIds.includes(logId),
         ],
         sparklineData: [
             (s) => [s.sparkline],
