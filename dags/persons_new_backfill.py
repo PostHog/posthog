@@ -178,7 +178,16 @@ def copy_chunk(
     placeholders = ", ".join(["%s"] * len(columns_to_copy))
     # Use ID-based batching: WHERE id >= batch_start AND id < batch_end ORDER BY id LIMIT batch_size
     select_query = f"SELECT {columns_str} FROM {source_table} WHERE id >= %s AND id <= %s ORDER BY id LIMIT %s"
-    insert_query = f"INSERT INTO {destination_table} ({columns_str}) VALUES ({placeholders})"
+
+    # Use ON CONFLICT DO NOTHING to make inserts idempotent (safe to retry failed chunks)
+    if "id" in columns_to_copy:
+        insert_query = (
+            f"INSERT INTO {destination_table} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING"
+        )
+    else:
+        # Fallback if id column is missing (shouldn't happen, but be safe)
+        context.log.warning("'id' column not found in columns_to_copy, inserts will not be idempotent")
+        insert_query = f"INSERT INTO {destination_table} ({columns_str}) VALUES ({placeholders})"
 
     total_records_copied = 0
     batch_start_id = chunk_min
