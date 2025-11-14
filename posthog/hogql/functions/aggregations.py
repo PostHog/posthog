@@ -21,7 +21,7 @@ COMBINATOR_AGGREGATIONS = {
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),
-    "count": HogQLFunctionMeta("count", 1, 1, aggregate=True),
+    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
     "countDistinct": HogQLFunctionMeta("countDistinct", 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
 }
