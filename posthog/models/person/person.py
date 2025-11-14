@@ -63,6 +63,116 @@ class PersonNew(models.Model):
         db_table = "posthog_person_new"
 
 
+class DualPersonQuerySet:
+    """QuerySet-like wrapper for dual-table Person queries.
+
+    Supports method chaining and common QuerySet operations while querying
+    both PersonOld and PersonNew tables.
+    """
+
+    def __init__(self, manager, q_objects=None, filters=None, excludes=None, ordering=None, db=None):
+        self.manager = manager
+        self.q_objects = q_objects or []  # List of Q objects for complex queries
+        self.filters = filters or {}
+        self.excludes = excludes or {}
+        self.ordering = ordering or []
+        self.db = db or "default"
+
+    def filter(self, *args, **kwargs):
+        """Chain additional filters. Supports Q objects and keyword arguments. Returns new DualPersonQuerySet."""
+        new_q_objects = list(self.q_objects)
+        new_q_objects.extend(args)  # Add any Q objects passed as positional args
+        new_filters = {**self.filters, **kwargs}
+        return DualPersonQuerySet(
+            manager=self.manager,
+            q_objects=new_q_objects,
+            filters=new_filters,
+            excludes=self.excludes,
+            ordering=self.ordering,
+            db=self.db,
+        )
+
+    def exclude(self, *args, **kwargs):
+        """Chain exclusion filters. Supports Q objects and keyword arguments. Returns new DualPersonQuerySet."""
+        new_q_objects = list(self.q_objects)
+        new_q_objects.extend(args)
+        new_excludes = {**self.excludes, **kwargs}
+        return DualPersonQuerySet(
+            manager=self.manager,
+            q_objects=new_q_objects,
+            filters=self.filters,
+            excludes=new_excludes,
+            ordering=self.ordering,
+            db=self.db,
+        )
+
+    def order_by(self, *fields):
+        """Add ordering. Returns new DualPersonQuerySet."""
+        return DualPersonQuerySet(
+            manager=self.manager,
+            filters=self.filters,
+            excludes=self.excludes,
+            ordering=list(fields),
+            db=self.db,
+        )
+
+    def count(self):
+        """Execute count on both tables and return sum."""
+        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        if self.ordering:
+            old_qs = old_qs.order_by(*self.ordering)
+            new_qs = new_qs.order_by(*self.ordering)
+
+        return old_qs.count() + new_qs.count()
+
+    def values_list(self, *fields, flat=False):
+        """Execute on both tables and return merged list of values."""
+        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        if self.ordering:
+            old_qs = old_qs.order_by(*self.ordering)
+            new_qs = new_qs.order_by(*self.ordering)
+
+        old_values = list(old_qs.values_list(*fields, flat=flat))
+        new_values = list(new_qs.values_list(*fields, flat=flat))
+
+        return old_values + new_values
+
+    def _execute(self):
+        """Execute query on both tables and return merged Person instances."""
+        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        if self.ordering:
+            old_qs = old_qs.order_by(*self.ordering)
+            new_qs = new_qs.order_by(*self.ordering)
+
+        # Convert model instances to Person class for FK compatibility
+        old_results = list(old_qs)
+        new_results = list(new_qs)
+
+        for result in old_results + new_results:
+            result.__class__ = Person
+
+        return old_results + new_results
+
+    def __getitem__(self, key):
+        """Support slicing: queryset[start:end]"""
+        results = self._execute()
+        return results[key]
+
+    def __iter__(self):
+        """Support iteration: for person in queryset"""
+        return iter(self._execute())
+
+    def __len__(self):
+        """Support len(queryset)"""
+        return self.count()
+
+
 class DualPersonManager(models.Manager):
     """Manager that reads from both person tables during migration.
 
@@ -124,17 +234,12 @@ class DualPersonManager(models.Manager):
                 raise Person.DoesNotExist()
 
     def filter(self, *args, **kwargs):
-        """Filter across both tables, returning list of Person instances.
+        """Filter across both tables, returning DualPersonQuerySet.
 
-        Note: Returns a list, not a QuerySet, because union QuerySets have limitations:
-        - Can't chain most filters after union
-        - Can't use .count(), .update(), .delete() on union
-        - Can't use .prefetch_related(), .select_related()
-
-        Call sites needing QuerySet operations should use specialized methods like
-        filter_by_id_queryset() or query tables individually.
+        Returns a QuerySet-like object that supports chaining (.filter(), .exclude(), .order_by())
+        and terminal operations (.count(), .values_list(), slicing, iteration).
         """
-        return self._union_both_tables("filter", *args, **kwargs)
+        return DualPersonQuerySet(manager=self, filters=kwargs, db=self._db)
 
     def create(self, *args: Any, **kwargs: Any):
         """Handle person creation with distinct_ids support.
@@ -212,11 +317,11 @@ class DualPersonManager(models.Manager):
             return qs
 
     def exclude(self, *args, **kwargs):
-        """Exclude across both tables, returning list of Person instances.
+        """Exclude across both tables, returning DualPersonQuerySet.
 
-        Note: Returns a list, not a QuerySet, for same reasons as filter().
+        Returns a QuerySet-like object that supports chaining and terminal operations.
         """
-        return self._union_both_tables("exclude", *args, **kwargs)
+        return DualPersonQuerySet(manager=self, excludes=kwargs, db=self._db)
 
     def filter_by_cohort(self, cohort_id: int):
         """Get persons in a cohort, dual-table aware.
@@ -228,7 +333,7 @@ class DualPersonManager(models.Manager):
             cohort_id: The cohort ID to filter by
 
         Returns:
-            List of Person instances in the cohort (from both tables)
+            DualPersonQuerySet that supports .count(), .filter(), etc.
         """
         from posthog.models.cohort import CohortPeople
 
@@ -245,7 +350,7 @@ class DualPersonManager(models.Manager):
             cohort_id: The cohort ID to exclude
 
         Returns:
-            List of Person instances NOT in the cohort (from both tables)
+            DualPersonQuerySet that supports .count(), .filter(), etc.
         """
         from posthog.models.cohort import CohortPeople
 
@@ -286,6 +391,40 @@ class DualPersonManager(models.Manager):
 
         # Use get_by_id which handles dual-table routing
         return self.get_by_id(pdi.person_id, team_id=team_id)
+
+    def get_uuids_by_person_ids(self, team_id: int, person_ids: "QuerySet", db: Optional[str] = None) -> list[str]:
+        """Get UUIDs for a list of person IDs, dual-table aware.
+
+        Args:
+            team_id: Team ID to filter by
+            person_ids: QuerySet of person IDs to look up
+            db: Optional database alias (e.g., READ_ONLY_DATABASE_FOR_PERSONS)
+
+        Returns:
+            List of UUID strings
+        """
+        db = db or "default"
+
+        # Convert QuerySet to list to query both tables
+        person_ids_list = list(person_ids)
+        if not person_ids_list:
+            return []
+
+        # Query both tables and combine results
+        old_uuids = list(
+            PersonOld.objects.db_manager(db)
+            .filter(team_id=team_id, id__in=person_ids_list)
+            .values_list("uuid", flat=True)
+        )
+
+        new_uuids = list(
+            PersonNew.objects.db_manager(db)
+            .filter(team_id=team_id, id__in=person_ids_list)
+            .values_list("uuid", flat=True)
+        )
+
+        # Return combined unique UUIDs
+        return [str(uuid) for uuid in set(old_uuids + new_uuids)]
 
     def filter_by_distinct_ids(self, team_id: int, distinct_ids: list[str], db: Optional[str] = None) -> list["Person"]:
         """Get persons by distinct IDs, dual-table aware with prefetch.

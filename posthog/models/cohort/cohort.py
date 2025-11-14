@@ -360,12 +360,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
         # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
         # don't insert people that are already in the cohort efficiently.
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id, id__in=person_ids_qs)
-            .values_list("uuid", flat=True)
-        ]
+        uuids = Person.objects.get_uuids_by_person_ids(team_id=team_id, person_ids=person_ids_qs, db=READ_DB_FOR_PERSONS)
 
         return uuids
 
