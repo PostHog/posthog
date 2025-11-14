@@ -154,6 +154,12 @@ describe('CookielessManager', () => {
             expect(isCalendarDateValid('2025-11-08')).toBe(false)
         })
 
+        it('should reject tomorrow-ish dates', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-15')).toBe(false)
+        })
+
         it('should reject invalid date format', () => {
             expect(isCalendarDateValid('not-a-date')).toBe(false)
             expect(isCalendarDateValid('2025/01/01')).toBe(false)
