@@ -38,6 +38,7 @@ import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
@@ -244,6 +245,7 @@ export class IngestionConsumer {
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
+                        .pipe(createValidateEventMetadataStep())
                         .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
                         .pipe(
                             createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
