@@ -266,11 +266,9 @@ def get_people(
 ) -> tuple[list[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats.
 
-    Uses get_persons_by_uuids() for dual-table support during migration.
+    Uses filter_by_uuids() for dual-table support during migration.
     """
-    from posthog.models.person.util import get_persons_by_uuids
-
-    persons = get_persons_by_uuids(
+    persons = Person.objects.filter_by_uuids(
         team_id=team.pk,
         uuids=people_ids,
         distinct_id_limit=distinct_id_limit,

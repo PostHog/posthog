@@ -72,6 +72,27 @@ class DualPersonManager(models.Manager):
     - Helper methods for explicit routing (get_by_id, get_by_uuid)
     """
 
+    def _union_both_tables(self, method: str, *args, **kwargs) -> list:
+        """Helper to query both tables and union results.
+
+        Args:
+            method: Method name to call ('filter' or 'exclude')
+            *args, **kwargs: Arguments to pass to the method
+
+        Returns:
+            List of Person instances from both tables
+        """
+        old_qs = getattr(PersonOld.objects, method)(*args, **kwargs)
+        new_qs = getattr(PersonNew.objects, method)(*args, **kwargs)
+        union_qs = old_qs.union(new_qs)
+
+        # Cast instances to Person type
+        results = []
+        for instance in union_qs:
+            instance.__class__ = Person
+            results.append(instance)
+        return results
+
     def get(self, *args, **kwargs):
         """Get person from either table, trying preferred table first.
 
@@ -110,19 +131,10 @@ class DualPersonManager(models.Manager):
         - Can't use .count(), .update(), .delete() on union
         - Can't use .prefetch_related(), .select_related()
 
-        Call sites needing QuerySet operations should use get_by_id() or
-        query tables individually.
+        Call sites needing QuerySet operations should use specialized methods like
+        filter_by_id_queryset() or query tables individually.
         """
-        old_qs = PersonOld.objects.filter(*args, **kwargs)
-        new_qs = PersonNew.objects.filter(*args, **kwargs)
-        union_qs = old_qs.union(new_qs)
-
-        # Cast instances to Person type
-        results = []
-        for instance in union_qs:
-            instance.__class__ = Person
-            results.append(instance)
-        return results
+        return self._union_both_tables("filter", *args, **kwargs)
 
     def create(self, *args: Any, **kwargs: Any):
         """Handle person creation with distinct_ids support.
@@ -204,16 +216,7 @@ class DualPersonManager(models.Manager):
 
         Note: Returns a list, not a QuerySet, for same reasons as filter().
         """
-        old_qs = PersonOld.objects.exclude(*args, **kwargs)
-        new_qs = PersonNew.objects.exclude(*args, **kwargs)
-        union_qs = old_qs.union(new_qs)
-
-        # Cast instances to Person type
-        results = []
-        for instance in union_qs:
-            instance.__class__ = Person
-            results.append(instance)
-        return results
+        return self._union_both_tables("exclude", *args, **kwargs)
 
     def filter_by_cohort(self, cohort_id: int):
         """Get persons in a cohort, dual-table aware.
@@ -283,6 +286,155 @@ class DualPersonManager(models.Manager):
 
         # Use get_by_id which handles dual-table routing
         return self.get_by_id(pdi.person_id, team_id=team_id)
+
+    def filter_by_distinct_ids(self, team_id: int, distinct_ids: list[str], db: Optional[str] = None) -> list["Person"]:
+        """Get persons by distinct IDs, dual-table aware with prefetch.
+
+        Queries both posthog_person (old) and posthog_person_new tables, combining results.
+        Results have distinct_ids_cache prefetched for efficient distinct_ids access.
+
+        Replaces: get_persons_by_distinct_ids() util function
+
+        Args:
+            team_id: Team ID to filter by
+            distinct_ids: List of distinct_ids to look up
+            db: Optional database alias (e.g., READ_ONLY_DATABASE_FOR_PERSONS)
+
+        Returns:
+            List of Person instances with distinct_ids_cache prefetched
+        """
+        from posthog.models.person import PersonDistinctId
+
+        db = db or READ_DB_FOR_PERSONS
+
+        # Step 1: Get person_ids from PersonDistinctId
+        person_ids = list(
+            PersonDistinctId.objects.db_manager(db)
+            .filter(team_id=team_id, distinct_id__in=distinct_ids)
+            .values_list("person_id", flat=True)
+            .distinct()
+        )
+
+        if not person_ids:
+            return []
+
+        # Step 2: Query both tables
+        old_persons = list(PersonOld.objects.db_manager(db).filter(id__in=person_ids, team_id=team_id))
+        new_persons = list(PersonNew.objects.db_manager(db).filter(id__in=person_ids, team_id=team_id))
+
+        # Step 3: Manually prefetch PersonDistinctId for all persons
+        all_person_ids = [p.id for p in old_persons] + [p.id for p in new_persons]
+        if all_person_ids:
+            distinct_id_objects = list(
+                PersonDistinctId.objects.db_manager(db).filter(person_id__in=all_person_ids, team_id=team_id)
+            )
+
+            # Group by person_id
+            person_to_distinct_ids: dict[int, list] = {}
+            for did in distinct_id_objects:
+                person_to_distinct_ids.setdefault(did.person_id, []).append(did)
+
+            # Attach to persons as distinct_ids_cache
+            for person in old_persons + new_persons:
+                person.distinct_ids_cache = person_to_distinct_ids.get(person.id, [])
+
+        # Step 4: Cast to Person type and return
+        results = []
+        for person in old_persons:
+            person.__class__ = Person
+            results.append(person)
+        for person in new_persons:
+            person.__class__ = Person
+            results.append(person)
+
+        return results
+
+    def filter_by_uuids(
+        self,
+        team_id: int,
+        uuids: list[str],
+        distinct_id_limit: int = 1000,
+        order_by: Optional[list[str]] = None,
+        only_fields: Optional[list[str]] = None,
+        db: Optional[str] = None,
+    ) -> list["Person"]:
+        """Get persons by UUIDs, dual-table aware with prefetch/ordering/field limiting.
+
+        Queries both posthog_person (old) and posthog_person_new tables, combining results.
+        Manually implements prefetching, ordering, and field limiting.
+
+        Replaces: get_persons_by_uuids() util function
+
+        Args:
+            team_id: Team ID to filter by
+            uuids: List of person UUIDs to fetch
+            distinct_id_limit: Max PersonDistinctId objects to fetch per person
+            order_by: List of fields to order by (e.g., ["-created_at", "uuid"])
+            only_fields: List of fields to load (defers all others)
+            db: Optional database alias (e.g., READ_ONLY_DATABASE_FOR_PERSONS)
+
+        Returns:
+            List of Person instances with distinct_ids_cache prefetched
+        """
+        from posthog.models.person import PersonDistinctId
+
+        db = db or READ_DB_FOR_PERSONS
+
+        if not uuids:
+            return []
+
+        # Query both tables
+        old_qs = PersonOld.objects.db_manager(db).filter(uuid__in=uuids, team_id=team_id)
+        new_qs = PersonNew.objects.db_manager(db).filter(uuid__in=uuids, team_id=team_id)
+
+        # Apply field limiting if requested
+        if only_fields:
+            old_qs = old_qs.only(*only_fields)
+            new_qs = new_qs.only(*only_fields)
+
+        # Fetch results
+        old_persons = list(old_qs)
+        new_persons = list(new_qs)
+
+        # Manually prefetch PersonDistinctId for all persons
+        all_person_ids = [p.id for p in old_persons] + [p.id for p in new_persons]
+        if all_person_ids:
+            # Fetch PersonDistinctId objects with limit per person
+            distinct_id_objects = list(
+                PersonDistinctId.objects.db_manager(db).filter(person_id__in=all_person_ids, team_id=team_id)[
+                    : distinct_id_limit * len(all_person_ids)
+                ]
+            )
+
+            # Group by person_id and apply limit
+            person_to_distinct_ids: dict[int, list] = {}
+            for did in distinct_id_objects:
+                if did.person_id not in person_to_distinct_ids:
+                    person_to_distinct_ids[did.person_id] = []
+                if len(person_to_distinct_ids[did.person_id]) < distinct_id_limit:
+                    person_to_distinct_ids[did.person_id].append(did)
+
+            # Attach to persons as distinct_ids_cache
+            for person in old_persons + new_persons:
+                person.distinct_ids_cache = person_to_distinct_ids.get(person.id, [])
+
+        # Cast to Person type
+        results = []
+        for person in old_persons:
+            person.__class__ = Person
+            results.append(person)
+        for person in new_persons:
+            person.__class__ = Person
+            results.append(person)
+
+        # Apply ordering if requested
+        if order_by:
+            for field in reversed(order_by):
+                reverse = field.startswith("-")
+                field_name = field.lstrip("-")
+                results.sort(key=lambda x: getattr(x, field_name, None) or "", reverse=reverse)
+
+        return results
 
 
 class PersonManager(models.Manager):

@@ -6,7 +6,6 @@ from django.db import connection
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.person.person import PERSON_ID_CUTOFF
-from posthog.models.person.util import get_persons_by_distinct_ids
 
 
 class TestDualTablePersonManager(BaseTest):
@@ -239,22 +238,22 @@ class TestDualTablePersonManager(BaseTest):
         finally:
             PersonDistinctId.objects.filter(distinct_id="test_distinct_id").delete()
 
-    # Test get_persons_by_distinct_ids() helper
-    def test_get_persons_by_distinct_ids_finds_old_table(self):
-        """Test get_persons_by_distinct_ids() finds persons in old table."""
+    # Test filter_by_distinct_ids() helper
+    def test_filter_by_distinct_ids_finds_old_table(self):
+        """Test filter_by_distinct_ids() finds persons in old table."""
         # Create a distinct ID for old person
         PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="old_distinct_id")
 
         try:
-            persons = get_persons_by_distinct_ids(self.team.id, ["old_distinct_id"])
+            persons = Person.objects.filter_by_distinct_ids(self.team.id, ["old_distinct_id"])
             self.assertEqual(len(persons), 1)
             self.assertEqual(persons[0].id, 100)
             self.assertEqual(type(persons[0]).__name__, "Person")
         finally:
             PersonDistinctId.objects.filter(distinct_id="old_distinct_id").delete()
 
-    def test_get_persons_by_distinct_ids_finds_new_table(self):
-        """Test get_persons_by_distinct_ids() finds persons in new table."""
+    def test_filter_by_distinct_ids_finds_new_table(self):
+        """Test filter_by_distinct_ids() finds persons in new table."""
         # Create a distinct ID for new person using raw SQL (FK constraint doesn't allow ORM create)
         with connection.cursor() as cursor:
             cursor.execute(
@@ -266,7 +265,7 @@ class TestDualTablePersonManager(BaseTest):
             )
 
         try:
-            persons = get_persons_by_distinct_ids(self.team.id, ["new_distinct_id"])
+            persons = Person.objects.filter_by_distinct_ids(self.team.id, ["new_distinct_id"])
             self.assertEqual(len(persons), 1)
             self.assertEqual(persons[0].id, PERSON_ID_CUTOFF + 100)
             self.assertEqual(type(persons[0]).__name__, "Person")
@@ -274,8 +273,8 @@ class TestDualTablePersonManager(BaseTest):
             with connection.cursor() as cursor:
                 cursor.execute("DELETE FROM posthog_persondistinctid WHERE distinct_id = %s", ["new_distinct_id"])
 
-    def test_get_persons_by_distinct_ids_finds_both_tables(self):
-        """Test get_persons_by_distinct_ids() finds persons from both tables in one call."""
+    def test_filter_by_distinct_ids_finds_both_tables(self):
+        """Test filter_by_distinct_ids() finds persons from both tables in one call."""
         # Create distinct IDs for both persons (use raw SQL for new table person)
         PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="old_distinct_id_2")
         with connection.cursor() as cursor:
@@ -288,7 +287,7 @@ class TestDualTablePersonManager(BaseTest):
             )
 
         try:
-            persons = get_persons_by_distinct_ids(self.team.id, ["old_distinct_id_2", "new_distinct_id_2"])
+            persons = Person.objects.filter_by_distinct_ids(self.team.id, ["old_distinct_id_2", "new_distinct_id_2"])
             self.assertEqual(len(persons), 2)
 
             person_ids = {p.id for p in persons}
@@ -303,14 +302,14 @@ class TestDualTablePersonManager(BaseTest):
                     "DELETE FROM posthog_persondistinctid WHERE distinct_id IN ('old_distinct_id_2', 'new_distinct_id_2')"
                 )
 
-    def test_get_persons_by_distinct_ids_has_prefetched_distinct_ids(self):
-        """Test that get_persons_by_distinct_ids() prefetches distinct_ids."""
+    def test_filter_by_distinct_ids_has_prefetched_distinct_ids(self):
+        """Test that filter_by_distinct_ids() prefetches distinct_ids."""
         # Create multiple distinct IDs for old person
         PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="distinct_1")
         PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="distinct_2")
 
         try:
-            persons = get_persons_by_distinct_ids(self.team.id, ["distinct_1", "distinct_2"])
+            persons = Person.objects.filter_by_distinct_ids(self.team.id, ["distinct_1", "distinct_2"])
             self.assertEqual(len(persons), 1)
 
             person = persons[0]
@@ -322,9 +321,9 @@ class TestDualTablePersonManager(BaseTest):
         finally:
             PersonDistinctId.objects.filter(distinct_id__in=["distinct_1", "distinct_2"]).delete()
 
-    def test_get_persons_by_distinct_ids_returns_empty_for_missing(self):
-        """Test get_persons_by_distinct_ids() returns empty list when no persons found."""
-        persons = get_persons_by_distinct_ids(self.team.id, ["nonexistent_distinct_id"])
+    def test_filter_by_distinct_ids_returns_empty_for_missing(self):
+        """Test filter_by_distinct_ids() returns empty list when no persons found."""
+        persons = Person.objects.filter_by_distinct_ids(self.team.id, ["nonexistent_distinct_id"])
         self.assertEqual(len(persons), 0)
 
     # Test exclude() method

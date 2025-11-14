@@ -30,7 +30,6 @@ from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
-from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -236,8 +235,8 @@ class EventViewSet(
 
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        # Prefetch already done in get_persons_by_distinct_ids()
+        persons = Person.objects.filter_by_distinct_ids(team.pk, distinct_ids)
+        # Prefetch already done in filter_by_distinct_ids()
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:

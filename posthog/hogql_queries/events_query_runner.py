@@ -23,7 +23,6 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_r
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
-from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -329,8 +328,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 batch_size = 1000
                 for i in range(0, len(distinct_ids), batch_size):
                     batch_distinct_ids = distinct_ids[i : i + batch_size]
-                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
-                    # Prefetch already done in get_persons_by_distinct_ids()
+                    persons = Person.objects.filter_by_distinct_ids(self.team.pk, batch_distinct_ids)
+                    # Prefetch already done in filter_by_distinct_ids()
                     for person in persons:
                         if person:
                             for person_distinct_id in person.distinct_ids:

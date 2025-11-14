@@ -194,9 +194,7 @@ class InMemoryEvent:
 
 def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
     # Dual-table support: Query PersonDistinctId first to find existing person
-    from posthog.models.person.util import get_persons_by_distinct_ids
-
-    existing_persons = get_persons_by_distinct_ids(team_id, distinct_ids)
+    existing_persons = Person.objects.filter_by_distinct_ids(team_id, distinct_ids)
 
     if existing_persons:
         # Update existing person
