@@ -61,7 +61,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1716,19 +1716,20 @@ def list_recordings_from_query(
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(distinct_id__in=distinct_ids, team=team)
-            .select_related("person")
+        persons = Person.objects.filter_by_distinct_ids(
+            team_id=team.pk, distinct_ids=distinct_ids, db=READ_DB_FOR_PERSONS
         )
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            person_distinct_id.person._distinct_ids = [
-                person_distinct_id.distinct_id
-            ]  # Stop the person from loading all distinct ids
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+        for person in persons:
+            # Person has distinct_ids_cache populated by filter_by_distinct_ids
+            for distinct_id_obj in person.distinct_ids_cache:
+                if distinct_id_obj.distinct_id in distinct_ids:
+                    person._distinct_ids = [
+                        distinct_id_obj.distinct_id
+                    ]  # Stop the person from loading all distinct ids
+                    distinct_id_to_person[distinct_id_obj.distinct_id] = person
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
