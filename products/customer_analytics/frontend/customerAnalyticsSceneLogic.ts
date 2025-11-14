@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
-import { Breadcrumb, ChartDisplayType, EntityTypes, FilterType, InsightType } from '~/types'
+import { BaseMathType, Breadcrumb, ChartDisplayType, EntityTypes, FilterType, InsightType } from '~/types'
 
 import { InsightDefinition } from 'products/customer_analytics/frontend/insightDefinitions'
 
@@ -78,7 +78,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         customerAnalyticsEvents: [
             (s) => [s.currentTeam],
-            (currentTeam): Record<string, string> => currentTeam?.extra_settings?.customer_analytics_events || {},
+            (currentTeam): any => currentTeam?.extra_settings?.customer_analytics_events || {},
         ],
         activityEvent: [
             (s) => [s.customerAnalyticsEvents],
@@ -88,7 +88,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.activityEvent],
             (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'dau' as any,
+                math: BaseMathType.UniqueUsers,
                 event: activityEvent || null,
                 properties: [],
             }),
@@ -97,7 +97,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.activityEvent],
             (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'weekly_active' as any,
+                math: BaseMathType.WeeklyActiveUsers,
                 event: activityEvent || null,
                 properties: [],
             }),
@@ -106,7 +106,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.activityEvent],
             (activityEvent): EventsNode => ({
                 kind: NodeKind.EventsNode,
-                math: 'monthly_active' as any,
+                math: BaseMathType.MonthlyActiveUsers,
                 event: activityEvent || null,
                 properties: [],
             }),
@@ -230,11 +230,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     currentTeam = await api.get('api/environments/@current')
                 } catch {}
 
-                const currentSettings = currentTeam?.extra_settings
+                const currentSettings = currentTeam?.extra_settings || {}
                 const extra_settings = {
                     ...currentSettings,
                     customer_analytics_events: {
-                        ...currentSettings.customer_analytics_events,
+                        ...(currentSettings as any).customer_analytics_events,
                         activity_event: selectedEvent,
                     },
                 }
@@ -247,7 +247,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         toggleEventConfigModal: ({ isOpen }) => {
             const isClosing = isOpen === false || (isOpen === undefined && values.isEventConfigModalOpen)
             if (isClosing) {
-                actions.setActivityEventSelection(null)
+                actions.setActivityEventSelection(null as any)
             }
         },
     })),

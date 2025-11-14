@@ -1,5 +1,16 @@
+import { FunnelLayout } from 'lib/constants'
+
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import {
+    BaseMathType,
+    BreakdownAttributionType,
+    ChartDisplayType,
+    FunnelConversionWindowTimeUnit,
+    FunnelStepReference,
+    FunnelVizType,
+    PropertyMathType,
+    StepOrderValue,
+} from '~/types'
 
 // Default placeholders for insights that need configuration
 export const SIGNED_UP: any = {
@@ -97,14 +108,14 @@ export const CUSTOMER_ANALYTICS_ENGAGEMENT_AND_CONVERSION_INSIGHTS: InsightDefin
                 },
                 properties: [],
                 funnelsFilter: {
-                    layout: 'horizontal',
+                    layout: FunnelLayout.horizontal,
                     exclusions: [],
-                    funnelVizType: 'steps',
-                    funnelOrderType: 'ordered',
-                    funnelStepReference: 'total',
+                    funnelVizType: FunnelVizType.Steps,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
                     funnelWindowInterval: 6,
-                    breakdownAttributionType: 'first_touch',
-                    funnelWindowIntervalUnit: 'week',
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',
@@ -128,7 +139,7 @@ export const CUSTOMER_ANALYTICS_SESSION_INSIGHTS: InsightDefinition[] = [
                 series: [
                     {
                         kind: NodeKind.EventsNode,
-                        math: 'unique_session',
+                        math: BaseMathType.UniqueSessions,
                         name: 'All events',
                         event: null,
                     },
@@ -152,7 +163,7 @@ export const CUSTOMER_ANALYTICS_SESSION_INSIGHTS: InsightDefinition[] = [
                 compareFilter: {
                     compare: true,
                 },
-                breakdownFilter: null,
+                breakdownFilter: undefined,
                 filterTestAccounts: true,
             },
         },
@@ -169,7 +180,7 @@ export const CUSTOMER_ANALYTICS_SESSION_INSIGHTS: InsightDefinition[] = [
                 series: [
                     {
                         kind: NodeKind.EventsNode,
-                        math: 'dau',
+                        math: BaseMathType.UniqueUsers,
                         name: 'All events',
                         event: null,
                     },
@@ -212,7 +223,7 @@ export const CUSTOMER_ANALYTICS_SESSION_INSIGHTS: InsightDefinition[] = [
                 series: [
                     {
                         kind: NodeKind.EventsNode,
-                        math: 'avg',
+                        math: PropertyMathType.Average,
                         name: '$pageview',
                         event: '$pageview',
                         math_property: '$session_duration',
@@ -429,14 +440,14 @@ export const CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS: InsightDefinition[] = 
                 },
                 properties: [],
                 funnelsFilter: {
-                    layout: 'vertical',
+                    layout: FunnelLayout.vertical,
                     exclusions: [],
-                    funnelVizType: 'trends',
-                    funnelOrderType: 'ordered',
-                    funnelStepReference: 'total',
+                    funnelVizType: FunnelVizType.Trends,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
                     funnelWindowInterval: 14,
-                    breakdownAttributionType: 'first_touch',
-                    funnelWindowIntervalUnit: 'day',
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',
@@ -460,14 +471,14 @@ export const CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS: InsightDefinition[] = 
                 },
                 properties: [],
                 funnelsFilter: {
-                    layout: 'horizontal',
+                    layout: FunnelLayout.horizontal,
                     exclusions: [],
-                    funnelVizType: 'steps',
-                    funnelOrderType: 'ordered',
-                    funnelStepReference: 'total',
+                    funnelVizType: FunnelVizType.Steps,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
                     funnelWindowInterval: 6,
-                    breakdownAttributionType: 'first_touch',
-                    funnelWindowIntervalUnit: 'week',
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',
@@ -493,14 +504,14 @@ export const CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS: InsightDefinition[] = 
                 },
                 properties: [],
                 funnelsFilter: {
-                    layout: 'vertical',
+                    layout: FunnelLayout.vertical,
                     exclusions: [],
-                    funnelVizType: 'trends',
-                    funnelOrderType: 'ordered',
-                    funnelStepReference: 'total',
+                    funnelVizType: FunnelVizType.Trends,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
                     funnelWindowInterval: 2,
-                    breakdownAttributionType: 'first_touch',
-                    funnelWindowIntervalUnit: 'day',
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',
