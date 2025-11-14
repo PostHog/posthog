@@ -9717,6 +9717,10 @@
                     ],
                     "description": "Include a property filter above the table"
                 },
+                "showRecordingColumn": {
+                    "description": "Show a recording column for events with session recordings",
+                    "type": "boolean"
+                },
                 "showReload": {
                     "description": "Show a reload button",
                     "type": "boolean"
@@ -25442,6 +25446,10 @@
                         }
                     ],
                     "description": "Include a property filter above the table"
+                },
+                "showRecordingColumn": {
+                    "description": "Show a recording column for events with session recordings",
+                    "type": "boolean"
                 },
                 "showReload": {
                     "description": "Show a reload button",
