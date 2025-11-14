@@ -304,51 +304,6 @@ class DualPersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
-    def bulk_create(self, objs, **kwargs):
-        """Bulk create persons.
-
-        In tests, randomly distributes persons between old and new tables to verify
-        dual-table manager works correctly. IDs are non-overlapping due to sequence
-        initialization (new table starts at 1B).
-
-        In production, creates go to old table by default.
-        TODO: After migration completes, route to new table only.
-        """
-        from django.conf import settings
-
-        # In production, use default behavior (old table)
-        if not settings.TEST:
-            return super().bulk_create(objs, **kwargs)
-
-        # In tests: randomly distribute between old and new tables
-        import random
-
-        if not objs:
-            return []
-
-        # Randomly split objects 50/50 between tables
-        old_objs = []
-        new_objs = []
-
-        for obj in objs:
-            if random.random() < 0.5:
-                old_objs.append(obj)
-            else:
-                new_objs.append(obj)
-
-        # Bulk create in each table
-        old_results = PersonOld.objects.bulk_create(old_objs, **kwargs) if old_objs else []
-        new_results = PersonNew.objects.bulk_create(new_objs, **kwargs) if new_objs else []
-
-        # Cast all results back to Person class for compatibility
-        for person in old_results:
-            person.__class__ = Person
-        for person in new_results:
-            person.__class__ = Person
-
-        # Return combined results maintaining original order
-        return list(old_results) + list(new_results)
-
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, trying preferred table first then falling back."""
         # Try preferred table first

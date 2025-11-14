@@ -234,14 +234,6 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations()
 
-    # Initialize posthog_person_new ID sequence to start at 1 billion to avoid conflicts with posthog_person
-    # This allows random distribution of test Persons between old/new tables while maintaining unique IDs
-    with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                ALTER SEQUENCE IF EXISTS posthog_person_new_id_seq RESTART WITH 1000000000;
-            """)
-
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
