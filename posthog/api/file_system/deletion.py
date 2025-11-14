@@ -28,7 +28,7 @@ class ModelRegistration:
     model_name: str
     lookup_field: str
     manager_name: str
-    team_field: str | None
+    team_field: str  # Required
     queryset_modifier: Callable[[Any], Any] | None
     soft_delete_field: str | None
     hard_delete: bool | None
@@ -107,7 +107,7 @@ def register_file_system_type(
     *,
     lookup_field: str = "id",
     manager_name: str | None = None,
-    team_field: str | None = "team",
+    team_field: str = "team",
     queryset_modifier: Callable[[Any], Any] | None = None,
     soft_delete_field: str | None = None,
     hard_delete: bool | None = None,
@@ -173,9 +173,7 @@ def _get_object(
     team_id: int | None,
 ) -> Any:
     queryset = _get_queryset(registration)
-    filters: dict[str, Any] = {registration.lookup_field: ref}
-    if registration.team_field and team_id is not None:
-        filters[f"{registration.team_field}_id"] = team_id
+    filters: dict[str, Any] = {registration.lookup_field: ref, f"{registration.team_field}_id": team_id}
     return queryset.get(**filters)
 
 
