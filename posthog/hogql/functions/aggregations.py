@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.hogql.ast import ArrayType, BooleanType, StringType
 from posthog.hogql.base import UnknownType
 
@@ -41,7 +43,8 @@ def _generate_suffix_combinations(
         min_params, max_params = base_meta.min_args, base_meta.max_args
         for suffix in current_suffixes:
             if suffix in COMBINATORS:
-                min_params, max_params = COMBINATORS[suffix]["argMap"](min_params, max_params)
+                arg_map: Callable[[int, int], list[int]] = COMBINATORS[suffix]["argMap"]  # type: ignore
+                min_params, max_params = arg_map(min_params, max_params)
 
         result[func_name] = HogQLFunctionMeta(func_name, min_params, max_params, aggregate=True)
 
@@ -49,7 +52,8 @@ def _generate_suffix_combinations(
         available_suffixes = list(COMBINATORS.keys())
     else:
         last_suffix = current_suffixes[-1]
-        available_suffixes = COMBINATORS.get(last_suffix, {}).get("allowedSuffixes", [])
+        allowed_suffixes: list[str] = COMBINATORS.get(last_suffix, {}).get("AllowedSuffixes", [])  # type: ignore
+        available_suffixes = allowed_suffixes
 
     for suffix in available_suffixes:
         if suffix not in current_suffixes:
