@@ -1053,8 +1053,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
-            serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
+            serializer_data["_create_static_person_ids"] = [
+                str(uuid)
+                for uuid in CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
+            ]
         else:
             # For dynamic cohorts, use the existing insight filter path
             serializer_context["from_cohort_id"] = cohort.pk
