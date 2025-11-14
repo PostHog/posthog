@@ -3,7 +3,10 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::{Method, StatusCode},
+    body::Body,
+    http::{Method, Request, StatusCode},
+    middleware::Next,
+    response::IntoResponse,
     routing::{any, get},
     Router,
 };
@@ -12,6 +15,7 @@ use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
+use http_body_util::BodyExt;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -163,6 +167,7 @@ pub fn router(
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
+        .layer(axum::middleware::from_fn(warn_log_request))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -211,6 +216,38 @@ pub async fn readiness(
     }
 
     Ok("ready")
+}
+
+async fn warn_log_request(req: Request<Body>, next: Next) -> impl IntoResponse {
+    let (parts, body) = req.into_parts();
+    let method = parts.method.clone();
+    let uri = parts.uri.clone();
+
+    let req = match body.collect().await {
+        Ok(collected) => {
+            let bytes = collected.to_bytes();
+            let payload_str = String::from_utf8_lossy(bytes.as_ref());
+            tracing::warn!(
+                method = %method,
+                uri = %uri,
+                payload = %payload_str,
+                "Temporary request payload logging",
+            );
+
+            Request::from_parts(parts, Body::from(bytes))
+        }
+        Err(error) => {
+            tracing::warn!(
+                method = %method,
+                uri = %uri,
+                error = %error,
+                "Failed to record request payload",
+            );
+            Request::from_parts(parts, Body::empty())
+        }
+    };
+
+    next.run(req).await
 }
 
 pub async fn index() -> &'static str {
