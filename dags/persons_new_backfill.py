@@ -43,6 +43,7 @@ def get_id_range(
 
         if min_result is None or min_result["min_id"] is None:
             context.log.exception("Source table is empty or has no valid IDs")
+            # Note: No metrics client here as this is get_id_range op, not copy_chunk
             raise dagster.Failure("Source table is empty or has no valid IDs")
 
         min_id = int(min_result["min_id"])
@@ -59,6 +60,7 @@ def get_id_range(
 
             if max_result is None or max_result["max_id"] is None:
                 context.log.exception("Source table has no valid max ID")
+                # Note: No metrics client here as this is get_id_range op, not copy_chunk
                 raise dagster.Failure("Source table has no valid max ID")
 
             max_id = int(max_result["max_id"])
@@ -67,6 +69,7 @@ def get_id_range(
         if max_id < min_id:
             error_msg = f"Invalid ID range: max_id ({max_id}) < min_id ({min_id})"
             context.log.error(error_msg)
+            # Note: No metrics client here as this is get_id_range op, not copy_chunk
             raise dagster.Failure(error_msg)
 
         context.log.info(f"ID range: min={min_id}, max={max_id}, total_ids={max_id - min_id + 1}")
@@ -162,25 +165,60 @@ def copy_chunk(
     try:
         source_columns = _get_table_columns(source_postgres, "public", source_table)
         if not source_columns:
+            try:
+                metrics_client.increment(
+                    "persons_new_backfill_error",
+                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "source_table_no_columns"},
+                    value=1.0,
+                ).result()
+            except Exception:
+                pass  # Don't fail on metrics error
             raise dagster.Failure(f"Source table {source_table} has no columns or doesn't exist")
 
         # Verify destination table exists and get its columns
         dest_columns = _get_table_columns(destination_postgres, "public", destination_table)
         if not dest_columns:
+            try:
+                metrics_client.increment(
+                    "persons_new_backfill_error",
+                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "dest_table_no_columns"},
+                    value=1.0,
+                ).result()
+            except Exception:
+                pass  # Don't fail on metrics error
             raise dagster.Failure(f"Destination table {destination_table} has no columns or doesn't exist")
 
         # Use intersection of columns that exist in both tables
         columns_to_copy = [col for col in source_columns if col in dest_columns]
         if not columns_to_copy:
+            try:
+                metrics_client.increment(
+                    "persons_new_backfill_error",
+                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "no_matching_columns"},
+                    value=1.0,
+                ).result()
+            except Exception:
+                pass  # Don't fail on metrics error
             raise dagster.Failure(
                 f"No matching columns between source {source_table} and destination {destination_table}"
             )
 
         context.log.info(f"Copying {len(columns_to_copy)} columns: {', '.join(columns_to_copy)}")
 
+    except dagster.Failure:
+        # Re-raise Dagster failures as-is (metrics already reported)
+        raise
     except Exception as e:
         error_msg = f"Failed to get table schema for chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
+        try:
+            metrics_client.increment(
+                "persons_new_backfill_error",
+                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "schema_lookup_failed"},
+                value=1.0,
+            ).result()
+        except Exception:
+            pass  # Don't fail on metrics error
         raise dagster.Failure(error_msg) from e
 
     # Build SELECT and INSERT queries
@@ -239,8 +277,8 @@ def copy_chunk(
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_attempted),
                         ).result()
-                    except Exception as metrics_error:
-                        context.log.warning(f"Failed to report records_attempted metric: {metrics_error}")
+                    except Exception:
+                        pass  # Don't fail on metrics error
 
                     # Insert batch into destination
                     psycopg2.extras.execute_batch(
@@ -262,8 +300,8 @@ def copy_chunk(
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_inserted),
                         ).result()
-                    except Exception as metrics_error:
-                        context.log.warning(f"Failed to report records_inserted metric: {metrics_error}")
+                    except Exception:
+                        pass  # Don't fail on metrics error
 
                     # Track batch count metric (I)
                     try:
@@ -272,9 +310,8 @@ def copy_chunk(
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=1.0,
                         ).result()
-                    except Exception as metrics_error:
-                        context.log.warning(f"Failed to report batches_copied metric: {metrics_error}")
-
+                    except Exception:
+                        pass
                     # Track batch duration metric (IV)
                     try:
                         metrics_client.increment(
@@ -282,8 +319,8 @@ def copy_chunk(
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=batch_duration_seconds,
                         ).result()
-                    except Exception as metrics_error:
-                        context.log.warning(f"Failed to report batch_duration metric: {metrics_error}")
+                    except Exception:
+                        pass
 
                     records_in_batch = len(batch_data)
                     total_records_copied += records_in_batch
@@ -312,6 +349,15 @@ def copy_chunk(
                         f"in chunk {chunk_min}-{chunk_max}: {str(batch_error)}"
                     )
                     context.log.exception(error_msg)
+                    # Report fatal error metric before raising
+                    try:
+                        metrics_client.increment(
+                            "persons_new_backfill_error",
+                            labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "batch_copy_failed"},
+                            value=1.0,
+                        ).result()
+                    except Exception:
+                        pass  # Don't fail on metrics error
                     raise dagster.Failure(
                         description=error_msg,
                         metadata={
@@ -326,12 +372,21 @@ def copy_chunk(
                     ) from batch_error
 
     except dagster.Failure:
-        # Re-raise Dagster failures as-is (they already have metadata)
+        # Re-raise Dagster failures as-is (they already have metadata and metrics)
         raise
     except Exception as e:
         # Catch any other unexpected errors
         error_msg = f"Unexpected error copying chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
+        # Report fatal error metric before raising
+        try:
+            metrics_client.increment(
+                "persons_new_backfill_error",
+                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "unexpected_copy_error"},
+                value=1.0,
+            ).result()
+        except Exception:
+            pass  # Don't fail on metrics error
         raise dagster.Failure(
             description=error_msg,
             metadata={
