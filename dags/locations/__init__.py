@@ -18,20 +18,13 @@ resources_by_env = {
         "s3": S3Resource(),
         # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
         "slack": dagster_slack.SlackResource(token=dagster.EnvVar("SLACK_TOKEN")),
-        # Postgres resources for persons new backfill
-        "source_postgres": PostgresResource(
-            host=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_HOST"),
-            port=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_PORT"),
-            database=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_DATABASE"),
-            user=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_USER"),
-            password=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_PASSWORD"),
-        ),
-        "destination_postgres": PostgresResource(
-            host=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_HOST"),
-            port=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_PORT"),
-            database=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_DATABASE"),
-            user=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_USER"),
-            password=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_PASSWORD"),
+        # Postgres resource (universal for all dags)
+        "database": PostgresResource(
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
     },
     "local": {
@@ -44,20 +37,13 @@ resources_by_env = {
             aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
         "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
-        # Postgres resources for persons new backfill - use Django settings or env vars for local dev
-        "source_postgres": PostgresResource(
-            host=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_HOST"),
-            port=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_PORT"),
-            database=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_DATABASE"),
-            user=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_USER"),
-            password=dagster.EnvVar("PERSONS_NEW_BACKFILL_SOURCE_PASSWORD"),
-        ),
-        "destination_postgres": PostgresResource(
-            host=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_HOST"),
-            port=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_PORT"),
-            database=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_DATABASE"),
-            user=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_USER"),
-            password=dagster.EnvVar("PERSONS_NEW_BACKFILL_DEST_PASSWORD"),
+        # Postgres resource (universal for all dags) - use Django settings or env vars for local dev
+        "database": PostgresResource(
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
     },
 }

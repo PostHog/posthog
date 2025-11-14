@@ -1,7 +1,7 @@
 """Dagster job for backfilling posthog_persons data from source to destination Postgres database."""
 
 import time
-from typing import Any, Optional
+from typing import Any
 
 import dagster
 import psycopg2
@@ -20,21 +20,21 @@ class PersonsNewBackfillConfig(dagster.Config):
     batch_size: int = 100_000  # Records per batch insert
     source_table: str = "posthog_persons"
     destination_table: str = "posthog_persons_new"
-    max_id: Optional[int] = None  # Optional override for max ID to resume from partial state
+    max_id: int | None = None  # Optional override for max ID to resume from partial state
 
 
 @dagster.op
 def get_id_range(
     context: dagster.OpExecutionContext,
     config: PersonsNewBackfillConfig,
-    source_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
+    database: dagster.ResourceParam[psycopg2.extensions.connection],
 ) -> tuple[int, int]:
     """
     Query source database for MIN(id) and optionally MAX(id) from posthog_persons table.
     If max_id is provided in config, uses that instead of querying.
     Returns tuple (min_id, max_id).
     """
-    with source_postgres.cursor() as cursor:
+    with database.cursor() as cursor:
         # Always query for min_id
         min_query = f"SELECT MIN(id) as min_id FROM {config.source_table}"
         context.log.info(f"Querying min ID: {min_query}")
@@ -141,8 +141,7 @@ def copy_chunk(
     context: dagster.OpExecutionContext,
     config: PersonsNewBackfillConfig,
     chunk: tuple[int, int],
-    source_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
-    destination_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
+    database: dagster.ResourceParam[psycopg2.extensions.connection],
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
@@ -163,7 +162,7 @@ def copy_chunk(
 
     # Get column names from source table (assuming public schema)
     try:
-        source_columns = _get_table_columns(source_postgres, "public", source_table)
+        source_columns = _get_table_columns(database, "public", source_table)
         if not source_columns:
             try:
                 metrics_client.increment(
@@ -176,7 +175,7 @@ def copy_chunk(
             raise dagster.Failure(f"Source table {source_table} has no columns or doesn't exist")
 
         # Verify destination table exists and get its columns
-        dest_columns = _get_table_columns(destination_postgres, "public", destination_table)
+        dest_columns = _get_table_columns(database, "public", destination_table)
         if not dest_columns:
             try:
                 metrics_client.increment(
@@ -239,21 +238,21 @@ def copy_chunk(
 
     total_records_copied = 0
     batch_start_id = chunk_min
-    failed_batch_start_id: Optional[int] = None
+    failed_batch_start_id: int | None = None
 
     try:
-        with source_postgres.cursor() as source_cursor, destination_postgres.cursor() as dest_cursor:
+        with database.cursor() as cursor:
             while batch_start_id <= chunk_max:
                 try:
                     # Track batch start time for duration metric
                     batch_start_time = time.time()
 
                     # Fetch batch from source: WHERE id >= batch_start_id AND id <= chunk_max
-                    source_cursor.execute(
+                    cursor.execute(
                         select_query,
                         (batch_start_id, chunk_max, batch_size),
                     )
-                    rows = source_cursor.fetchall()
+                    rows = cursor.fetchall()
 
                     if not rows:
                         # No more rows in this chunk
@@ -282,18 +281,18 @@ def copy_chunk(
 
                     # Insert batch into destination
                     psycopg2.extras.execute_batch(
-                        dest_cursor,
+                        cursor,
                         insert_query,
                         batch_data,
                         page_size=batch_size,
                     )
-                    destination_postgres.commit()
+                    database.commit()
 
                     # Track batch completion time for duration metric
                     batch_duration_seconds = time.time() - batch_start_time
 
                     # Track records actually inserted metric (III)
-                    records_inserted = dest_cursor.rowcount
+                    records_inserted = cursor.rowcount
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_records_inserted_total",
