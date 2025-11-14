@@ -23,8 +23,8 @@ import {
 
 function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
     return (
-        <div className="py-3 px-4 border-b last:border-b-0 bg-white">
-            <Link to={urls.eventDefinition(event.id)} className="font-semibold">
+        <div className="py-3 px-4 border-b last:border-b-0">
+            <Link to={urls.eventDefinition(event.id)} className="font-semibold text-default">
                 {event.name}
             </Link>
         </div>
@@ -33,11 +33,11 @@ function EventRow({ event }: { event: EventDefinitionBasic }): JSX.Element {
 
 function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): JSX.Element {
     return (
-        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0 bg-white">
+        <div className="flex items-center gap-4 py-3 px-4 border-b last:border-b-0">
             <div className="flex-1">
                 <Link
                     to={`${urls.propertyDefinitions()}?property=${encodeURIComponent(property.name)}`}
-                    className="font-semibold"
+                    className="font-semibold text-default"
                 >
                     {property.name}
                 </Link>
