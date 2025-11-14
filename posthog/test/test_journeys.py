@@ -54,13 +54,8 @@ def journeys_for(
                 distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
             )
         else:
-            # Use dual-table-aware helper instead of reverse FK relation
-            from posthog.models.person.util import get_persons_by_distinct_ids
-
-            persons = get_persons_by_distinct_ids(team.pk, [distinct_id])
-            if not persons:
-                raise Person.DoesNotExist(f"Person with distinct_id={distinct_id} not found")
-            people[distinct_id] = persons[0]
+            # Use dual-table-aware manager helper
+            people[distinct_id] = Person.objects.get_by_distinct_id(team.pk, distinct_id)
 
         for event in events:
             # Populate group properties as well
