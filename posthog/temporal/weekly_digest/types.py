@@ -63,6 +63,7 @@ class SendWeeklyDigestInput(BaseModel):
 class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 
