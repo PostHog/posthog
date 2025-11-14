@@ -18192,6 +18192,19 @@
                 "experiment_name": {
                     "type": "string"
                 },
+                "exposures": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "metrics_results": {
                     "items": {
                         "$ref": "#/definitions/MaxExperimentMetricResult"
@@ -18212,6 +18225,7 @@
                 "experiment_id",
                 "experiment_name",
                 "description",
+                "exposures",
                 "variants",
                 "metrics_results",
                 "stats_method"

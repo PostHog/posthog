@@ -14,7 +14,7 @@ import { ExperimentStatsMethod, ProductKey } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, primaryMetricsResults } = useValues(experimentLogic)
+    const { experiment, primaryMetricsResults, exposures } = useValues(experimentLogic)
 
     const maxToolContext = useMemo((): MaxExperimentSummaryContext => {
         const statsMethod = experiment.stats_config?.method || 'bayesian'
@@ -53,11 +53,12 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
             experiment_id: experiment.id,
             experiment_name: experiment.name || 'Unnamed experiment',
             description: experiment.description || null,
+            exposures: exposures?.total_exposures || null,
             variants: variantKeys,
             metrics_results: metricsResults,
             stats_method: statsMethod as ExperimentStatsMethod,
         }
-    }, [experiment, primaryMetricsResults])
+    }, [experiment, primaryMetricsResults, exposures])
 
     const shouldShowMaxSummaryTool = useMemo(() => {
         const hasResults = primaryMetricsResults.length > 0

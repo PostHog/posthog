@@ -121,6 +121,23 @@ class ExperimentSummaryTool(MaxTool):
         if context.variants:
             lines.append(f"\nVariants: {', '.join(context.variants)}")
 
+        if context.exposures:
+            exposures = context.exposures
+            lines.append("\nExposures:")
+            total = sum(exposures.values())
+            lines.append(f"  Total: {int(total)}")
+
+            for variant_key, count in exposures.items():
+                if variant_key == "$multiple":
+                    continue
+                percentage = (count / total * 100) if total > 0 else 0
+                lines.append(f"  {variant_key}: {int(count)} ({percentage:.1f}%)")
+
+            if "$multiple" in exposures:
+                multiple_count = exposures.get("$multiple", 0)
+                lines.append(f"  $multiple: {int(multiple_count)} ({multiple_count / total * 100:.1f}%)")
+                lines.append("  [Quality Warning: Users exposed to multiple variants detected]")
+
         if not context.metrics_results:
             return "\n".join(lines)
 
