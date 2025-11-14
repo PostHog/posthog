@@ -80,6 +80,17 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ClickHouseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    password: str
+    port: int = config.value(converter=int)
+    secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 

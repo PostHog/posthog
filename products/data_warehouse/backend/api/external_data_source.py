@@ -163,6 +163,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schema",
             "ssh_tunnel",
             "using_ssl",
+            "secure",
             # vitally
             "region"
             # chargebee
