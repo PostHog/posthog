@@ -168,7 +168,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class PolarSourceConfig(config.Config):
-    pass
+    access_token: str
+    organization_id: str | None = None
 
 
 @config.config
