@@ -81,14 +81,18 @@ class BingAdsClient:
         result = []
         if campaigns and campaigns.Campaign:
             for campaign in campaigns.Campaign:
+                languages = getattr(campaign, "Languages", None)
+                languages_list = list(languages.string) if languages and hasattr(languages, "string") else None
                 result.append(
                     {
                         "Id": campaign.Id,
                         "Name": campaign.Name,
                         "Status": campaign.Status,
+                        "CampaignType": getattr(campaign, "CampaignType", None),
                         "BudgetType": getattr(campaign, "BudgetType", None),
                         "DailyBudget": getattr(campaign, "DailyBudget", None),
-                        "CampaignType": getattr(campaign, "CampaignType", None),
+                        "AudienceAdsBidAdjustment": getattr(campaign, "AudienceAdsBidAdjustment", None),
+                        "Languages": languages_list,
                         "TimeZone": getattr(campaign, "TimeZone", None),
                     }
                 )
