@@ -8,10 +8,51 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
+import { AnyPropertyFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
+
+function getFilterState(
+    filterGroup: UniversalFiltersGroup,
+    propertyKey: string,
+    propertyValue: string | undefined
+): 'active' | 'replace' | 'inactive' {
+    // Check first nested group (index 0) where filters are added
+    const firstNestedGroup = filterGroup.values[0]
+    if (!firstNestedGroup || !('values' in firstNestedGroup)) {
+        return 'inactive'
+    }
+
+    // Check if exact match exists
+    const hasExactMatch = firstNestedGroup.values.some((filter) => {
+        if ('key' in filter && 'value' in filter && 'operator' in filter) {
+            const propertyFilter = filter as AnyPropertyFilter
+            return (
+                propertyFilter.key === propertyKey &&
+                propertyFilter.value === propertyValue &&
+                propertyFilter.operator === PropertyOperator.Exact
+            )
+        }
+        return false
+    })
+
+    if (hasExactMatch) {
+        return 'active'
+    }
+
+    // Check if same key with different value exists
+    const hasSameKey = firstNestedGroup.values.some((filter) => {
+        if ('key' in filter && 'operator' in filter) {
+            return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+        }
+        return false
+    })
+
+    return hasSameKey ? 'replace' : 'inactive'
+}
 
 export function PlayerSidebarOverviewGrid({
     logicPropsOverride,
@@ -22,7 +63,8 @@ export function PlayerSidebarOverviewGrid({
     const logicProps = logicPropsOverride || contextLogicProps
     const { displayOverviewItems, loading, isPropertyPopoverOpen } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
-    const { applyPropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
+    const { togglePropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <>
@@ -60,6 +102,11 @@ export function PlayerSidebarOverviewGrid({
                                     ? 'Cannot filter for missing values'
                                     : undefined
 
+                            const filterState =
+                                item.type === 'property' && isFilterable
+                                    ? getFilterState(filters.filter_group, item.property, item.value)
+                                    : 'inactive'
+
                             return (
                                 <OverviewGridItem
                                     key={item.label}
@@ -70,8 +117,9 @@ export function PlayerSidebarOverviewGrid({
                                     fadeLabel
                                     showFilter={item.type === 'property' && item.value !== undefined}
                                     filterDisabledReason={filterDisabledReason}
+                                    filterState={filterState}
                                     onFilterClick={
-                                        isFilterable ? () => applyPropertyFilter(item.property, item.value) : undefined
+                                        isFilterable ? () => togglePropertyFilter(item.property, item.value) : undefined
                                     }
                                 >
                                     <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">

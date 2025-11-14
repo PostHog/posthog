@@ -44,6 +44,7 @@ export function OverviewGridItem({
     onFilterClick,
     showFilter,
     filterDisabledReason,
+    filterState,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -54,7 +55,21 @@ export function OverviewGridItem({
     onFilterClick?: () => void
     showFilter?: boolean
     filterDisabledReason?: string
+    filterState?: 'active' | 'replace' | 'inactive'
 }): JSX.Element {
+    const getFilterTooltip = (): string => {
+        if (filterDisabledReason) {
+            return filterDisabledReason
+        }
+        if (filterState === 'active') {
+            return 'Remove this filter'
+        }
+        if (filterState === 'replace') {
+            return 'Replace existing filter with this value'
+        }
+        return 'Filter for recordings matching this'
+    }
+
     return (
         <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
@@ -65,14 +80,17 @@ export function OverviewGridItem({
             <div className="overflow-x-auto flex items-center deprecated-space-x-2">
                 <Tooltip title={description}>{children}</Tooltip>
                 {showFilter && onFilterClick && (
-                    <Tooltip title={filterDisabledReason || 'Filter for recordings matching this'}>
+                    <Tooltip title={getFilterTooltip()}>
                         <IconFilter
                             data-testid="filter-button"
-                            className={
+                            className={clsx(
+                                'text-sm transition-colors',
                                 filterDisabledReason
-                                    ? 'text-muted cursor-not-allowed text-sm'
-                                    : 'cursor-pointer text-secondary hover:text-primary transition-colors text-sm'
-                            }
+                                    ? 'text-muted cursor-not-allowed'
+                                    : filterState === 'active'
+                                      ? 'cursor-pointer text-primary hover:text-secondary'
+                                      : 'cursor-pointer text-secondary hover:text-primary'
+                            )}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 if (!filterDisabledReason) {
