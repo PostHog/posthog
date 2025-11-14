@@ -29,6 +29,7 @@ from .temporalio.source import TemporalIOSource
 from .tiktok_ads.source import TikTokAdsSource
 from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
+from .zoho_crm.source import ZohoCrmSource
 
 __all__ = [
     "CustomerIOSource",
@@ -62,4 +63,5 @@ __all__ = [
     "TemporalIOSource",
     "VitallySource",
     "ZendeskSource",
+    "ZohoCrmSource",
 ]

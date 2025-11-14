@@ -256,6 +256,11 @@ class ZendeskSourceConfig(config.Config):
     email_address: str
 
 
+@config.config
+class ZohoCrmSourceConfig(config.Config):
+    zoho_crm_integration_id: int = config.value(converter=config.str_to_int)
+
+
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
@@ -288,4 +293,5 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
+        ExternalDataSourceType.ZOHOCRM: ZohoCrmSourceConfig,
     }[source]

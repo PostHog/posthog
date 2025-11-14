@@ -86,6 +86,7 @@ class Integration(models.Model):
         CLICKUP = "clickup"
         VERCEL = "vercel"
         DATABRICKS = "databricks"
+        ZOHO_CRM = "zoho-crm"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -175,6 +176,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "zoho-crm",
     ]
     integration: Integration
 
@@ -409,6 +411,22 @@ class OauthIntegration:
                 scope="",
                 id_path="user.id",
                 name_path="user.email",
+            )
+        elif kind == "zoho-crm":
+            if not settings.ZOHO_CRM_CLIENT_ID or not settings.ZOHO_CRM_CLIENT_SECRET:
+                raise NotImplementedError("Zoho CRM app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.zoho.com/oauth/v2/auth",
+                token_url="https://accounts.zoho.com/oauth/v2/token",
+                token_info_url="https://accounts.zoho.com/oauth/user/info",
+                token_info_config_fields=["ZUID", "Email"],
+                client_id=settings.ZOHO_CRM_CLIENT_ID,
+                client_secret=settings.ZOHO_CRM_CLIENT_SECRET,
+                scope="ZohoCRM.modules.ALL,ZohoCRM.settings.ALL",
+                additional_authorize_params={"access_type": "offline"},
+                id_path="ZUID",
+                name_path="Email",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
