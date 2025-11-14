@@ -45,7 +45,6 @@ class FunnelEventQuery:
 
     def to_query(
         self,
-        # entities=None, # TODO: implement passed in entities when needed
         skip_entity_filter=False,
     ) -> ast.SelectQuery:
         _extra_fields: list[ast.Expr] = [
