@@ -11,6 +11,7 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -63,6 +64,7 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -688,6 +690,108 @@ class UserViewSet(
 
 
 @authenticate_secondarily
+def get_toolbar_flags(request):
+    """Retrieve cached feature flags for toolbar using a session key."""
+    toolbar_flags_key = request.GET.get("key")
+
+    logger.info(f"[Toolbar Flags] get_toolbar_flags called with key: {toolbar_flags_key}")
+
+    if not toolbar_flags_key:
+        logger.warning("[Toolbar Flags] No key parameter provided")
+        return JsonResponse({"error": "key parameter is required"}, status=400)
+
+    cache_key = f"toolbar_flags_{toolbar_flags_key}"
+    cache_data = cache.get(cache_key)
+
+    logger.info(f"[Toolbar Flags] Cache lookup for key {cache_key}: {'found' if cache_data else 'not found'}")
+
+    if cache_data is None:
+        logger.warning(f"[Toolbar Flags] Flags not found or expired for key: {toolbar_flags_key}")
+        return JsonResponse({"error": "Flags not found or expired"}, status=404)
+
+    # Security: Verify the requesting user has access to this team's flags
+    # This prevents users from accessing flags for other teams if they intercept a key
+    if cache_data.get("team_id") != request.user.team.id:
+        logger.warning(
+            f"[Toolbar Flags] User {request.user.id} attempted to access toolbar flags for team {cache_data.get('team_id')}"
+        )
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    feature_flags = cache_data.get("feature_flags", {})
+    distinct_id = cache_data.get("distinct_id")
+    logger.info(f"[Toolbar Flags] Returning {len(feature_flags)} flags for distinct_id: {distinct_id}")
+    logger.info(
+        f"[Toolbar Flags] test-flags-load-toolbar value: {feature_flags.get('test-flags-load-toolbar', 'NOT PRESENT')}"
+    )
+
+    # Don't delete - allow multiple retrievals during the 5-minute window
+    return JsonResponse({"featureFlags": feature_flags, "distinctId": distinct_id})
+
+
+@authenticate_secondarily
+@require_http_methods(["POST"])
+def prepare_toolbar_flags(request):
+    """
+    Evaluate feature flags for a user and store them in cache for toolbar launch.
+    Returns a cache key to avoid URL length limits.
+    """
+    try:
+        data = json.loads(request.body)
+        distinct_id = data.get("distinct_id")
+
+        logger.info(f"[Toolbar Flags] prepare_toolbar_flags called for distinct_id: {distinct_id}")
+
+        if not distinct_id:
+            logger.warning("[Toolbar Flags] No distinct_id provided")
+            return JsonResponse({"error": "distinct_id is required"}, status=400)
+
+        team = request.user.team
+        if not team:
+            logger.warning("[Toolbar Flags] No team found")
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        logger.info(f"[Toolbar Flags] Evaluating flags for team {team.id}, user {request.user.id}")
+
+        # Evaluate all feature flags for this user
+        flags, reasons, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+
+        # Filter to only enabled flags (exclude false/undefined values)
+        feature_flags = {}
+        for flag_key, flag_value in flags.items():
+            if flag_value is not None and flag_value is not False:
+                feature_flags[flag_key] = flag_value
+
+        # Generate a unique key and store in cache for 5 minutes
+        key = secrets.token_urlsafe(16)
+        cache_key = f"toolbar_flags_{key}"
+
+        # Store both flags and metadata to verify ownership on retrieval
+        cache_data = {
+            "feature_flags": feature_flags,
+            "distinct_id": distinct_id,  # Include the person's distinct_id
+            "team_id": team.id,
+            "user_id": request.user.id,
+        }
+
+        # Store in cache
+        cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
+
+        # Immediately verify it was stored
+        verification = cache.get(cache_key)
+        if verification is None:
+            logger.error(f"[Toolbar Flags] CACHE VERIFICATION FAILED! Data was not stored properly")
+            logger.error(f"[Toolbar Flags] Cache backend: {cache.__class__.__name__}")
+        else:
+            logger.info(f"[Toolbar Flags] Cache verification successful - data found immediately after set")
+            logger.info(f"[Toolbar Flags] Cached {len(feature_flags)} flags for 5 minutes")
+
+        return JsonResponse({"key": key, "flag_count": len(feature_flags)})
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.exception("Error preparing toolbar launch", error=str(e))
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+
+@authenticate_secondarily
 def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
@@ -715,6 +819,23 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
+
+    # Support passing feature flags for toolbar launch
+    # Pass the key to the toolbar instead of expanding flags (avoids URL length limits)
+    toolbar_flags_key = request.GET.get("toolbarFlagsKey")
+    if toolbar_flags_key:
+        # Pass the key to the toolbar - it will retrieve flags from backend
+        params["toolbarFlagsKey"] = toolbar_flags_key
+        # Note: We don't delete from cache here because toolbar will need to retrieve it
+    else:
+        # Fallback to direct JSON parameter (for backwards compatibility)
+        # Note: This may fail with DisallowedRedirect if there are too many flags
+        feature_flags = request.GET.get("featureFlags")
+        if feature_flags:
+            try:
+                params["featureFlags"] = json.loads(feature_flags)
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("Invalid featureFlags parameter passed to redirect_to_site")
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

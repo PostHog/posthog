@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconToolbar } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -12,6 +15,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -101,6 +105,65 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 </Link>
             </div>
         </div>
+    )
+}
+
+interface LaunchToolbarButtonProps {
+    distinctId: string
+}
+
+function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
+    const [isLaunching, setIsLaunching] = useState(false)
+
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleLaunchToolbar = async (): Promise<void> => {
+        if (!currentTeam?.app_urls?.length) {
+            lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
+            return
+        }
+
+        setIsLaunching(true)
+        try {
+            // Prepare toolbar flags on backend and get cache key
+            const response = await api.create('api/user/prepare_toolbar_flags', {
+                distinct_id: distinctId,
+            })
+
+            // Use the first authorized URL
+            const targetUrl = currentTeam.app_urls[0]
+
+            // Build toolbar URL with session key
+            const toolbarUrl = appEditorUrl(targetUrl, {
+                toolbarFlagsKey: response.key,
+            })
+
+            // Launch the toolbar
+            window.open(toolbarUrl, '_blank')
+
+            lemonToast.success(
+                `Launching toolbar with ${response.flag_count} feature flag override${response.flag_count === 1 ? '' : 's'}`
+            )
+        } catch (error) {
+            lemonToast.error('Failed to launch toolbar. Please try again.')
+            console.error('Error launching toolbar:', error)
+        } finally {
+            setIsLaunching(false)
+        }
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconToolbar />}
+            onClick={handleLaunchToolbar}
+            loading={isLaunching}
+            disabledReason={!currentTeam?.app_urls?.length ? 'No authorized URLs configured' : undefined}
+            tooltip="Launch toolbar with this user's feature flags"
+        >
+            Launch toolbar with flags
+        </LemonButton>
     )
 }
 
@@ -330,6 +393,7 @@ export function PersonScene(): JSX.Element | null {
                                               }))}
                                               data-attr="person-feature-flags-select"
                                           />
+                                          <LaunchToolbarButton distinctId={distinctId || primaryDistinctId} />
                                       </div>
                                       <LemonDivider className="mb-4" />
                                       <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />

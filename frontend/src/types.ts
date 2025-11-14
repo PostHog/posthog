@@ -792,6 +792,7 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+    toolbarFlagsKey?: string /** key to retrieve feature flags from backend cache */
 }
 
 export interface ToolbarProps extends ToolbarParams {

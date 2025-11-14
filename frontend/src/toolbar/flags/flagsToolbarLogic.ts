@@ -44,6 +44,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         savePayloadOverride: (flagKey: string) => ({ flagKey }),
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
         setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
+        clearAllOverrides: true,
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -53,15 +54,19 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const params = {
                         groups: getGroups(values.posthog),
                     }
+
                     const response = await toolbarFetch(
                         `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`
                     )
 
                     breakpoint()
                     if (!response.ok) {
+                        console.warn('[Flags Toolbar Logic] Failed to fetch user flags:', response.status)
                         return []
                     }
-                    return await response.json()
+                    const flags = await response.json()
+
+                    return flags
                 },
             },
         ],
@@ -195,6 +200,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
                     const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
+
                     actions.storeLocalOverrides(locallyOverrideFeatureFlags)
                 }
             },
@@ -248,6 +254,9 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadError(flagKey, 'Invalid JSON')
                     console.error('Invalid JSON:', e)
                 }
+            },
+            clearAllOverrides: () => {
+                clearFeatureFlagOverrides()
             },
             logout: () => {
                 clearFeatureFlagOverrides()
