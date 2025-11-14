@@ -85,6 +85,15 @@ class CustomerIOSourceConfig(config.Config):
 
 
 @config.config
+class DatabricksSourceConfig(config.Config):
+    server_hostname: str
+    http_path: str
+    access_token: str
+    catalog: str
+    schema: str
+
+
+@config.config
 class DoItSourceConfig(config.Config):
     api_key: str
 

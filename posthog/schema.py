@@ -1435,6 +1435,7 @@ class ExternalDataSourceType(StrEnum):
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
     SHOPIFY = "Shopify"
+    DATABRICKS = "Databricks"
 
 
 class ExternalQueryErrorCode(StrEnum):

@@ -3,6 +3,7 @@ from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
 from .customer_io.source import CustomerIOSource
+from .databricks.source import DatabricksSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
@@ -37,6 +38,7 @@ __all__ = [
     "BigQuerySource",
     "BrazeSource",
     "ChargebeeSource",
+    "DatabricksSource",
     "DoItSource",
     "GoogleAdsSource",
     "GoogleSheetsSource",
