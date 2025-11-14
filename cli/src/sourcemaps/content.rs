@@ -16,7 +16,7 @@ use crate::{
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "debugId")]
     pub chunk_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
@@ -47,6 +47,10 @@ impl SourceMapFile {
 
     pub fn get_release_id(&self) -> Option<String> {
         self.inner.content.release_id.clone()
+    }
+
+    pub fn has_release_id(&self) -> bool {
+        self.get_release_id().is_some()
     }
 
     pub fn apply_adjustment(&mut self, adjustment: SourceMap) -> Result<()> {
