@@ -90,6 +90,12 @@ class DoItSourceConfig(config.Config):
 
 
 @config.config
+class DripSourceConfig(config.Config):
+    account_id: str
+    api_token: str
+
+
+@config.config
 class GithubSourceConfig(config.Config):
     pass
 

@@ -4,6 +4,7 @@ from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
 from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
+from .drip.source import DripSource
 from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
@@ -38,6 +39,7 @@ __all__ = [
     "BrazeSource",
     "ChargebeeSource",
     "DoItSource",
+    "DripSource",
     "GoogleAdsSource",
     "GoogleSheetsSource",
     "HubspotSource",
