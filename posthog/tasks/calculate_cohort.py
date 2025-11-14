@@ -166,6 +166,10 @@ def update_cohort_metrics() -> None:
     )
     COHORT_MAXED_ERRORS_GAUGE.set(maxed_error_count)
 
+    # Update backlog gauge - cohorts waiting to be calculated
+    backlog = get_cohort_calculation_candidates_queryset().count()
+    COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
@@ -204,10 +208,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             # Skip this cohort and continue with others
             continue
 
-    backlog = get_cohort_calculation_candidates_queryset().count()
-    COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
-
-    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids, COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog)
+    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids, count=len(cohort_ids))
 
     try:
         update_cohort_metrics()

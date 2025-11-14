@@ -109,6 +109,15 @@ def on_worker_start(**kwargs) -> None:
     setup()  # makes sure things like exception autocapture are initialised
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
+    # Initialize cohort metrics with current database values so they're available before first periodic task runs
+    try:
+        from posthog.tasks.calculate_cohort import update_cohort_metrics
+
+        update_cohort_metrics()
+        logger.info("Initialized cohort metrics at worker startup")
+    except Exception as e:
+        logger.warning("Failed to initialize cohort metrics at startup", error=str(e))
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
