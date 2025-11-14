@@ -22,6 +22,7 @@ from .reddit_ads.source import RedditAdsSource
 from .redshift.source import RedshiftSource
 from .revenuecat.source import RevenueCatSource
 from .salesforce.source import SalesforceSource
+from .sendgrid.source import SendgridSource
 from .shopify.source import ShopifySource
 from .snowflake.source import SnowflakeSource
 from .stripe.source import StripeSource
@@ -56,6 +57,7 @@ __all__ = [
     "TikTokAdsSource",
     "RevenueCatSource",
     "SalesforceSource",
+    "SendgridSource",
     "ShopifySource",
     "SnowflakeSource",
     "StripeSource",

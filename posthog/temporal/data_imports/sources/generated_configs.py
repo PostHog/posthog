@@ -250,6 +250,11 @@ class VitallySourceConfig(config.Config):
 
 
 @config.config
+class SendgridSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class ZendeskSourceConfig(config.Config):
     subdomain: str
     api_key: str
@@ -281,6 +286,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SENDGRID: SendgridSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,

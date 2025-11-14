@@ -198,6 +198,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # sendgrid - no non-confidential fields (only api_key which is confidential)
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
