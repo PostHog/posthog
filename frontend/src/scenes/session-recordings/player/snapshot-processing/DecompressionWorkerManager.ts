@@ -36,6 +36,7 @@ export class DecompressionWorkerManager {
     private stats: DecompressionStats = { totalTime: 0, count: 0, totalSize: 0 }
     private readonly mode: DecompressionMode
     private isColdStart = true
+    private workerInitFailed = false
 
     constructor(
         mode?: string | DecompressionMode,
@@ -43,6 +44,10 @@ export class DecompressionWorkerManager {
     ) {
         this.mode = normalizeMode(mode)
         this.readyPromise = this.mode === 'worker' ? this.initWorker() : this.initSnappy()
+    }
+
+    private getErrorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : 'Unknown error'
     }
 
     private async initWorker(): Promise<void> {
@@ -107,8 +112,18 @@ export class DecompressionWorkerManager {
 
             await readyPromise
         } catch (error) {
-            console.error('[DecompressionWorkerManager] Failed to initialize worker:', error)
-            throw error
+            console.error(
+                '[DecompressionWorkerManager] Failed to initialize worker, will fallback to main thread:',
+                error
+            )
+            this.workerInitFailed = true
+            this.worker = null
+            await this.initSnappy()
+            if (this.posthog) {
+                this.posthog.capture('replay_worker_init_failed', {
+                    error: this.getErrorMessage(error),
+                })
+            }
         }
     }
 
@@ -123,10 +138,37 @@ export class DecompressionWorkerManager {
     async decompress(compressedData: Uint8Array, metadata?: { blockCount?: number }): Promise<Uint8Array> {
         await this.readyPromise
 
-        if (this.mode === 'worker' && this.worker) {
-            return this.decompressWithWorker(compressedData, metadata)
+        if (this.shouldUseWorker()) {
+            return this.decompressWithFallback(compressedData, metadata)
         }
         return this.decompressMainThread(compressedData, metadata)
+    }
+
+    private shouldUseWorker(): boolean {
+        return this.mode === 'worker' && this.worker !== null && !this.workerInitFailed
+    }
+
+    private async decompressWithFallback(
+        compressedData: Uint8Array,
+        metadata?: { blockCount?: number }
+    ): Promise<Uint8Array> {
+        try {
+            return await this.decompressWithWorker(compressedData, metadata)
+        } catch (error) {
+            this.reportWorkerFailure(error, compressedData.length, metadata?.blockCount)
+            return await this.decompressMainThread(compressedData, metadata)
+        }
+    }
+
+    private reportWorkerFailure(error: unknown, dataSize: number, blockCount?: number): void {
+        console.warn('[DecompressionWorkerManager] Worker decompression failed, falling back to main thread:', error)
+        if (this.posthog) {
+            this.posthog.capture('replay_worker_decompression_failed', {
+                error: this.getErrorMessage(error),
+                dataSize,
+                blockCount,
+            })
+        }
     }
 
     private async decompressWithWorker(
@@ -137,9 +179,31 @@ export class DecompressionWorkerManager {
         const startTime = performance.now()
 
         return new Promise<Uint8Array>((resolve, reject) => {
+            // Timeout safeguard: if worker doesn't respond, reject and fallback
+            const DECOMPRESSION_TIMEOUT_MS = 10000
+            const timeout = setTimeout(() => {
+                const pending = this.pendingRequests.get(id)
+                if (pending) {
+                    this.pendingRequests.delete(id)
+                    console.error('[DecompressionWorkerManager] Worker decompression timeout', {
+                        id,
+                        dataSize: compressedData.length,
+                        blockCount: metadata?.blockCount,
+                        timeoutMs: DECOMPRESSION_TIMEOUT_MS,
+                    })
+                    reject(new Error('Worker decompression timeout'))
+                }
+            }, DECOMPRESSION_TIMEOUT_MS)
+
             this.pendingRequests.set(id, {
-                resolve,
-                reject,
+                resolve: (data) => {
+                    clearTimeout(timeout)
+                    resolve(data)
+                },
+                reject: (error) => {
+                    clearTimeout(timeout)
+                    reject(error)
+                },
                 startTime,
                 dataSize: compressedData.length,
                 blockCount: metadata?.blockCount,
@@ -150,7 +214,13 @@ export class DecompressionWorkerManager {
                 compressedData,
             }
 
-            this.worker!.postMessage(message, { transfer: [compressedData.buffer] })
+            try {
+                this.worker!.postMessage(message, { transfer: [compressedData.buffer] })
+            } catch (error) {
+                clearTimeout(timeout)
+                this.pendingRequests.delete(id)
+                reject(error instanceof Error ? error : new Error(this.getErrorMessage(error)))
+            }
         })
     }
 
