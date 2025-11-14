@@ -46,7 +46,7 @@ from posthog.queries.util import PersonPropertiesMode
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
-COHORT_QUERY_TIMEOUT_SECONDS = 600  # Max execution time for ClickHouse cohort calculation queries
+COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
@@ -90,7 +90,7 @@ def run_cohort_query(
         if history and query:
             delayed_task = collect_cohort_query_stats.apply_async(
                 args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=COHORT_QUERY_TIMEOUT_SECONDS,
+                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
             )
 
     try:
