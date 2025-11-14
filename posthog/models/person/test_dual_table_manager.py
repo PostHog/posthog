@@ -492,3 +492,149 @@ class TestDualTablePersonManager(BaseTest):
             self.assertEqual(person.team_id, self.team.id)
         finally:
             PersonDistinctId.objects.filter(distinct_id="test_pattern").delete()
+
+    # Test DualPersonQuerySet wrapper
+    def test_queryset_count_method(self):
+        """Test that .filter().count() returns sum of both tables."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        self.assertEqual(queryset.count(), 3)  # 2 old + 1 new
+
+    def test_queryset_count_with_additional_filters(self):
+        """Test that .count() works with chained filters."""
+        queryset = Person.objects.filter(team_id=self.team.id).filter(id=100)
+        self.assertEqual(queryset.count(), 1)
+
+    def test_queryset_filter_chaining(self):
+        """Test that .filter() can be chained multiple times."""
+        queryset = Person.objects.filter(team_id=self.team.id).filter(id__in=[100, 200])
+        self.assertEqual(queryset.count(), 2)
+
+        # Verify the right persons are returned
+        person_ids = {p.id for p in queryset}
+        self.assertEqual(person_ids, {100, 200})
+
+    def test_queryset_filter_with_q_objects(self):
+        """Test that .filter() supports Q objects."""
+        from django.db.models import Q
+
+        queryset = Person.objects.filter(team_id=self.team.id).filter(Q(id=100) | Q(id=200))
+        self.assertEqual(queryset.count(), 2)
+
+    def test_queryset_exclude_method(self):
+        """Test that .exclude() works on QuerySet."""
+        queryset = Person.objects.filter(team_id=self.team.id).exclude(id=100)
+        self.assertEqual(queryset.count(), 2)
+
+        person_ids = {p.id for p in queryset}
+        self.assertNotIn(100, person_ids)
+        self.assertIn(200, person_ids)
+        self.assertIn(PERSON_ID_CUTOFF + 100, person_ids)
+
+    def test_queryset_order_by(self):
+        """Test that .order_by() works on QuerySet."""
+        queryset = Person.objects.filter(team_id=self.team.id).order_by("id")
+        person_ids = [p.id for p in queryset]
+        # Should be sorted: [100, 200, PERSON_ID_CUTOFF + 100]
+        self.assertEqual(person_ids[0], 100)
+        self.assertEqual(person_ids[1], 200)
+        self.assertEqual(person_ids[2], PERSON_ID_CUTOFF + 100)
+
+    def test_queryset_values_list(self):
+        """Test that .values_list() works on QuerySet."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        uuids = queryset.values_list("uuid", flat=True)
+
+        self.assertEqual(len(uuids), 3)
+        uuid_strs = [str(u) for u in uuids]
+        self.assertIn(str(self.old_person_uuid), uuid_strs)
+        self.assertIn(str(self.new_person_uuid), uuid_strs)
+        self.assertIn(str(self.old_person2_uuid), uuid_strs)
+
+    def test_queryset_values_list_multiple_fields(self):
+        """Test that .values_list() works with multiple fields."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        results = queryset.values_list("id", "uuid")
+
+        self.assertEqual(len(results), 3)
+        # Each result should be a tuple of (id, uuid)
+        for id_val, uuid_val in results:
+            self.assertIsInstance(id_val, int)
+            self.assertIsNotNone(uuid_val)
+
+    def test_queryset_slicing(self):
+        """Test that QuerySet supports slicing."""
+        queryset = Person.objects.filter(team_id=self.team.id).order_by("id")
+
+        # Get first 2 persons
+        first_two = queryset[:2]
+        self.assertEqual(len(first_two), 2)
+        self.assertEqual(first_two[0].id, 100)
+        self.assertEqual(first_two[1].id, 200)
+
+        # Get last person
+        last_one = queryset[2:3]
+        self.assertEqual(len(last_one), 1)
+        self.assertEqual(last_one[0].id, PERSON_ID_CUTOFF + 100)
+
+    def test_queryset_iteration(self):
+        """Test that QuerySet can be iterated."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+
+        count = 0
+        for person in queryset:
+            count += 1
+            self.assertIsInstance(person, Person)
+
+        self.assertEqual(count, 3)
+
+    def test_queryset_len(self):
+        """Test that len() works on QuerySet."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        self.assertEqual(len(queryset), 3)
+
+    def test_filter_by_cohort_returns_queryset(self):
+        """Test that filter_by_cohort() returns DualPersonQuerySet."""
+        from posthog.models.cohort import Cohort, CohortPeople
+
+        cohort = Cohort.objects.create(team=self.team, name="Test QuerySet Cohort")
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=100)
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=200)
+
+        try:
+            queryset = Person.objects.filter_by_cohort(cohort.id)
+
+            # Should support .count()
+            self.assertEqual(queryset.count(), 2)
+
+            # Should support further filtering
+            filtered = queryset.filter(id=100)
+            self.assertEqual(filtered.count(), 1)
+
+            # Should support iteration
+            person_ids = {p.id for p in queryset}
+            self.assertEqual(person_ids, {100, 200})
+        finally:
+            CohortPeople.objects.filter(cohort_id=cohort.id).delete()
+            cohort.delete()
+
+    def test_exclude_cohort_returns_queryset(self):
+        """Test that exclude_cohort() returns DualPersonQuerySet."""
+        from posthog.models.cohort import Cohort, CohortPeople
+
+        cohort = Cohort.objects.create(team=self.team, name="Test Exclude QuerySet")
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=100)
+
+        try:
+            queryset = Person.objects.exclude_cohort(cohort.id)
+
+            # Should exclude person with id=100
+            person_ids = {p.id for p in queryset}
+            self.assertNotIn(100, person_ids)
+
+            # Should support .count()
+            # Note: This will count ALL persons not in cohort (not filtered by team)
+            count = queryset.count()
+            self.assertGreater(count, 0)
+        finally:
+            CohortPeople.objects.filter(cohort_id=cohort.id).delete()
+            cohort.delete()
