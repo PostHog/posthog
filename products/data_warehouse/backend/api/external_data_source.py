@@ -188,6 +188,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "spreadsheet_url",
             # linkedin ads
             "linkedin_ads_integration_id",
+            # pinterest ads
+            "ad_account_id",
+            "pinterest_ads_integration_id",
             # meta ads
             "meta_ads_integration_id",
             # reddit ads

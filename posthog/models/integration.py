@@ -74,6 +74,7 @@ class Integration(models.Model):
         GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        PINTEREST_ADS = "pinterest-ads"
         REDDIT_ADS = "reddit-ads"
         TIKTOK_ADS = "tiktok-ads"
         INTERCOM = "intercom"
@@ -169,6 +170,7 @@ class OauthIntegration:
         "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "pinterest-ads",
         "reddit-ads",
         "tiktok-ads",
         "meta-ads",
@@ -316,6 +318,21 @@ class OauthIntegration:
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "pinterest-ads":
+            if not settings.PINTEREST_ADS_CLIENT_ID or not settings.PINTEREST_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Pinterest Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.pinterest.com/oauth/",
+                token_info_url="https://api.pinterest.com/v5/user_account",
+                token_info_config_fields=["username", "account_type"],
+                token_url="https://api.pinterest.com/v5/oauth/token",
+                client_id=settings.PINTEREST_ADS_CLIENT_ID,
+                client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
+                scope="ads:read user_accounts:read",
+                id_path="username",
+                name_path="username",
             )
         elif kind == "intercom":
             if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:

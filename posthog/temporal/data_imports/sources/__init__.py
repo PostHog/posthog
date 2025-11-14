@@ -13,6 +13,7 @@ from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
 from .mailjet.source import MailJetSource
 from .meta_ads.source import MetaAdsSource
+from .pinterest_ads.source import PinterestAdsSource
 from .mongodb.source import MongoDBSource
 from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
@@ -47,6 +48,7 @@ __all__ = [
     "MailJetSource",
     "MetaAdsSource",
     "MongoDBSource",
+    "PinterestAdsSource",
     "RedditAdsSource",
     "MSSQLSource",
     "MySQLSource",
