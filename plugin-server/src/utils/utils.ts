@@ -440,7 +440,9 @@ export function createPostgresPool(
         application_name: applicationName,
         max: poolSize,
         ssl: process.env.DYNO // Means we are on Heroku
-            ? {
+            ? // traffic on heroku is over private LAN, so TLS isn't _strictly_ necessary, but we really should enable it
+              // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+              {
                   rejectUnauthorized: false,
               }
             : undefined,
