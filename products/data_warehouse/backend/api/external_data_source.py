@@ -198,6 +198,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # jira
+            "jira_domain",
+            "jira_email",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):

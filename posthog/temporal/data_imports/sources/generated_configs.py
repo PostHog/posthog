@@ -112,6 +112,13 @@ class HubspotSourceConfig(config.Config):
 
 
 @config.config
+class JiraSourceConfig(config.Config):
+    jira_domain: str
+    jira_email: str
+    jira_api_token: str
+
+
+@config.config
 class KlaviyoSourceConfig(config.Config):
     pass
 
