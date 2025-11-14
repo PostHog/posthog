@@ -4388,6 +4388,7 @@ export const externalDataSources = [
     'RedditAds',
     'TikTokAds',
     'Shopify',
+    'QuickBooks',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

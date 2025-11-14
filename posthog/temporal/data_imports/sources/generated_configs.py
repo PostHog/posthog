@@ -172,6 +172,11 @@ class PolarSourceConfig(config.Config):
 
 
 @config.config
+class QuickBooksSourceConfig(config.Config):
+    oauth_integration: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -276,6 +281,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
+        ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,

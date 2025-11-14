@@ -86,6 +86,7 @@ class Integration(models.Model):
         CLICKUP = "clickup"
         VERCEL = "vercel"
         DATABRICKS = "databricks"
+        QUICKBOOKS = "quickbooks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -175,6 +176,7 @@ class OauthIntegration:
         "intercom",
         "linear",
         "clickup",
+        "quickbooks",
     ]
     integration: Integration
 
@@ -409,6 +411,19 @@ class OauthIntegration:
                 scope="",
                 id_path="user.id",
                 name_path="user.email",
+            )
+        elif kind == "quickbooks":
+            if not settings.QUICKBOOKS_CLIENT_ID or not settings.QUICKBOOKS_CLIENT_SECRET:
+                raise NotImplementedError("QuickBooks app not configured")
+
+            return OauthConfig(
+                authorize_url="https://appcenter.intuit.com/connect/oauth2",
+                token_url="https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+                client_id=settings.QUICKBOOKS_CLIENT_ID,
+                client_secret=settings.QUICKBOOKS_CLIENT_SECRET,
+                scope="com.intuit.quickbooks.accounting",
+                id_path="realmId",
+                name_path="realmId",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
