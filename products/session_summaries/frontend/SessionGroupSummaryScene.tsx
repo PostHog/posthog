@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconDownload, IconSearch, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconCheck, IconDownload, IconSearch, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -32,7 +33,6 @@ type SeverityConfig = {
     color: string
 }
 
-// Helper function to map severity to tag type and color
 function getSeverityConfig(severity: SeverityLevel): SeverityConfig {
     const configs: Record<SeverityLevel, SeverityConfig> = {
         critical: { type: 'danger', color: 'bg-danger' },
@@ -43,12 +43,10 @@ function getSeverityConfig(severity: SeverityLevel): SeverityConfig {
     return configs[severity]
 }
 
-// Helper function to capitalize first letter
 function capitalizeFirst(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
-// Loading skeleton component
 function SessionGroupSummaryLoadingSkeleton(): JSX.Element {
     return (
         <div className="space-y-4">
@@ -59,7 +57,6 @@ function SessionGroupSummaryLoadingSkeleton(): JSX.Element {
     )
 }
 
-// Session Example Card Component
 function SessionExampleCard({
     event,
     onViewDetails,
@@ -95,9 +92,15 @@ function SessionExampleCard({
     )
 }
 
-// Filter Bar Component
-function FilterBar(): JSX.Element {
+function FilterBar({
+    sortBy,
+    onSortChange,
+}: {
+    sortBy: 'severity' | 'session_count'
+    onSortChange: (sortBy: 'severity' | 'session_count') => void
+}): JSX.Element {
     const [searchValue, setSearchValue] = useState('')
+    const sortLabel = sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'
 
     return (
         <div className="flex flex-wrap items-center gap-4 mb-4">
@@ -111,17 +114,28 @@ function FilterBar(): JSX.Element {
                     fullWidth
                 />
             </div>
-            <div className="flex rounded border">
-                <LemonButton type="secondary" icon={<IconSort />} className="rounded-r-none border-r">
-                    Sort by impact
+            <LemonMenu
+                items={[
+                    {
+                        label: 'Sort by severity',
+                        icon: sortBy === 'severity' ? <IconCheck /> : undefined,
+                        onClick: () => onSortChange('severity'),
+                    },
+                    {
+                        label: 'Sort by session count',
+                        icon: sortBy === 'session_count' ? <IconCheck /> : undefined,
+                        onClick: () => onSortChange('session_count'),
+                    },
+                ]}
+            >
+                <LemonButton type="secondary" icon={<IconSort />}>
+                    {sortLabel}
                 </LemonButton>
-                <LemonButton type="secondary" icon={<IconChevronDown />} className="rounded-l-none" />
-            </div>
+            </LemonMenu>
         </div>
     )
 }
 
-// Pattern Card Component
 function PatternCard({
     pattern,
     onViewDetails,
@@ -212,7 +226,13 @@ function PatternCard({
     )
 }
 
-// Main Scene Component
+const SEVERITY_ORDER: Record<SeverityLevel, number> = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1,
+}
+
 export function SessionGroupSummary(): JSX.Element {
     const {
         sessionGroupSummary,
@@ -222,7 +242,19 @@ export function SessionGroupSummary(): JSX.Element {
     } = useValues(sessionGroupSummarySceneLogic)
     const [selectedEvent, setSelectedEvent] = useState<PatternAssignedEventSegmentContext | null>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [sortBy, setSortBy] = useState<'severity' | 'session_count'>('severity')
     const summary = JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
+
+    const sortedPatterns = useMemo(() => {
+        if (!summary.patterns) {
+            return []
+        }
+        const patterns = [...summary.patterns]
+        if (sortBy === 'severity') {
+            return patterns.sort((a, b) => SEVERITY_ORDER[b.severity] - SEVERITY_ORDER[a.severity])
+        }
+        return patterns.sort((a, b) => b.stats.sessions_affected - a.stats.sessions_affected)
+    }, [summary.patterns, sortBy])
     const handleViewDetails = (event: PatternAssignedEventSegmentContext): void => {
         setSelectedEvent(event)
         setIsModalOpen(true)
@@ -286,9 +318,9 @@ export function SessionGroupSummary(): JSX.Element {
                 <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
             </div>
             <div className="space-y-4">
-                <FilterBar />
+                <FilterBar sortBy={sortBy} onSortChange={setSortBy} />
                 <div className="flex flex-col gap-2">
-                    {summary.patterns.map((pattern) => (
+                    {sortedPatterns.map((pattern) => (
                         <PatternCard key={pattern.pattern_id} pattern={pattern} onViewDetails={handleViewDetails} />
                     ))}
                 </div>
