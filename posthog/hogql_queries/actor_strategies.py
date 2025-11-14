@@ -50,10 +50,25 @@ class PersonStrategy(ActorStrategy):
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
-            FROM posthog_person
-            WHERE posthog_person.uuid = ANY(%(uuids)s)
-            AND posthog_person.team_id = %(team_id)s"""
+        persons_query = """SELECT id, uuid, properties, is_identified, created_at
+            FROM (
+                SELECT posthog_person_new.id, posthog_person_new.uuid, posthog_person_new.properties, posthog_person_new.is_identified, posthog_person_new.created_at
+                FROM posthog_person_new
+                WHERE posthog_person_new.uuid = ANY(%(uuids)s)
+                AND posthog_person_new.team_id = %(team_id)s
+
+                UNION ALL
+
+                SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
+                FROM posthog_person
+                WHERE posthog_person.uuid = ANY(%(uuids)s)
+                AND posthog_person.team_id = %(team_id)s
+                AND posthog_person.uuid NOT IN (
+                    SELECT uuid FROM posthog_person_new
+                    WHERE posthog_person_new.uuid = ANY(%(uuids)s)
+                    AND posthog_person_new.team_id = %(team_id)s
+                )
+            ) combined"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
 

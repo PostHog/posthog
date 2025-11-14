@@ -20,8 +20,21 @@ LOGGER = get_logger(__name__)
 
 SELECT_QUERY = """
     SELECT id
-    FROM posthog_person
-    WHERE team_id=%(team_id)s {person_ids_filter}
+    FROM (
+        SELECT id
+        FROM posthog_person_new
+        WHERE team_id=%(team_id)s {person_ids_filter}
+
+        UNION ALL
+
+        SELECT id
+        FROM posthog_person
+        WHERE team_id=%(team_id)s {person_ids_filter}
+        AND id NOT IN (
+            SELECT id FROM posthog_person_new
+            WHERE team_id=%(team_id)s {person_ids_filter}
+        )
+    ) combined
     ORDER BY id ASC
     LIMIT %(limit)s
 """
@@ -45,6 +58,10 @@ DELETE_QUERY_COHORT_PEOPLE = """
 """
 
 DELETE_QUERY_PERSON = """
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_person_new
+    WHERE id IN (SELECT id FROM to_delete);
+
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_person
     WHERE id IN (SELECT id FROM to_delete);
