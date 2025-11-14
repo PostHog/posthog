@@ -214,7 +214,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
 
         window.addEventListener('keydown', handleKeyDown, true)
         return () => window.removeEventListener('keydown', handleKeyDown, true)
-    }, [endpoint?.name, payloadJson])
+    }, [endpoint?.name, payloadJson, handleExecute])
 
     if (!endpoint) {
         return <></>

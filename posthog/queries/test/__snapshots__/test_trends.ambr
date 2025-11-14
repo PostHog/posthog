@@ -13,14 +13,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestTrends.test_action_filtering_with_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -30,7 +47,7 @@
     AND version = 2
   '''
 # ---
-# name: TestTrends.test_action_filtering_with_cohort.2
+# name: TestTrends.test_action_filtering_with_cohort.3
   '''
   
   SELECT groupArray(day_start) as date,
@@ -102,14 +119,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -119,7 +153,7 @@
     AND version = 2
   '''
 # ---
-# name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '''
   
   SELECT groupArray(day_start) as date,
@@ -1003,14 +1037,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= '2020-01-02'
     AND event_time >= '2020-01-02 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= '2020-01-02'
+    AND event_time >= '2020-01-02 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestTrends.test_filter_events_by_precalculated_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -1020,7 +1071,7 @@
     AND version = 0
   '''
 # ---
-# name: TestTrends.test_filter_events_by_precalculated_cohort.2
+# name: TestTrends.test_filter_events_by_precalculated_cohort.3
   '''
   
   SELECT groupArray(day_start) as date,
@@ -1086,14 +1137,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= '2020-01-02'
     AND event_time >= '2020-01-02 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= '2020-01-02'
+    AND event_time >= '2020-01-02 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -1103,7 +1171,7 @@
     AND version = 0
   '''
 # ---
-# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
+# name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.3
   '''
   
   SELECT groupArray(day_start) as date,

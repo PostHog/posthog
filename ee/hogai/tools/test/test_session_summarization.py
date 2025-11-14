@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.tools.session_summarization import SessionSummarizationTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -106,15 +107,16 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    session_summarization_limit=-1,
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        summary_title="Test",
+                        session_summarization_limit=-1,
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Session summarization failed", error_message)
 
     async def test_execute_returns_failure_message_when_result_has_no_messages(self):
         mock_result = PartialAssistantState(messages=[])
@@ -127,15 +129,16 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    session_summarization_limit=-1,
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        summary_title="Test",
+                        session_summarization_limit=-1,
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Session summarization failed", error_message)
 
     async def test_execute_with_empty_summary_title(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Summary completed")])

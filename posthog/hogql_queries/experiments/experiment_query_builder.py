@@ -1044,7 +1044,8 @@ class ExperimentQueryBuilder:
             return parse_expr(
                 f"""
                 {events_alias}.timestamp >= exposures.first_exposure_time
-                AND {events_alias}.timestamp < exposures.first_exposure_time + toIntervalSecond({{conversion_window_seconds}})
+                AND {events_alias}.timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({{conversion_window_seconds}})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
@@ -1235,9 +1236,10 @@ class ExperimentQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    min(timestamp) AS first_exposure_time,
+                    max(timestamp) AS last_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
                     -- breakdown columns added programmatically below
                 FROM events
                 WHERE {exposure_predicate}

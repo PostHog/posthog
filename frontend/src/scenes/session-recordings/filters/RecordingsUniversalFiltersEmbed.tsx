@@ -26,7 +26,6 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -35,7 +34,6 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -50,8 +48,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
-    AccessControlLevel,
-    AccessControlResourceType,
     EventPropertyFilter,
     PersonPropertyFilter,
     PropertyFilterType,
@@ -191,8 +187,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const replayFiltersRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] === 'test'
 
     return (
         <>
@@ -231,7 +225,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            {replayFiltersRedesignEnabled && <CurrentFilterIndicator />}
+            <CurrentFilterIndicator />
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
@@ -384,14 +378,12 @@ export const RecordingsUniversalFiltersEmbed = ({
     }
 
     const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
-    const { featureFlags } = useValues(featureFlagLogic)
-    const replayFiltersRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] === 'test'
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
-            content: replayFiltersRedesignEnabled ? (
+            content: (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
                     {appliedSavedFilter && (
                         <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
@@ -487,77 +479,75 @@ export const RecordingsUniversalFiltersEmbed = ({
                         taxonomicGroupTypes={taxonomicGroupTypes}
                         onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                     >
-                        {replayFiltersRedesignEnabled && (
-                            <div className="flex items-center gap-2 px-2 mt-2">
-                                <span className="font-medium">Add filters:</span>
-                                <QuickFilterButton
-                                    filterKey="email"
-                                    label="Email"
-                                    propertyType={PropertyFilterType.Person}
-                                    filters={filters}
-                                    setFilters={setFilters}
-                                />
-                                <QuickFilterButton
-                                    filterKey="$user_id"
-                                    label="User ID"
-                                    propertyType={PropertyFilterType.Person}
-                                    filters={filters}
-                                    setFilters={setFilters}
-                                />
-                                <QuickFilterButton
-                                    filterKey="$pathname"
-                                    label="Path name"
-                                    propertyType={PropertyFilterType.Event}
-                                    filters={filters}
-                                    setFilters={setFilters}
-                                />
-                                <QuickFilterButton
-                                    filterKey="$current_url"
-                                    label="Current URL"
-                                    propertyType={PropertyFilterType.Event}
-                                    filters={filters}
-                                    setFilters={setFilters}
-                                />
-                                {/* Add filter button scoped to the first nested group */}
-                                {filters.filter_group.values.length > 0 &&
-                                    isUniversalGroupFilterLike(filters.filter_group.values[0]) && (
-                                        <UniversalFilters
-                                            rootKey="session-recordings.nested"
-                                            group={filters.filter_group.values[0]}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            onChange={(nestedGroup) => {
-                                                const newFilterGroup = {
-                                                    ...filters.filter_group,
-                                                    values: [nestedGroup, ...filters.filter_group.values.slice(1)],
-                                                }
-                                                setFilters({ filter_group: newFilterGroup })
-                                            }}
+                        <div className="flex items-center gap-2 px-2 mt-2">
+                            <span className="font-medium">Add filters:</span>
+                            <QuickFilterButton
+                                filterKey="email"
+                                label="Email"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$user_id"
+                                label="User ID"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$pathname"
+                                label="Path name"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$current_url"
+                                label="Current URL"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            {/* Add filter button scoped to the first nested group */}
+                            {filters.filter_group.values.length > 0 &&
+                                isUniversalGroupFilterLike(filters.filter_group.values[0]) && (
+                                    <UniversalFilters
+                                        rootKey="session-recordings.nested"
+                                        group={filters.filter_group.values[0]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        onChange={(nestedGroup) => {
+                                            const newFilterGroup = {
+                                                ...filters.filter_group,
+                                                values: [nestedGroup, ...filters.filter_group.values.slice(1)],
+                                            }
+                                            setFilters({ filter_group: newFilterGroup })
+                                        }}
+                                    >
+                                        <Popover
+                                            overlay={
+                                                <UniversalFilters.PureTaxonomicFilter
+                                                    fullWidth={false}
+                                                    onChange={() => setIsPopoverVisible(false)}
+                                                />
+                                            }
+                                            placement="bottom"
+                                            visible={isPopoverVisible}
+                                            onClickOutside={() => setIsPopoverVisible(false)}
                                         >
-                                            <Popover
-                                                overlay={
-                                                    <UniversalFilters.PureTaxonomicFilter
-                                                        fullWidth={false}
-                                                        onChange={() => setIsPopoverVisible(false)}
-                                                    />
-                                                }
-                                                placement="bottom"
-                                                visible={isPopoverVisible}
-                                                onClickOutside={() => setIsPopoverVisible(false)}
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                data-attr="replay-filters-add-filter-button"
+                                                icon={<IconPlus />}
+                                                onClick={() => setIsPopoverVisible(!isPopoverVisible)}
                                             >
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    data-attr="replay-filters-add-filter-button"
-                                                    icon={<IconPlus />}
-                                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                                >
-                                                    Add filter
-                                                </LemonButton>
-                                            </Popover>
-                                        </UniversalFilters>
-                                    )}
-                            </div>
-                        )}
+                                                Add filter
+                                            </LemonButton>
+                                        </Popover>
+                                    </UniversalFilters>
+                                )}
+                        </div>
 
                         <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
                             <div className="flex flex-wrap gap-2 items-center">
@@ -602,7 +592,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     pageKey="session-recordings"
                                     size="small"
                                 />
-                                <RecordingsUniversalFilterGroup hideAddFilterButton={replayFiltersRedesignEnabled} />
+                                <RecordingsUniversalFilterGroup hideAddFilterButton={true} />
                             </div>
                         </div>
                     </UniversalFilters>
@@ -622,169 +612,6 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </LemonButton>
                         <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
                             Save as new filter
-                        </LemonButton>
-                    </div>
-                    {SaveFiltersModal()}
-                </div>
-            ) : (
-                <div className={clsx('relative bg-surface-primary w-full ', className)}>
-                    <div className="flex items-center py-2 justify-between">
-                        <AndOrFilterSelect
-                            value={filters.filter_group.type}
-                            onChange={(type) => {
-                                let values = filters.filter_group.values
-
-                                // set the type on the nested child when only using a single filter group
-                                const hasSingleGroup = values.length === 1
-                                if (hasSingleGroup) {
-                                    const group = values[0] as UniversalFiltersGroup
-                                    values = [{ ...group, type }]
-                                }
-
-                                setFilters({
-                                    filter_group: {
-                                        type: type,
-                                        values: values,
-                                    },
-                                })
-                            }}
-                            topLevelFilter={true}
-                            suffix={['filter', 'filters']}
-                            size="small"
-                        />
-                        <div className="mr-2">
-                            <TestAccountFilter
-                                size="small"
-                                filters={filters}
-                                onChange={(testFilters) =>
-                                    setFilters({
-                                        filter_test_accounts: testFilters.filter_test_accounts,
-                                    })
-                                }
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
-                        <div className="flex flex-wrap gap-2 items-center">
-                            <div className="py-2 font-medium">Applied filters:</div>
-                            <DateFilter
-                                dateFrom={filters.date_from ?? '-3d'}
-                                dateTo={filters.date_to}
-                                onChange={(changedDateFrom, changedDateTo) => {
-                                    setFilters({
-                                        date_from: changedDateFrom,
-                                        date_to: changedDateTo,
-                                    })
-                                }}
-                                dateOptions={[
-                                    { key: 'Custom', values: [] },
-                                    { key: 'Last 24 hours', values: ['-24h'] },
-                                    { key: 'Last 3 days', values: ['-3d'] },
-                                    { key: 'Last 7 days', values: ['-7d'] },
-                                    { key: 'Last 30 days', values: ['-30d'] },
-                                    { key: 'All time', values: ['-90d'] },
-                                ]}
-                                dropdownPlacement="bottom-start"
-                                size="small"
-                                // we always want to include the time in the date when setting it
-                                allowTimePrecision={true}
-                                // we always want to present the time control
-                                forceGranularity="minute"
-                            />
-                            <DurationFilter
-                                onChange={(newRecordingDurationFilter, newDurationType) => {
-                                    setFilters({
-                                        duration: [
-                                            {
-                                                ...newRecordingDurationFilter,
-                                                key: newDurationType,
-                                            },
-                                        ],
-                                    })
-                                }}
-                                recordingDurationFilter={durationFilter}
-                                durationTypeFilter={durationFilter.key}
-                                pageKey="session-recordings"
-                                size="small"
-                            />
-                            <UniversalFilters
-                                rootKey="session-recordings"
-                                group={filters.filter_group}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                            >
-                                <RecordingsUniversalFilterGroup />
-                            </UniversalFilters>
-                        </div>
-                    </div>
-                    <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
-                        <div className="flex flex-wrap gap-2 items-center justify-end">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                onClick={handleResetFilters}
-                                icon={<IconRevert />}
-                                tooltip="Reset any changes you've made to the filters"
-                                disabledReason={
-                                    !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                                }
-                            >
-                                Reset filters
-                            </LemonButton>
-                            {appliedSavedFilter ? (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => void updateSavedFilter()}
-                                    tooltip="Update saved filter"
-                                    disabledReason={
-                                        equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
-                                    }
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={[
-                                                        {
-                                                            label: 'Save as a new filter',
-                                                            onClick: () => setIsSaveFiltersModalOpen(true),
-                                                        },
-                                                    ]}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    Update "{appliedSavedFilter.name || 'Unnamed'}"
-                                </LemonButton>
-                            ) : (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => setIsSaveFiltersModalOpen(true)}
-                                        disabledReason={
-                                            (totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined
-                                        }
-                                        tooltip="Save filters for later"
-                                    >
-                                        Add to "Saved filters"
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )}
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => setIsFiltersExpanded(false)}
-                            tooltip="Close filters and start watching recordings"
-                        >
-                            {(totalFiltersCount ?? 0) === 0 ? 'Close filters' : 'Start watching'}
                         </LemonButton>
                     </div>
                     {SaveFiltersModal()}

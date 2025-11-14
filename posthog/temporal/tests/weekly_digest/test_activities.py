@@ -467,7 +467,7 @@ async def test_generate_recording_lookup(mock_redis, common_input, digest):
 
     mock_ch_response = AsyncMock()
     mock_ch_response.content.read = AsyncMock(
-        return_value=b'{"meta": [], "data": [{"session_id": "session123", "recording_ttl": 10}], "statistics": {}, "rows": 1}'
+        return_value=b'{"meta": [], "data": [{"recording_count": 10}], "statistics": {}, "rows": 1}'
     )
     mock_ch_response.__aenter__ = AsyncMock(return_value=mock_ch_response)
     mock_ch_response.__aexit__ = AsyncMock(return_value=None)
@@ -559,7 +559,7 @@ async def test_generate_organization_digest_batch(mock_redis, common_input, dige
     await mock_redis.setex(f"{digest.key}-external-data-sources-1", 3600, "[]")
     await mock_redis.setex(f"{digest.key}-feature-flags-1", 3600, "[]")
     await mock_redis.setex(f"{digest.key}-saved-filters-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-expiring-recordings-1", 3600, "[]")
+    await mock_redis.setex(f"{digest.key}-expiring-recordings-1", 3600, '{"recording_count": 0}')
     await mock_redis.setex(f"{digest.key}-surveys-launched-1", 3600, "[]")
 
     mock_org_queryset = MockAsyncQuerySet([mock_org])
@@ -612,7 +612,7 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
                 ],
                 "feature_flags": [],
                 "filters": [],
-                "recordings": [],
+                "expiring_recordings": {"recording_count": 0},
                 "surveys_launched": []
             }
         ]
@@ -637,7 +637,7 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
         with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_regional_ph_client", return_value=mock_ph_client):
+            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
                 with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
                     with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
                         await send_weekly_digest_batch(input_data)
@@ -687,7 +687,7 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
                 ],
                 "feature_flags": [],
                 "filters": [],
-                "recordings": [],
+                "expiring_recordings": {"recording_count": 0},
                 "surveys_launched": []
             }
         ]
@@ -711,7 +711,7 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
         with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_regional_ph_client", return_value=mock_ph_client):
+            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
                 with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
                     with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
                         await send_weekly_digest_batch(input_data)
