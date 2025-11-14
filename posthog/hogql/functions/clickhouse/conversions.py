@@ -88,6 +88,8 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
+    # Expose the raw function, this is slightly safer than `cast` but should solve most problems
+    "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
 }
 
 # Date conversion functions (that overlap with type conversions)
