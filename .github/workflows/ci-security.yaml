@@ -142,7 +142,7 @@ jobs:
                     --metrics=off \
                     --verbose \
                     --sarif-output semgrep-js.sarif \
-                    plugin-server/
+                    frontend/ plugin-server/
 
             - name: Upload results
               if: ${{ !cancelled() }}
