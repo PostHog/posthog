@@ -144,6 +144,13 @@ class MailjetSourceConfig(config.Config):
 
 
 @config.config
+class MailgunSourceConfig(config.Config):
+    api_key: str
+    domain: str
+    region: str
+
+
+@config.config
 class MetaAdsSourceConfig(config.Config):
     account_id: str
     meta_ads_integration_id: int = config.value(converter=config.str_to_int)

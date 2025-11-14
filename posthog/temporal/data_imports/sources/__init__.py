@@ -11,6 +11,7 @@ from .hubspot.source import HubspotSource
 from .klaviyo.source import KlaviyoSource
 from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
+from .mailgun.source import MailgunSource
 from .mailjet.source import MailJetSource
 from .meta_ads.source import MetaAdsSource
 from .mongodb.source import MongoDBSource
@@ -44,6 +45,7 @@ __all__ = [
     "KlaviyoSource",
     "LinkedInAdsSource",
     "MailchimpSource",
+    "MailgunSource",
     "MailJetSource",
     "MetaAdsSource",
     "MongoDBSource",

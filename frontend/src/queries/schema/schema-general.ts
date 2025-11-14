@@ -4379,6 +4379,7 @@ export const externalDataSources = [
     'Mailchimp',
     'Braze',
     'Mailjet',
+    'Mailgun',
     'Redshift',
     'GoogleSheets',
     'MongoDB',

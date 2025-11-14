@@ -1426,6 +1426,7 @@ class ExternalDataSourceType(StrEnum):
     MAILCHIMP = "Mailchimp"
     BRAZE = "Braze"
     MAILJET = "Mailjet"
+    MAILGUN = "Mailgun"
     REDSHIFT = "Redshift"
     GOOGLE_SHEETS = "GoogleSheets"
     MONGO_DB = "MongoDB"

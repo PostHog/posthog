@@ -57,6 +57,7 @@ class ExternalDataSourceType(models.TextChoices):
     MAILCHIMP = "Mailchimp", "Mailchimp"
     BRAZE = "Braze", "Braze"
     MAILJET = "Mailjet", "Mailjet"
+    MAILGUN = "Mailgun", "Mailgun"
     REDSHIFT = "Redshift", "Redshift"
     POLAR = "Polar", "Polar"
     REVENUECAT = "RevenueCat", "RevenueCat"
