@@ -76,13 +76,27 @@ export function DataWarehouseManagedViewsetCard({
                 </div>
 
                 <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                    <LemonSwitch
-                        checked={isEnabled}
-                        onChange={(enabled) => toggleViewset(kind, enabled)}
-                        disabled={isToggling}
-                        label={isEnabled ? 'Enabled' : 'Disabled'}
-                        bordered
-                    />
+                    {({ disabledReason }) => (
+                        <div className="flex flex-col gap-2 flex-start items-start">
+                            <LemonSwitch
+                                checked={isEnabled}
+                                onChange={(enabled) => toggleViewset(kind, enabled)}
+                                disabledReason={
+                                    isToggling ? 'Saving, this might take a few seconds...' : disabledReason
+                                }
+                                label={
+                                    isToggling
+                                        ? isEnabled
+                                            ? 'Disabling, please wait a moment...'
+                                            : 'Enabling, please wait a moment...'
+                                        : isEnabled
+                                          ? 'Enabled'
+                                          : 'Disabled'
+                                }
+                                bordered
+                            />
+                        </div>
+                    )}
                 </AccessControlAction>
             </div>
         </div>

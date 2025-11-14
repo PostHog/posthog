@@ -335,6 +335,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Filtering revenue analytics...'
         },
     },
+    filter_web_analytics: {
+        name: 'Filter web analytics',
+        description: 'Filter web analytics to analyze traffic patterns and user behavior',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered web analytics'
+            }
+            return 'Filtering web analytics...'
+        },
+    },
     edit_current_dashboard: {
         name: 'Add an insight to the dashboard',
         description: "Add an insight to the dashboard you're viewing",
@@ -357,6 +369,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Created feature flag'
             }
             return 'Creating feature flag...'
+        },
+    },
+    create_experiment: {
+        name: 'Create an experiment',
+        description: 'Create an experiment in seconds',
+        product: Scene.Experiments,
+        icon: iconForType('experiment'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created experiment'
+            }
+            return 'Creating experiment...'
         },
     },
 }

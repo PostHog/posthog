@@ -42,6 +42,7 @@ class PydanticModelMixin:
 def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
+    query_serializer: type[serializers.Serializer] | None = None,
     responses: dict[int, OpenApiResponse | None] | None = None,
     summary: str | None = None,
     description: str | None = None,
@@ -56,31 +57,26 @@ def validated_request(
 
     Usage:
         @validated_request(
-            request_serializer=RequestSerializer,
+            request_serializer=RequestBodySerializer,
+            query_serializer=QuerySerializer,
             responses={
                 200: Response(response=SuccessResponseSerializer, ...),
-                400: Response(response=InvalidRequestResponseSerializer, ...),
             },
             summary="Do something"
         )
-        def my_action(self, request: ValidatedRequest, **kwargs):
-            # When request_serializer is provided, request.validated_data is available
-            request_data = request.validated_data.get("next_stage_id")
-
-            if not request_data:
-                return Response(
-                    ErrorResponseSerializer({"error": "Invalid request"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            return Response(SuccessResponseSerializer(request_data, context=self.get_serializer_context()).data)
-
-    Note: Use ValidatedRequest type hint when you need to access request.validated_data.
-    The decorator will set validated_data on the request when request_serializer is provided.
+        def my_action(self, request: Request, **kwargs):
+            # request.validated_data contains validated body data (if request_serializer provided)
+            # Query params are validated but not mutated
     """
 
     def decorator(view_func: Callable) -> Callable:
+        parameters = []
+        if query_serializer is not None:
+            parameters.append(query_serializer)
+
         @extend_schema(
             request=request_serializer,
+            parameters=parameters if parameters else None,
             responses=responses,
             summary=summary,
             description=description,
@@ -90,19 +86,22 @@ def validated_request(
         )
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
+            if query_serializer is not None:
+                query_serializer_instance = query_serializer(data=request.query_params)
+                query_serializer_instance.is_valid(raise_exception=True)
+
             if request_serializer is not None:
                 serializer = request_serializer(data=request.data)
                 req_validation_result = serializer.is_valid(raise_exception=strict_request_validation)
 
                 if not req_validation_result and settings.DEBUG:
                     logger.warning(
-                        "Request data does not match declared serializer in @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
+                        "Request body does not match declared serializer in @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,
                         serializer_class=request_serializer.__name__,
                         validation_errors=serializer.errors,
                     )
 
-                # Cast to ValidatedRequest and set validated_data attribute
                 validated_request = cast(ValidatedRequest, request)
                 validated_request.validated_data = serializer.validated_data
 

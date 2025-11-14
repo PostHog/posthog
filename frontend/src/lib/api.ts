@@ -83,7 +83,9 @@ import {
     DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryRunHistory,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -3752,6 +3754,14 @@ const api = {
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
                 .create({ data: { level } })
+        },
+        async dependencies(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQueryDependencies> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('dependencies').get()
+        },
+        async runHistory(
+            viewId: DataWarehouseSavedQuery['id']
+        ): Promise<{ run_history: DataWarehouseSavedQueryRunHistory[] }> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run_history').get()
         },
         dataWarehouseDataModelingJobs: {
             async list(
