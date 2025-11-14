@@ -135,7 +135,7 @@ class MSSQLSourceConfig(config.Config):
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
