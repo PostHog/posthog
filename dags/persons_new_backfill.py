@@ -16,6 +16,7 @@ class PersonsNewBackfillConfig(dagster.Config):
     batch_size: int = 100_000  # Records per batch insert
     source_table: str = "posthog_persons"
     destination_table: str = "posthog_persons_new"
+    max_id: Optional[int] = None  # Optional override for max ID to resume from partial state
 
 
 @dagster.op
@@ -25,27 +26,51 @@ def get_id_range(
     source_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
 ) -> tuple[int, int]:
     """
-    Query source database for MIN(id) and MAX(id) from posthog_persons table.
+    Query source database for MIN(id) and optionally MAX(id) from posthog_persons table.
+    If max_id is provided in config, uses that instead of querying.
     Returns tuple (min_id, max_id).
     """
     with source_postgres.cursor() as cursor:
-        query = f"SELECT MIN(id) as min_id, MAX(id) as max_id FROM {config.source_table}"
-        context.log.info(f"Querying ID range: {query}")
-        cursor.execute(query)
-        result = cursor.fetchone()
+        # Always query for min_id
+        min_query = f"SELECT MIN(id) as min_id FROM {config.source_table}"
+        context.log.info(f"Querying min ID: {min_query}")
+        cursor.execute(min_query)
+        min_result = cursor.fetchone()
 
-        if result is None or result["min_id"] is None or result["max_id"] is None:
+        if min_result is None or min_result["min_id"] is None:
             context.log.exception("Source table is empty or has no valid IDs")
             raise dagster.Failure("Source table is empty or has no valid IDs")
 
-        min_id = int(result["min_id"])
-        max_id = int(result["max_id"])
+        min_id = int(min_result["min_id"])
+
+        # Use config max_id if provided, otherwise query database
+        if config.max_id is not None:
+            max_id = config.max_id
+            context.log.info(f"Using configured max_id override: {max_id}")
+        else:
+            max_query = f"SELECT MAX(id) as max_id FROM {config.source_table}"
+            context.log.info(f"Querying max ID: {max_query}")
+            cursor.execute(max_query)
+            max_result = cursor.fetchone()
+
+            if max_result is None or max_result["max_id"] is None:
+                context.log.exception("Source table has no valid max ID")
+                raise dagster.Failure("Source table has no valid max ID")
+
+            max_id = int(max_result["max_id"])
+
+        # Validate that max_id >= min_id
+        if max_id < min_id:
+            error_msg = f"Invalid ID range: max_id ({max_id}) < min_id ({min_id})"
+            context.log.error(error_msg)
+            raise dagster.Failure(error_msg)
 
         context.log.info(f"ID range: min={min_id}, max={max_id}, total_ids={max_id - min_id + 1}")
         context.add_output_metadata(
             {
                 "min_id": dagster.MetadataValue.int(min_id),
                 "max_id": dagster.MetadataValue.int(max_id),
+                "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
                 "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),
             }
         )
