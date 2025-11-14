@@ -38,21 +38,18 @@ COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
 COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "cohort_staleness_hours",
     "Cohort's count of hours since last calculation",
-    multiprocess_mode="livesum",
 )
 
 COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale",
     "Number of cohorts that haven't been calculated in more than X hours",
     ["hours"],
-    multiprocess_mode="livesum",
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
     # TODO: rename to cohorts_stuck because this is a gauge not a counter
     "cohort_stuck_count",
     "Number of cohorts that are stuck calculating for more than 1 hour",
-    multiprocess_mode="livesum",
 )
 
 COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
@@ -64,7 +61,6 @@ COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of st
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors",
     "Number of cohorts that have reached the maximum number of errors",
-    multiprocess_mode="livesum",
 )
 
 COHORT_CALCULATION_STARTED_COUNTER = Counter(
