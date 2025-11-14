@@ -33,9 +33,10 @@ interface NotFoundProps {
         urlId?: string
     }
     className?: string
+    hideLostInSpace?: boolean
 }
 
-export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta, className, hideLostInSpace = false }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -70,7 +71,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                             <br />
                             You're seeing this, because you're a staff user.
                         </>
-                    ) : (
+                    ) : hideLostInSpace ? null : (
                         'It might be lost in space.'
                     )}
                 </p>
