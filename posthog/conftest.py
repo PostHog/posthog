@@ -211,32 +211,39 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Drop all Django-created tables that sqlx manages
     # This gives us a clear slate - sqlx will recreate them fresh
     with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                DROP TABLE IF EXISTS posthog_person CASCADE;
-                DROP TABLE IF EXISTS posthog_person_new CASCADE;
-                DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
-                DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
-                DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
-                DROP TABLE IF EXISTS posthog_personoverride CASCADE;
-                DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
-                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
-                DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
-                DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
-                DROP TABLE IF EXISTS posthog_group CASCADE;
-                DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+        # Use autocommit mode for DDL to avoid leaving connection in transaction state
+        old_autocommit = connection.get_autocommit()
+        connection.set_autocommit(True)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    DROP TABLE IF EXISTS posthog_person CASCADE;
+                    DROP TABLE IF EXISTS posthog_person_new CASCADE;
+                    DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+                    DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+                    DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+                    DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+                    DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+                    DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+                    DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+                    DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+                    DROP TABLE IF EXISTS posthog_group CASCADE;
+                    DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
 
-                -- Clear sqlx migration tracking so sqlx knows to recreate these tables
-                -- when database is reused (--reuse-db). Without this, sqlx sees migrations
-                -- as already applied and skips recreating the dropped tables.
-                -- Only delete if table exists (first run it won't exist yet).
-                DO $$
-                BEGIN
-                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = '_sqlx_migrations') THEN
-                        DELETE FROM _sqlx_migrations;
-                    END IF;
-                END $$;
-            """)
+                    -- Clear sqlx migration tracking so sqlx knows to recreate these tables
+                    -- when database is reused (--reuse-db). Without this, sqlx sees migrations
+                    -- as already applied and skips recreating the dropped tables.
+                    -- Only delete if table exists (first run it won't exist yet).
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT FROM pg_tables WHERE tablename = '_sqlx_migrations') THEN
+                            DELETE FROM _sqlx_migrations;
+                        END IF;
+                    END $$;
+                """)
+        finally:
+            # Restore original autocommit setting
+            connection.set_autocommit(old_autocommit)
 
     # Run sqlx migrations to create all person/cohort/group tables fresh
     run_persons_sqlx_migrations()
@@ -244,11 +251,17 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Ensure posthog_person_new has proper id sequence defaults
     # This fixes cases where Django explicitly passes NULL for id column
     with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
-                ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
-            """)
+        # Use autocommit mode for DDL
+        old_autocommit = connection.get_autocommit()
+        connection.set_autocommit(True)
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
+                    ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
+                """)
+        finally:
+            connection.set_autocommit(old_autocommit)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
