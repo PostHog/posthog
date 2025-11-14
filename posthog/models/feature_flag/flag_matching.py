@@ -1255,37 +1255,69 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
 
     group_type_index = feature_flag.aggregation_group_type_index
 
-    base_query: QuerySet = (
-        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
-        if group_type_index is None
-        else Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+    # Dual-table support: Check both PersonOld and PersonNew during migration
+    from posthog.models.person import PersonNew, PersonOld
+
+    if group_type_index is not None:
+        # For groups, just check one table
+        base_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
             team_id=team_id, group_type_index=group_type_index
         )
-    )
-    query_fields = []
+        query_fields = []
 
-    for index, condition in enumerate(feature_flag.conditions):
-        key = f"flag_0_condition_{index}"
-        property_list = Filter(data=condition).property_groups.flat
-        expr = properties_to_Q(
-            project_id,
-            property_list,
-        )
-        properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, project_id)
-        type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
-        base_query = base_query.annotate(
-            **type_property_annotations,
-            **{
-                key: ExpressionWrapper(
-                    cast(Expression, expr if expr else RawSQL("true", [])),
-                    output_field=BooleanField(),
-                ),
-            },
-        )
-        query_fields.append(key)
+        for index, condition in enumerate(feature_flag.conditions):
+            key = f"flag_0_condition_{index}"
+            property_list = Filter(data=condition).property_groups.flat
+            expr = properties_to_Q(
+                project_id,
+                property_list,
+            )
+            properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, project_id)
+            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
+            base_query = base_query.annotate(
+                **type_property_annotations,
+                **{
+                    key: ExpressionWrapper(
+                        cast(Expression, expr if expr else RawSQL("true", [])),
+                        output_field=BooleanField(),
+                    ),
+                },
+            )
+            query_fields.append(key)
 
-    values = base_query.values(*query_fields)[:10]
-    return len(values) > 0
+        values = base_query.values(*query_fields)[:10]
+        return len(values) > 0
+
+    # For persons, check both tables during dual-table migration
+    for person_model in [PersonOld, PersonNew]:
+        base_query = person_model.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
+        query_fields = []
+
+        for index, condition in enumerate(feature_flag.conditions):
+            key = f"flag_0_condition_{index}"
+            property_list = Filter(data=condition).property_groups.flat
+            expr = properties_to_Q(
+                project_id,
+                property_list,
+            )
+            properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, project_id)
+            type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
+            base_query = base_query.annotate(
+                **type_property_annotations,
+                **{
+                    key: ExpressionWrapper(
+                        cast(Expression, expr if expr else RawSQL("true", [])),
+                        output_field=BooleanField(),
+                    ),
+                },
+            )
+            query_fields.append(key)
+
+        values = base_query.values(*query_fields)[:10]
+        if len(values) > 0:
+            return True
+
+    return False
 
 
 def _get_property_type_annotations(properties_with_math_operators):
