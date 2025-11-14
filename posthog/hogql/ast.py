@@ -419,6 +419,18 @@ class CTETableType(BaseTableType):
 
 
 @dataclass(kw_only=True)
+class CTETableAliasType(BaseTableType):
+    alias: str
+    cte_table_type: CTETableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return self.cte_table_type.resolve_database_table(context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        return self.cte_table_type.resolve_column_constant_type(name, context)
+
+
+@dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType

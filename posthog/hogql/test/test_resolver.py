@@ -262,6 +262,47 @@ class TestResolver(BaseTest):
             "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
         )
 
+    def test_ctes_with_aliases_in_joins(self):
+        self.assertEqual(
+            self._print_hogql(
+                """
+                WITH
+                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+                SELECT
+                    e.person_id,
+                    e.exposure_time,
+                    c.conversion_time
+                FROM exposures AS e
+                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+                """
+            ),
+            "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), "
+            "conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events) "
+            "SELECT e.person_id, e.exposure_time, c.conversion_time "
+            "FROM exposures AS e LEFT JOIN conversions AS c "
+            "ON and(equals(e.person_id, c.person_id), greaterOrEquals(c.conversion_time, e.exposure_time)) "
+            "LIMIT 50000",
+        )
+
+        self.assertEqual(
+            self._print_hogql(
+                """
+                WITH
+                    users AS (SELECT event AS user_id FROM events)
+                SELECT
+                    users.user_id,
+                    u2.user_id
+                FROM users
+                LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+                """
+            ),
+            "WITH users AS (SELECT event AS user_id FROM events) "
+            "SELECT users.user_id, u2.user_id "
+            "FROM users LEFT JOIN users AS u2 ON equals(users.user_id, u2.user_id) "
+            "LIMIT 50000",
+        )
+
     def test_ctes_with_union_all(self):
         union_printed = self._print_hogql(
             """

@@ -2833,6 +2833,80 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_cte_with_alias_in_join_clickhouse(self):
+        """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
+        result = self._select(
+            """
+            WITH
+                exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+            SELECT
+                e.person_id,
+                e.exposure_time,
+                c.conversion_time
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+            """
+        )
+
+        # The key assertion: JOIN constraint fields should be qualified with CTE aliases
+        self.assertIn("equals(e.person_id, c.person_id)", result)
+        # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
+        self.assertIn("c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
+        # Verify the greaterOrEquals comparison exists with the qualified fields
+        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
+        self.assertIn("toTimeZone(e.exposure_time", result)
+        # Verify CTE aliasing in FROM/JOIN clauses
+        self.assertIn("FROM exposures AS e", result)
+        self.assertIn("LEFT JOIN conversions AS c", result)
+
+    def test_cte_non_aliased_with_aliased_join_clickhouse(self):
+        """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
+        result = self._select(
+            """
+            WITH users AS (SELECT event AS user_id, timestamp FROM events)
+            SELECT users.user_id, u2.user_id, users.timestamp
+            FROM users
+            LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+            """
+        )
+
+        # Non-aliased CTE: fields qualified with CTE name
+        self.assertIn("users.user_id", result)
+        self.assertIn("users.timestamp", result)
+        # Aliased CTE: fields qualified with alias
+        self.assertIn("u2.user_id", result)
+        # JOIN constraint should have both
+        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        # Verify table references
+        self.assertIn("FROM users", result)
+        self.assertIn("LEFT JOIN users AS u2", result)
+
+    def test_cte_multiple_aliases_same_cte_clickhouse(self):
+        """Test that the same CTE can be joined multiple times with different aliases"""
+        result = self._select(
+            """
+            WITH base AS (SELECT event AS id FROM events)
+            SELECT b1.id, b2.id, b3.id
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.id = b2.id
+            LEFT JOIN base AS b3 ON b2.id = b3.id
+            """
+        )
+
+        # All three aliases should be present and properly qualified
+        self.assertIn("b1.id", result)
+        self.assertIn("b2.id", result)
+        self.assertIn("b3.id", result)
+        # JOIN constraints should use the right aliases
+        self.assertIn("equals(b1.id, b2.id)", result)
+        self.assertIn("equals(b2.id, b3.id)", result)
+        # Table aliases in FROM/JOIN
+        self.assertIn("FROM base AS b1", result)
+        self.assertIn("LEFT JOIN base AS b2", result)
+        self.assertIn("LEFT JOIN base AS b3", result)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):

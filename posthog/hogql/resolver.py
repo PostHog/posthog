@@ -355,7 +355,8 @@ class Resolver(CloningVisitor):
                 cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
                 node_type = cte_table_type
                 if table_alias != table_name_alias:
-                    node_type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=cte_table.expr.type)
+                    # Use CTETableAliasType for aliased CTEs (e.g., FROM my_cte AS alias)
+                    node_type = ast.CTETableAliasType(alias=table_alias, cte_table_type=cte_table_type)
 
                 node = cast(ast.JoinExpr, clone_expr(node))
                 if node.constraint and node.constraint.constraint_type == "USING":

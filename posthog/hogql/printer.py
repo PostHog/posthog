@@ -601,6 +601,10 @@ class _Printer(Visitor[str]):
         elif isinstance(node.type, ast.CTETableType):
             join_strings.append(self._print_identifier(node.type.name))
 
+        elif isinstance(node.type, ast.CTETableAliasType):
+            join_strings.append(self._print_identifier(node.type.cte_table_type.name))
+            join_strings.append(f"AS {self._print_identifier(node.type.alias)}")
+
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -1586,12 +1590,14 @@ class _Printer(Visitor[str]):
             or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectSetQueryType)
             or isinstance(type.table_type, ast.CTETableType)
+            or isinstance(type.table_type, ast.CTETableAliasType)
         ):
             field_sql = self._print_identifier(type.name)
             if (
                 isinstance(type.table_type, ast.SelectQueryAliasType)
                 or isinstance(type.table_type, ast.SelectViewType)
                 or isinstance(type.table_type, ast.CTETableType)
+                or isinstance(type.table_type, ast.CTETableAliasType)
             ):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
@@ -1741,6 +1747,9 @@ class _Printer(Visitor[str]):
 
     def visit_ctetable_type(self, type: ast.CTETableType):
         return self._print_identifier(type.name)
+
+    def visit_ctetable_alias_type(self, type: ast.CTETableAliasType):
+        return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
