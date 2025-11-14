@@ -170,7 +170,6 @@ Output: {output_data}"""
     response = client.beta.chat.completions.parse(
         model=DEFAULT_JUDGE_MODEL,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        max_completion_tokens=500,
         response_format=BooleanEvalResult,
     )
 
