@@ -245,7 +245,7 @@ class OrganizationDigest(BaseModel):
             "scope": "user",
             "template_name": "weekly_digest_report",
             "period": digest.render_payload(),
-            "region": get_instance_region(),
+            "digest_region": get_instance_region(),
         }
 
 
