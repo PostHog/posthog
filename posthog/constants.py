@@ -347,13 +347,35 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
+LOGIN_METHODS = [
+    {
+        "key": "password",
+        "display": "Email/password",
+        "backends": ["django.contrib.auth.backends.ModelBackend"],
+    },
+    {
+        "key": "google-oauth2",
+        "display": "Google OAuth",
+        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+    },
+    {
+        "key": "github",
+        "display": "GitHub",
+        "backends": ["github"],
+    },
+    {
+        "key": "gitlab",
+        "display": "GitLab",
+        "backends": ["gitlab"],
+    },
+    {
+        "key": "saml",
+        "display": "SAML",
+        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+]
+
 # Mapping of auth backend names to login method display names
-AUTH_BACKEND_DISPLAY_NAMES = {
-    "django.contrib.auth.backends.ModelBackend": "Email/password",
-    "google-oauth2": "Google OAuth",
-    "github": "GitHub",
-    "gitlab": "GitLab",
-    "saml": "SAML",
-    "ee.api.authentication.CustomGoogleOAuth2": "Google OAuth",
-    "ee.api.authentication.MultitenantSAMLAuth": "SAML",
-}
+AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}

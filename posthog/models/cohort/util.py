@@ -45,6 +45,10 @@ from posthog.queries.util import PersonPropertiesMode
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
+# Cohort query timeout settings
+COHORT_QUERY_TIMEOUT_SECONDS = 600  # Max execution time for ClickHouse cohort calculation queries
+COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
+
 logger = structlog.get_logger(__name__)
 
 
@@ -73,22 +77,41 @@ def run_cohort_query(
     # Tag the query for tracking
     tag_queries(kind="cohort_calculation", id=cohort_tag)
 
+    delayed_task = None
+    # Use tags_context to protect tags during import (circular import resolution can corrupt context)
+    with tags_context():
+        from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER, collect_cohort_query_stats
+
+        # Track that a calculation is starting (before it runs, so we catch OOMs)
+        COHORT_CALCULATION_STARTED_COUNTER.inc()
+
+        # Schedule delayed task to collect stats after query_log_archive is synced
+        # Only if we have a history record to update
+        if history and query:
+            delayed_task = collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_QUERY_TIMEOUT_SECONDS,
+            )
+
     try:
         result = fn(*args, **kwargs)
         end_time = timezone.now()  # Capture when query actually finished
 
+        # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
+        # This avoids waiting the full timeout when the query completed quickly
+        if delayed_task and history and query:
+            if delayed_task.state in ["PENDING", "RECEIVED"]:
+                delayed_task.revoke()  # Cancel the delayed task
+
+            # Run immediately since the query already completed
+            collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            )
+
         return result, end_time
 
     finally:
-        # Schedule delayed task to collect stats after query_log_archive is synced
-        # Only if we have a history record to update
-        if history and query:
-            from posthog.tasks.calculate_cohort import collect_cohort_query_stats
-
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=60,
-            )
         # Reset query tags to avoid affecting other queries
         from posthog.clickhouse.query_tagging import reset_query_tags
 
@@ -119,7 +142,6 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
                 lc_cohort_id = %(cohort_id)s
                 AND team_id = %(team_id)s
                 AND query LIKE %(matcher)s
-                AND type IN ('QueryFinish', 'ExceptionWhileProcessing')
                 AND event_date >= %(start_date)s
                 AND event_time >= %(start_time)s
             ORDER BY event_time DESC
@@ -516,9 +538,9 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "new_version": pending_version,
             },
             settings={
-                "max_execution_time": 600,
-                "send_timeout": 600,
-                "receive_timeout": 600,
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
                 "optimize_on_insert": 0,
                 "max_ast_elements": hogql_global_settings.max_ast_elements,
                 "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,

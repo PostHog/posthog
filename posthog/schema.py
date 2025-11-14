@@ -13345,6 +13345,13 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    session_recording_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the"
+            " filters"
+        ),
+    )
     tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
