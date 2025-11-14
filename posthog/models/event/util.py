@@ -15,7 +15,7 @@ from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
 
@@ -179,21 +179,12 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at
         else:
-            # Dual-table compatible person lookup: query PersonDistinctId first, then fetch person
+            # Dual-table compatible person lookup using manager helper
             try:
-                distinct_id_obj = PersonDistinctId.objects.filter(
-                    distinct_id=event["distinct_id"], team_id=team_id
-                ).first()
-                if distinct_id_obj:
-                    person = Person.objects.get_by_id(distinct_id_obj.person_id, team_id=team_id)
-                    if person:
-                        person_properties = person.properties
-                        person_id = person.uuid
-                        person_created_at = person.created_at
-                    else:
-                        raise Person.DoesNotExist()
-                else:
-                    raise Person.DoesNotExist()
+                person = Person.objects.get_by_distinct_id(team_id, event["distinct_id"])
+                person_properties = person.properties
+                person_id = person.uuid
+                person_created_at = person.created_at
             except Person.DoesNotExist:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
