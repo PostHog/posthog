@@ -2697,6 +2697,269 @@ describe('PostgresPersonRepository', () => {
                 const person = await cutoverRepository.fetchPerson(team.id, 'non-existent')
                 expect(person).toBeUndefined()
             })
+
+            it('should check new table first and mark __useNewTable=true when person exists there', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person with low ID (below threshold) but in new table
+                const lowId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person_new (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        lowId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'In New Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-in-new', lowId, team.id, 0],
+                    'insertDistinctId'
+                )
+
+                // Fetch should check new table first and return with __useNewTable=true
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-in-new')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(lowId))
+                expect(person!.uuid).toBe(uuid)
+                expect(person!.properties.name).toBe('In New Table')
+                expect(person!.__useNewTable).toBe(true)
+            })
+
+            it('should check old table and mark __useNewTable=false when person only in old table', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in old table only
+                const oldId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        oldId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'In Old Table' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertOldTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-in-old', oldId, team.id, 0],
+                    'insertDistinctId'
+                )
+
+                // Fetch should check new table first (not found), then old table
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-in-old')
+
+                expect(person).toBeDefined()
+                expect(person!.id).toBe(String(oldId))
+                expect(person!.uuid).toBe(uuid)
+                expect(person!.properties.name).toBe('In Old Table')
+                expect(person!.__useNewTable).toBe(false)
+            })
+
+            it('should route updates to new table when __useNewTable=true', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table
+                const personId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person_new (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        personId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ original: 'value' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-update-new', personId, team.id, 0],
+                    'insertDistinctId'
+                )
+
+                // Fetch person (should have __useNewTable=true)
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-update-new')
+                expect(person!.__useNewTable).toBe(true)
+
+                // Update the person
+                await cutoverRepository.updatePerson(person!, {
+                    properties: { updated: 'value' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                // Verify update went to new table
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT properties FROM posthog_person_new WHERE id = $1 AND team_id = $2',
+                    [personId, team.id],
+                    'verifyNewTableUpdate'
+                )
+                expect(rows.length).toBe(1)
+                expect(rows[0].properties).toEqual({ updated: 'value' })
+
+                // Verify old table was NOT updated
+                const { rows: oldRows } = await postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT * FROM posthog_person WHERE id = $1 AND team_id = $2',
+                    [personId, team.id],
+                    'verifyOldTableNotUpdated'
+                )
+                expect(oldRows.length).toBe(0)
+            })
+
+            it('should route deletes to correct table based on __useNewTable', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table
+                const personId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person_new (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        personId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'To Delete' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-delete-new', personId, team.id, 0],
+                    'insertDistinctId'
+                )
+
+                // Fetch person (should have __useNewTable=true)
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-delete-new')
+                expect(person!.__useNewTable).toBe(true)
+
+                // Delete the person
+                await cutoverRepository.deletePerson(person!)
+
+                // Verify deletion happened in new table
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT * FROM posthog_person_new WHERE id = $1 AND team_id = $2',
+                    [personId, team.id],
+                    'verifyNewTableDelete'
+                )
+                expect(rows.length).toBe(0)
+            })
+
+            it('should not persist __useNewTable flag to database', async () => {
+                const team = await getFirstTeam(hub)
+
+                // Create person in new table
+                const personId = 100
+                const uuid = new UUIDT().toString()
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_person_new (id, uuid, created_at, team_id, properties, properties_last_updated_at, properties_last_operation, is_user_id, is_identified, version)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [
+                        personId,
+                        uuid,
+                        TIMESTAMP.toISO(),
+                        team.id,
+                        JSON.stringify({ name: 'Test Person' }),
+                        '{}',
+                        '{}',
+                        null,
+                        true,
+                        0,
+                    ],
+                    'insertNewTablePerson'
+                )
+                await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                     VALUES ($1, $2, $3, $4)`,
+                    ['test-no-persist', personId, team.id, 0],
+                    'insertDistinctId'
+                )
+
+                // Fetch person (should have __useNewTable=true)
+                const person = await cutoverRepository.fetchPerson(team.id, 'test-no-persist')
+                expect(person!.__useNewTable).toBe(true)
+
+                // Update the person - the __useNewTable flag should NOT be written to DB
+                await cutoverRepository.updatePerson(person!, {
+                    properties: { name: 'Updated Person' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                })
+
+                // Verify database doesn't have __useNewTable field
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_READ,
+                    'SELECT * FROM posthog_person_new WHERE id = $1 AND team_id = $2',
+                    [personId, team.id],
+                    'verifyNoUseNewTableField'
+                )
+                expect(rows.length).toBe(1)
+
+                // Check that the raw database row doesn't contain __useNewTable
+                const dbRow = rows[0]
+                expect(dbRow).not.toHaveProperty('__useNewTable')
+                expect(dbRow).not.toHaveProperty('__usenewTable')
+                expect(dbRow).not.toHaveProperty('__usenewtable')
+
+                // Verify the properties field doesn't contain __useNewTable
+                expect(dbRow.properties).toEqual({ name: 'Updated Person' })
+                expect(dbRow.properties).not.toHaveProperty('__useNewTable')
+            })
         })
 
         describe('fetchPersonsByDistinctIds()', () => {

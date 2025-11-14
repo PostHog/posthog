@@ -14,6 +14,12 @@ import { PersonsStoreForBatch } from './persons-store-for-batch'
 export class PersonContext {
     public readonly eventProperties: Properties
     public updateIsIdentified: boolean = false
+    /**
+     * Flag indicating whether this person should be routed to the new table.
+     * Set during person fetch/lookup and used throughout the processing pipeline.
+     * When true, all operations (updates, merges, etc.) will target the new table.
+     */
+    public useNewTable: boolean = false
 
     constructor(
         public readonly event: PluginEvent,
