@@ -141,7 +141,7 @@ export const organizationLogic = kea<organizationLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
@@ -149,8 +149,8 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            const useUseCaseSelection =
-                featureFlagLogic.values.featureFlags?.[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
+
+            const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
             window.location.href = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
         },
         updateOrganizationSuccess: () => {
