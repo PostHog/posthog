@@ -317,7 +317,7 @@ class EventDefinitionViewSet(
         user = cast(User, self.request.user)
 
         # Build save kwargs - only include updated_by for enterprise
-        save_kwargs = {
+        save_kwargs: dict[str, Any] = {
             "team_id": self.team_id,
             "project_id": self.project_id,
             "created_at": None,  # Will be populated when first real event is ingested
@@ -354,7 +354,7 @@ class EventDefinitionViewSet(
             before_state["tags"] = []
 
         # Only pass updated_by for EnterpriseEventDefinition
-        save_kwargs = {}
+        save_kwargs: dict[str, Any] = {}
         if hasattr(instance, "updated_by"):
             save_kwargs["updated_by"] = user
 
