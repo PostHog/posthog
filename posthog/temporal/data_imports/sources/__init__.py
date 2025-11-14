@@ -8,6 +8,7 @@ from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
+from .intercom.source import IntercomSource
 from .klaviyo.source import KlaviyoSource
 from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
@@ -41,6 +42,7 @@ __all__ = [
     "GoogleAdsSource",
     "GoogleSheetsSource",
     "HubspotSource",
+    "IntercomSource",
     "KlaviyoSource",
     "LinkedInAdsSource",
     "MailchimpSource",

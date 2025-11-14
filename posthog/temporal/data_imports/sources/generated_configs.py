@@ -112,6 +112,11 @@ class HubspotSourceConfig(config.Config):
 
 
 @config.config
+class IntercomSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
 class KlaviyoSourceConfig(config.Config):
     pass
 
