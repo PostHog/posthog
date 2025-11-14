@@ -93,13 +93,15 @@ async def summarize(
     ]
 
     # Use structured outputs with JSON schema
-    # Pass posthog_trace_id for linking this LLM call to the source trace
+    # Note: We intentionally do NOT pass posthog_trace_id to avoid the summarization
+    # LLM call appearing as part of the trace being summarized (which would create
+    # recursive/confusing trace hierarchies). The LLM call is still tracked to the
+    # central PostHog project for cost monitoring, just as a separate trace.
     try:
         response = await client.chat.completions.create(  # type: ignore[call-overload]
             model=SUMMARIZATION_MODEL,
             messages=messages,
             user=user_param,
-            posthog_trace_id=trace_id,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
