@@ -5,6 +5,7 @@ from typing import Any
 
 import dagster
 import psycopg2
+import psycopg2.errors
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -152,6 +153,17 @@ def copy_chunk(
 
     try:
         with database.cursor() as cursor:
+            # Set session-level settings once for the entire chunk
+            cursor.execute("SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'")
+            cursor.execute("SET lock_timeout = '5s'")
+            cursor.execute("SET statement_timeout = '30min'")
+            cursor.execute("SET maintenance_work_mem = '12GB'")
+            cursor.execute("SET work_mem = '512MB'")
+            cursor.execute("SET temp_buffers = '512MB'")
+            cursor.execute("SET max_parallel_workers_per_gather = 2")
+            cursor.execute("SET max_parallel_maintenance_workers = 2")
+            cursor.execute("SET synchronous_commit = off")
+
             while batch_start_id <= chunk_max:
                 try:
                     # Track batch start time for duration metric
@@ -160,17 +172,8 @@ def copy_chunk(
                     # Calculate batch end ID
                     batch_end_id = min(batch_start_id + batch_size, chunk_max)
 
-                    # Execute SET statements and BEGIN transaction
-                    cursor.execute("SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'")
+                    # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
-                    cursor.execute("SET LOCAL lock_timeout = '5s'")
-                    cursor.execute("SET LOCAL statement_timeout = '30min'")
-                    cursor.execute("SET LOCAL maintenance_work_mem = '12GB'")
-                    cursor.execute("SET LOCAL work_mem = '512MB'")
-                    cursor.execute("SET LOCAL temp_buffers = '512MB'")
-                    cursor.execute("SET LOCAL max_parallel_workers_per_gather = 2")
-                    cursor.execute("SET LOCAL max_parallel_maintenance_workers = 2")
-                    cursor.execute("SET LOCAL synchronous_commit = off")
 
                     # Execute INSERT INTO ... SELECT with NOT EXISTS check
                     insert_query = f"""
@@ -249,7 +252,11 @@ ORDER BY s.id DESC
                     # Rollback transaction on error
                     try:
                         cursor.execute("ROLLBACK")
-                    except Exception:
+                    except Exception as rollback_error:
+                        context.log.exception(
+                            f"Failed to rollback transaction for batch starting at ID {batch_start_id}"
+                            f"in chunk {chunk_min}-{chunk_max}: {str(rollback_error)}"
+                        )
                         pass  # Ignore rollback errors
 
                     failed_batch_start_id = batch_start_id
@@ -267,6 +274,20 @@ ORDER BY s.id DESC
                         ).result()
                     except Exception:
                         pass  # Don't fail on metrics error
+
+                    # Check if error is a duplicate key violation, pause and retry if so
+                    is_unique_violation = isinstance(batch_error, psycopg2.errors.UniqueViolation) or (
+                        isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "23505"
+                    )
+                    if is_unique_violation:
+                        context.log.warning(
+                            f"Duplicate key violation detected for batch starting at ID {batch_start_id} "
+                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. This is expected "
+                            f"if records already exist in destination table. Retrying the batch..."
+                        )
+                        time.sleep(0.5)
+                        continue
+
                     raise dagster.Failure(
                         description=error_msg,
                         metadata={
