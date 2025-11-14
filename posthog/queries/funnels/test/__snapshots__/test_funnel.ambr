@@ -389,14 +389,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -406,7 +423,7 @@
     AND version = 0
   '''
 # ---
-# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.3
   '''
   
   SELECT countIf(steps = 1) step_1,

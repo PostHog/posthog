@@ -31,7 +31,7 @@ export const IssueTasks = (): JSX.Element => {
     }
     return (
         <ScenePanelLabel title="Tasks">
-            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading} variant="panel">
+            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
                 <IconPlus />
                 Create task in PostHog
             </ButtonPrimitive>

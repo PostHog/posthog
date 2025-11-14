@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { RefObject } from 'react'
 
 import {
     IconActivity,
@@ -44,7 +45,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
-import { SearchInputCommand } from './components/SearchInput'
+import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS =
@@ -186,6 +187,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             dataset,
             prefix,
         }),
+        setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
+        focusNewTabSearchInput: true,
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -589,6 +592,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return state
                 },
+            },
+        ],
+        newTabSearchInputRef: [
+            null as RefObject<SearchInputHandle> | null,
+            {
+                setNewTabSearchInputRef: (_, { ref }) => ref,
             },
         ],
     }),
@@ -1711,6 +1720,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
             await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
+        },
+        focusNewTabSearchInput: () => {
+            if (values.newTabSearchInputRef?.current) {
+                values.newTabSearchInputRef.current.focus()
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => {

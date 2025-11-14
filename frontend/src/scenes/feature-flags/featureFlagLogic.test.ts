@@ -21,6 +21,13 @@ const MOCK_FEATURE_FLAG_STATUS = {
     reason: 'mock reason',
 }
 
+const MOCK_EXPERIMENT = {
+    id: 123,
+    name: 'Test Experiment',
+    feature_flag_key: 'test-flag',
+    start_date: '2023-01-01',
+}
+
 describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
@@ -185,6 +192,87 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes.length).toBe(0)
+        })
+    })
+
+    describe('experiment loading', () => {
+        it('loads experiment data when feature flag has an experiment linked', async () => {
+            const flagWithExperiment = {
+                ...MOCK_FEATURE_FLAG,
+                id: 2,
+                experiment_set: [MOCK_EXPERIMENT.id],
+            }
+
+            const experimentLogic = featureFlagLogic({ id: 2 })
+            experimentLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithExperiment.id}/`]: () => [
+                        200,
+                        flagWithExperiment,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithExperiment.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/experiments/${MOCK_EXPERIMENT.id}/`]: () => [
+                        200,
+                        MOCK_EXPERIMENT,
+                    ],
+                },
+            })
+
+            await expectLogic(experimentLogic, () => {
+                experimentLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadExperimentSuccess'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        id: flagWithExperiment.id,
+                        experiment_set: [MOCK_EXPERIMENT.id],
+                    }),
+                    experiment: MOCK_EXPERIMENT,
+                })
+
+            experimentLogic.unmount()
+        })
+
+        it('does not load experiment data when feature flag has no experiment', async () => {
+            const flagWithoutExperiment = {
+                ...MOCK_FEATURE_FLAG,
+                id: 3,
+                experiment_set: null,
+            }
+
+            const noExperimentLogic = featureFlagLogic({ id: 3 })
+            noExperimentLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/`]: () => [
+                        200,
+                        flagWithoutExperiment,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/status`]:
+                        () => [200, MOCK_FEATURE_FLAG_STATUS],
+                },
+            })
+
+            await expectLogic(noExperimentLogic, () => {
+                noExperimentLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess'])
+                .toNotHaveDispatchedActions(['loadExperimentSuccess'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        id: flagWithoutExperiment.id,
+                        experiment_set: null,
+                    }),
+                    experiment: null,
+                })
+
+            noExperimentLogic.unmount()
         })
     })
 })

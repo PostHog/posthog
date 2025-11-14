@@ -4,7 +4,7 @@ import inspect
 import warnings
 from datetime import timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import Optional, TypedDict
 from uuid import uuid4
 
 from django.db.models import Max
@@ -14,7 +14,6 @@ import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 
 from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
@@ -25,9 +24,9 @@ from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -36,10 +35,6 @@ from .prompts import (
     PAGINATION_INSTRUCTIONS_TEMPLATE,
     TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
 )
-
-if TYPE_CHECKING:
-    from ee.hogai.utils.types.composed import MaxNodeName
-
 
 logger = structlog.get_logger(__name__)
 # Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
@@ -117,10 +112,6 @@ class InsightSearchNode(AssistantNode):
     MAX_EVALUATION_ITERATIONS = 3
     INSIGHTS_CUTOFF_DAYS = 180
     MAX_SERIES_TO_PROCESS = 3
-
-    @property
-    def node_name(self) -> "MaxNodeName":
-        return AssistantNodeName.INSIGHTS_SEARCH
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -865,7 +856,7 @@ class InsightSearchNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
+        return MaxChatOpenAI(
             model="gpt-4.1-mini",
             temperature=0.7,
             max_completion_tokens=1000,
@@ -873,4 +864,8 @@ class InsightSearchNode(AssistantNode):
             stream_usage=False,
             max_retries=3,
             disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
         )

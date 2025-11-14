@@ -111,7 +111,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 4g
+        mem_limit: 6g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -205,6 +205,7 @@ services:
             # Mode 2: Dual-write warming phase for developers
             FLAGS_REDIS_URL: 'redis://redis:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
+            REDIS_COMPRESSION_ENABLED: 'true'
 
     livestream:
         extends:

@@ -11,7 +11,9 @@ interface ConfirmationModalProps {
     type: ConfirmationModalType
     activeNewValue?: boolean // Only for flag-status type
     changes?: string[] // Only for multi-changes type
-    customMessage?: string // Custom message for multi-changes type
+    customConfirmationMessage?: string // Custom confirmation message to replace default message
+    extraMessages?: string[] // Additional messages to display after the main message
+    featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
     onConfirm: () => void
 }
 
@@ -24,7 +26,9 @@ export function openConfirmationModal({
     type,
     activeNewValue,
     changes = [],
-    customMessage,
+    customConfirmationMessage,
+    extraMessages,
+    featureFlagConfirmationEnabled = false,
     onConfirm,
 }: ConfirmationModalProps): void {
     let title: string
@@ -72,6 +76,18 @@ export function openConfirmationModal({
             const defaultMessage =
                 '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
 
+            const allMessages: string[] = []
+
+            if (customConfirmationMessage) {
+                allMessages.push(customConfirmationMessage)
+            } else if (featureFlagConfirmationEnabled) {
+                allMessages.push(defaultMessage)
+            }
+
+            if (extraMessages && extraMessages.length > 0) {
+                allMessages.push(...extraMessages)
+            }
+
             description = (
                 <>
                     <p>You are about to save the following changes:</p>
@@ -80,7 +96,11 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
-                    <p className="mt-4">{customMessage || defaultMessage}</p>
+                    {allMessages.map((message, index) => (
+                        <p key={index} className="mt-4">
+                            {message}
+                        </p>
+                    ))}
                 </>
             )
             break
