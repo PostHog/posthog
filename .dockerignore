@@ -50,7 +50,6 @@
 !test-runner-jest.config.js
 !tsconfig.json
 !unit.json.tpl
-ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist

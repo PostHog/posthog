@@ -27942,7 +27942,7 @@ snapshots:
       '@yarnpkg/libzip': 2.3.0
       chalk: 4.1.2
       commander: 6.2.1
-      cross-spawn: 7.0.3
+      cross-spawn: 7.0.6
       detect-indent: 6.1.0
       envinfo: 7.8.1
       execa: 5.1.1
@@ -27990,7 +27990,7 @@ snapshots:
       '@storybook/node-logger': 7.6.4
       '@storybook/types': 7.6.4
       '@types/cross-spawn': 6.0.2
-      cross-spawn: 7.0.3
+      cross-spawn: 7.0.6
       globby: 11.1.0
       jscodeshift: 0.15.1(@babel/preset-env@7.23.5(@babel/core@7.26.0))
       lodash: 4.17.21
@@ -32948,7 +32948,7 @@ snapshots:
 
   execa@5.1.1:
     dependencies:
-      cross-spawn: 7.0.3
+      cross-spawn: 7.0.6
       get-stream: 6.0.1
       human-signals: 2.1.0
       is-stream: 2.0.1
