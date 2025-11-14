@@ -156,6 +156,16 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _validate_between_values(value: ValueT, operator: PropertyOperator) -> None:
+    if not isinstance(value, list) or len(value) != 2:
+        raise QueryError(f"{operator} operator requires a two-element array [min, max]")
+    try:
+        if float(value[0]) > float(value[1]):
+            raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
+    except (ValueError, TypeError):
+        raise QueryError(f"{operator} operator requires numeric values")
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -244,10 +254,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.BETWEEN:
-        if not isinstance(value, list) or len(value) != 2:
-            raise QueryError("BETWEEN operator requires a two-element array [min, max]")
-        if value[0] > value[1]:
-            raise QueryError("BETWEEN operator requires min value to be less than or equal to max value")
+        _validate_between_values(value, operator)
         return ast.And(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
@@ -255,10 +262,7 @@ def _expr_to_compare_op(
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
-        if not isinstance(value, list) or len(value) != 2:
-            raise QueryError("NOT_BETWEEN operator requires a two-element array [min, max]")
-        if value[0] > value[1]:
-            raise QueryError("NOT_BETWEEN operator requires min value to be less than or equal to max value")
+        _validate_between_values(value, operator)
         return ast.Or(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
