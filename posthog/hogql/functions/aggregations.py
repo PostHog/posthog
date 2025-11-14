@@ -37,7 +37,8 @@ def _generate_suffix_combinations(
 
     if current_suffixes:
         func_name = base_name + "".join(current_suffixes)
-        min_params, max_params = base_meta.min_params, base_meta.max_params
+        # Calculate new parameter ranges based on suffix rules
+        min_params, max_params = base_meta.min_args, base_meta.max_args
         for suffix in current_suffixes:
             if suffix in COMBINATORS:
                 min_params, max_params = COMBINATORS[suffix]["argMap"](min_params, max_params)
