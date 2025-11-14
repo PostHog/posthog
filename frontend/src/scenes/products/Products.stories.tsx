@@ -32,6 +32,7 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
+
 export const DesktopView: Story = {
     parameters: {
         testOptions: {
@@ -48,6 +49,42 @@ export const MobileView: Story = {
         testOptions: {
             viewport: {
                 width: 568,
+                height: 1024,
+            },
+        },
+    },
+}
+
+export const WithUseCaseRecommendations: Story = {
+    parameters: {
+        pageUrl: urls.products() + '?useCase=see_user_behavior',
+        testOptions: {
+            viewport: {
+                width: 2048,
+                height: 1024,
+            },
+        },
+    },
+}
+
+export const PickMyselfLayout: Story = {
+    parameters: {
+        pageUrl: urls.products() + '?useCase=pick_myself',
+        testOptions: {
+            viewport: {
+                width: 2048,
+                height: 1024,
+            },
+        },
+    },
+}
+
+export const FixIssuesUseCase: Story = {
+    parameters: {
+        pageUrl: urls.products() + '?useCase=fix_issues',
+        testOptions: {
+            viewport: {
+                width: 2048,
                 height: 1024,
             },
         },
