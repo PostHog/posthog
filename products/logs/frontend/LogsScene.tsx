@@ -235,7 +235,7 @@ function LogsTable({
                     title: 'Level',
                     key: 'severity_text',
                     dataIndex: 'severity_text',
-                    width: 0,
+                    width: 100,
                     render: (_, record) => <LogTag level={record.severity_text} />,
                 },
                 {
