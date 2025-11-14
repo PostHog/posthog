@@ -77,7 +77,7 @@ export function LogsScene(): JSX.Element {
                 if (highlightedRow) {
                     highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 }
-            }, 0)
+            })
         }
     }, [logsLoading, highlightedLogId])
 

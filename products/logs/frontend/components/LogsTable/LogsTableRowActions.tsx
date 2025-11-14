@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconCopy } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,23 +7,14 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { logsLogic } from 'products/logs/frontend/logsLogic'
-
 interface LogsTableRowActionsProps {
     log: LogMessage
 }
 
 export function LogsTableRowActions({ log }: LogsTableRowActionsProps): JSX.Element {
-    const { visibleLogsTimeRange } = useValues(logsLogic)
-
     const handleCopyLink = (): void => {
         const url = new URL(window.location.href)
         url.searchParams.set('highlightedLogId', log.uuid)
-
-        if (visibleLogsTimeRange) {
-            url.searchParams.set('dateRange', JSON.stringify(visibleLogsTimeRange))
-        }
-
         void copyToClipboard(url.toString(), 'link to log')
     }
 
