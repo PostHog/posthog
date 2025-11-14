@@ -55,6 +55,7 @@ class GenerateOrganizationDigestInput(BaseModel):
 
 class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 

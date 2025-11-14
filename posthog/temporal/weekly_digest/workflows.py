@@ -85,6 +85,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
             SendWeeklyDigestWorkflow.run,
             SendWeeklyDigestInput(
                 dry_run=input.dry_run,
+                allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
             ),
