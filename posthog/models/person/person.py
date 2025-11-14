@@ -162,6 +162,18 @@ class DualPersonQuerySet:
         results = self._execute()
         return results[0] if results else None
 
+    def delete(self):
+        """Delete persons matching the query from both tables."""
+        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        old_count, _ = old_qs.delete()
+        new_count, _ = new_qs.delete()
+
+        total = old_count + new_count
+        # Return format matching Django's QuerySet.delete(): (total_deleted, {model_name: count})
+        return (total, {"posthog.Person": total})
+
     def values_list(self, *fields, flat=False):
         """Execute on both tables and return merged list of values."""
         old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
