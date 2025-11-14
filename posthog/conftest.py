@@ -231,6 +231,16 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                 END $$;
             """)
 
+    # Drop identity from posthog_person.id before sqlx migrations run
+    # This prevents per-partition sequences when LIKE INCLUDING DEFAULTS copies the schema
+    # Production doesn't have identity on posthog_person.id, but test DB does from Django migrations
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                ALTER TABLE posthog_person
+                ALTER COLUMN id DROP IDENTITY IF EXISTS
+            """)
+
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations()
 
