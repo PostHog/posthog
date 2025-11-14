@@ -1030,42 +1030,58 @@ FROM (
             )
         group by
             id
+    ),
+    latest_distinct_ids as (
+        SELECT
+            distinct_id,
+            person_id,
+            max(version) as version2,
+            argMax(team_id, person_distinct_id2.version) AS team_id2,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp2
+        from
+            person_distinct_id2
+        where
+            team_id = {team_id}::Int64
+        group by
+            distinct_id,
+            person_id
     )
     select
         p.team_id2 AS team_id,
         pd.distinct_id AS distinct_id,
         toString(p.id) AS person_id,
         p.properties2 AS properties,
-        pd.version AS person_distinct_id_version,
+        pd.version2 AS person_distinct_id_version,
         p.version2 AS person_version,
         p.created_at2 AS created_at,
         toBool(p.is_deleted2) AS is_deleted,
         multiIf(
             (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp2 >= {interval_start}::DateTime64
+                AND pd._timestamp2 < {interval_end}::DateTime64
             )
             AND NOT (
                 p._timestamp2 >= {interval_start}::DateTime64
                 AND p._timestamp2 < {interval_end}::DateTime64
             ),
-            pd._timestamp,
+            pd._timestamp2,
             (
                 p._timestamp2 >= {interval_start}::DateTime64
                 AND p._timestamp2 < {interval_end}::DateTime64
             )
             AND NOT (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                pd._timestamp2 >= {interval_start}::DateTime64
+                AND pd._timestamp2 < {interval_end}::DateTime64
             ),
             p._timestamp2,
-            least(p._timestamp2, pd._timestamp)
+            least(p._timestamp2, pd._timestamp2)
         ) AS _inserted_at
     from
         new_persons p
-        INNER JOIN person_distinct_id2 pd
+        INNER JOIN latest_distinct_ids pd
             ON p.id = pd.person_id
-            AND pd.team_id = p.team_id2
+            AND pd.team_id2 = p.team_id2
         -- TODO - this probably needs updating
         $filter_distinct_ids
     UNION DISTINCT
