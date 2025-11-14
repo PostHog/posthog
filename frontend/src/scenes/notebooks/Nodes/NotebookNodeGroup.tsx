@@ -118,10 +118,9 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
         placement: {},
     },
     pasteOptions: {
-        find: urls.groups('(.+)'),
+        find: urls.group('([0-9]+)', '([^/]+)', false),
         getAttributes: async (match) => {
-            const [groupTypeIndex, id] = match[1].split('/')
-            return { id: decodeURIComponent(id), groupTypeIndex: parseInt(groupTypeIndex) }
+            return { groupTypeIndex: parseInt(match[1]), id: decodeURIComponent(match[2]) }
         },
     },
     serializedText: (attrs) => {
