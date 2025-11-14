@@ -24,6 +24,7 @@ class JobOwners(str, Enum):
     TEAM_ERROR_TRACKING = "team-error-tracking"
     TEAM_EXPERIMENTS = "team-experiments"
     TEAM_GROWTH = "team-growth"
+    TEAM_INGESTION = "team-ingestion"
     TEAM_LLMA = "team-llma"
     TEAM_MAX_AI = "team-max-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
