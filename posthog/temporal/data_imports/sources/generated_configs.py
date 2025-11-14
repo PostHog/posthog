@@ -172,6 +172,11 @@ class PolarSourceConfig(config.Config):
 
 
 @config.config
+class PostmarkSourceConfig(config.Config):
+    server_token: str
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -276,6 +281,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
+        ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,

@@ -17,6 +17,7 @@ from .mongodb.source import MongoDBSource
 from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
 from .polar.source import PolarSource
+from .postmark.source import PostmarkSource
 from .postgres.source import PostgresSource
 from .reddit_ads.source import RedditAdsSource
 from .redshift.source import RedshiftSource
@@ -51,6 +52,7 @@ __all__ = [
     "MSSQLSource",
     "MySQLSource",
     "PolarSource",
+    "PostmarkSource",
     "PostgresSource",
     "RedshiftSource",
     "TikTokAdsSource",
