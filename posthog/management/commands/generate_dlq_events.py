@@ -7,6 +7,7 @@ from typing import Any
 from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import Person
 from posthog.models.team.team import Team
 
 
@@ -261,7 +262,7 @@ class Command(BaseCommand):
         """Generate realistic error details"""
         error_types = [
             {
-                "message": 'Event ingestion failed. Error: insert or update on table "posthog_person" violates foreign key constraint "posthog_person_team_id_325c1b73_fk_posthog_team_id"',
+                "message": f'Event ingestion failed. Error: insert or update on table "{Person._meta.db_table}" violates foreign key constraint "posthog_person_team_id_325c1b73_fk_posthog_team_id"',
                 "location": "plugin_server_ingest_event:processPersonsStep",
             },
             {

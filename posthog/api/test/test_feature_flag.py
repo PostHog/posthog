@@ -30,7 +30,7 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Person, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import (
@@ -42,7 +42,6 @@ from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
-from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
@@ -5676,7 +5675,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Only snapshot flag evaluation queries
-        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: "posthog_person" in query):
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: Person._meta.db_table in query):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags",
                 {
