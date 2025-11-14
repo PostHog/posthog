@@ -57,6 +57,7 @@ class Person(models.Model):
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
+        db_table = "posthog_person_new"
 
     @property
     def distinct_ids(self) -> list[str]:
