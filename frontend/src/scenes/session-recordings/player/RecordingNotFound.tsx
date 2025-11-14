@@ -250,6 +250,48 @@ function ReplayDisabledCard(): JSX.Element {
     )
 }
 
+function GeneralInfoCard(): JSX.Element {
+    return (
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">Session recording</LemonTag>
+                <div className="grow">
+                    <p className="mb-1">We don't have a recording for this session.</p>
+                </div>
+            </div>
+            <LemonDivider className="my-3" />
+            <LemonBanner
+                type="info"
+                className="mt-1"
+                action={{
+                    to: urls.settings('project-replay'),
+                    children: 'Edit settings',
+                    size: 'small',
+                    type: 'secondary',
+                    'data-attr': 'recording-404-edit-settings',
+                }}
+            >
+                To avoid this in the future, check your recording settings.
+            </LemonBanner>
+        </LemonCard>
+    )
+}
+
+function SessionMissingCard(): JSX.Element {
+    return (
+        <LemonCard className="mt-3 max-w-xl mx-auto">
+            <div className="flex items-center gap-3">
+                <LemonTag type="warning">Session</LemonTag>
+                <div className="grow">
+                    <p className="mb-0">
+                        We don't have a recording for this session because the session does not exist.
+                    </p>
+                </div>
+            </div>
+        </LemonCard>
+    )
+}
+
 export function RecordingNotFound(): JSX.Element {
     return (
         <NotFound
@@ -257,8 +299,10 @@ export function RecordingNotFound(): JSX.Element {
             hideLostInSpace={true}
             caption={
                 <>
+                    <SessionMissingCard />
                     <ExpiredCard />
                     <ReplayDisabledCard />
+                    <GeneralInfoCard />
                     <MinimumDurationCard />
                     <SamplingRateCard />
                     <TriggersCard />
