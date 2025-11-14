@@ -1,10 +1,14 @@
 """Dagster job for backfilling posthog_persons data from source to destination Postgres database."""
 
+import time
 from typing import Any, Optional
 
 import dagster
 import psycopg2
 import psycopg2.extras
+
+from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.custom_metrics import MetricsClient
 
 from dags.common import JobOwners
 
@@ -136,6 +140,7 @@ def copy_chunk(
     chunk: tuple[int, int],
     source_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
     destination_postgres: dagster.ResourceParam[psycopg2.extensions.connection],
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
     Copy a chunk of records from source to destination database.
@@ -145,6 +150,11 @@ def copy_chunk(
     batch_size = config.batch_size
     source_table = config.source_table
     destination_table = config.destination_table
+    chunk_id = f"chunk_{chunk_min}_{chunk_max}"
+    job_name = context.run.job_name
+
+    # Initialize metrics client
+    metrics_client = MetricsClient(cluster)
 
     context.log.info(f"Starting chunk copy: {chunk_min} to {chunk_max}")
 
@@ -197,6 +207,9 @@ def copy_chunk(
         with source_postgres.cursor() as source_cursor, destination_postgres.cursor() as dest_cursor:
             while batch_start_id <= chunk_max:
                 try:
+                    # Track batch start time for duration metric
+                    batch_start_time = time.time()
+
                     # Fetch batch from source: WHERE id >= batch_start_id AND id <= chunk_max
                     source_cursor.execute(
                         select_query,
@@ -218,6 +231,17 @@ def copy_chunk(
                             id_idx = columns_to_copy.index("id")
                             last_id_in_batch = row[columns_to_copy[id_idx]]
 
+                    # Track records attempted metric (II)
+                    records_attempted = len(batch_data)
+                    try:
+                        metrics_client.increment(
+                            "persons_new_backfill_records_attempted_total",
+                            labels={"job_name": job_name, "chunk_id": chunk_id},
+                            value=float(records_attempted),
+                        ).result()
+                    except Exception as metrics_error:
+                        context.log.warning(f"Failed to report records_attempted metric: {metrics_error}")
+
                     # Insert batch into destination
                     psycopg2.extras.execute_batch(
                         dest_cursor,
@@ -226,6 +250,40 @@ def copy_chunk(
                         page_size=batch_size,
                     )
                     destination_postgres.commit()
+
+                    # Track batch completion time for duration metric
+                    batch_duration_seconds = time.time() - batch_start_time
+
+                    # Track records actually inserted metric (III)
+                    records_inserted = dest_cursor.rowcount
+                    try:
+                        metrics_client.increment(
+                            "persons_new_backfill_records_inserted_total",
+                            labels={"job_name": job_name, "chunk_id": chunk_id},
+                            value=float(records_inserted),
+                        ).result()
+                    except Exception as metrics_error:
+                        context.log.warning(f"Failed to report records_inserted metric: {metrics_error}")
+
+                    # Track batch count metric (I)
+                    try:
+                        metrics_client.increment(
+                            "persons_new_backfill_batches_copied_total",
+                            labels={"job_name": job_name, "chunk_id": chunk_id},
+                            value=1.0,
+                        ).result()
+                    except Exception as metrics_error:
+                        context.log.warning(f"Failed to report batches_copied metric: {metrics_error}")
+
+                    # Track batch duration metric (IV)
+                    try:
+                        metrics_client.increment(
+                            "persons_new_backfill_batch_duration_seconds_total",
+                            labels={"job_name": job_name, "chunk_id": chunk_id},
+                            value=batch_duration_seconds,
+                        ).result()
+                    except Exception as metrics_error:
+                        context.log.warning(f"Failed to report batch_duration metric: {metrics_error}")
 
                     records_in_batch = len(batch_data)
                     total_records_copied += records_in_batch
