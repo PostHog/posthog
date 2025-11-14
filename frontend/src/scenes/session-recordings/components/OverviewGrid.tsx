@@ -77,27 +77,38 @@ export function OverviewGridItem({
                     {icon} {label}
                 </Tooltip>
             </div>
-            <div className="overflow-x-auto flex items-center deprecated-space-x-2">
-                <Tooltip title={description}>{children}</Tooltip>
+            <div className="flex items-center deprecated-space-x-2 min-w-0">
+                <div className="truncate min-w-0">
+                    <Tooltip title={description}>{children}</Tooltip>
+                </div>
                 {showFilter && onFilterClick && (
                     <Tooltip title={getFilterTooltip()}>
-                        <IconFilter
-                            data-testid="filter-button"
+                        <div
                             className={clsx(
-                                'text-sm transition-colors',
-                                filterDisabledReason
-                                    ? 'text-muted cursor-not-allowed'
-                                    : filterState === 'active'
-                                      ? 'cursor-pointer text-primary hover:text-secondary'
-                                      : 'cursor-pointer text-secondary hover:text-primary'
+                                'inline-flex shrink-0 transition-all',
+                                filterState === 'active' &&
+                                    !filterDisabledReason &&
+                                    'bg-primary-highlight rounded p-0.5'
                             )}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                if (!filterDisabledReason) {
-                                    onFilterClick()
-                                }
-                            }}
-                        />
+                        >
+                            <IconFilter
+                                data-testid="filter-button"
+                                className={clsx(
+                                    'transition-colors',
+                                    filterDisabledReason
+                                        ? 'text-muted cursor-not-allowed'
+                                        : filterState === 'active'
+                                          ? 'cursor-pointer text-link'
+                                          : 'cursor-pointer text-secondary hover:text-primary'
+                                )}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!filterDisabledReason) {
+                                        onFilterClick()
+                                    }
+                                }}
+                            />
+                        </div>
                     </Tooltip>
                 )}
             </div>

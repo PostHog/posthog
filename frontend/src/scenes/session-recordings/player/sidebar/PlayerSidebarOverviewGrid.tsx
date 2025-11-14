@@ -122,11 +122,11 @@ export function PlayerSidebarOverviewGrid({
                                         isFilterable ? () => togglePropertyFilter(item.property, item.value) : undefined
                                     }
                                 >
-                                    <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
+                                    <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium min-w-0">
                                         {item.type === 'property' && (
                                             <PropertyIcon property={item.property} value={item.value} />
                                         )}
-                                        <span>{item.value}</span>
+                                        <span className="truncate">{item.value}</span>
                                     </div>
                                 </OverviewGridItem>
                             )
