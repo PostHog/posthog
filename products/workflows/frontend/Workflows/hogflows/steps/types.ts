@@ -119,8 +119,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('batch'),
         filters: z.object({
-            properties: z.array(z.any()).optional(),
-            cohorts: z.array(z.any()).optional(),
+            properties: z.array(z.any()),
         }),
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here

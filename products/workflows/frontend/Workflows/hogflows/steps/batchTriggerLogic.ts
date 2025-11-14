@@ -46,7 +46,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
-        if (props.filters.properties.length > 0) {
+        if (props.filters?.properties && props.filters.properties.length > 0) {
             actions.loadBlastRadius()
         }
     }),
