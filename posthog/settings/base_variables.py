@@ -41,6 +41,10 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
 
+# Person table name - allows gradual cutover from posthog_person to posthog_person_new
+# EU uses old table until data migration completes, US/dev use new partitioned table
+PERSON_TABLE_NAME: str = get_from_env("PERSON_TABLE_NAME", "posthog_person_new")
+
 if DEBUG and not TEST:
     logger.warning(
         [
