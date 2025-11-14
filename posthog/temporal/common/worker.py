@@ -4,7 +4,7 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_write_only_logger
@@ -77,7 +77,7 @@ async def create_worker(
             left unset (`None`) Temporal will default to "temporal_".
         use_pydantic_converter: Flag to enable Pydantic data converter
         target_memory_usage: Fraction of available memory to use, between 0.0 and 1.0.
-            Mutually exclusive with max_concurrent_activities and max_concurrent_workflow_tasks.
+            If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
@@ -125,6 +125,8 @@ async def create_worker(
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
+                workflow_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_workflow_tasks or 50),
+                activity_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_activities or 50),
             ),
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
@@ -141,7 +143,7 @@ async def create_worker(
             interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
-            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
