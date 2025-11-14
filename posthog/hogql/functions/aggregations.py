@@ -43,7 +43,7 @@ def _generate_suffix_combinations(
         min_params, max_params = base_meta.min_args, base_meta.max_args
         for suffix in current_suffixes:
             if suffix in COMBINATORS:
-                arg_map: Callable[[int, int], list[int]] = COMBINATORS[suffix]["argMap"]  # type: ignore
+                arg_map: Callable[[int, int | None], list[int]] = COMBINATORS[suffix]["argMap"]  # type: ignore
                 min_params, max_params = arg_map(min_params, max_params)
 
         result[func_name] = HogQLFunctionMeta(func_name, min_params, max_params, aggregate=True)
