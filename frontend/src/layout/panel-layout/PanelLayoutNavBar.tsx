@@ -14,6 +14,8 @@ import {
     IconHome,
     IconPeople,
     IconShortcut,
+    IconSidebarClose,
+    IconSidebarOpen,
     IconToolbar,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -305,9 +307,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 : item.collapsedTooltip
                                             : undefined
 
-                                        const iconClassName = cn('flex text-tertiary group-hover:text-primary', {
-                                            '[&_svg]:size-5': isLayoutNavCollapsed,
-                                        })
+                                        const iconClassName = 'flex text-tertiary group-hover:text-primary'
 
                                         return (
                                             <ListBox.Item
@@ -394,6 +394,26 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             <NavPanelAdvertisement />
+
+                            <ButtonPrimitive
+                                iconOnly={isLayoutNavCollapsed}
+                                tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
+                                tooltipPlacement="right"
+                                onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
+                                menuItem={!isLayoutNavCollapsed}
+                            >
+                                {isLayoutNavCollapsed ? (
+                                    <>
+                                        <IconSidebarClose className="text-tertiary" />
+                                    </>
+                                ) : (
+                                    <>
+                                        <IconSidebarOpen className="text-tertiary" />
+                                        Collapse nav
+                                    </>
+                                )}
+                            </ButtonPrimitive>
+
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
                                     menuItem={!isLayoutNavCollapsed}
@@ -407,7 +427,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     iconOnly={isLayoutNavCollapsed}
                                 >
-                                    <span className={`${isLayoutNavCollapsed ? 'size-5' : ''}`}>
+                                    <span>
                                         <SidePanelActivationIcon size={16} />
                                     </span>
                                     {!isLayoutNavCollapsed && 'Quick start'}
@@ -429,11 +449,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-toolbar"
                             >
-                                <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
-                                        isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                    }`}
-                                >
+                                <span className="flex text-tertiary group-hover:text-primary">
                                     <IconToolbar />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Toolbar'}
@@ -454,11 +470,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-settings"
                             >
-                                <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
-                                        isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                    }`}
-                                >
+                                <span className="flex text-tertiary group-hover:text-primary">
                                     <IconGear />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}
@@ -476,7 +488,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         iconOnly={isLayoutNavCollapsed}
                                         data-attr="menu-item-me"
                                     >
-                                        <ProfilePicture user={user} size={isLayoutNavCollapsed ? 'md' : 'xs'} />
+                                        <ProfilePicture user={user} size="xs" />
                                         {!isLayoutNavCollapsed && (
                                             <>
                                                 {user?.first_name ? (

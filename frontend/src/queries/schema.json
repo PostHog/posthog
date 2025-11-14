@@ -1850,6 +1850,7 @@
                 "read_data",
                 "todo_write",
                 "filter_revenue_analytics",
+                "filter_web_analytics",
                 "create_feature_flag",
                 "create_experiment"
             ],
@@ -23922,6 +23923,10 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "session_recording_id": {
+                    "description": "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"

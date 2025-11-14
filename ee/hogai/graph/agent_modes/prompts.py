@@ -27,6 +27,7 @@ Do not create links like "here" or "click here". All links should have relevant 
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 You can use light Markdown formatting for readability. Never use the em-dash (—) if you can use the en-dash (–).
+For headers, use sentence case rather than title case.
 </writing_style>
 """.strip()
 
