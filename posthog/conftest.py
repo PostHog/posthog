@@ -203,51 +203,44 @@ def run_persons_sqlx_migrations():
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
-    # Drop FK constraints that reference posthog_person to allow dual-table migration
     from django.db import connection
 
-    with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            # Drop all FK constraints pointing to posthog_person, regardless of naming convention
-            # This is needed because:
-            # 1. Django creates FKs with hash suffix: posthog_persondistin_person_id_5d655bba_fk_posthog_p
-            # 2. sqlx migration tries to drop: posthog_persondistinctid_person_id_fkey
-            # 3. Mismatch means FK remains and blocks dual-table writes
-            cursor.execute("""
-                DO $$
-                DECLARE r RECORD;
-                BEGIN
-                    -- Only drop if posthog_person table exists
-                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'posthog_person') THEN
-                        FOR r IN
-                            SELECT conname, conrelid::regclass AS table_name
-                            FROM pg_constraint
-                            WHERE contype = 'f'
-                            AND confrelid = 'posthog_person'::regclass
-                        LOOP
-                            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', r.table_name, r.conname);
-                        END LOOP;
-                    END IF;
-                END $$;
-            """)
-
-    # Drop identity from posthog_person.id before sqlx migrations run
-    # This prevents per-partition sequences when LIKE INCLUDING DEFAULTS copies the schema
-    # Production doesn't have identity on posthog_person.id, but test DB does from Django migrations
+    # Drop all Django-created tables that sqlx manages
+    # This gives us a clear slate - sqlx will recreate them fresh
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             cursor.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'posthog_person') THEN
-                        ALTER TABLE posthog_person
-                        ALTER COLUMN id DROP IDENTITY IF EXISTS;
-                    END IF;
-                END $$;
+                DROP TABLE IF EXISTS posthog_person CASCADE;
+                DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+                DROP TABLE IF EXISTS posthog_group CASCADE;
+                DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
             """)
 
-    # Run sqlx migrations to create posthog_person_new and related tables
+    # Run sqlx migrations to create all person/cohort/group tables fresh
     run_persons_sqlx_migrations()
+
+    # Close all database connections to force Django to reconnect
+    # This ensures Django sees the newly created tables
+    from django.db import connections
+
+    for conn in connections.all():
+        conn.close()
+
+    # Ensure posthog_person_new has proper id sequence defaults
+    # This fixes cases where Django explicitly passes NULL for id column
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
+                ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
+            """)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -346,9 +339,28 @@ def pytest_sessionstart():
     """
     A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
     no longer managed by django
+
+    EXCEPT: Don't manage tables that sqlx manages - these are handled in django_db_setup fixture
     """
     from django.apps import apps
 
+    # Tables that sqlx manages - keep these unmanaged
+    SQLX_MANAGED_MODELS = {
+        "person",
+        "persondistinctid",
+        "personlessdistinctid",
+        "personoverridemapping",
+        "personoverride",
+        "pendingpersonoverride",
+        "flatpersonoverride",
+        "featureflaghashkeyoverride",
+        "cohortpeople",
+        "group",
+        "grouptypemapping",
+    }
+
     unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
     for m in unmanaged_models:
-        m._meta.managed = True
+        # Keep sqlx-managed models unmanaged
+        if m._meta.model_name.lower() not in SQLX_MANAGED_MODELS:
+            m._meta.managed = True

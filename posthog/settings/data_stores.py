@@ -140,7 +140,11 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
-    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+    # Only register PersonDBRouter in non-test mode
+    # In tests, Person operations naturally use default database without routing
+    # conftest.py creates posthog_person_new in default test DB
+    if not TEST:
+        DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
