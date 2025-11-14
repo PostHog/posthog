@@ -153,6 +153,8 @@ def run_persons_sqlx_migrations():
     person model migration. Mirrors production migrations in rust/persons_migrations/.
     """
     # Build database URL from Django test database settings
+    # pytest-django mutates settings.DATABASES["default"]["NAME"] to add "test_" prefix
+    # before this runs, so we correctly get "test_posthog" not "posthog"
     db_config = settings.DATABASES["default"]
     db_name = db_config["NAME"]
     db_user = db_config["USER"]
@@ -227,7 +229,13 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                 -- Clear sqlx migration tracking so sqlx knows to recreate these tables
                 -- when database is reused (--reuse-db). Without this, sqlx sees migrations
                 -- as already applied and skips recreating the dropped tables.
-                DELETE FROM _sqlx_migrations;
+                -- Only delete if table exists (first run it won't exist yet).
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = '_sqlx_migrations') THEN
+                        DELETE FROM _sqlx_migrations;
+                    END IF;
+                END $$;
             """)
 
     # Run sqlx migrations to create all person/cohort/group tables fresh
