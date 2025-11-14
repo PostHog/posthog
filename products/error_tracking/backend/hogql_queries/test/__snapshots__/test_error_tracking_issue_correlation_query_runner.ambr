@@ -21,13 +21,13 @@
         GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))))
   SELECT event AS event,
   
-    (SELECT ids AS ids
+    (SELECT issues.ids AS ids
      FROM issues) AS issue_ids,
   
-    (SELECT last_seen_timestamps AS last_seen_timestamps
+    (SELECT issues.last_seen_timestamps AS last_seen_timestamps
      FROM issues) AS issue_last_seen_timestamps,
   
-    (SELECT libraries AS libraries
+    (SELECT issues.libraries AS libraries
      FROM issues) AS issue_libraries,
          sumForEach(both) AS both,
          sumForEach(success_only) AS success_only,
@@ -47,7 +47,7 @@
                                                   and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
                minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), isNull(x)
                                                   and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
-                                     (SELECT ids AS ids
+                                     (SELECT issues.ids AS ids
                                       FROM issues))) AS earliest_exceptions
         FROM events
         LEFT OUTER JOIN
