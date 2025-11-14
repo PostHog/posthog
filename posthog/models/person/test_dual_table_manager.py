@@ -326,3 +326,170 @@ class TestDualTablePersonManager(BaseTest):
         """Test get_persons_by_distinct_ids() returns empty list when no persons found."""
         persons = get_persons_by_distinct_ids(self.team.id, ["nonexistent_distinct_id"])
         self.assertEqual(len(persons), 0)
+
+    # Test exclude() method
+    def test_exclude_returns_persons_not_matching_filter(self):
+        """Test .exclude() returns UNION of persons not matching filter from both tables."""
+        # Exclude person with id=100, should get 2 persons (200 and new person)
+        persons = Person.objects.exclude(id=100)
+        person_ids = {p.id for p in persons}
+        self.assertEqual(len(persons), 2)
+        self.assertIn(200, person_ids)
+        self.assertIn(PERSON_ID_CUTOFF + 100, person_ids)
+        self.assertNotIn(100, person_ids)
+
+    def test_exclude_with_team_filter(self):
+        """Test .exclude() with team_id filter works on both tables."""
+        # Create person in different team
+        other_team = Team.objects.create(organization=self.organization)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_person (id, team_id, uuid, properties, created_at, is_identified)
+                VALUES (999, %s, %s, %s, NOW(), false)
+                """,
+                [other_team.id, str(uuid.uuid4()), '{"name": "other_team"}'],
+            )
+
+        try:
+            # Exclude old person, but filter by team - should only affect self.team persons
+            persons = Person.objects.filter(team_id=self.team.id).exclude(id=100)
+            person_ids = {p.id for p in persons}
+            self.assertEqual(len(persons), 2)
+            self.assertIn(200, person_ids)
+            self.assertIn(PERSON_ID_CUTOFF + 100, person_ids)
+            self.assertNotIn(100, person_ids)
+            self.assertNotIn(999, person_ids)  # Different team, not included
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM posthog_person WHERE id = 999")
+
+    # Test filter_by_cohort() method
+    def test_filter_by_cohort_finds_persons_in_old_table(self):
+        """Test filter_by_cohort() finds persons in old table."""
+        from posthog.models.cohort import Cohort, CohortPeople
+
+        # Create cohort
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+
+        # Add person from old table to cohort
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=100)
+
+        try:
+            persons = Person.objects.filter_by_cohort(cohort.id)
+            self.assertEqual(len(persons), 1)
+            self.assertEqual(persons[0].id, 100)
+            self.assertEqual(str(persons[0].uuid), str(self.old_person_uuid))
+        finally:
+            CohortPeople.objects.filter(cohort_id=cohort.id).delete()
+            cohort.delete()
+
+    def test_filter_by_cohort_finds_persons_in_new_table(self):
+        """Test filter_by_cohort() finds persons in new table."""
+        from posthog.models.cohort import Cohort, CohortPeople
+
+        # Create cohort
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort New")
+
+        # Add person from new table to cohort
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=PERSON_ID_CUTOFF + 100)
+
+        try:
+            persons = Person.objects.filter_by_cohort(cohort.id)
+            self.assertEqual(len(persons), 1)
+            self.assertEqual(persons[0].id, PERSON_ID_CUTOFF + 100)
+            self.assertEqual(str(persons[0].uuid), str(self.new_person_uuid))
+        finally:
+            CohortPeople.objects.filter(cohort_id=cohort.id).delete()
+            cohort.delete()
+
+    def test_filter_by_cohort_finds_persons_in_both_tables(self):
+        """Test filter_by_cohort() finds persons from both old and new tables."""
+        from posthog.models.cohort import Cohort, CohortPeople
+
+        # Create cohort
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort Mixed")
+
+        # Add persons from both tables to cohort
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=100)
+        CohortPeople.objects.create(cohort_id=cohort.id, person_id=PERSON_ID_CUTOFF + 100)
+
+        try:
+            persons = Person.objects.filter_by_cohort(cohort.id)
+            person_ids = {p.id for p in persons}
+            self.assertEqual(len(persons), 2)
+            self.assertIn(100, person_ids)
+            self.assertIn(PERSON_ID_CUTOFF + 100, person_ids)
+        finally:
+            CohortPeople.objects.filter(cohort_id=cohort.id).delete()
+            cohort.delete()
+
+    def test_filter_by_cohort_returns_empty_for_empty_cohort(self):
+        """Test filter_by_cohort() returns empty list for cohort with no persons."""
+        from posthog.models.cohort import Cohort
+
+        # Create empty cohort
+        cohort = Cohort.objects.create(team=self.team, name="Empty Cohort")
+
+        try:
+            persons = Person.objects.filter_by_cohort(cohort.id)
+            self.assertEqual(len(persons), 0)
+        finally:
+            cohort.delete()
+
+    # Test get_by_distinct_id() method
+    def test_get_by_distinct_id_finds_person_in_old_table(self):
+        """Test get_by_distinct_id() finds person in old table."""
+        # Create distinct ID for old person
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="old_distinct_id")
+
+        try:
+            person = Person.objects.get_by_distinct_id(self.team.id, "old_distinct_id")
+            self.assertIsNotNone(person)
+            self.assertEqual(person.id, 100)
+            self.assertEqual(str(person.uuid), str(self.old_person_uuid))
+        finally:
+            PersonDistinctId.objects.filter(distinct_id="old_distinct_id").delete()
+
+    def test_get_by_distinct_id_finds_person_in_new_table(self):
+        """Test get_by_distinct_id() finds person in new table."""
+        # Create distinct ID for new person using raw SQL (FK constraint)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (person_id, team_id, distinct_id)
+                VALUES (%s, %s, %s)
+                """,
+                [PERSON_ID_CUTOFF + 100, self.team.id, "new_distinct_id"],
+            )
+
+        try:
+            person = Person.objects.get_by_distinct_id(self.team.id, "new_distinct_id")
+            self.assertIsNotNone(person)
+            self.assertEqual(person.id, PERSON_ID_CUTOFF + 100)
+            self.assertEqual(str(person.uuid), str(self.new_person_uuid))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM posthog_persondistinctid WHERE distinct_id = %s", ["new_distinct_id"])
+
+    def test_get_by_distinct_id_raises_does_not_exist(self):
+        """Test get_by_distinct_id() raises Person.DoesNotExist when not found."""
+        with self.assertRaises(Person.DoesNotExist) as cm:
+            Person.objects.get_by_distinct_id(self.team.id, "nonexistent_distinct_id")
+
+        self.assertIn("No Person found with distinct_id=nonexistent_distinct_id", str(cm.exception))
+
+    def test_get_by_distinct_id_replaces_reverse_fk_pattern(self):
+        """Test get_by_distinct_id() replaces Person.objects.get(persondistinctid__distinct_id=...)"""
+        # Create distinct ID for old person
+        PersonDistinctId.objects.create(person_id=100, team_id=self.team.id, distinct_id="test_pattern")
+
+        try:
+            # New pattern using helper
+            person = Person.objects.get_by_distinct_id(self.team.id, "test_pattern")
+
+            # Verify it works the same as the old pattern would have
+            self.assertEqual(person.id, 100)
+            self.assertEqual(person.team_id, self.team.id)
+        finally:
+            PersonDistinctId.objects.filter(distinct_id="test_pattern").delete()

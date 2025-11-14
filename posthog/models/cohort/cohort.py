@@ -528,11 +528,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
+                # Dual-table support: Query PersonOld directly since this code
+                # extracts raw SQL and hardcodes posthog_person table name.
+                # TODO: Update to handle both tables after migration complete.
+                from posthog.models.person import PersonOld
+
+                existing_person_ids = CohortPeople.objects.filter(cohort_id=self.id).values_list("person_id", flat=True)
                 persons_query = (
-                    Person.objects.db_manager(db_read)
+                    PersonOld.objects.db_manager(db_read)
                     .filter(team_id=team_id)
                     .filter(uuid__in=batch)
-                    .exclude(cohort__id=self.id)
+                    .exclude(id__in=existing_person_ids)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(

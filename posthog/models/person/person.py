@@ -199,6 +199,56 @@ class DualPersonManager(models.Manager):
                 return PersonNew.objects.db_manager(db).filter(team_id=team_id, id=person_id)
             return qs
 
+    def exclude(self, *args, **kwargs):
+        """Exclude across both tables, returning list of Person instances.
+
+        Note: Returns a list, not a QuerySet, for same reasons as filter().
+        """
+        old_qs = PersonOld.objects.exclude(*args, **kwargs)
+        new_qs = PersonNew.objects.exclude(*args, **kwargs)
+        union_qs = old_qs.union(new_qs)
+
+        # Cast instances to Person type
+        results = []
+        for instance in union_qs:
+            instance.__class__ = Person
+            results.append(instance)
+        return results
+
+    def filter_by_cohort(self, cohort_id: int):
+        """Get persons in a cohort, dual-table aware.
+
+        Replaces pattern: Person.objects.filter(cohort__id=cohort_id)
+        which uses reverse FK lookup that doesn't work with dual tables.
+
+        Args:
+            cohort_id: The cohort ID to filter by
+
+        Returns:
+            List of Person instances in the cohort (from both tables)
+        """
+        from posthog.models.cohort import CohortPeople
+
+        person_ids = CohortPeople.objects.filter(cohort_id=cohort_id).values_list("person_id", flat=True)
+        return self.filter(id__in=person_ids)
+
+    def exclude_cohort(self, cohort_id: int):
+        """Exclude persons in a cohort, dual-table aware.
+
+        Replaces pattern: Person.objects.exclude(cohort__id=cohort_id)
+        which uses reverse FK lookup that doesn't work with dual tables.
+
+        Args:
+            cohort_id: The cohort ID to exclude
+
+        Returns:
+            List of Person instances NOT in the cohort (from both tables)
+        """
+        from posthog.models.cohort import CohortPeople
+
+        person_ids = CohortPeople.objects.filter(cohort_id=cohort_id).values_list("person_id", flat=True)
+        return self.exclude(id__in=person_ids)
+
     def get_by_uuid(self, team_id: int, uuid: str):
         """Get person by UUID, trying new table first then falling back to old."""
         person = PersonNew.objects.filter(team_id=team_id, uuid=uuid).first()
@@ -208,6 +258,31 @@ class DualPersonManager(models.Manager):
         if person:
             person.__class__ = Person
         return person
+
+    def get_by_distinct_id(self, team_id: int, distinct_id: str):
+        """Get person by distinct_id, dual-table aware.
+
+        Replaces pattern: Person.objects.get(persondistinctid__distinct_id=...)
+        which uses reverse FK lookup that doesn't work with dual tables.
+
+        Args:
+            team_id: Team ID to filter by
+            distinct_id: The distinct_id to look up
+
+        Returns:
+            Person instance if found, None if not found
+
+        Raises:
+            Person.DoesNotExist: If no person found for this distinct_id
+        """
+        from posthog.models.person import PersonDistinctId
+
+        pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+        if not pdi:
+            raise Person.DoesNotExist(f"No Person found with distinct_id={distinct_id}")
+
+        # Use get_by_id which handles dual-table routing
+        return self.get_by_id(pdi.person_id, team_id=team_id)
 
 
 class PersonManager(models.Manager):
