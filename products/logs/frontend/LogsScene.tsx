@@ -55,7 +55,7 @@ export function LogsScene(): JSX.Element {
     const {
         wrapBody,
         prettifyJson,
-        pinnedLogs,
+        pinnedParsedLogs,
         parsedLogs,
         sparklineData,
         logsLoading,
@@ -133,10 +133,10 @@ export function LogsScene(): JSX.Element {
                     <div className="pb-2">
                         <DisplayOptions />
                     </div>
-                    {pinnedLogs.length > 0 && (
-                        <div className="mt-2 border rounded-t bg-bg-light shadow-sm">
+                    {pinnedParsedLogs.length > 0 && (
+                        <div className="border rounded-t bg-bg-light shadow-sm">
                             <LogsTable
-                                dataSource={pinnedLogs}
+                                dataSource={pinnedParsedLogs}
                                 loading={false}
                                 isPinned={isPinned}
                                 wrapBody={wrapBody}
@@ -146,9 +146,9 @@ export function LogsScene(): JSX.Element {
                         </div>
                     )}
                 </div>
-                <div className={cn('flex-1 border bg-bg-light', pinnedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
                     <LogsTable
-                        showHeader={!pinnedLogs.length}
+                        showHeader={!pinnedParsedLogs.length}
                         dataSource={parsedLogs}
                         loading={logsLoading}
                         isPinned={isPinned}
@@ -228,7 +228,7 @@ function LogsTable({
                     title: 'Timestamp',
                     key: 'timestamp',
                     dataIndex: 'timestamp',
-                    width: 0,
+                    width: 180,
                     render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
                 },
                 {

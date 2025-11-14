@@ -115,6 +115,8 @@ export const logsLogic = kea<logsLogicType>([
             operator,
         }),
         togglePinLog: (logId: string) => ({ logId }),
+        pinLog: (log: LogMessage) => ({ log }),
+        unpinLog: (logId: string) => ({ logId }),
     }),
 
     reducers({
@@ -227,17 +229,12 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
-        pinnedLogIds: [
-            [] as string[],
+        pinnedLogs: [
+            [] as LogMessage[],
             { persist: true },
             {
-                togglePinLog: (state, { logId }) => {
-                    const index = state.indexOf(logId)
-                    if (index >= 0) {
-                        return state.filter((id) => id !== logId)
-                    }
-                    return [...state, logId]
-                },
+                pinLog: (state, { log }) => [...state, log],
+                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
     }),
@@ -329,15 +326,24 @@ export const logsLogic = kea<logsLogicType>([
                 })
             },
         ],
-        pinnedLogs: [
-            (s) => [s.parsedLogs, s.pinnedLogIds],
-            (parsedLogs: ParsedLogMessage[], pinnedLogIds: string[]): ParsedLogMessage[] => {
-                return parsedLogs.filter((log) => pinnedLogIds.includes(log.uuid))
+        pinnedParsedLogs: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
+                return pinnedLogs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
             },
         ],
         isPinned: [
-            (s) => [s.pinnedLogIds],
-            (pinnedLogIds: string[]) => (logId: string) => pinnedLogIds.includes(logId),
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
         sparklineData: [
             (s) => [s.sparkline],
@@ -444,6 +450,17 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+        },
+        togglePinLog: ({ logId }) => {
+            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
+            if (isPinned) {
+                actions.unpinLog(logId)
+            } else {
+                const logToPin = values.logs.find((log) => log.uuid === logId)
+                if (logToPin) {
+                    actions.pinLog(logToPin)
+                }
+            }
         },
     })),
 ])
