@@ -209,14 +209,31 @@
   WHERE lc_cohort_id = 99999
     AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type IN ('QueryFinish',
-                 'ExceptionWhileProcessing')
     AND event_date >= 'today'
     AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestFormula.test_breakdown_cohort.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -226,7 +243,7 @@
     AND version = 0
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.2
+# name: TestFormula.test_breakdown_cohort.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -269,7 +286,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.3
+# name: TestFormula.test_breakdown_cohort.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -312,7 +329,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.4
+# name: TestFormula.test_breakdown_cohort.5
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -365,7 +382,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.5
+# name: TestFormula.test_breakdown_cohort.6
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
