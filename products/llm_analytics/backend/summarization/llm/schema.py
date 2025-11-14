@@ -12,7 +12,7 @@ class SummaryBullet(BaseModel):
 
     text: str = Field(description="The bullet point text")
     line_refs: str = Field(
-        description="Line reference(s) like 'L45', ranges like 'L45-52', or comma-separated like 'L13-19, L553-555'"
+        description="Single line reference like 'L45' pointing to the most relevant line for this bullet"
     )
 
 
@@ -23,7 +23,7 @@ class InterestingNote(BaseModel):
 
     text: str = Field(description="The note text")
     line_refs: str = Field(
-        description="Line reference(s) like 'L45', ranges like 'L45-52', or comma-separated like 'L13-19, L553-555'. Use empty string if no line refs."
+        description="Single line reference like 'L45' pointing to the most relevant line, or empty string if no specific line"
     )
 
 
