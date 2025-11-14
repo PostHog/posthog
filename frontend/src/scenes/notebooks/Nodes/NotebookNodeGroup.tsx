@@ -17,9 +17,14 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
-    const { id, groupTypeIndex, title } = attributes
-
-    const { groupData, groupDataLoading, groupTypeName } = useValues(groupLogic)
+    const { id, groupTypeIndex, tabId, title } = attributes
+    const { groupData, groupDataLoading, groupTypeName } = useValues(
+        groupLogic({
+            groupKey: id,
+            groupTypeIndex,
+            tabId,
+        })
+    )
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
@@ -93,6 +98,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
 type NotebookNodeGroupAttributes = {
     id: string
     groupTypeIndex: number
+    tabId?: string
     placement?: string
 }
 
@@ -108,6 +114,7 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
     attributes: {
         id: {},
         groupTypeIndex: {},
+        tabId: {},
         placement: {},
     },
     pasteOptions: {
