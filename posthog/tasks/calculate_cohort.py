@@ -513,12 +513,13 @@ def collect_cohort_query_stats(
             history.save(update_fields=update_fields)
         else:
             logger.warning(
-                "No query stats found for cohort calculation",
+                "No query stats found for cohort calculation, will retry",
                 tag_matcher=tag_matcher,
                 cohort_id=cohort_id,
                 history_id=history_id,
             )
-            raise Exception("No query stats found for cohort calculation")
+            # Retry the task - this will use the retry_backoff configuration
+            raise collect_cohort_query_stats.retry(countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS)
 
         # Collect observability metrics based on the calculation result
         # This runs even if the worker OOM'd, since this task was scheduled before the calculation
