@@ -12,7 +12,7 @@ from dags.common import JobOwners
 class PersonsNewBackfillConfig(dagster.Config):
     """Configuration for the persons new backfill job."""
 
-    chunk_size: int = 1_000_000  # ID range per chunk
+    chunk_size: int = 10_000_000  # ID range per chunk
     batch_size: int = 100_000  # Records per batch insert
     source_table: str = "posthog_persons"
     destination_table: str = "posthog_persons_new"
@@ -305,7 +305,7 @@ def copy_chunk(
 
 @dagster.job(
     tags={"owner": JobOwners.TEAM_INGESTION.value},
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 32}),
 )
 def persons_new_backfill_job():
     """
