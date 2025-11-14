@@ -553,6 +553,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportHeatmapsToggled: (heatmaps_opt_in: boolean) => ({ heatmaps_opt_in }),
+        reportActivityLogSettingToggled: (receive_org_level_activity_logs: boolean | null) => ({
+            receive_org_level_activity_logs,
+        }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
@@ -596,6 +599,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
+            useCase,
+            recommendedProducts,
+        }),
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
         reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
@@ -1240,6 +1247,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 heatmaps_opt_in,
             })
         },
+        reportActivityLogSettingToggled: ({ receive_org_level_activity_logs }) => {
+            posthog.capture('activity log org level setting toggled', {
+                receive_org_level_activity_logs,
+            })
+        },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
@@ -1435,6 +1447,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSubscribedDuringOnboarding: ({ productKey }) => {
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
+            })
+        },
+        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
+            posthog.capture('onboarding use case selected', {
+                use_case: useCase,
+                recommended_products: recommendedProducts,
             })
         },
         reportSDKSelected: ({ sdk }) => {

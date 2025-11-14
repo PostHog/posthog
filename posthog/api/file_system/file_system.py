@@ -169,6 +169,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
                 token = token[1:-1]
 
+            if not token:
+                continue
+
             # field-qualified token?
             if ":" in token:
                 field, value = token.split(":", 1)
@@ -224,8 +227,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         q = Q(type=value)
                 elif field == "ref":
                     q = Q(ref=value)
-                else:  # unknown prefix → search for the full token in path
-                    q = Q(path__icontains=token)
+                else:  # unknown prefix → search for the full token in path and type
+                    q = Q(path__icontains=token) | Q(type__icontains=token)
             elif "/" in token:
                 # ────────────────────────────────────────────────────────────
                 # Plain free-text token
@@ -241,10 +244,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # ────────────────────────────────────────────────────────────
                 sep_pattern = r"(?:/|\\/)"
                 regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
-                q = Q(path__iregex=regex)
+                q = Q(path__iregex=regex) | Q(type__iregex=regex)
             else:
-                # plain free-text token: search in path
-                q = Q(path__icontains=token)
+                # plain free-text token: search in path or type
+                q = Q(path__icontains=token) | Q(type__icontains=token)
 
             combined_q &= ~q if negated else q
 

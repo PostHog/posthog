@@ -1,11 +1,9 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantFunnelsQuery, AssistantMessage
+from posthog.schema import AssistantFunnelsQuery
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -20,12 +18,8 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
     OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
     OUTPUT_SCHEMA = FUNNEL_SCHEMA
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.FUNNEL_GENERATOR
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        self.dispatcher.message(AssistantMessage(content="Creating funnel query"))
+        self.dispatcher.update("Creating funnel query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", FUNNEL_SYSTEM_PROMPT),
@@ -36,6 +30,4 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
 
 
 class FunnelGeneratorToolsNode(SchemaGeneratorToolsNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.FUNNEL_GENERATOR_TOOLS
+    pass

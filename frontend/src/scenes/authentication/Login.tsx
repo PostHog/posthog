@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -16,6 +17,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { LoginMethod } from '~/types'
 
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
@@ -55,6 +58,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     sso_enforced: "Please log in with your organization's required SSO method.",
 }
 
+const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
+
 export const scene: SceneExport = {
     component: Login,
     logic: loginLogic,
@@ -78,6 +83,8 @@ export function Login(): JSX.Element {
     const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+
+    const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -181,6 +188,7 @@ export function Login(): JSX.Element {
                                         passwordInputRef.current?.focus()
                                     }
                                 }}
+                                badgeText={lastLoginMethod === 'password' ? 'Last used' : undefined}
                             />
                         </LemonField>
                         <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
@@ -234,12 +242,20 @@ export function Login(): JSX.Element {
 
                         {/* Show enforced SSO button if required */}
                         {precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                            <SSOEnforcedLoginButton
+                                provider={precheckResponse.sso_enforcement}
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
+                            />
                         )}
 
                         {/* Show optional SAML SSO button if available */}
                         {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton provider="saml" email={login.email} />
+                            <SSOEnforcedLoginButton
+                                provider="saml"
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === 'saml'}
+                            />
                         )}
                     </Form>
                 )}
@@ -252,7 +268,7 @@ export function Login(): JSX.Element {
                     </div>
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons caption="Or log in with" topDivider />
+                    <SocialLoginButtons caption="Or log in with" topDivider lastUsedProvider={lastLoginMethod} />
                 )}
             </div>
         </BridgePage>

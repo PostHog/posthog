@@ -1,9 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { LemonDialog, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { MailHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -225,8 +228,23 @@ export function WorkflowsTable(): JSX.Element {
         },
     ]
 
+    const showProductIntroduction = !workflowsLoading && workflows.length === 0
+
     return (
         <div className="workflows-section">
+            {showProductIntroduction && (
+                <ProductIntroduction
+                    productName="Workflow"
+                    thingName="workflow"
+                    description="Create workflows that automate actions or send messages to your users."
+                    docsURL="https://posthog.com/docs/workflows/start-here"
+                    action={() => {
+                        router.actions.push(urls.workflowNew())
+                    }}
+                    customHog={MailHog}
+                    isEmpty
+                />
+            )}
             <LemonTable
                 dataSource={workflows}
                 loading={workflowsLoading}

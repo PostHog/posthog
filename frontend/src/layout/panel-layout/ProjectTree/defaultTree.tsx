@@ -32,6 +32,7 @@ import {
     IconRetention,
     IconRewindPlay,
     IconRocket,
+    IconSearch,
     IconServer,
     IconStickiness,
     IconToggle,
@@ -167,6 +168,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     notebook: {
         icon: <IconNotebook />,
     },
+    live_debugger: {
+        icon: <IconBug />,
+    },
     action: {
         icon: <IconCursor />,
     },
@@ -240,6 +244,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     chat: {
         icon: <IconFeatures />,
+    },
+    search: {
+        icon: <IconSearch />,
     },
 }
 

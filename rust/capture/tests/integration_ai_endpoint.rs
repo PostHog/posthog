@@ -166,10 +166,10 @@ fn setup_ai_test_router() -> Router {
         25 * 1024 * 1024,
         false,
         1_i64,
-        None,
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
+        Some(10),   // request_timeout_seconds
     )
 }
 
@@ -1488,10 +1488,10 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         25 * 1024 * 1024,
         false,
         1_i64,
-        None,
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
+        Some(10),   // request_timeout_seconds
     );
 
     (router, sink_clone)

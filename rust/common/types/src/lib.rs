@@ -4,6 +4,7 @@ mod formats;
 mod group;
 mod person;
 mod team;
+pub mod timestamp;
 
 // Events
 pub use event::CapturedEvent;

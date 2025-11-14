@@ -1,7 +1,10 @@
 import uuid
+from datetime import datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.conf import settings
 
 from rest_framework import status
 
@@ -36,6 +39,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(self.evaluation.id),
                 "target_event_id": target_event_id,
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
@@ -52,7 +56,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
 
         assert call_args[0][0] == "run-evaluation"  # workflow name
-        assert call_args[1]["task_queue"] == "general-purpose-task-queue"
+        assert call_args[1]["task_queue"] == settings.GENERAL_PURPOSE_TASK_QUEUE
 
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""
@@ -61,6 +65,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(uuid.uuid4()),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
@@ -95,6 +100,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(other_evaluation.id),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 

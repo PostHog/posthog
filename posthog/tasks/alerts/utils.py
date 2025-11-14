@@ -182,7 +182,7 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         for target in email_targets:
             message.add_recipient(email=target)
 
-        logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
+        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
 
     trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})

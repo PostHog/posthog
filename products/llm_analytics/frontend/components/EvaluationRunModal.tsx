@@ -9,10 +9,16 @@ import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 interface EvaluationRunModalProps {
     visible: boolean
     targetEventId: string
+    timestamp: string
     onClose: () => void
 }
 
-export function EvaluationRunModal({ visible, targetEventId, onClose }: EvaluationRunModalProps): JSX.Element {
+export function EvaluationRunModal({
+    visible,
+    targetEventId,
+    timestamp,
+    onClose,
+}: EvaluationRunModalProps): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
@@ -21,7 +27,7 @@ export function EvaluationRunModal({ visible, targetEventId, onClose }: Evaluati
 
     const handleRun = (): void => {
         if (selectedEvaluationId) {
-            runEvaluation(selectedEvaluationId, targetEventId)
+            runEvaluation(selectedEvaluationId, targetEventId, timestamp)
             onClose()
         }
     }

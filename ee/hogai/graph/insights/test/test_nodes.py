@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.models import Insight, InsightViewed
 
-from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode
+from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
@@ -114,11 +114,6 @@ class TestInsightSearchNode(BaseTest):
             derived_name=insight.derived_name,
             short_id=insight.short_id,
         )
-
-    def test_router_returns_root(self):
-        """Test that router returns 'root' as expected."""
-        result = self.node.router(AssistantState(messages=[]))
-        self.assertEqual(result, "root")
 
     async def test_load_insights_page(self):
         """Test loading paginated insights from database."""
@@ -271,7 +266,7 @@ class TestInsightSearchNode(BaseTest):
 
                 # Note: Additional visualization messages depend on query type support in test data
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     def test_search_insights_iteratively_single_page(self, mock_openai):
         """Test iterative search with single page (no pagination)."""
 
@@ -301,7 +296,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(self.insight1.id, result)
         self.assertIn(self.insight2.id, result)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     def test_search_insights_iteratively_with_pagination(self, mock_openai):
         """Test iterative search with pagination returns valid IDs."""
 
@@ -331,7 +326,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn(existing_insight_ids[0], result)
         self.assertIn(existing_insight_ids[1], result)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
         """Test iterative search when LLM fails - should return empty list."""
 
@@ -349,12 +344,6 @@ class TestInsightSearchNode(BaseTest):
         result = asyncio.run(async_test())
         # Should return empty list when LLM fails to select anything
         self.assertEqual(len(result), 0)
-
-    def test_router_always_returns_root(self):
-        """Test that router always returns 'root'."""
-        state = AssistantState(messages=[], root_tool_insight_plan="some plan", search_insights_query=None)
-        result = self.node.router(state)
-        self.assertEqual(result, "root")
 
     async def test_evaluation_flow_returns_creation_when_no_suitable_insights(self):
         """Test that when evaluation returns NO, the system transitions to creation flow."""
@@ -409,21 +398,6 @@ class TestInsightSearchNode(BaseTest):
                             result.root_tool_insight_plan,
                             search_query,
                             "root_tool_insight_plan should be set to search_query",
-                        )
-
-                        # Test router behavior with the returned state
-                        # Create a new state that simulates what happens after this node runs
-                        post_evaluation_state = AssistantState(
-                            messages=state.messages,
-                            root_tool_insight_plan=search_query,  # This gets set to search_query
-                            search_insights_query=None,  # This gets cleared
-                        )
-
-                        router_result = self.node.router(post_evaluation_state)
-                        self.assertEqual(
-                            router_result,
-                            "root",
-                            "Router should always return root",
                         )
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
@@ -481,7 +455,7 @@ class TestInsightSearchNode(BaseTest):
                         self.assertIsNone(result.root_tool_call_id)
 
     def test_run_with_no_insights(self):
-        """Test arun method when no insights exist."""
+        """Test arun method when no insights exist - should raise NoInsightsException."""
         # Clear all insights (done outside async context)
         InsightViewed.objects.all().delete()
         Insight.objects.all().delete()
@@ -497,13 +471,10 @@ class TestInsightSearchNode(BaseTest):
         async def async_test():
             # Mock the database calls that happen in async context
             with patch.object(self.node, "_get_total_insights_count", return_value=0):
-                result = await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
-            return result
+                await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
 
-        result = asyncio.run(async_test())
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIn("No insights found in the database", result.messages[0].content)
+        with self.assertRaises(NoInsightsException):
+            asyncio.run(async_test())
 
     async def test_team_filtering(self):
         """Test that insights are filtered by team."""
@@ -615,7 +586,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(len(self.node._evaluation_selections), 0)
         self.assertEqual(self.node._rejection_reason, "None of these match the user's needs")
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_selection(self, mock_openai):
         """Test the new tool-based evaluation with insight selection."""
         # Load insights
@@ -691,7 +662,7 @@ class TestInsightSearchNode(BaseTest):
         query_info_empty = self.node._extract_query_metadata({})
         self.assertIsNone(query_info_empty)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     async def test_non_executable_insights_handling(self, mock_openai):
         """Test that non-executable insights are presented to LLM but rejected."""
         # Create a mock insight that can't be visualized
@@ -736,7 +707,7 @@ class TestInsightSearchNode(BaseTest):
             # The explanation should indicate why the insight was rejected
             self.assertTrue(len(result["explanation"]) > 0)
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_rejection(self, mock_openai):
         """Test the new tool-based evaluation with rejection."""
         # Load insights
@@ -766,7 +737,7 @@ class TestInsightSearchNode(BaseTest):
             result["explanation"], "User is looking for retention analysis, but these are trends and funnels"
         )
 
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    @patch("ee.hogai.graph.insights.nodes.MaxChatOpenAI")
     async def test_evaluate_insights_with_tools_multiple_selection(self, mock_openai):
         """Test the evaluation with multiple selection mode."""
         # Load insights

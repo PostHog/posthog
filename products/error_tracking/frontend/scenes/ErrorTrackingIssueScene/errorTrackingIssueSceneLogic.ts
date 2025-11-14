@@ -33,8 +33,6 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
-export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns'
-export type ErrorTrackingIssueSceneExceptionsCategory = 'all' | 'exception'
 
 export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
 
@@ -81,8 +79,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
-        setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
-        setExceptionsCategory: (category: ErrorTrackingIssueSceneExceptionsCategory) => ({ category }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -94,8 +91,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectedEvent: null as ErrorEventType | null,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
-        category: 'exceptions' as ErrorTrackingIssueSceneCategory,
-        exceptionsCategory: 'exception' as ErrorTrackingIssueSceneExceptionsCategory,
+        similarIssuesMaxDistance: 0.2 as number,
     }),
 
     reducers(({ values }) => ({
@@ -108,6 +104,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -124,12 +123,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
-        },
-        category: {
-            setCategory: (_, { category }) => category,
-        },
-        exceptionsCategory: {
-            setExceptionsCategory: (_, { category }) => category,
         },
     })),
 
@@ -191,7 +184,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return null
                 }
                 const initialEvent: ErrorEventType = {
+                    event: '$exception',
                     uuid: positionEvent.uuid,
+                    distinct_id: positionEvent.distinct_id,
                     timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
                     properties: JSON.parse(positionEvent.properties),
@@ -245,7 +240,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const query = errorTrackingSimilarIssuesQuery({
                         issueId: props.id,
                         limit: 10,
-                        maxDistance: 0.2,
+                        maxDistance: values.similarIssuesMaxDistance,
                     })
                     const response = await api.query(query, {
                         refresh: refresh ? 'force_blocking' : 'blocking',
@@ -366,6 +361,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                 }
+                if (mutationName === 'createIssueCohort') {
+                    actions.loadIssue()
+                }
+            },
+            setSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
             },
         }
     }),

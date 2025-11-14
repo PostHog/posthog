@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS posthog_errortrackingstackframe (
     resolved BOOLEAN NOT NULL,
     context JSONB,
     part INTEGER NOT NULL,
-    UNIQUE(raw_id, team_id)
+    UNIQUE(raw_id, team_id, part)
 );
 
 CREATE TABLE IF NOT EXISTS posthog_errortrackingissue (

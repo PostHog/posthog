@@ -26,7 +26,7 @@ export interface DnsRecord {
 export interface EmailSenderFormType {
     email: string
     name: string
-    provider: 'ses' | 'mailjet' | 'maildev'
+    provider: 'ses' | 'maildev'
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i

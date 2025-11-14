@@ -75,7 +75,8 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> created schema <strong>{displayName}</strong>
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created schema{' '}
+                        <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -83,7 +84,8 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created source <strong>{displayName}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created source{' '}
+                    <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -98,7 +100,8 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> deleted schema <strong>{displayName}</strong>
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted schema{' '}
+                        <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -106,7 +109,8 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted source <strong>{displayName}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted source{' '}
+                    <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -117,7 +121,8 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> updated schema <strong>{displayName}</strong>
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated schema{' '}
+                        <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -125,7 +130,8 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated source <strong>{displayName}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated source{' '}
+                    <strong>{displayName}</strong>
                 </>
             ),
         }

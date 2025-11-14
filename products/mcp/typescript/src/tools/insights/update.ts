@@ -1,13 +1,15 @@
+import type { z } from 'zod'
+
 import { InsightUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
+
 import { resolveInsightId } from './utils'
 
 const schema = InsightUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { insightId, data } = params
     const projectId = await context.stateManager.getProjectId()
 

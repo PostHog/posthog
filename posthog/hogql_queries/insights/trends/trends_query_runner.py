@@ -76,7 +76,8 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
-from posthog.warehouse.models.util import get_view_or_table_by_name
+
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -664,7 +665,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @property
     def exact_timerange(self):
-        return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        return (self.query.dateRange and self.query.dateRange.explicitDate) or (
+            self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        )
 
     @cached_property
     def _earliest_timestamp(self) -> datetime | None:

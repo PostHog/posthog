@@ -24,7 +24,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { isUniversalFilters } from '../utils'
@@ -177,7 +176,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         ) : undefined
                     }
                 />
-                <SceneDivider />
 
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}

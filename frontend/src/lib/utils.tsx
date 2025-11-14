@@ -217,6 +217,21 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
+export function getOrdinalSuffix(num: number): string {
+    const j = num % 10
+    const k = num % 100
+    if (j === 1 && k !== 11) {
+        return 'st'
+    }
+    if (j === 2 && k !== 12) {
+        return 'nd'
+    }
+    if (j === 3 && k !== 13) {
+        return 'rd'
+    }
+    return 'th'
+}
+
 export function fullName(props?: { first_name?: string; last_name?: string }): string {
     if (!props) {
         return 'Unknown User'
@@ -303,9 +318,9 @@ export const featureFlagOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: '= Exactly',
-    gte: '≥ At least',
-    lte: '≤ At most (but at least once)',
+    exact: '= exactly',
+    gte: '≥ at least',
+    lte: '≤ at most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
@@ -1054,11 +1069,10 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
-        key: 'Previous month',
+        key: 'Last month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {

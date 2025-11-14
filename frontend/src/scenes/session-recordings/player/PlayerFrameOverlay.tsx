@@ -106,6 +106,9 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
+    if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
+        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
+    }
     return content ? (
         <div
             className={cn(

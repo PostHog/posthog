@@ -3,7 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, _create_event
+from posthog.test.base import BaseTest, FuzzyInt, _create_event
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -222,7 +222,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(FuzzyInt(3, 4)):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()

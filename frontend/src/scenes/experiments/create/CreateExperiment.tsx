@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
 import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
@@ -32,13 +34,17 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-type CreateExperimentProps = Partial<{
-    draftExperiment: Experiment
-}>
+interface CreateExperimentProps {
+    draftExperiment?: Experiment
+    tabId?: string
+}
 
-export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
+export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentProps): JSX.Element => {
+    const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
+    useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
+
     const { experiment, experimentErrors, canSubmitExperiment, sharedMetrics, isExperimentSubmitting, isEditMode } =
-        useValues(createExperimentLogic({ experiment: draftExperiment }))
+        useValues(logic)
     const {
         setExperimentValue,
         setExperiment,
@@ -47,7 +53,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
         setFeatureFlagConfig,
         saveExperiment,
         validateField,
-    } = useActions(createExperimentLogic({ experiment: draftExperiment }))
+    } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -107,7 +113,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     {experimentErrors.name && typeof experimentErrors.name === 'string' && (
                         <LemonFieldError error={experimentErrors.name} />
                     )}
-                    <SceneDivider />
                     <SceneSection title="Hypothesis" description="Describe your experiment in a few sentences.">
                         <LemonTextArea
                             placeholder="The goal of this experiment is ..."
