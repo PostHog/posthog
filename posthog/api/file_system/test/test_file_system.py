@@ -17,6 +17,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.link import Link
+from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -1630,6 +1631,12 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                 "supports_restore": True,
             },
             {
+                "file_type": "survey",
+                "scope": "Survey",
+                "factory": self._prepare_survey_case,
+                "supports_restore": False,
+            },
+            {
                 "file_type": "session_recording_playlist",
                 "scope": "SessionRecordingPlaylist",
                 "factory": self._prepare_session_recording_playlist_case,
@@ -1679,6 +1686,9 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                     .first()
                 )
                 self.assertIsNotNone(delete_log, f"Expected delete log for {case['scope']}")
+                assert delete_log is not None
+                delete_detail = cast(dict[str, Any], delete_log.detail or {})
+                self.assertTrue(delete_detail.get("name"), f"Expected delete log name for {case['scope']}")
 
                 if case["supports_restore"]:
                     undo_payload = {
@@ -1712,6 +1722,7 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                     assert restore_log is not None
 
                     detail = cast(dict[str, Any], restore_log.detail or {})
+                    self.assertTrue(detail.get("name"), f"Expected restore log name for {case['scope']}")
                     changes = cast(Iterable[Mapping[str, Any]], detail.get("changes", []))
                     self.assertTrue(
                         any(change.get("field") == "deleted" and change.get("after") is False for change in changes),
@@ -1800,6 +1811,22 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "fs_entry": fs_entry,
             "item_id": str(experiment.id),
             "ref": str(experiment.id),
+            "path": fs_entry.path,
+        }
+
+    def _prepare_survey_case(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Customer feedback",
+            type=Survey.SurveyType.POPOVER,
+            questions=[],
+            created_by=self.user,
+        )
+        fs_entry = self._ensure_file_system_entry(file_type="survey", ref=str(survey.id), fallback_name=survey.name)
+        return {
+            "fs_entry": fs_entry,
+            "item_id": str(survey.id),
+            "ref": str(survey.id),
             "path": fs_entry.path,
         }
 
