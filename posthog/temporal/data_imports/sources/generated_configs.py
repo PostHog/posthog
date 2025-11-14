@@ -70,7 +70,8 @@ class BigQuerySourceConfig(config.Config):
 
 @config.config
 class BingAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    bing_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
