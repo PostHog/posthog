@@ -182,6 +182,17 @@ class DualPersonManager(models.Manager):
     - Helper methods for explicit routing (get_by_id, get_by_uuid)
     """
 
+    def _get_table_preference(self):
+        """Get primary and fallback table models based on read preference.
+
+        Returns:
+            Tuple of (primary, fallback) where each is PersonOld or PersonNew
+        """
+        if DUAL_TABLE_READ_PREFERENCE == "old":
+            return PersonOld, PersonNew
+        else:
+            return PersonNew, PersonOld
+
     def _union_both_tables(self, method: str, *args, **kwargs) -> list:
         """Helper to query both tables and union results.
 
@@ -207,30 +218,21 @@ class DualPersonManager(models.Manager):
         """Get person from either table, trying preferred table first.
 
         Supports special cases:
-        - pk=X where X >= 1B: MUST be in new table (can route directly)
-        - pk=X where X < 1B: Could be in either, check preferred first
-        - Other kwargs: try preferred table first, fallback to other
+        - Try preferred table first, fallback to other
         """
-        # If pk >= cutoff, we KNOW it's in new table
-        if "pk" in kwargs and kwargs["pk"] >= PERSON_ID_CUTOFF:
-            person = PersonNew.objects.get(*args, **kwargs)
-            person.__class__ = Person
-            return person
-
-        # Otherwise try preferred table first
-        first_model = PersonOld if DUAL_TABLE_READ_PREFERENCE == "old" else PersonNew
-        second_model = PersonNew if DUAL_TABLE_READ_PREFERENCE == "old" else PersonOld
+        # Try preferred table first
+        primary, fallback = self._get_table_preference()
 
         try:
-            person = first_model.objects.get(*args, **kwargs)
+            person = primary.objects.get(*args, **kwargs)
             person.__class__ = Person
             return person
-        except first_model.DoesNotExist:
+        except primary.DoesNotExist:
             try:
-                person = second_model.objects.get(*args, **kwargs)
+                person = fallback.objects.get(*args, **kwargs)
                 person.__class__ = Person
                 return person
-            except second_model.DoesNotExist:
+            except fallback.DoesNotExist:
                 raise Person.DoesNotExist()
 
     def filter(self, *args, **kwargs):
@@ -256,32 +258,20 @@ class DualPersonManager(models.Manager):
             return person
 
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
-        """Get person by ID, routing based on ID cutoff.
+        """Get person by ID, trying preferred table first then falling back."""
+        # Try preferred table first
+        primary, fallback = self._get_table_preference()
 
-        IDs >= cutoff MUST be in new table.
-        IDs < cutoff could be in either, check preferred first.
-        """
-        if person_id >= PERSON_ID_CUTOFF:
-            # MUST be in new table
-            query = PersonNew.objects.filter(id=person_id)
+        query = primary.objects.filter(id=person_id)
+        if team_id is not None:
+            query = query.filter(team_id=team_id)
+        result = query.first()
+
+        if not result:
+            query = fallback.objects.filter(id=person_id)
             if team_id is not None:
                 query = query.filter(team_id=team_id)
             result = query.first()
-        else:
-            # Could be in either, try preferred first
-            first_model = PersonOld if DUAL_TABLE_READ_PREFERENCE == "old" else PersonNew
-            second_model = PersonNew if DUAL_TABLE_READ_PREFERENCE == "old" else PersonOld
-
-            query = first_model.objects.filter(id=person_id)
-            if team_id is not None:
-                query = query.filter(team_id=team_id)
-            result = query.first()
-
-            if not result:
-                query = second_model.objects.filter(id=person_id)
-                if team_id is not None:
-                    query = query.filter(team_id=team_id)
-                result = query.first()
 
         # Convert to Person instance for compatibility with FK relations
         if result:
@@ -289,7 +279,7 @@ class DualPersonManager(models.Manager):
         return result
 
     def filter_by_id_queryset(self, person_id: int, team_id: int, db: Optional[str] = None) -> "QuerySet":
-        """Get QuerySet for person by ID, routing to correct table.
+        """Get QuerySet for person by ID, trying preferred table first.
 
         Returns a real QuerySet (not a list) that supports .annotate(), .select_related(), etc.
         Used when code needs QuerySet operations after filtering by person_id.
@@ -304,17 +294,14 @@ class DualPersonManager(models.Manager):
         """
         db = db or "default"
 
-        # Route to correct table based on ID cutoff
-        if person_id >= PERSON_ID_CUTOFF:
-            # Must be in new table
-            return PersonNew.objects.db_manager(db).filter(team_id=team_id, id=person_id)
-        else:
-            # Could be in either table, try old first
-            qs = PersonOld.objects.db_manager(db).filter(team_id=team_id, id=person_id)
-            # If not found in old table, check new table
-            if not qs.exists():
-                return PersonNew.objects.db_manager(db).filter(team_id=team_id, id=person_id)
-            return qs
+        # Try preferred table first
+        primary, fallback = self._get_table_preference()
+
+        qs = primary.objects.db_manager(db).filter(team_id=team_id, id=person_id)
+        # If not found in primary table, check fallback table
+        if not qs.exists():
+            return fallback.objects.db_manager(db).filter(team_id=team_id, id=person_id)
+        return qs
 
     def exclude(self, *args, **kwargs):
         """Exclude across both tables, returning DualPersonQuerySet.
