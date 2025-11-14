@@ -75,8 +75,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.featureFlags,
                 s.sceneSidePanelContext,
                 s.currentTeam,
+                s.status,
             ],
-            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
+            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam, status) => {
                 const tabs: SidePanelTab[] = []
 
                 if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
@@ -111,7 +112,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
 
                 if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Status)
+                    if (status.includes('outage')) {
+                        // We push it to the top if their is an active outage
+                        tabs.unshift(SidePanelTab.Status)
+                    } else {
+                        tabs.push(SidePanelTab.Status)
+                    }
                 }
 
                 if (!currentTeam) {
