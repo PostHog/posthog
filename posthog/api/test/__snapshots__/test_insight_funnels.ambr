@@ -80,35 +80,35 @@
      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                    and isNull(max(max_steps)))),
                                           histogram_params AS
-    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
-            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
-            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+    (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
             count() AS sample_count,
             least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
             ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
             if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE isNotNull(step_1_average_conversion_time_inner)),
+     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)),
   
-    (SELECT bin_width_seconds AS bin_width_seconds
+    (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,
   
-    (SELECT bin_count AS bin_count
+    (SELECT histogram_params.bin_count AS bin_count
      FROM histogram_params) AS bin_count,
   
-    (SELECT from_seconds AS from_seconds
+    (SELECT histogram_params.from_seconds AS from_seconds
      FROM histogram_params) AS histogram_from_seconds,
   
-    (SELECT to_seconds AS to_seconds
+    (SELECT histogram_params.to_seconds AS to_seconds
      FROM histogram_params) AS histogram_to_seconds,
   
-    (SELECT average_conversion_time AS average_conversion_time
+    (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM histogram_params) AS histogram_average_conversion_time
   SELECT fill.bin_from_seconds AS bin_from_seconds,
          results.person_count AS person_count,
          histogram_average_conversion_time AS average_conversion_time
   FROM
-    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
+    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
             count() AS person_count
      FROM step_runs
      GROUP BY bin_from_seconds) AS results
@@ -191,35 +191,35 @@
      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                    and isNull(max(max_steps)))),
                                           histogram_params AS
-    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
-            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
-            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+    (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
             count() AS sample_count,
             least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
             ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
             if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE isNotNull(step_1_average_conversion_time_inner)),
+     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)),
   
-    (SELECT bin_width_seconds AS bin_width_seconds
+    (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,
   
-    (SELECT bin_count AS bin_count
+    (SELECT histogram_params.bin_count AS bin_count
      FROM histogram_params) AS bin_count,
   
-    (SELECT from_seconds AS from_seconds
+    (SELECT histogram_params.from_seconds AS from_seconds
      FROM histogram_params) AS histogram_from_seconds,
   
-    (SELECT to_seconds AS to_seconds
+    (SELECT histogram_params.to_seconds AS to_seconds
      FROM histogram_params) AS histogram_to_seconds,
   
-    (SELECT average_conversion_time AS average_conversion_time
+    (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM histogram_params) AS histogram_average_conversion_time
   SELECT fill.bin_from_seconds AS bin_from_seconds,
          results.person_count AS person_count,
          histogram_average_conversion_time AS average_conversion_time
   FROM
-    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
+    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
             count() AS person_count
      FROM step_runs
      GROUP BY bin_from_seconds) AS results
@@ -390,35 +390,35 @@
      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                    and isNull(max(max_steps)))),
                                           histogram_params AS
-    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
-            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
-            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+    (SELECT ifNull(floor(min(step_runs.step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_runs.step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_runs.step_1_average_conversion_time_inner), 2) AS average_conversion_time,
             count() AS sample_count,
             least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
             ceil(divide(minus(to_seconds, from_seconds), bin_count)) AS bin_width_seconds_raw,
             if(ifNull(greater(bin_width_seconds_raw, 0), 0), bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE isNotNull(step_1_average_conversion_time_inner)),
+     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)),
   
-    (SELECT bin_width_seconds AS bin_width_seconds
+    (SELECT histogram_params.bin_width_seconds AS bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,
   
-    (SELECT bin_count AS bin_count
+    (SELECT histogram_params.bin_count AS bin_count
      FROM histogram_params) AS bin_count,
   
-    (SELECT from_seconds AS from_seconds
+    (SELECT histogram_params.from_seconds AS from_seconds
      FROM histogram_params) AS histogram_from_seconds,
   
-    (SELECT to_seconds AS to_seconds
+    (SELECT histogram_params.to_seconds AS to_seconds
      FROM histogram_params) AS histogram_to_seconds,
   
-    (SELECT average_conversion_time AS average_conversion_time
+    (SELECT histogram_params.average_conversion_time AS average_conversion_time
      FROM histogram_params) AS histogram_average_conversion_time
   SELECT fill.bin_from_seconds AS bin_from_seconds,
          results.person_count AS person_count,
          histogram_average_conversion_time AS average_conversion_time
   FROM
-    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
+    (SELECT plus(histogram_from_seconds, multiply(floor(divide(minus(step_runs.step_1_average_conversion_time_inner, histogram_from_seconds), bin_width_seconds)), bin_width_seconds)) AS bin_from_seconds,
             count() AS person_count
      FROM step_runs
      GROUP BY bin_from_seconds) AS results
