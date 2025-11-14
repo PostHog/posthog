@@ -39,7 +39,7 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
                     }
                     try {
                         const response = await api.eventDefinitions.list({
-                            event: name.trim(),
+                            search: name.trim(),
                         })
                         // Find exact match
                         const exactMatch = response.results?.find((e: EventDefinition) => e.name === name.trim())
