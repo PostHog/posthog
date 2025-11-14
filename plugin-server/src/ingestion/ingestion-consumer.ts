@@ -245,7 +245,6 @@ export class IngestionConsumer {
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
-                        .pipe(createValidateEventMetadataStep())
                         .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
                         .pipe(
                             createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
@@ -284,6 +283,7 @@ export class IngestionConsumer {
                         b
                             .sequentially((c) =>
                                 c
+                                    .pipe(createValidateEventMetadataStep())
                                     .pipe(createValidateEventPropertiesStep())
                                     .pipe(
                                         createApplyPersonProcessingRestrictionsStep(
