@@ -5,7 +5,6 @@ from typing import Any
 
 import dagster
 import psycopg2
-import psycopg2.extras
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -123,19 +122,6 @@ def create_chunks(
         )
 
 
-def _get_table_columns(connection: psycopg2.extensions.connection, schema: str, table_name: str) -> list[str]:
-    """Get column names for a table."""
-    with connection.cursor() as cursor:
-        query = """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            ORDER BY ordinal_position
-        """
-        cursor.execute(query, (schema, table_name))
-        return [row["column_name"] for row in cursor.fetchall()]
-
-
 @dagster.op
 def copy_chunk(
     context: dagster.OpExecutionContext,
@@ -160,82 +146,6 @@ def copy_chunk(
 
     context.log.info(f"Starting chunk copy: {chunk_min} to {chunk_max}")
 
-    # Get column names from source table (assuming public schema)
-    try:
-        source_columns = _get_table_columns(database, "public", source_table)
-        if not source_columns:
-            try:
-                metrics_client.increment(
-                    "persons_new_backfill_error",
-                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "source_table_no_columns"},
-                    value=1.0,
-                ).result()
-            except Exception:
-                pass  # Don't fail on metrics error
-            raise dagster.Failure(f"Source table {source_table} has no columns or doesn't exist")
-
-        # Verify destination table exists and get its columns
-        dest_columns = _get_table_columns(database, "public", destination_table)
-        if not dest_columns:
-            try:
-                metrics_client.increment(
-                    "persons_new_backfill_error",
-                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "dest_table_no_columns"},
-                    value=1.0,
-                ).result()
-            except Exception:
-                pass  # Don't fail on metrics error
-            raise dagster.Failure(f"Destination table {destination_table} has no columns or doesn't exist")
-
-        # Use intersection of columns that exist in both tables
-        columns_to_copy = [col for col in source_columns if col in dest_columns]
-        if not columns_to_copy:
-            try:
-                metrics_client.increment(
-                    "persons_new_backfill_error",
-                    labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "no_matching_columns"},
-                    value=1.0,
-                ).result()
-            except Exception:
-                pass  # Don't fail on metrics error
-            raise dagster.Failure(
-                f"No matching columns between source {source_table} and destination {destination_table}"
-            )
-
-        context.log.info(f"Copying {len(columns_to_copy)} columns: {', '.join(columns_to_copy)}")
-
-    except dagster.Failure:
-        # Re-raise Dagster failures as-is (metrics already reported)
-        raise
-    except Exception as e:
-        error_msg = f"Failed to get table schema for chunk {chunk_min}-{chunk_max}: {str(e)}"
-        context.log.exception(error_msg)
-        try:
-            metrics_client.increment(
-                "persons_new_backfill_error",
-                labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "schema_lookup_failed"},
-                value=1.0,
-            ).result()
-        except Exception:
-            pass  # Don't fail on metrics error
-        raise dagster.Failure(error_msg) from e
-
-    # Build SELECT and INSERT queries
-    columns_str = ", ".join(columns_to_copy)
-    placeholders = ", ".join(["%s"] * len(columns_to_copy))
-    # Use ID-based batching: WHERE id >= batch_start AND id < batch_end ORDER BY id LIMIT batch_size
-    select_query = f"SELECT {columns_str} FROM {source_table} WHERE id >= %s AND id <= %s ORDER BY id LIMIT %s"
-
-    # Use ON CONFLICT DO NOTHING to make inserts idempotent (safe to retry failed chunks)
-    if "id" in columns_to_copy:
-        insert_query = (
-            f"INSERT INTO {destination_table} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING"
-        )
-    else:
-        # Fallback if id column is missing (shouldn't happen, but be safe)
-        context.log.warning("'id' column not found in columns_to_copy, inserts will not be idempotent")
-        insert_query = f"INSERT INTO {destination_table} ({columns_str}) VALUES ({placeholders})"
-
     total_records_copied = 0
     batch_start_id = chunk_min
     failed_batch_start_id: int | None = None
@@ -247,29 +157,43 @@ def copy_chunk(
                     # Track batch start time for duration metric
                     batch_start_time = time.time()
 
-                    # Fetch batch from source: WHERE id >= batch_start_id AND id <= chunk_max
-                    cursor.execute(
-                        select_query,
-                        (batch_start_id, chunk_max, batch_size),
-                    )
-                    rows = cursor.fetchall()
+                    # Calculate batch end ID
+                    batch_end_id = min(batch_start_id + batch_size, chunk_max)
 
-                    if not rows:
-                        # No more rows in this chunk
-                        break
+                    # Execute SET statements and BEGIN transaction
+                    cursor.execute("SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'")
+                    cursor.execute("BEGIN")
+                    cursor.execute("SET LOCAL lock_timeout = '5s'")
+                    cursor.execute("SET LOCAL statement_timeout = '30min'")
+                    cursor.execute("SET LOCAL maintenance_work_mem = '12GB'")
+                    cursor.execute("SET LOCAL work_mem = '512MB'")
+                    cursor.execute("SET LOCAL temp_buffers = '512MB'")
+                    cursor.execute("SET LOCAL max_parallel_workers_per_gather = 2")
+                    cursor.execute("SET LOCAL max_parallel_maintenance_workers = 2")
+                    cursor.execute("SET LOCAL synchronous_commit = off")
 
-                    # Prepare data for batch insert
-                    batch_data = []
-                    last_id_in_batch = None
-                    for row in rows:
-                        batch_data.append([row[col] for col in columns_to_copy])
-                        # Track the last ID we're processing
-                        if "id" in columns_to_copy:
-                            id_idx = columns_to_copy.index("id")
-                            last_id_in_batch = row[columns_to_copy[id_idx]]
+                    # Execute INSERT INTO ... SELECT with NOT EXISTS check
+                    insert_query = f"""
+INSERT INTO {destination_table}
+SELECT s.*
+FROM {source_table} s
+WHERE s.id > %s AND s.id <= %s
+  AND NOT EXISTS (
+    SELECT 1
+    FROM {destination_table} d
+    WHERE d.team_id = s.team_id
+      AND d.id = s.id
+  )
+ORDER BY s.id DESC
+"""
+                    cursor.execute(insert_query, (batch_start_id, batch_end_id))
+                    records_inserted = cursor.rowcount
 
-                    # Track records attempted metric (II)
-                    records_attempted = len(batch_data)
+                    # Commit the transaction
+                    cursor.execute("COMMIT")
+
+                    # Track records attempted metric (II) - use batch size as attempted
+                    records_attempted = batch_end_id - batch_start_id
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_records_attempted_total",
@@ -279,20 +203,10 @@ def copy_chunk(
                     except Exception:
                         pass  # Don't fail on metrics error
 
-                    # Insert batch into destination
-                    psycopg2.extras.execute_batch(
-                        cursor,
-                        insert_query,
-                        batch_data,
-                        page_size=batch_size,
-                    )
-                    database.commit()
-
                     # Track batch completion time for duration metric
                     batch_duration_seconds = time.time() - batch_start_time
 
                     # Track records actually inserted metric (III)
-                    records_inserted = cursor.rowcount
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_records_inserted_total",
@@ -321,27 +235,23 @@ def copy_chunk(
                     except Exception:
                         pass
 
-                    records_in_batch = len(batch_data)
-                    total_records_copied += records_in_batch
+                    total_records_copied += records_inserted
 
                     context.log.info(
-                        f"Copied batch: {records_in_batch} records "
-                        f"(chunk {chunk_min}-{chunk_max}, batch starting at ID {batch_start_id})"
+                        f"Copied batch: {records_inserted} records "
+                        f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
                     )
 
                     # Update batch_start_id for next iteration
-                    # If we got fewer rows than batch_size, we're done
-                    if records_in_batch < batch_size:
-                        break
-
-                    # Move to next batch: use the last ID + 1
-                    if last_id_in_batch is not None:
-                        batch_start_id = last_id_in_batch + 1
-                    else:
-                        # Fallback: increment by batch_size if we can't determine last ID
-                        batch_start_id += batch_size
+                    batch_start_id = batch_end_id
 
                 except Exception as batch_error:
+                    # Rollback transaction on error
+                    try:
+                        cursor.execute("ROLLBACK")
+                    except Exception:
+                        pass  # Ignore rollback errors
+
                     failed_batch_start_id = batch_start_id
                     error_msg = (
                         f"Failed to copy batch starting at ID {batch_start_id} "
