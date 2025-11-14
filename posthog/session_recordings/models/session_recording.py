@@ -138,12 +138,11 @@ class SessionRecording(UUIDTModel):
         if self._person:
             return
 
-        # Use dual-table-aware helper instead of reverse FK relation
-        from posthog.models.person.util import get_persons_by_distinct_ids
-
-        persons = get_persons_by_distinct_ids(self.team.pk, [self.distinct_id])
-        if persons:
-            self.person = persons[0]
+        # Use dual-table-aware manager helper
+        try:
+            self.person = Person.objects.get_by_distinct_id(self.team.pk, self.distinct_id)
+        except Person.DoesNotExist:
+            pass
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:
