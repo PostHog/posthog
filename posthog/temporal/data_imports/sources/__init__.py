@@ -27,6 +27,7 @@ from .snowflake.source import SnowflakeSource
 from .stripe.source import StripeSource
 from .temporalio.source import TemporalIOSource
 from .tiktok_ads.source import TikTokAdsSource
+from .twilio.source import TwilioSource
 from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
@@ -60,6 +61,7 @@ __all__ = [
     "SnowflakeSource",
     "StripeSource",
     "TemporalIOSource",
+    "TwilioSource",
     "VitallySource",
     "ZendeskSource",
 ]

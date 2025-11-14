@@ -198,6 +198,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "shopify_store_id",
             # temporal
             "namespace",
+            # twilio
+            "account_sid",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):

@@ -244,6 +244,12 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class TwilioSourceConfig(config.Config):
+    account_sid: str
+    auth_token: str
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -286,6 +292,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.TWILIO: TwilioSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]
