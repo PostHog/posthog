@@ -295,7 +295,6 @@ def copy_chunk(
 
 
 @dagster.job(
-    config=PersonsNewBackfillConfig,
     tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
 )
