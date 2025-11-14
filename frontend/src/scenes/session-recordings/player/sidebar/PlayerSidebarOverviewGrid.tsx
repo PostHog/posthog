@@ -8,7 +8,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
-import { AnyPropertyFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
@@ -28,12 +28,11 @@ function getFilterState(
 
     // Check if exact match exists
     const hasExactMatch = firstNestedGroup.values.some((filter) => {
-        if ('key' in filter && 'value' in filter && 'operator' in filter) {
-            const propertyFilter = filter as AnyPropertyFilter
+        if ('key' in filter && 'value' in filter && 'type' in filter && 'operator' in filter) {
             return (
-                propertyFilter.key === propertyKey &&
-                propertyFilter.value === propertyValue &&
-                propertyFilter.operator === PropertyOperator.Exact
+                filter.key === propertyKey &&
+                filter.value === propertyValue &&
+                filter.operator === PropertyOperator.Exact
             )
         }
         return false
@@ -45,7 +44,7 @@ function getFilterState(
 
     // Check if same key with different value exists
     const hasSameKey = firstNestedGroup.values.some((filter) => {
-        if ('key' in filter && 'operator' in filter) {
+        if ('key' in filter && 'type' in filter && 'operator' in filter) {
             return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
         }
         return false
