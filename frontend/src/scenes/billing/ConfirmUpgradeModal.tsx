@@ -18,7 +18,10 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
     const isLoading = switchPlanLoading === product.type
 
     const targetPlan = currentAndUpgradePlans?.upgradePlan
-    const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
+    const amountDueBeforeCredits = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
+    const availableCreditBalance = billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0
+    const appliedBalance = Math.min(amountDueBeforeCredits, availableCreditBalance)
+    const amountDue = Math.max(0, amountDueBeforeCredits - appliedBalance)
 
     const periodEnd = billing?.billing_period?.current_period_end
     const remainingPeriodFormatted = periodEnd
@@ -40,12 +43,20 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
             dateRange: remainingPeriodFormatted,
             amount: `-$${unusedPlatformAddonAmount.toFixed(2)}`,
         },
-        {
-            description: 'Amount due today',
-            amount: `$${amountDue.toFixed(2)}`,
-            isBold: true,
-        },
     ]
+
+    if (appliedBalance > 0) {
+        rows.push({
+            description: 'Applied balance',
+            amount: `-$${appliedBalance.toFixed(2)}`,
+        })
+    }
+
+    rows.push({
+        description: 'Amount due today',
+        amount: `$${amountDue.toFixed(2)}`,
+        isBold: true,
+    })
 
     const columns: LemonTableColumns<BillingInvoiceItemRow> = [
         {
