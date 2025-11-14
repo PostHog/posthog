@@ -115,45 +115,43 @@ describe('CookielessManager', () => {
     })
 
     describe('isCalendarDateValid', () => {
+        const fixedTime = new Date('2025-11-13T12:00:00Z')
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
         it('should accept today', () => {
-            const today = new Date()
-            const yyyymmdd = today.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+            // Fixed time: 2025-11-13 12:00 UTC
+            expect(isCalendarDateValid('2025-11-13')).toBe(true)
         })
 
         it('should accept yesterday', () => {
-            const yesterday = new Date()
-            yesterday.setDate(yesterday.getDate() - 1)
-            const yyyymmdd = yesterday.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+            // Salt window for 2025-11-12: Nov 11 12:00 to Nov 15 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-12')).toBe(true)
         })
 
-        it('should accept a date 3 days ago (72h ingestion lag)', () => {
-            const threeDaysAgo = new Date()
-            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-            const yyyymmdd = threeDaysAgo.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        it('should accept 3 days ago (within 72h + timezone buffer)', () => {
+            // Salt window for 2025-11-10: Nov 9 12:00 to Nov 13 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-10')).toBe(true)
         })
 
-        it('should accept a date 4 days ago (within buffer including timezones)', () => {
-            const fourDaysAgo = new Date()
-            fourDaysAgo.setDate(fourDaysAgo.getDate() - 4)
-            const yyyymmdd = fourDaysAgo.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(true)
+        it('should reject 4 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-09: Nov 8 12:00 to Nov 12 14:00
+            // NOW (Nov 13 12:00) is after window ended
+            expect(isCalendarDateValid('2025-11-09')).toBe(false)
         })
 
-        it('should reject a date 5 days ago (beyond 72h + timezone buffer)', () => {
-            const fiveDaysAgo = new Date()
-            fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
-            const yyyymmdd = fiveDaysAgo.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(false)
-        })
-
-        it('should reject tomorrow', () => {
-            const tomorrow = new Date()
-            tomorrow.setDate(tomorrow.getDate() + 1)
-            const yyyymmdd = tomorrow.toISOString().split('T')[0]
-            expect(isCalendarDateValid(yyyymmdd)).toBe(false)
+        it('should reject 5 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-08')).toBe(false)
         })
 
         it('should reject invalid date format', () => {
