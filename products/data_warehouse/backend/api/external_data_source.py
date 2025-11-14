@@ -179,7 +179,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # bigquery
             "dataset_id",
             "temporary_dataset",
-            "dataset_project"
+            "dataset_project",
+            # braintree
+            "merchant_id",
+            "environment",
             # google ads
             "customer_id",
             "google_ads_integration_id",

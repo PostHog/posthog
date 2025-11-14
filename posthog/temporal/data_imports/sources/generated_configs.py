@@ -69,6 +69,14 @@ class BigQuerySourceConfig(config.Config):
 
 
 @config.config
+class BraintreeSourceConfig(config.Config):
+    merchant_id: str
+    public_key: str
+    private_key: str
+    environment: str
+
+
+@config.config
 class BrazeSourceConfig(config.Config):
     pass
 

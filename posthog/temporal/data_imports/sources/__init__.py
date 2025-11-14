@@ -1,4 +1,5 @@
 from .bigquery.source import BigQuerySource
+from .braintree.source import BraintreeSource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
@@ -35,6 +36,7 @@ __all__ = [
     "GithubSource",
     "SourceRegistry",
     "BigQuerySource",
+    "BraintreeSource",
     "BrazeSource",
     "ChargebeeSource",
     "DoItSource",
