@@ -9,6 +9,7 @@ name: Security
 
 permissions:
     contents: read
+    security-events: write
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
@@ -46,11 +47,19 @@ jobs:
                     --config "p/python" \
                     --config "p/owasp-top-ten" \
                     --config "p/trailofbits" \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                     --error \
                     --metrics=off \
                     --verbose \
-                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --sarif-output semgrep-python.sarif \
                     dags/ ee/ posthog/ products/
+
+            - name: Upload results
+              if: ${{ !cancelled() }}
+              uses: github/codeql-action/upload-sarif@v4
+              with:
+                  sarif_file: semgrep-python.sarif
+                  category: semgrep-python
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -71,7 +80,15 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
+                    --sarif-output semgrep-go.sarif \
                     livestream/
+
+            - name: Upload results
+              if: ${{ !cancelled() }}
+              uses: github/codeql-action/upload-sarif@v4
+              with:
+                  sarif_file: semgrep-go.sarif
+                  category: semgrep-go
 
     semgrep-rust:
         runs-on: ubuntu-latest
@@ -89,13 +106,21 @@ jobs:
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
                     --config "p/trailofbits" \
-                    --error \
-                    --metrics=off \
-                    --verbose \
                     --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                     --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    --sarif-output semgrep-rust.sarif \
                     rust/
+
+            - name: Upload results
+              if: ${{ !cancelled() }}
+              uses: github/codeql-action/upload-sarif@v4
+              with:
+                  sarif_file: semgrep-rust.sarif
+                  category: semgrep-rust
 
     semgrep-js:
         runs-on: ubuntu-latest
@@ -116,4 +141,12 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
+                    --sarif-output semgrep-js.sarif \
                     plugin-server/
+
+            - name: Upload results
+              if: ${{ !cancelled() }}
+              uses: github/codeql-action/upload-sarif@v4
+              with:
+                  sarif_file: semgrep-js.sarif
+                  category: semgrep-js
