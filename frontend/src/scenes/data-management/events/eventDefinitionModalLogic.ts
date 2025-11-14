@@ -33,14 +33,16 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
         existingEvent: [
             null as EventDefinition | null,
             {
-                checkEventNameExists: async ({ name }) => {
+                checkEventNameExists: async ({ name }, breakpoint) => {
                     if (!name || name.trim().length === 0) {
                         return null
                     }
+                    await breakpoint(300)
                     try {
                         const response = await api.eventDefinitions.list({
                             search: name.trim(),
                         })
+                        breakpoint()
                         // Find exact match
                         const exactMatch = response.results?.find((e: EventDefinition) => e.name === name.trim())
                         return exactMatch || null
@@ -104,13 +106,7 @@ export const eventDefinitionModalLogic = kea<eventDefinitionModalLogicType>([
     listeners(({ actions }) => ({
         setEventDefinitionFormValue: ({ name, value }) => {
             if (name === 'name' && typeof value === 'string') {
-                // Debounce check by only checking when user stops typing
-                const trimmedValue = value.trim()
-                if (trimmedValue.length > 0) {
-                    actions.checkEventNameExists(trimmedValue)
-                } else {
-                    actions.checkEventNameExistsSuccess(null)
-                }
+                actions.checkEventNameExists(value)
             }
         },
     })),
