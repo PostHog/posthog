@@ -9,17 +9,17 @@ from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.hog_functions.hog_function import HogFunctionType
+from posthog.models.signals import mute_selected_signals
 
 logger = logging.getLogger(__name__)
 
-HOG_FUNCTION_TYPES = [
+LEGACY_HOG_FUNCTION_TYPES = [
     "broadcast",
     "campaign",
-    "destination",
-    "site_app",
     "source",
-    "transformation",
 ]
+HOG_FUNCTION_TYPES = sorted(set(LEGACY_HOG_FUNCTION_TYPES + list(HogFunctionType.values)))
 
 
 @dataclass(frozen=True)
@@ -304,7 +304,8 @@ def delete_file_system_object(
         setattr(instance, capabilities.soft_delete_field, True)
         if capabilities.has_last_modified_by and context.user is not None:
             instance.last_modified_by = context.user
-        instance.save()
+        with mute_selected_signals():
+            instance.save()
         entry.delete()
         post_hook = _POST_DELETE_HOOKS.get(type_string)
         if post_hook:
@@ -319,8 +320,10 @@ def delete_file_system_object(
 
     if capabilities.has_last_modified_by and context.user is not None:
         instance.last_modified_by = context.user
-        instance.save(update_fields=["last_modified_by"])
-    instance.delete()
+        with mute_selected_signals():
+            instance.save(update_fields=["last_modified_by"])
+    with mute_selected_signals():
+        instance.delete()
     entry.delete()
     post_hook = _POST_DELETE_HOOKS.get(type_string)
     if post_hook:
@@ -385,7 +388,8 @@ def undo_delete(
     if capabilities.has_last_modified_by and context.user is not None:
         instance.last_modified_by = context.user
 
-    instance.save()
+    with mute_selected_signals():
+        instance.save()
 
     post_hook = _POST_RESTORE_HOOKS.get(type_string)
     if post_hook:

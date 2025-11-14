@@ -14,8 +14,20 @@ from posthog.api.file_system.deletion import (
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
+from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
+
+
+def _first_non_blank(*values: str | None) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            candidate = value.strip()
+            if candidate:
+                return value if value == candidate else candidate
+        elif value:
+            return value
+    return None
 
 
 def _log_deletion_activity(
@@ -25,6 +37,7 @@ def _log_deletion_activity(
     item_id: Any,
     name: str | None = None,
     short_id: str | None = None,
+    object_type: str | None = None,
     changes: list[Change] | None = None,
 ) -> None:
     organization = context.organization
@@ -40,7 +53,7 @@ def _log_deletion_activity(
         item_id=str(item_id),
         scope=scope,
         activity="deleted",
-        detail=Detail(name=name, short_id=short_id, changes=changes),
+        detail=Detail(name=name, short_id=short_id, type=object_type, changes=changes),
     )
 
 
@@ -51,6 +64,7 @@ def _log_restore_activity(
     item_id: Any,
     name: str | None = None,
     short_id: str | None = None,
+    object_type: str | None = None,
     extra_changes: list[Change] | None = None,
 ) -> None:
     organization = context.organization
@@ -68,7 +82,7 @@ def _log_restore_activity(
         item_id=str(item_id),
         scope=scope,
         activity="restored",
-        detail=Detail(name=name, short_id=short_id, changes=changes),
+        detail=Detail(name=name, short_id=short_id, type=object_type, changes=changes),
     )
 
 
@@ -77,7 +91,8 @@ def _dashboard_post_delete(context: DeletionContext, dashboard: Any) -> None:
         context,
         scope="Dashboard",
         item_id=dashboard.id,
-        name=dashboard.name or "Untitled dashboard",
+        name=_first_non_blank(getattr(dashboard, "name", None)) or "Untitled dashboard",
+        object_type="dashboard",
     )
 
 
@@ -86,7 +101,8 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
         context,
         scope="Dashboard",
         item_id=dashboard.id,
-        name=dashboard.name or "Untitled dashboard",
+        name=_first_non_blank(getattr(dashboard, "name", None)) or "Untitled dashboard",
+        object_type="dashboard",
     )
 
 
@@ -95,7 +111,8 @@ def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
         context,
         scope="Experiment",
         item_id=experiment.id,
-        name=experiment.name or "Untitled experiment",
+        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
+        object_type="experiment",
     )
 
 
@@ -104,7 +121,8 @@ def _experiment_post_delete(context: DeletionContext, experiment: Any) -> None:
         context,
         scope="Experiment",
         item_id=experiment.id,
-        name=experiment.name or "Untitled experiment",
+        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
+        object_type="experiment",
     )
 
 
@@ -113,8 +131,10 @@ def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
         context,
         scope="Insight",
         item_id=insight.id,
-        name=insight.name or getattr(insight, "derived_name", None) or "Untitled insight",
+        name=_first_non_blank(getattr(insight, "name", None), getattr(insight, "derived_name", None))
+        or "Untitled insight",
         short_id=getattr(insight, "short_id", None),
+        object_type="insight",
     )
 
 
@@ -123,8 +143,10 @@ def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
         context,
         scope="Insight",
         item_id=insight.id,
-        name=insight.name or getattr(insight, "derived_name", None) or "Untitled insight",
+        name=_first_non_blank(getattr(insight, "name", None), getattr(insight, "derived_name", None))
+        or "Untitled insight",
         short_id=getattr(insight, "short_id", None),
+        object_type="insight",
     )
 
 
@@ -218,7 +240,8 @@ def _cohort_post_delete(context: DeletionContext, cohort: Any) -> None:
         context,
         scope="Cohort",
         item_id=cohort.id,
-        name=cohort.name or "Untitled cohort",
+        name=_first_non_blank(getattr(cohort, "name", None)) or "Untitled cohort",
+        object_type="cohort",
     )
 
 
@@ -227,7 +250,8 @@ def _cohort_post_restore(context: RestoreContext, cohort: Any) -> None:
         context,
         scope="Cohort",
         item_id=cohort.id,
-        name=cohort.name or "Untitled cohort",
+        name=_first_non_blank(getattr(cohort, "name", None)) or "Untitled cohort",
+        object_type="cohort",
     )
 
 
@@ -244,7 +268,8 @@ def _hog_function_post_delete(context: DeletionContext, hog_function: Any) -> No
         context,
         scope="HogFunction",
         item_id=hog_function.id,
-        name=hog_function.name or "Untitled",
+        name=_first_non_blank(getattr(hog_function, "name", None)) or "Untitled",
+        object_type=humanize_hog_function_type(getattr(hog_function, "type", None)),
     )
 
 
@@ -253,8 +278,32 @@ def _hog_function_post_restore(context: RestoreContext, hog_function: Any) -> No
         context,
         scope="HogFunction",
         item_id=hog_function.id,
-        name=hog_function.name or "Untitled",
+        name=_first_non_blank(getattr(hog_function, "name", None)) or "Untitled",
+        object_type=humanize_hog_function_type(getattr(hog_function, "type", None)),
         extra_changes=[Change(type="HogFunction", action="changed", field="enabled", before=False, after=True)],
+    )
+
+
+def _feature_flag_post_delete(context: DeletionContext, feature_flag: Any) -> None:
+    _log_deletion_activity(
+        context,
+        scope="FeatureFlag",
+        item_id=feature_flag.id,
+        name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
+        or "Untitled feature flag",
+        object_type="feature flag",
+    )
+
+
+def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> None:
+    _log_restore_activity(
+        context,
+        scope="FeatureFlag",
+        item_id=feature_flag.id,
+        name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
+        or "Untitled feature flag",
+        object_type="feature flag",
+        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)],
     )
 
 
@@ -291,6 +340,8 @@ def register_core_file_system_types() -> None:
     )
     register_pre_delete_hook("feature_flag", _feature_flag_pre_delete)
     register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
+    register_post_delete_hook("feature_flag", _feature_flag_post_delete)
+    register_post_restore_hook("feature_flag", _feature_flag_post_restore)
 
     register_file_system_type(
         "experiment",
