@@ -1585,9 +1585,14 @@ class _Printer(Visitor[str]):
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectSetQueryType)
+            or isinstance(type.table_type, ast.CTETableType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
+            if (
+                isinstance(type.table_type, ast.SelectQueryAliasType)
+                or isinstance(type.table_type, ast.SelectViewType)
+                or isinstance(type.table_type, ast.CTETableType)
+            ):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.

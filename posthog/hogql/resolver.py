@@ -351,7 +351,9 @@ class Resolver(CloningVisitor):
             cte_table = self.ctes.get(".".join(table_name_chain))
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType)
-                node_type = cte_table.expr.type
+                # Use CTETableType so that fields are properly qualified with the CTE name when printed
+                cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
+                node_type = cte_table_type
                 if table_alias != table_name_alias:
                     node_type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=cte_table.expr.type)
 
@@ -365,7 +367,7 @@ class Resolver(CloningVisitor):
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
+                node.table.type = cte_table_type
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
