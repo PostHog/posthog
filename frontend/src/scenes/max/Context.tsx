@@ -258,10 +258,10 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
 
     const tooltipContent =
         toolContextItems.length === 1 ? (
-            'PostHog AI can use this context to answer your question'
+            'This context is auto-included from the current view'
         ) : (
             <div className="flex flex-col gap-1">
-                <div className="text-xs font-semibold mb-1">PostHog AI can use this context:</div>
+                <div className="text-xs font-semibold mb-1">This context is auto-included from the current view:</div>
                 {toolContextItems.map((item, index) => (
                     <div key={index} className="flex items-center gap-1.5">
                         {item.icon}
@@ -275,7 +275,10 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
         <Tooltip title={tooltipContent}>
             <LemonTag
                 icon={toolContextItems[0].icon}
-                className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                className={clsx(
+                    'flex items-center cursor-default border-dashed',
+                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                )}
             >
                 <span className="truncate min-w-0 flex-1">
                     {toolContextItems[0].text}

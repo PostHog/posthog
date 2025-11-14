@@ -28,9 +28,9 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -397,6 +397,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
+    const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
+
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div className="EditorFiltersWrapper">
@@ -416,7 +418,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }}
                         contextDescription={{
                             text: 'Current query',
-                            icon: iconForType('insight/hog'),
+                            icon: <QueryTypeIcon />,
                         }}
                         callback={(
                             toolOutput:
