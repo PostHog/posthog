@@ -965,8 +965,12 @@ FROM (
     with new_persons as (
         select
             id,
-            max(version) as version,
-            argMax(_timestamp, person.version) AS _timestamp2
+            max(version) as version2,
+            argMax(team_id, person.version) AS team_id2,
+            argMax(properties, person.version) AS properties2,
+            argMax(_timestamp, person.version) AS _timestamp2,
+            argMax(created_at, person.version) AS created_at2,
+            argMax(is_deleted, person.version) AS is_deleted2
         from
             person
         where
@@ -986,7 +990,8 @@ FROM (
         SELECT
             distinct_id,
             person_id,
-            max(version) as version,
+            max(version) as version2,
+            argMax(team_id, person_distinct_id2.version) AS team_id2,
             argMax(person_id, person_distinct_id2.version) AS person_id2,
             argMax(_timestamp, person_distinct_id2.version) AS _timestamp2
         from
@@ -1007,7 +1012,12 @@ FROM (
     latest_persons_for_distinct_ids as (
         select
             id,
-            max(version) as version
+            max(version) as version2,
+            argMax(team_id, person.version) AS team_id2,
+            argMax(properties, person.version) AS properties2,
+            argMax(_timestamp, person.version) AS _timestamp2,
+            argMax(created_at, person.version) AS created_at2,
+            argMax(is_deleted, person.version) AS is_deleted2
         from
             person
         where
@@ -1022,93 +1032,78 @@ FROM (
             id
     )
     select
-        p.team_id AS team_id,
+        p.team_id2 AS team_id,
         pd.distinct_id AS distinct_id,
         toString(p.id) AS person_id,
-        p.properties AS properties,
+        p.properties2 AS properties,
         pd.version AS person_distinct_id_version,
-        p.version AS person_version,
-        p.created_at AS created_at,
-        toBool(p.is_deleted) AS is_deleted,
+        p.version2 AS person_version,
+        p.created_at2 AS created_at,
+        toBool(p.is_deleted2) AS is_deleted,
         multiIf(
             (
                 pd._timestamp >= {interval_start}::DateTime64
                 AND pd._timestamp < {interval_end}::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp2 >= {interval_start}::DateTime64
+                AND p._timestamp2 < {interval_end}::DateTime64
             ),
             pd._timestamp,
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp2 >= {interval_start}::DateTime64
+                AND p._timestamp2 < {interval_end}::DateTime64
             )
             AND NOT (
                 pd._timestamp >= {interval_start}::DateTime64
                 AND pd._timestamp < {interval_end}::DateTime64
             ),
-            p._timestamp,
-            least(p._timestamp, pd._timestamp)
+            p._timestamp2,
+            least(p._timestamp2, pd._timestamp)
         ) AS _inserted_at
     from
-        person p
+        new_persons p
         INNER JOIN person_distinct_id2 pd
             ON p.id = pd.person_id
-            AND pd.team_id = {team_id}::Int64
-            AND p.team_id = {team_id}::Int64
-            AND (p.id, p.version) in (
-                select
-                    id,
-                    version
-                from
-                    new_persons
-            )
+            AND pd.team_id = p.team_id2
         -- TODO - this probably needs updating
         $filter_distinct_ids
     UNION DISTINCT
     select
-        p.team_id AS team_id,
+        p.team_id2 AS team_id,
         pd.distinct_id AS distinct_id,
         toString(p.id) AS person_id,
-        p.properties AS properties,
-        pd.version AS person_distinct_id_version,
-        p.version AS person_version,
-        p.created_at AS created_at,
-        toBool(p.is_deleted) AS is_deleted,
+        p.properties2 AS properties,
+        pd.version2 AS person_distinct_id_version,
+        p.version2 AS person_version,
+        p.created_at2 AS created_at,
+        toBool(p.is_deleted2) AS is_deleted,
         multiIf(
             (
                 pd._timestamp2 >= {interval_start}::DateTime64
                 AND pd._timestamp2 < {interval_end}::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp2 >= {interval_start}::DateTime64
+                AND p._timestamp2 < {interval_end}::DateTime64
             ),
             pd._timestamp2,
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                p._timestamp2 >= {interval_start}::DateTime64
+                AND p._timestamp2 < {interval_end}::DateTime64
             )
             AND NOT (
                 pd._timestamp2 >= {interval_start}::DateTime64
                 AND pd._timestamp2 < {interval_end}::DateTime64
             ),
-            p._timestamp,
-            least(p._timestamp, pd._timestamp2)
+            p._timestamp2,
+            least(p._timestamp2, pd._timestamp2)
         ) AS _inserted_at
     from
         new_distinct_ids pd
-        INNER JOIN person p
+        INNER JOIN latest_persons_for_distinct_ids p
             ON p.id = pd.person_id
-            AND p.team_id = {team_id}::Int64
-        AND (p.id, p.version) in (
-            select
-                id,
-                version
-            from
-                latest_persons_for_distinct_ids
-        )
+            AND p.team_id2 = pd.team_id2
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
