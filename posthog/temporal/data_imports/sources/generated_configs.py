@@ -221,6 +221,11 @@ class SnowflakeSourceConfig(config.Config):
 
 
 @config.config
+class SquareSourceConfig(config.Config):
+    square_access_token: str
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     stripe_secret_key: str
     stripe_account_id: str | None = None
@@ -283,6 +288,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
+        ExternalDataSourceType.SQUARE: SquareSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,

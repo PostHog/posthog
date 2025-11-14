@@ -24,6 +24,7 @@ from .revenuecat.source import RevenueCatSource
 from .salesforce.source import SalesforceSource
 from .shopify.source import ShopifySource
 from .snowflake.source import SnowflakeSource
+from .square.source import SquareSource
 from .stripe.source import StripeSource
 from .temporalio.source import TemporalIOSource
 from .tiktok_ads.source import TikTokAdsSource
@@ -58,6 +59,7 @@ __all__ = [
     "SalesforceSource",
     "ShopifySource",
     "SnowflakeSource",
+    "SquareSource",
     "StripeSource",
     "TemporalIOSource",
     "VitallySource",
