@@ -194,9 +194,10 @@ def run_persons_sqlx_migrations():
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
+        stdout = e.stdout.decode() if e.stdout else ""
+        stderr = e.stderr.decode() if e.stderr else ""
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. "
-            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}.\n" f"stdout: {stdout}\nstderr: {stderr}"
         ) from e
 
 
@@ -211,6 +212,7 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
         with connection.cursor() as cursor:
             cursor.execute("""
                 DROP TABLE IF EXISTS posthog_person CASCADE;
+                DROP TABLE IF EXISTS posthog_person_new CASCADE;
                 DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
                 DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
                 DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
@@ -221,17 +223,15 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                 DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
                 DROP TABLE IF EXISTS posthog_group CASCADE;
                 DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+
+                -- Clear sqlx migration tracking so sqlx knows to recreate these tables
+                -- when database is reused (--reuse-db). Without this, sqlx sees migrations
+                -- as already applied and skips recreating the dropped tables.
+                DELETE FROM _sqlx_migrations;
             """)
 
     # Run sqlx migrations to create all person/cohort/group tables fresh
     run_persons_sqlx_migrations()
-
-    # Close all database connections to force Django to reconnect
-    # This ensures Django sees the newly created tables
-    from django.db import connections
-
-    for conn in connections.all():
-        conn.close()
 
     # Ensure posthog_person_new has proper id sequence defaults
     # This fixes cases where Django explicitly passes NULL for id column
