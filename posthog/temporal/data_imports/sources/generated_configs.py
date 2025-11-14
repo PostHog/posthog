@@ -10,6 +10,13 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AppsFlyerSourceConfig(config.Config):
+    api_token: str
+    app_id: str
+    start_date: str
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)

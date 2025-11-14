@@ -196,6 +196,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "salesforce_integration_id",
             # shopify
             "shopify_store_id",
+            # appsflyer
+            "app_id",
+            "start_date",
             # temporal
             "namespace",
         }
