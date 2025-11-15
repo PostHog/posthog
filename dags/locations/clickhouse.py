@@ -8,7 +8,6 @@ from dags import (
     materialized_columns,
     orm_examples,
     person_overrides,
-    persons_new_backfill,
     postgres_to_clickhouse_etl,
     property_definitions,
 )
@@ -30,7 +29,6 @@ defs = dagster.Definitions(
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
-        persons_new_backfill.persons_new_backfill_job,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
