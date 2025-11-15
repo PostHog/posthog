@@ -164,6 +164,7 @@ def copy_chunk(
             cursor.execute("SET max_parallel_maintenance_workers = 2")
             cursor.execute("SET synchronous_commit = off")
 
+            retry_attempt = 0
             while batch_start_id <= chunk_max:
                 try:
                     # Track batch start time for duration metric
@@ -172,6 +173,10 @@ def copy_chunk(
                     # Calculate batch end ID
                     batch_end_id = min(batch_start_id + batch_size, chunk_max)
 
+                    # Track records attempted - this is also our exit condition
+                    records_attempted = batch_end_id - batch_start_id
+                    if records_attempted <= 0:
+                        break
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
@@ -195,8 +200,6 @@ ORDER BY s.id DESC
                     # Commit the transaction
                     cursor.execute("COMMIT")
 
-                    # Track records attempted metric (II) - use batch size as attempted
-                    records_attempted = batch_end_id - batch_start_id
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_records_attempted_total",
@@ -247,6 +250,7 @@ ORDER BY s.id DESC
 
                     # Update batch_start_id for next iteration
                     batch_start_id = batch_end_id
+                    retry_attempt = 0
 
                 except Exception as batch_error:
                     # Rollback transaction on error
@@ -258,6 +262,28 @@ ORDER BY s.id DESC
                             f"in chunk {chunk_min}-{chunk_max}: {str(rollback_error)}"
                         )
                         pass  # Ignore rollback errors
+
+                    # Check if error is a duplicate key violation, pause and retry if so
+                    is_unique_violation = isinstance(batch_error, psycopg2.errors.UniqueViolation) or (
+                        isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "23505"
+                    )
+                    if is_unique_violation:
+                        error_msg = (
+                            f"Duplicate key violation detected for batch starting at ID {batch_start_id} "
+                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. "
+                            "This is expected if records already exist in destination table. "
+                        )
+                        context.log.warning(error_msg)
+                        if retry_attempt < 3:
+                            retry_attempt += 1
+                            context.log.info(f"Retrying batch {retry_attempt} of 3...")
+                            time.sleep(1)
+                            continue
+                        else:
+                            context.log.exception(
+                                f"Failed to copy batch at attempt {retry_attempt} of 3. Raising failure."
+                            )
+                            raise dagster.Failure(description=error_msg) from batch_error
 
                     failed_batch_start_id = batch_start_id
                     error_msg = (
@@ -274,19 +300,6 @@ ORDER BY s.id DESC
                         ).result()
                     except Exception:
                         pass  # Don't fail on metrics error
-
-                    # Check if error is a duplicate key violation, pause and retry if so
-                    is_unique_violation = isinstance(batch_error, psycopg2.errors.UniqueViolation) or (
-                        isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "23505"
-                    )
-                    if is_unique_violation:
-                        context.log.warning(
-                            f"Duplicate key violation detected for batch starting at ID {batch_start_id} "
-                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. This is expected "
-                            f"if records already exist in destination table. Retrying the batch..."
-                        )
-                        time.sleep(0.5)
-                        continue
 
                     raise dagster.Failure(
                         description=error_msg,

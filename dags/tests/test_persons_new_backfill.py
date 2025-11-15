@@ -1,8 +1,11 @@
 """Tests for the persons new backfill job."""
 
+from unittest.mock import MagicMock, patch
+
+import psycopg2.errors
 from dagster import build_op_context
 
-from dags.persons_new_backfill import PersonsNewBackfillConfig, create_chunks
+from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks
 
 
 class TestCreateChunks:
@@ -41,7 +44,7 @@ class TestCreateChunks:
         chunk_ranges = [chunk.value for chunk in chunks]
 
         # Find the overall min and max covered
-        all_ids_covered = set()
+        all_ids_covered: set[int] = set()
         for chunk_min, chunk_max in chunk_ranges:
             all_ids_covered.update(range(chunk_min, chunk_max + 1))
 
@@ -148,3 +151,351 @@ class TestCreateChunks:
         assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
         assert chunks[0].value == (100, 500), f"Chunk should be (100, 500), got {chunks[0].value}"
         assert chunks[0].value[0] == min_id and chunks[0].value[1] == max_id
+
+
+def create_mock_database_resource(rowcount_values=None):
+    """
+    Create a mock database resource that mimics psycopg2.extensions.connection.
+
+    Args:
+        rowcount_values: List of rowcount values to return per INSERT call.
+                        If None, defaults to 0. If a single int, uses that for all calls.
+    """
+    mock_cursor = MagicMock()
+    if rowcount_values is None:
+        mock_cursor.rowcount = 0
+    elif isinstance(rowcount_values, int):
+        mock_cursor.rowcount = rowcount_values
+    else:
+        # Use side_effect to return different rowcounts per call
+        call_count = [0]
+
+        def get_rowcount():
+            if call_count[0] < len(rowcount_values):
+                result = rowcount_values[call_count[0]]
+                call_count[0] += 1
+                return result
+            return rowcount_values[-1] if rowcount_values else 0
+
+        mock_cursor.rowcount = property(lambda self: get_rowcount())
+
+    mock_cursor.execute = MagicMock()
+
+    # Make cursor() return a context manager
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    return mock_conn
+
+
+def create_mock_cluster_resource():
+    """Create a mock ClickhouseCluster resource."""
+    return MagicMock()
+
+
+class TestCopyChunk:
+    """Test the copy_chunk function."""
+
+    def test_copy_chunk_single_batch_success(self):
+        """Test successful copy of a single batch within a chunk."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        )
+        chunk = (1, 100)  # Single batch covers entire chunk
+
+        mock_db = create_mock_database_resource(rowcount_values=50)
+        mock_cluster = create_mock_cluster_resource()
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Patch context.run.job_name where it's accessed in copy_chunk
+        with patch("dags.persons_new_backfill.copy_chunk"):
+            # Patch the attribute access by patching the property
+            import dags.persons_new_backfill as pnb
+
+            original_fn = pnb.copy_chunk
+            # Use PropertyMock to mock the property
+            from unittest.mock import PropertyMock
+
+            with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+                result = original_fn(context, config, chunk)
+
+        # Verify result
+        assert result["chunk_min"] == 1
+        assert result["chunk_max"] == 100
+        assert result["records_copied"] == 50
+
+        # Verify SET statements called once (session-level, before loop)
+        set_statements = [
+            "SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'",
+            "SET lock_timeout = '5s'",
+            "SET statement_timeout = '30min'",
+            "SET maintenance_work_mem = '12GB'",
+            "SET work_mem = '512MB'",
+            "SET temp_buffers = '512MB'",
+            "SET max_parallel_workers_per_gather = 2",
+            "SET max_parallel_maintenance_workers = 2",
+            "SET synchronous_commit = off",
+        ]
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+
+        # Check SET statements were called
+        for stmt in set_statements:
+            assert any(stmt in call for call in execute_calls), f"SET statement not found: {stmt}"
+
+        # Verify BEGIN, INSERT, COMMIT called once
+        assert execute_calls.count("BEGIN") == 1
+        assert execute_calls.count("COMMIT") == 1
+
+        # Verify INSERT query format
+        insert_calls = [call for call in execute_calls if "INSERT INTO" in call]
+        assert len(insert_calls) == 1
+        insert_query = insert_calls[0]
+        assert "INSERT INTO posthog_persons_new" in insert_query
+        assert "SELECT s.*" in insert_query
+        assert "FROM posthog_persons s" in insert_query
+        assert "WHERE s.id >" in insert_query
+        assert "AND s.id <=" in insert_query
+        assert "NOT EXISTS" in insert_query
+        assert "ORDER BY s.id DESC" in insert_query
+
+    def test_copy_chunk_multiple_batches(self):
+        """Test copy with multiple batches in a chunk."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        )
+        chunk = (1, 250)  # 3 batches: (1,100), (100,200), (200,250)
+
+        mock_db = create_mock_database_resource()
+        mock_cluster = create_mock_cluster_resource()
+
+        # Track rowcount per batch - use a list to track INSERT calls
+        rowcounts = [50, 75, 25]
+        insert_call_count = [0]
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        # Track INSERT calls and set rowcount accordingly
+        original_execute = cursor.execute
+
+        def execute_with_rowcount(query, *args):
+            result = original_execute(query, *args)
+            if "INSERT INTO" in query:
+                if insert_call_count[0] < len(rowcounts):
+                    cursor.rowcount = rowcounts[insert_call_count[0]]
+                    insert_call_count[0] += 1
+                else:
+                    cursor.rowcount = 0
+            return result
+
+        cursor.execute.side_effect = execute_with_rowcount
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Patch context.run.job_name where it's accessed in copy_chunk
+        with patch("dags.persons_new_backfill.copy_chunk"):
+            # Patch the attribute access by patching the property
+            import dags.persons_new_backfill as pnb
+
+            original_fn = pnb.copy_chunk
+            # Use PropertyMock to mock the property
+            from unittest.mock import PropertyMock
+
+            with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+                result = original_fn(context, config, chunk)
+
+        # Verify result
+        assert result["chunk_min"] == 1
+        assert result["chunk_max"] == 250
+        assert result["records_copied"] == 150  # 50 + 75 + 25
+
+        # Verify SET statements called once (before loop)
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+
+        # Verify BEGIN/COMMIT called 3 times (one per batch)
+        assert execute_calls.count("BEGIN") == 3
+        assert execute_calls.count("COMMIT") == 3
+
+        # Verify INSERT called 3 times
+        insert_calls = [call for call in execute_calls if "INSERT INTO" in call]
+        assert len(insert_calls) == 3
+
+    def test_copy_chunk_duplicate_key_violation_retry(self):
+        """Test that duplicate key violation triggers retry."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        )
+        chunk = (1, 100)
+
+        mock_db = create_mock_database_resource()
+        mock_cluster = create_mock_cluster_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        # Track INSERT attempts
+        insert_attempts = [0]
+
+        # First INSERT raises UniqueViolation, second succeeds
+        def execute_side_effect(query, *args):
+            if "INSERT INTO" in query:
+                insert_attempts[0] += 1
+                if insert_attempts[0] == 1:
+                    # First INSERT attempt raises error
+                    # Use real UniqueViolation - pgcode is readonly but isinstance check will pass
+                    raise psycopg2.errors.UniqueViolation("duplicate key value violates unique constraint")
+                # Subsequent calls succeed
+                cursor.rowcount = 50  # Success on retry
+
+        cursor.execute.side_effect = execute_side_effect
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Need to patch time.sleep and run.job_name
+        from unittest.mock import PropertyMock
+
+        mock_run = MagicMock(job_name="test_job")
+        with (
+            patch("dags.persons_new_backfill.time.sleep"),
+            patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
+        ):
+            copy_chunk(context, config, chunk)
+
+        # Verify ROLLBACK was called on error
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        assert "ROLLBACK" in execute_calls
+
+        # Verify retry succeeded (should have INSERT called twice, COMMIT once)
+        insert_calls = [call for call in execute_calls if "INSERT INTO" in call]
+        assert len(insert_calls) >= 1  # At least one successful INSERT
+
+    def test_copy_chunk_error_handling_and_rollback(self):
+        """Test error handling and rollback on non-duplicate errors."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        )
+        chunk = (1, 100)
+
+        mock_db = create_mock_database_resource()
+        mock_cluster = create_mock_cluster_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        # Raise generic error on INSERT
+        def execute_side_effect(query, *args):
+            if "INSERT INTO" in query:
+                raise Exception("Connection lost")
+
+        cursor.execute.side_effect = execute_side_effect
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Patch context.run.job_name where it's accessed in copy_chunk
+        from unittest.mock import PropertyMock
+
+        mock_run = MagicMock(job_name="test_job")
+        with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
+            # Should raise Dagster.Failure
+            from dagster import Failure
+
+            try:
+                copy_chunk(context, config, chunk)
+                raise AssertionError("Expected Dagster.Failure to be raised")
+            except Failure as e:
+                # Verify error metadata
+                assert e.description is not None
+                assert "Failed to copy batch" in e.description
+
+                # Verify ROLLBACK was called
+                execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+                assert "ROLLBACK" in execute_calls
+
+    def test_copy_chunk_insert_query_format(self):
+        """Test that INSERT query has correct format."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=100, source_table="test_source", destination_table="test_dest"
+        )
+        chunk = (1, 100)
+
+        mock_db = create_mock_database_resource(rowcount_values=10)
+        mock_cluster = create_mock_cluster_resource()
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Patch context.run.job_name where it's accessed in copy_chunk
+        from unittest.mock import PropertyMock
+
+        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+            copy_chunk(context, config, chunk)
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+
+        # Find INSERT query
+        insert_query = next((call for call in execute_calls if "INSERT INTO" in call), None)
+        assert insert_query is not None
+
+        # Verify query components
+        assert "INSERT INTO test_dest" in insert_query
+        assert "SELECT s.*" in insert_query
+        assert "FROM test_source s" in insert_query
+        assert "WHERE s.id >" in insert_query
+        assert "AND s.id <=" in insert_query
+        assert "NOT EXISTS" in insert_query
+        assert "d.team_id = s.team_id" in insert_query
+        assert "d.id = s.id" in insert_query
+        assert "ORDER BY s.id DESC" in insert_query
+
+    def test_copy_chunk_session_settings_applied_once(self):
+        """Test that SET statements are applied once at session level before batch loop."""
+        config = PersonsNewBackfillConfig(
+            chunk_size=1000, batch_size=50, source_table="posthog_persons", destination_table="posthog_persons_new"
+        )
+        chunk = (1, 150)  # 3 batches
+
+        mock_db = create_mock_database_resource(rowcount_values=25)
+        mock_cluster = create_mock_cluster_resource()
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Patch context.run.job_name where it's accessed in copy_chunk
+        from unittest.mock import PropertyMock
+
+        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+            copy_chunk(context, config, chunk)
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+
+        # Count SET statements (should be called once each, before loop)
+        set_statements = [
+            "SET application_name",
+            "SET lock_timeout",
+            "SET statement_timeout",
+            "SET maintenance_work_mem",
+            "SET work_mem",
+            "SET temp_buffers",
+            "SET max_parallel_workers_per_gather",
+            "SET max_parallel_maintenance_workers",
+            "SET synchronous_commit",
+        ]
+
+        for stmt in set_statements:
+            count = sum(1 for call in execute_calls if stmt in call)
+            assert count == 1, f"Expected {stmt} to be called once, but it was called {count} times"
+
+        # Verify SET statements come before BEGIN statements
+        set_indices = [i for i, call in enumerate(execute_calls) if any(stmt in call for stmt in set_statements)]
+        begin_indices = [i for i, call in enumerate(execute_calls) if call == "BEGIN"]
+
+        if set_indices and begin_indices:
+            assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
