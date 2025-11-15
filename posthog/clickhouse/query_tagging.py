@@ -20,6 +20,7 @@ class AccessMethod(StrEnum):
 class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
+    ENDPOINTS = "endpoints"
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
@@ -30,7 +31,6 @@ class Product(StrEnum):
     WAREHOUSE = "warehouse"
     EXPERIMENTS = "experiments"
     SDK_DOCTOR = "sdk_doctor"
-    ENDPOINTS = "endpoints"
 
 
 class Feature(StrEnum):

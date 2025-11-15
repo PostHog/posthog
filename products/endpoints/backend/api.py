@@ -220,7 +220,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         # We should expose if the query name is duplicate
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise ValidationError("Failed to create endpoint.")
 
     def validate_update_request(
@@ -318,7 +318,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response(self._serialize_endpoint(endpoint))
 
         except Exception as e:
-            capture_exception(e)
+            exception_props = {"product": Product.ENDPOINTS, "team_id": self.team_id, "endpoint_id": endpoint.id}
+            if endpoint.saved_query:
+                exception_props["saved_query_id"] = (endpoint.saved_query.id,)
+            capture_exception(e, exception_props)
             raise ValidationError("Failed to update endpoint.")
 
     def _enable_materialization(
@@ -530,7 +533,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
-            capture_exception(e)
+            capture_exception(
+                e, {"product": Product.ENDPOINTS, "team_id": self.team_id, "endpoint_name": endpoint.name}
+            )
             raise
 
     @extend_schema(
@@ -633,7 +638,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise
 
     def handle_column_ch_error(self, error):
