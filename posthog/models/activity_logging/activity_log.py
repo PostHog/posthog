@@ -72,6 +72,8 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "LLMTrace",
+    "LLMEvent",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -82,9 +84,9 @@ ChangeAction = Literal[
 class Change:
     type: ActivityScope | str
     action: ChangeAction
-    field: Optional[str] = None
-    before: Optional[Any] = None
-    after: Optional[Any] = None
+    field: str | None = None
+    before: Any | None = None
+    after: Any | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -106,13 +108,13 @@ class ActivityContextBase:
 @dataclasses.dataclass(frozen=True)
 class Detail:
     # The display name of the item in question
-    name: Optional[str] = None
+    name: str | None = None
     # The short_id if it has one
-    short_id: Optional[str] = None
-    type: Optional[str] = None
-    changes: Optional[list[Change]] = None
-    trigger: Optional[Trigger] = None
-    context: Optional[ActivityContextBase] = None
+    short_id: str | None = None
+    type: str | None = None
+    changes: list[Change] | None = None
+    trigger: Trigger | None = None
+    context: ActivityContextBase | None = None
 
 
 class ActivityLog(UUIDTModel):
@@ -548,8 +550,8 @@ def safely_get_field_value(instance: models.Model | None, field: str):
 
 def changes_between(
     model_type: ActivityScope,
-    previous: Optional[models.Model],
-    current: Optional[models.Model],
+    previous: models.Model | None,
+    current: models.Model | None,
 ) -> list[Change]:
     """
     Identifies changes between two models by comparing fields.
@@ -687,14 +689,14 @@ def _handle_activity_log_transaction(create_fn, error_context: dict):
 
 def log_activity(
     *,
-    organization_id: Optional[UUID],
-    team_id: Optional[int],
+    organization_id: UUID | None,
+    team_id: int | None,
     user: Optional["User"],
-    item_id: Optional[Union[int, str, UUID]],
+    item_id: Union[int, str, UUID] | None,
     scope: str,
     activity: str,
     detail: Detail,
-    was_impersonated: Optional[bool],
+    was_impersonated: bool | None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
@@ -775,14 +777,14 @@ def log_activity(
 
 
 class LogActivityEntry(TypedDict, total=False):
-    organization_id: Optional[UUID]
-    team_id: Optional[int]
+    organization_id: UUID | None
+    team_id: int | None
     user: Optional["User"]
-    item_id: Optional[Union[int, str, UUID]]
+    item_id: Union[int, str, UUID] | None
     scope: Required[str]
     activity: Required[str]
     detail: Required[Detail]
-    was_impersonated: Optional[bool]
+    was_impersonated: bool | None
     force_save: bool
 
 
@@ -895,7 +897,7 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
 def load_activity(
     scope: ActivityScope,
     team_id: int,
-    item_ids: Optional[list[str]] = None,
+    item_ids: list[str] | None = None,
     limit: int = 10,
     page: int = 1,
 ) -> ActivityPage:

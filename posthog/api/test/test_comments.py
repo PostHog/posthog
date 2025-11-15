@@ -242,3 +242,73 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments/count{query_params}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"count": expected_count}
+
+    def test_creates_llm_trace_comment_successfully(self) -> None:
+        trace_id = "test-trace-123"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This trace has high latency",
+                "scope": "LLMTrace",
+                "item_id": trace_id,
+                "item_context": {"trace_id": trace_id},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["scope"] == "LLMTrace"
+        assert response.json()["item_id"] == trace_id
+        assert response.json()["content"] == "This trace has high latency"
+
+    def test_creates_llm_event_comment_successfully(self) -> None:
+        event_id = "evt-456"
+        trace_id = "test-trace-123"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This generation event looks incorrect",
+                "scope": "LLMEvent",
+                "item_id": event_id,
+                "item_context": {
+                    "trace_id": trace_id,
+                    "event_id": event_id,
+                    "event_type": "$ai_generation",
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["scope"] == "LLMEvent"
+        assert response.json()["item_id"] == event_id
+        assert response.json()["content"] == "This generation event looks incorrect"
+
+    def test_filters_llm_comments_by_scope_and_item_id(self) -> None:
+        trace_id_1 = "trace-1"
+        trace_id_2 = "trace-2"
+        event_id = "evt-123"
+
+        # Create comments on different traces and events
+        self._create_comment({"content": "Trace 1 comment", "scope": "LLMTrace", "item_id": trace_id_1})
+        self._create_comment({"content": "Trace 2 comment", "scope": "LLMTrace", "item_id": trace_id_2})
+        self._create_comment(
+            {
+                "content": "Event comment",
+                "scope": "LLMEvent",
+                "item_id": event_id,
+                "item_context": {"trace_id": trace_id_1},
+            }
+        )
+
+        # Filter by LLMTrace scope
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMTrace")
+        assert len(response.json()["results"]) == 2
+
+        # Filter by specific trace
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMTrace&item_id={trace_id_1}")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "Trace 1 comment"
+
+        # Filter by LLMEvent scope
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMEvent")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "Event comment"
