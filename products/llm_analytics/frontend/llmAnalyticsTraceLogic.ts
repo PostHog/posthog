@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, InsightLogicProps } from '~/types'
+import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
@@ -219,21 +219,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 (eventType: string): boolean => {
                     return eventTypeExpandedMap[eventType] ?? true
                 },
-        ],
-        // Comments support
-        activity_scope: [
-            (s) => [s.eventId],
-            (eventId): ActivityScope => {
-                // When an event is selected, comment on that event, otherwise comment on the trace
-                return eventId ? ActivityScope.LLM_EVENT : ActivityScope.LLM_TRACE
-            },
-        ],
-        activity_item_id: [
-            (s) => [s.traceId, s.eventId],
-            (traceId, eventId): string => {
-                // Use eventId if available, otherwise use traceId
-                return eventId || traceId
-            },
         ],
     }),
 

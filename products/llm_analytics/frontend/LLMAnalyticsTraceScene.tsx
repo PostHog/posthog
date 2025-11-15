@@ -34,10 +34,10 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
@@ -79,28 +79,22 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
+    const { traceId, query, eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query }}>
+        <BindLogic
+            logic={llmAnalyticsTraceDataLogic}
+            props={{ traceId, query, eventId, searchQuery, cachedResults: null }}
+        >
             <TraceSceneWrapper />
         </BindLogic>
     )
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId, activity_scope, activity_item_id } = useValues(llmAnalyticsTraceLogic)
-    const {
-        enrichedTree,
-        trace,
-        event,
-        responseLoading,
-        responseError,
-        feedbackEvents,
-        metricEvents,
-        searchQuery,
-        eventMetadata,
-    } = useValues(llmAnalyticsTraceDataLogic)
+    const { eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
+        useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)

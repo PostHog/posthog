@@ -4758,6 +4758,9 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LLM_EVENT = 'LLMEvent',
+    LLM_GENERATION = 'LLMGeneration',
+    LLM_SPAN = 'LLMSpan',
+    LLM_EMBEDDING = 'LLMEmbedding',
 }
 
 export type CommentType = {
