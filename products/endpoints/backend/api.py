@@ -318,10 +318,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response(self._serialize_endpoint(endpoint))
 
         except Exception as e:
-            exception_props = {"product": Product.ENDPOINTS, "team_id": self.team_id, "endpoint_id": endpoint.id}
-            if endpoint.saved_query:
-                exception_props["saved_query_id"] = (endpoint.saved_query.id,)
-            capture_exception(e, exception_props)
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_id": endpoint.id,
+                    "saved_query_id": endpoint.saved_query.id if endpoint.saved_query else None,
+                },
+            )
             raise ValidationError("Failed to update endpoint.")
 
     def _enable_materialization(
@@ -449,33 +454,52 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
     ) -> Response:
         """Execute against a materialized table in S3."""
-        from posthog.schema import RefreshType
+        try:
+            from posthog.schema import RefreshType
 
-        saved_query = endpoint.saved_query
-        if not saved_query:
-            raise ValidationError("No materialized query found for this endpoint")
+            saved_query = endpoint.saved_query
+            if not saved_query:
+                raise ValidationError("No materialized query found for this endpoint")
 
-        materialized_hogql_query = HogQLQuery(
-            query=f"SELECT * FROM {saved_query.name}",
-            modifiers=HogQLQueryModifiers(useMaterializedViews=True),
-        )
+            materialized_hogql_query = HogQLQuery(
+                query=f"SELECT * FROM {saved_query.name}",
+                modifiers=HogQLQueryModifiers(useMaterializedViews=True),
+            )
 
-        query_request_data = {
-            "client_query_id": data.client_query_id,
-            "name": f"{endpoint.name}_materialized",
-            "refresh": data.refresh or RefreshType.BLOCKING,
-            "query": materialized_hogql_query.model_dump(),
-        }
+            query_request_data = {
+                "client_query_id": data.client_query_id,
+                "name": f"{endpoint.name}_materialized",
+                "refresh": data.refresh or RefreshType.BLOCKING,
+                "query": materialized_hogql_query.model_dump(),
+            }
 
-        extra_fields = {
-            "_materialized": True,
-            "_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
-        }
-        tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
+            extra_fields = {
+                "_materialized": True,
+                "_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
+            }
+            tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
-        return self._execute_query_and_respond(
-            query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
-        )
+            return self._execute_query_and_respond(
+                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+            )
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ResolutionError as e:
+            raise ValidationError(str(e))
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
+        except Exception as e:
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "materialized": True,
+                    "saved_query_id": saved_query.id if saved_query else None,
+                },
+            )
+            raise
 
     def _parse_variables(self, query: dict[str, dict], variables: dict[str, str]) -> dict[str, dict] | None:
         query_variables = query.get("variables", None)
