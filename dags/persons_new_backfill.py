@@ -17,7 +17,7 @@ from dags.common import JobOwners
 class PersonsNewBackfillConfig(dagster.Config):
     """Configuration for the persons new backfill job."""
 
-    chunk_size: int = 10_000_000  # ID range per chunk
+    chunk_size: int = 1_000_000  # ID range per chunk
     batch_size: int = 100_000  # Records per batch insert
     source_table: str = "posthog_persons"
     destination_table: str = "posthog_persons_new"
@@ -91,6 +91,7 @@ def create_chunks(
     context: dagster.OpExecutionContext,
     config: PersonsNewBackfillConfig,
     id_range: tuple[int, int],
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """
     Divide ID space into chunks of chunk_size.
@@ -113,6 +114,19 @@ def create_chunks(
         chunk_num += 1
 
     context.log.info(f"Created {chunk_num} chunks total")
+
+    # Emit metric for total chunks
+    job_name = context.run.job_name
+    run_id = context.run.run_id
+    metrics_client = MetricsClient(cluster)
+    try:
+        metrics_client.increment(
+            "persons_new_backfill_total_chunks_total",
+            labels={"job_name": job_name, "run_id": run_id},
+            value=float(chunk_num),
+        ).result()
+    except Exception:
+        pass  # Don't fail on metrics error
 
     # Yield chunks in reverse order (highest IDs first)
     for chunk_min, chunk_max, chunk_num in reversed(chunks):
@@ -337,6 +351,18 @@ ORDER BY s.id DESC
         ) from e
 
     context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: copied {total_records_copied} records")
+
+    # Emit metric for chunk completion
+    run_id = context.run.run_id
+    try:
+        metrics_client.increment(
+            "persons_new_backfill_chunks_completed_total",
+            labels={"job_name": job_name, "run_id": run_id, "chunk_id": chunk_id},
+            value=1.0,
+        ).result()
+    except Exception:
+        pass  # Don't fail on metrics error
+
     context.add_output_metadata(
         {
             "chunk_min": dagster.MetadataValue.int(chunk_min),
