@@ -25,10 +25,13 @@ from posthog.schema import (
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
+    RefreshType,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -219,9 +222,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             return Response(self._serialize_endpoint(endpoint), status=status.HTTP_201_CREATED)
 
-        # We should expose if the query name is duplicate
         except Exception as e:
-            capture_exception(e)
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": data.name,
+                },
+            )
             raise ValidationError("Failed to create endpoint.")
 
     def validate_update_request(
@@ -316,7 +325,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response(self._serialize_endpoint(endpoint))
 
         except Exception as e:
-            capture_exception(e)
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_id": endpoint.id,
+                    "saved_query_id": endpoint.saved_query.id if endpoint.saved_query else None,
+                },
+            )
             raise ValidationError("Failed to update endpoint.")
 
     def _enable_materialization(
@@ -451,49 +468,61 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self, endpoint: Endpoint, data: EndpointRunRequest, request: Request
     ) -> Response:
         """Execute against a materialized table in S3."""
-        from posthog.schema import RefreshType
+        try:
+            saved_query = endpoint.saved_query
+            if not saved_query:
+                raise ValidationError("No materialized query found for this endpoint")
 
-        from posthog.hogql import ast
-        from posthog.hogql.property import property_to_expr
+            select_query = ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
+            )
 
-        saved_query = endpoint.saved_query
-        if not saved_query:
-            raise ValidationError("No materialized query found for this endpoint")
+            if data.filters_override and data.filters_override.properties:
+                try:
+                    property_expr = property_to_expr(data.filters_override.properties, self.team)
+                    select_query.where = property_expr
+                except Exception:
+                    raise ValidationError("Failed to apply property filters.")
 
-        # Build AST for SELECT * FROM table
-        select_query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
-        )
+            materialized_hogql_query = HogQLQuery(
+                query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
 
-        if data.filters_override and data.filters_override.properties:
-            try:
-                property_expr = property_to_expr(data.filters_override.properties, self.team)
-                select_query.where = property_expr
-            except Exception as e:
-                capture_exception(e)
-                raise ValidationError(f"Failed to apply property filters.")
+            query_request_data = {
+                "client_query_id": data.client_query_id,
+                "name": f"{endpoint.name}_materialized",
+                "refresh": data.refresh or RefreshType.BLOCKING,
+                "query": materialized_hogql_query.model_dump(),
+            }
 
-        materialized_hogql_query = HogQLQuery(
-            query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
-        )
+            extra_fields = {
+                "endpoint_materialized": True,
+                "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
+            }
+            tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
-        query_request_data = {
-            "client_query_id": data.client_query_id,
-            "name": f"{endpoint.name}_materialized",
-            "refresh": data.refresh or RefreshType.BLOCKING,
-            "query": materialized_hogql_query.model_dump(),
-        }
-
-        extra_fields = {
-            "endpoint_materialized": True,
-            "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
-        }
-        tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
-
-        return self._execute_query_and_respond(
-            query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
-        )
+            return self._execute_query_and_respond(
+                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+            )
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ResolutionError as e:
+            raise ValidationError(str(e))
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
+        except Exception as e:
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "materialized": True,
+                    "saved_query_id": saved_query.id if saved_query else None,
+                },
+            )
+            raise
 
     def _parse_variables(self, query: dict[str, dict], variables: dict[str, str]) -> dict[str, dict] | None:
         query_variables = query.get("variables", None)
@@ -550,7 +579,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
-            capture_exception(e)
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                },
+            )
             raise
 
     @extend_schema(
@@ -655,7 +691,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise
 
     def handle_column_ch_error(self, error):
