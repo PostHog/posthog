@@ -186,7 +186,11 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_total_value(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
-            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, deep=True
+            update={
+                "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                "dateRange": DateRange(date_from="-7d", explicitDate=False),
+            },
+            deep=True,
         )
 
         with freeze_time("2022-06-15T12:00:00.000Z"):
@@ -201,6 +205,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             update={
                 "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
                 "compareFilter": CompareFilter(compare=True),
+                "dateRange": DateRange(date_from="-7d", explicitDate=False),
             },
             deep=True,
         )
@@ -221,6 +226,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             update={
                 "trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
                 "compareFilter": CompareFilter(compare=True, compare_to="-3d"),
+                "dateRange": DateRange(date_from="-7d", explicitDate=False),
             },
             deep=True,
         )

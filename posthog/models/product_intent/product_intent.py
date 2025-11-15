@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.conf import settings
 from django.db import models
 
 from celery import shared_task
@@ -172,9 +171,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return self.team.ingested_event
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
-        if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
-            return True  # In the special prod PG in debug mode, we can't write to PG!
-
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
             return True

@@ -180,17 +180,13 @@ export function SceneTitleSection({
                 )}
             >
                 <div
-                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start group py-2"
+                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
                     data-editable={canEdit}
                 >
                     <div
-                        className={cn(
-                            'flex flex-col @2xl/main-content:grid @2xl/main-content:grid-cols-[30px_1fr_auto] flex-1 gap-1 w-full -ml-[var(--button-padding-x-base)]',
-                            {
-                                '@2xl/main-content:grid-cols-[30px_30px_1fr_auto] w-[calc(100%+var(--button-padding-x-base)*2)] @2xl/main-content:w-auto':
-                                    willShowBreadcrumbs,
-                            }
-                        )}
+                        className={cn('flex gap-1 flex-1 min-w-0', {
+                            '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
+                        })}
                     >
                         {willShowBreadcrumbs && <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />}
                         {name !== null && (
@@ -218,13 +214,13 @@ export function SceneTitleSection({
                                 />
                             </>
                         )}
-                        {actions && (
-                            <div className="flex gap-1.5 justify-end items-start ml-4 @max-2xl:order-first">
-                                {actions}
-                                <SceneTitlePanelButton />
-                            </div>
-                        )}
                     </div>
+                    {actions && (
+                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                            {actions}
+                            <SceneTitlePanelButton />
+                        </div>
+                    )}
                 </div>
                 {effectiveDescription == null && <SceneDivider />}
             </div>
@@ -376,7 +372,7 @@ function SceneName({
         )
     }
 
-    return <div className={cn('scene-name', onChange && canEdit && 'truncate')}>{Element}</div>
+    return <div className={cn('scene-name flex-1', onChange && canEdit && 'truncate')}>{Element}</div>
 }
 
 type SceneDescriptionProps = {
@@ -529,7 +525,7 @@ function SceneDescription({
 
     return (
         <div className="scene-description -mt-4">
-            <div className="-mx-[var(--button-padding-x-base)] pb-2 flex items-center gap-0">{Element}</div>
+            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )
 }

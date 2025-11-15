@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
+import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
@@ -67,6 +68,11 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.VIEWS,
+                        label: 'Views',
+                        content: <ViewsTab />,
                     },
                 ]}
             />

@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = OrganizationSetActiveSchema
 
 type Params = z.infer<typeof schema>
 
-export const setActiveHandler = async (context: Context, params: Params) => {
+export const setActiveHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
 

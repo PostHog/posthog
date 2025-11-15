@@ -257,8 +257,8 @@ class ConversationRedisStream:
                 raise StreamError("Stream read timeout")
             except redis_exceptions.RedisError:
                 raise StreamError("Stream read error")
-            except Exception as e:
-                raise StreamError("Unexpected error reading conversation stream") from e
+            except Exception:
+                raise StreamError("Unexpected error reading conversation stream")
 
     async def delete_stream(self) -> bool:
         """Delete the Redis stream for this conversation.
@@ -317,4 +317,4 @@ class ConversationRedisStream:
                 maxlen=CONVERSATION_STREAM_MAX_LENGTH,
                 approximate=True,
             )
-            raise StreamError("Failed to write to stream") from e
+            raise StreamError("Failed to write to stream")

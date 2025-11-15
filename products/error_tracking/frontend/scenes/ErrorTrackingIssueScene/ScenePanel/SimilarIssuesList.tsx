@@ -7,7 +7,6 @@ import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
@@ -40,7 +39,7 @@ export const SimilarIssuesList = (): JSX.Element => {
     }
 
     return (
-        <ScenePanelLabel title="Similar issues">
+        <>
             {similarIssuesLoading ? (
                 <Spinner />
             ) : similarIssues.length > 0 ? (
@@ -80,7 +79,7 @@ export const SimilarIssuesList = (): JSX.Element => {
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
                 </LemonModalContent>
             </LemonModal>
-        </ScenePanelLabel>
+        </>
     )
 }
 

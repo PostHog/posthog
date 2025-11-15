@@ -269,7 +269,7 @@ export const preflightLogic = kea<preflightLogicType>([
         isCloudOrDev: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {
-                return preflight?.cloud || !!preflight?.is_debug
+                return preflight?.cloud || preflight?.is_debug
             },
         ],
         isTest: [(s) => [s.preflight], (preflight) => !!preflight?.is_test],
@@ -283,7 +283,7 @@ export const preflightLogic = kea<preflightLogicType>([
         isDev: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {
-                return !!preflight?.is_debug
+                return preflight?.is_debug
             },
         ],
         disableNavigationHooks: [

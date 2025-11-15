@@ -96,7 +96,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
-    "SnowflakeQueryTimeoutError",
+    "SnowflakeQueryClientTimeoutError",
+    # Raised when a Snowflake query exceeds the timeout set in the user's account. This is typically set by
+    # STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various levels (account, warehouse, user).
+    "SnowflakeQueryServerTimeoutError",
     # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
     "SnowflakeWarehouseUsageError",
 )
@@ -175,7 +178,7 @@ class SnowflakeIncompatibleSchemaError(Exception):
         )
 
 
-class SnowflakeQueryTimeoutError(TimeoutError):
+class SnowflakeQueryClientTimeoutError(TimeoutError):
     """Raised when a Snowflake query times out."""
 
     def __init__(self, timeout: float, query_id: str, query_status: str):
@@ -202,6 +205,16 @@ class SnowflakeQueryTimeoutError(TimeoutError):
         guidance = status_guidance.get(query_status, f"Query status: {query_status}")
 
         super().__init__(f"Query timed out after {timeout:.0f} seconds (query_id: {query_id}). {guidance}")
+
+
+class SnowflakeQueryServerTimeoutError(TimeoutError):
+    """Raised when a Snowflake query exceeds the timeout set in the user's account.
+
+    This is typically set by STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various
+    levels (account, warehouse, user).
+    """
+
+    pass
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -487,7 +500,7 @@ class SnowflakeClient:
             Else when `fetch_results` is `False` we return `None`.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the query exceeds the specified timeout set by us.
         """
         query_start_time = time.monotonic()
         self.logger.debug("Executing async query: %s", query)
@@ -518,7 +531,7 @@ class SnowflakeClient:
                 # Cancel the query in Snowflake to prevent it from continuing to run
                 await self.abort_query(query_id)
 
-                raise SnowflakeQueryTimeoutError(
+                raise SnowflakeQueryClientTimeoutError(
                     timeout=timeout,
                     query_id=query_id,
                     query_status=final_status.name if final_status else "UNKNOWN",
@@ -708,7 +721,8 @@ class SnowflakeClient:
             timeout: The timeout (in seconds) to wait for the COPY INTO query to complete.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the COPY INTO query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
+            SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         col_names = [field[0] for field in table_fields]
         select_fields = ", ".join(
@@ -739,7 +753,7 @@ class SnowflakeClient:
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
         try:
             result = await execute_copy_into(query, poll_interval=1.0, timeout=timeout)
-        except SnowflakeQueryTimeoutError:
+        except SnowflakeQueryClientTimeoutError:
             # Re-raise as-is since it already has good context
             raise
         except snowflake.connector.errors.ProgrammingError as e:
@@ -752,6 +766,8 @@ class SnowflakeClient:
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno in (630, 604) and e.msg is not None:
+                raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
 
@@ -811,7 +827,7 @@ class SnowflakeClient:
             timeout: The timeout (in seconds) to wait for the MERGE query to complete.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the MERGE query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the MERGE query exceeds the specified timeout set by us.
         """
 
         # handle the case where the final table doesn't contain all the fields present in the stage table

@@ -6,12 +6,11 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage
 
 from ee.hogai.graph.deep_research.task_executor.prompts import EXECUTE_TASKS_TOOL_RESULT
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 from ee.hogai.graph.parallel_task_execution.mixins import WithInsightCreationTaskExecution
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types.base import TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
 
 logger = structlog.get_logger(__name__)
 
@@ -22,10 +21,6 @@ class DeepResearchTaskExecutorNode(
     """
     Core task execution node that handles parallel task execution
     """
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return DeepResearchNodeName.TASK_EXECUTOR
 
     tool_call_id: str
 

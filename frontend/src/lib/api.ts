@@ -19,11 +19,13 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
+    AnyResponseType,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
+    EndpointRunRequest,
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
@@ -81,7 +83,9 @@ import {
     DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryRunHistory,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -91,6 +95,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
+    EndpointVersion,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -1525,6 +1530,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
     }
 
+    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
+        return this.messagingCategories().addPathComponent('import_from_customerio')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
@@ -1713,6 +1722,9 @@ const api = {
         async update(name: string, data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpointDetail(name).update({ data })
         },
+        async run(name: string, data: EndpointRunRequest): Promise<AnyResponseType> {
+            return await new ApiRequest().endpointDetail(name).withAction('run').create({ data })
+        },
         async getLastExecutionTimes(data: EndpointLastExecutionTimesRequest): Promise<Record<string, string>> {
             if (data.names.length === 0) {
                 return {}
@@ -1735,6 +1747,12 @@ const api = {
             }
 
             return result
+        },
+        async listVersions(name: string): Promise<EndpointVersion[]> {
+            return await new ApiRequest().endpointDetail(name).withAction('versions').get()
+        },
+        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
 
@@ -2430,8 +2448,16 @@ const api = {
     },
 
     dashboards: {
+        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+            return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
+        },
+
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async createUnlistedDashboard(tag: string): Promise<DashboardType> {
+            return new ApiRequest().dashboards().withAction('create_unlisted_dashboard').create({ data: { tag } })
         },
 
         async streamTiles(
@@ -3729,6 +3755,14 @@ const api = {
                 .withAction('descendants')
                 .create({ data: { level } })
         },
+        async dependencies(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQueryDependencies> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('dependencies').get()
+        },
+        async runHistory(
+            viewId: DataWarehouseSavedQuery['id']
+        ): Promise<{ run_history: DataWarehouseSavedQueryRunHistory[] }> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run_history').get()
+        },
         dataWarehouseDataModelingJobs: {
             async list(
                 savedQueryId: DataWarehouseSavedQuery['id'],
@@ -4211,11 +4245,12 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
             return await new ApiRequest()
                 .messagingPreferencesOptOuts()
                 .withQueryString({
                     category_key: categoryKey,
+                    page: page || 1,
                 })
                 .get()
         },

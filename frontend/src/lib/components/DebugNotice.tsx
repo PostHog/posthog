@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconCode, IconWarning, IconX } from '@posthog/icons'
@@ -14,20 +13,16 @@ export interface DebugNoticeProps {
 }
 
 export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | null {
-    const [debugInfo, setDebugInfo] = useState<
-        { mode: 'DEBUG' | 'PRODUCTION DEBUG'; branch: string; revision: string } | undefined
-    >()
+    const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()
     const [noticeHidden, setNoticeHidden] = useState(false)
 
     useOnMountEffect(() => {
         const bottomNotice = document.getElementById('bottom-notice')
-        const bottomNoticeMode = document.getElementById('bottom-notice-mode')?.textContent
         const bottomNoticeRevision = document.getElementById('bottom-notice-revision')?.textContent
         const bottomNoticeBranch = document.getElementById('bottom-notice-branch')?.textContent
 
         if (bottomNotice && bottomNoticeRevision && bottomNoticeBranch) {
             setDebugInfo({
-                mode: (bottomNoticeMode || 'unknown') as 'DEBUG' | 'PRODUCTION DEBUG',
                 branch: bottomNoticeBranch || 'unknown',
                 revision: bottomNoticeRevision || 'unknown',
             })
@@ -47,7 +42,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                 tooltip={
                     <div className="font-mono">
                         <div>
-                            <strong>{debugInfo.mode} mode!</strong>
+                            <strong>DEBUG mode!</strong>
                         </div>
                         <div>
                             Branch: <b>{debugInfo.branch}</b>
@@ -66,13 +61,8 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
     }
     return (
         <div className="border rounded bg-primary overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
-            <div
-                className={clsx(
-                    'justify-between',
-                    debugInfo.mode === 'PRODUCTION DEBUG' ? 'border-brand-red' : 'border-brand-blue'
-                )}
-            >
-                <b>{debugInfo.mode} mode</b>
+            <div className="border-brand-blue justify-between">
+                <b>DEBUG mode</b>
                 <LemonButton
                     icon={<IconX />}
                     tooltip="Dismiss"
@@ -88,12 +78,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                 </div>
             </Tooltip>
             <Tooltip title="Revision" placement="right">
-                <div
-                    className={clsx(
-                        'w-fit',
-                        debugInfo.mode === 'PRODUCTION DEBUG' ? 'border-brand-red' : 'border-brand-yellow'
-                    )}
-                >
+                <div className="w-fit border-brand-yellow">
                     <IconCode className="text-base" />
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.revision}</span>
                 </div>

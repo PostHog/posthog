@@ -86,12 +86,6 @@ core:
     dev:up:
         description: Start full PostHog dev stack via mprocs
         hidden: true
-    dev:setup:
-        cmd: python manage.py setup_dev
-        description: Initialize local development environment (one-time setup)
-        services:
-            - postgresql
-            - clickhouse
     dev:demo-data:
         cmd: python manage.py generate_demo_data
         description: Generate demo data for local testing
@@ -100,14 +94,14 @@ core:
             - clickhouse
     dev:reset:
         steps:
-            - docker:services:down
+            - docker:services:remove
             - docker:services:up
             - check:postgres
             - check:clickhouse
             - migrations:run
             - dev:demo-data
             - migrations:sync-flags
-        description: Full reset - stop services, migrate, load demo data, sync flags
+        description: Full reset - wipe volumes, migrate, load demo data, sync flags
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -215,6 +209,20 @@ deploy:
         bin_script: upgrade-hobby
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
+    deploy:migrate-recordings:
+        bin_script: migrate-session-recordings-hobby
+        description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
+    deploy:migrate-storage:
+        bin_script: migrate-minio-to-seaweedfs
+        description: "Migrate or sync object storage between MinIO and SeaweedFS\n\nServices:\
+            \ session-recordings, session-recordings-lts, query-cache, \n         media-uploads,\
+            \ exports, source-maps\n\nModes:\n  --mode migrate  One-way copy (default)\n\
+            \  --mode sync     Bidirectional sync\n\nExamples:\n  hogli deploy:migrate-storage\
+            \ --service query-cache --mode sync --dry-run\n  hogli deploy:migrate-storage\
+            \ --service media-uploads --mode migrate"
+    deploy:migrate-storage-hobby:
+        bin_script: migrate-storage-hobby
+        description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS via docker-compose\n\nExamples:\n  hogli deploy:migrate-storage-hobby               # Sync all services\n  hogli deploy:migrate-storage-hobby --mode migrate # One-way migrate all (MinIO → SeaweedFS)\n  hogli deploy:migrate-storage-hobby exports -n     # Dry run exports only"
 build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
@@ -258,6 +266,11 @@ docker:
         description: Stop Docker infrastructure services
         services:
             - docker
+    docker:services:remove:
+        cmd: docker compose -f docker-compose.dev.yml down -v
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
+        services:
+            - docker
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -288,7 +301,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run gunicorn application server with Prometheus metrics support
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -417,7 +430,15 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: 'Create a new NotebookNode file and update types and editor references'
+        description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
+    sync:storage:
+        bin_script: sync-storage
+        description: 'TODO: add description for sync-storage'
         hidden: true
 utilities:
     utilities:posthog-worktree:

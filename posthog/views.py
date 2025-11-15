@@ -184,7 +184,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     }
 
     if settings.DEBUG or settings.E2E_TESTING:
-        response["is_debug"] = "prod_data" if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG else "local_data"
+        response["is_debug"] = True
 
     if settings.TEST:
         response["is_test"] = True

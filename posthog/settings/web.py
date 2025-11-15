@@ -44,6 +44,8 @@ PRODUCTS_APPS = [
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
     "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
+    "products.experiments.backend.apps.ExperimentsConfig",
+    "products.feature_flags.backend.apps.FeatureFlagsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -98,7 +100,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "posthog.middleware.OverridableAuthenticationMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",

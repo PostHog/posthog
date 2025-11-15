@@ -185,6 +185,7 @@ where
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
+        config.request_timeout_seconds,
     );
 
     // run our app with hyper
