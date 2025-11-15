@@ -100,6 +100,10 @@ class CreateSurveyTool(MaxTool):
                 if result.should_launch:
                     survey_data["start_date"] = django.utils.timezone.now()
 
+                # Link to insight if provided in context (e.g., from funnel cross-sell)
+                if self.context.get("insight_id"):
+                    survey_data["linked_insight_id"] = self.context["insight_id"]
+
                 # Create the survey directly using Django ORM
                 survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 

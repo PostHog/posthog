@@ -4667,17 +4667,6 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     properties: list[RevenueAnalyticsPropertyFilter]
 
 
-class WebAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    doPathCleaning: Optional[bool] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-
-
 class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11889,6 +11878,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
