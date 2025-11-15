@@ -209,10 +209,8 @@ ORDER BY s.id DESC
                     except Exception:
                         pass  # Don't fail on metrics error
 
-                    # Track batch completion time for duration metric
                     batch_duration_seconds = time.time() - batch_start_time
 
-                    # Track records actually inserted metric (III)
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_records_inserted_total",
@@ -222,7 +220,6 @@ ORDER BY s.id DESC
                     except Exception:
                         pass  # Don't fail on metrics error
 
-                    # Track batch count metric (I)
                     try:
                         metrics_client.increment(
                             "persons_new_backfill_batches_copied_total",
