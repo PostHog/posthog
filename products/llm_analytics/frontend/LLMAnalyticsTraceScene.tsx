@@ -93,11 +93,22 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        eventMetadata,
+        eventType,
+    } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
+
+    const discussionTooltip = eventId ? `Add comments on this ${eventType || 'event'}` : 'Add comments on this trace'
 
     return (
         <>
@@ -127,7 +138,7 @@ function TraceSceneWrapper(): JSX.Element {
                                 size="xsmall"
                                 icon={<IconComment />}
                                 onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                                tooltip={`Add comments on this ${eventId ? 'event' : 'trace'}`}
+                                tooltip={discussionTooltip}
                                 data-attr="open-trace-discussion"
                             >
                                 Discussion
