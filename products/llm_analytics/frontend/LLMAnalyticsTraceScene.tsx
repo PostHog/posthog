@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -35,6 +35,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -87,7 +89,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId } = useValues(llmAnalyticsTraceLogic)
+    const { eventId, activity_scope, activity_item_id } = useValues(llmAnalyticsTraceLogic)
     const {
         enrichedTree,
         trace,
@@ -99,6 +101,7 @@ function TraceSceneWrapper(): JSX.Element {
         searchQuery,
         eventMetadata,
     } = useValues(llmAnalyticsTraceDataLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
 
@@ -125,6 +128,16 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconComment />}
+                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                tooltip={`Add comments on this ${eventId ? 'event' : 'trace'}`}
+                                data-attr="open-trace-discussion"
+                            >
+                                Discussion
+                            </LemonButton>
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
