@@ -5,10 +5,11 @@ import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import { ActivityScope, Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
@@ -54,6 +55,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setEventType: (eventType: string | null) => ({ eventType }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
@@ -75,6 +77,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        eventType: [null as string | null, { setEventType: (_, { eventType }) => eventType }],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
@@ -220,6 +223,41 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     return eventTypeExpandedMap[eventType] ?? true
                 },
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.traceId, s.eventId, s.eventType],
+            (traceId, eventId, eventType): SidePanelSceneContext => {
+                // Compute activity_scope from state values
+                let activity_scope: ActivityScope
+                if (!eventId) {
+                    activity_scope = ActivityScope.LLM_TRACE
+                } else {
+                    switch (eventType) {
+                        case 'generation':
+                            activity_scope = ActivityScope.LLM_GENERATION
+                            break
+                        case 'span':
+                            activity_scope = ActivityScope.LLM_SPAN
+                            break
+                        case 'embedding':
+                            activity_scope = ActivityScope.LLM_EMBEDDING
+                            break
+                        case 'trace':
+                            activity_scope = ActivityScope.LLM_TRACE
+                            break
+                        default:
+                            activity_scope = ActivityScope.LLM_EVENT
+                    }
+                }
+
+                // Compute activity_item_id from state values
+                const activity_item_id = eventId || traceId || ''
+
+                return {
+                    activity_scope,
+                    activity_item_id,
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -280,9 +318,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, event_type }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
+            actions.setEventType(event_type || null)
             actions.setLineNumber(line ? parseInt(line, 10) : null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)

@@ -1,6 +1,5 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import {
@@ -10,9 +9,10 @@ import {
     LLMTraceEvent,
     TraceQueryResponse,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, InsightLogicProps } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
+import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -26,8 +26,6 @@ export interface TraceDataLogicProps {
     traceId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
-    searchQuery: string
-    eventId: string | null
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
@@ -83,10 +81,15 @@ function findEventWithParents(
 }
 
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
-    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
     props({} as TraceDataLogicProps),
     connect((props: TraceDataLogicProps) => ({
-        values: [dataNodeLogic(getDataNodeLogicProps(props)), ['response', 'responseLoading', 'responseError']],
+        values: [
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['response', 'responseLoading', 'responseError'],
+            llmAnalyticsTraceLogic,
+            ['eventId', 'searchQuery'],
+        ],
     })),
     selectors({
         trace: [
@@ -102,7 +105,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 trace ? trace.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)) : [],
         ],
         filteredEvents: [
-            (s, p) => [s.showableEvents, p.searchQuery, p.traceId],
+            (s, p) => [s.showableEvents, s.searchQuery, p.traceId],
             (showableEvents: LLMTraceEvent[], searchQuery: string, traceId: string): LLMTraceEvent[] => {
                 if (!searchQuery.trim()) {
                     return showableEvents
@@ -127,7 +130,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
         filteredTree: [
-            (s, p) => [p.traceId, s.trace, p.searchQuery, s.filteredEvents],
+            (s, p) => [p.traceId, s.trace, s.searchQuery, s.filteredEvents],
             (traceId, trace, searchQuery, filteredEvents): TraceTreeNode[] => {
                 if (!searchQuery.trim()) {
                     return restoreTree(trace?.events || [], traceId)
@@ -136,7 +139,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
         mostRelevantEvent: [
-            (s, p) => [s.filteredEvents, p.searchQuery],
+            (s) => [s.filteredEvents, s.searchQuery],
             (filteredEvents, searchQuery): LLMTraceEvent | null => {
                 if (!searchQuery.trim() || !filteredEvents.length) {
                     return null
@@ -192,7 +195,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
         searchOccurrences: [
-            (s, p) => [s.showableEvents, p.searchQuery, s.trace],
+            (s) => [s.showableEvents, s.searchQuery, s.trace],
             (showableEvents, searchQuery, trace): SearchOccurrence[] => {
                 if (!searchQuery.trim()) {
                     return []
@@ -229,7 +232,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 })),
         ],
         event: [
-            (s, p) => [p.traceId, p.eventId, s.trace, s.showableEvents],
+            (s, p) => [p.traceId, s.eventId, s.trace, s.showableEvents],
             (traceId, eventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
                 if (!eventId || eventId === traceId) {
                     return trace || null
@@ -243,7 +246,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         eventType: [
             (s) => [s.event],
             (event): string | null => {
-                if (event && isLLMEvent(event)) {
+                if (event) {
                     return getEventType(event)
                 }
                 return null
@@ -279,42 +282,6 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 addTypesFromTree(enrichedTree)
                 types.delete('trace')
                 return [...types]
-            },
-        ],
-        activity_scope: [
-            (s, p) => [p.eventId, s.eventType],
-            (eventId, eventType): ActivityScope => {
-                if (!eventId) {
-                    return ActivityScope.LLM_TRACE
-                }
-
-                switch (eventType) {
-                    case 'generation':
-                        return ActivityScope.LLM_GENERATION
-                    case 'span':
-                        return ActivityScope.LLM_SPAN
-                    case 'embedding':
-                        return ActivityScope.LLM_EMBEDDING
-                    case 'trace':
-                        return ActivityScope.LLM_TRACE
-                    default:
-                        return ActivityScope.LLM_EVENT
-                }
-            },
-        ],
-        activity_item_id: [
-            (_, p) => [p.traceId, p.eventId],
-            (traceId, eventId): string => {
-                return eventId || traceId
-            },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.activity_scope, s.activity_item_id],
-            (activity_scope, activity_item_id): SidePanelSceneContext => {
-                return {
-                    activity_scope,
-                    activity_item_id,
-                }
             },
         ],
     }),

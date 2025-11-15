@@ -76,16 +76,18 @@ enum TraceViewMode {
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
     logic: llmAnalyticsTraceLogic,
+    paramsToProps: ({ params: { id }, searchParams }) => ({
+        traceId: id ?? '',
+        eventId: searchParams.event ?? null,
+        eventType: searchParams.event_type ?? null,
+    }),
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query, eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic
-            logic={llmAnalyticsTraceDataLogic}
-            props={{ traceId, query, eventId, searchQuery, cachedResults: null }}
-        >
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
             <TraceSceneWrapper />
         </BindLogic>
     )
@@ -93,6 +95,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { setEventType } = useActions(llmAnalyticsTraceLogic)
     const {
         enrichedTree,
         trace,
@@ -108,7 +111,12 @@ function TraceSceneWrapper(): JSX.Element {
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
 
-    const discussionTooltip = eventId ? `Add comments on this ${eventType || 'event'}` : 'Add comments on this trace'
+    // Sync eventType from data logic to trace logic for SIDE_PANEL_CONTEXT_KEY
+    useEffect(() => {
+        setEventType(eventType)
+    }, [eventType, setEventType])
+
+    const discussionTooltip = eventType ? `Add comments on this ${eventType}` : 'Add comments on this trace'
 
     return (
         <>
