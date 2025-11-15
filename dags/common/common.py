@@ -88,28 +88,19 @@ class PostgresResource(dagster.ConfigurableResource):
     A Postgres database connection resource that returns a psycopg2 connection.
     """
 
-    host: str | dagster.EnvVar
-    port: str | int | dagster.EnvVar = 5432
-    database: str | dagster.EnvVar
-    user: str | dagster.EnvVar
-    password: str | dagster.EnvVar = dagster.EnvVar("POSTGRES_PASSWORD")
+    host: str
+    port: str = "5432"
+    database: str
+    user: str
+    password: str
 
     def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
-        # Resolve EnvVar values if needed
-        host = self.host if isinstance(self.host, str) else self.host.get_value()
-        port = self.port if isinstance(self.port, str | int) else int(self.port.get_value())
-        if isinstance(port, str):
-            port = int(port)
-        database = self.database if isinstance(self.database, str) else self.database.get_value()
-        user = self.user if isinstance(self.user, str) else self.user.get_value()
-        password = self.password if isinstance(self.password, str) else self.password.get_value()
-
         return psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
+            host=self.host,
+            port=int(self.port),
+            database=self.database,
+            user=self.user,
+            password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
 
