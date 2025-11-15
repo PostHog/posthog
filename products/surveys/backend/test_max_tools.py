@@ -346,8 +346,13 @@ class TestSurveyCreatorTool(BaseTest):
         tool = CreateSurveyTool(
             team=self.team,
             user=self.user,
-            config=self._config,
-            context={"insight_id": insight.id},
+            config={
+                **self._config,
+                "configurable": {
+                    **self._config.get("configurable", {}),
+                    "contextual_tools": {"create_survey": {"insight_id": insight.id}},
+                },
+            },
         )
 
         # Mock the LLM response
