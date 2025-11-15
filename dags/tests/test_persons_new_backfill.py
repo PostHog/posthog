@@ -211,16 +211,10 @@ class TestCopyChunk:
             resources={"database": mock_db, "cluster": mock_cluster},
         )
         # Patch context.run.job_name where it's accessed in copy_chunk
-        with patch("dags.persons_new_backfill.copy_chunk"):
-            # Patch the attribute access by patching the property
-            import dags.persons_new_backfill as pnb
+        from unittest.mock import PropertyMock
 
-            original_fn = pnb.copy_chunk
-            # Use PropertyMock to mock the property
-            from unittest.mock import PropertyMock
-
-            with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-                result = original_fn(context, config, chunk)
+        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+            result = copy_chunk(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
@@ -280,17 +274,13 @@ class TestCopyChunk:
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
         # Track INSERT calls and set rowcount accordingly
-        original_execute = cursor.execute
-
         def execute_with_rowcount(query, *args):
-            result = original_execute(query, *args)
             if "INSERT INTO" in query:
                 if insert_call_count[0] < len(rowcounts):
                     cursor.rowcount = rowcounts[insert_call_count[0]]
                     insert_call_count[0] += 1
                 else:
                     cursor.rowcount = 0
-            return result
 
         cursor.execute.side_effect = execute_with_rowcount
 
@@ -298,16 +288,10 @@ class TestCopyChunk:
             resources={"database": mock_db, "cluster": mock_cluster},
         )
         # Patch context.run.job_name where it's accessed in copy_chunk
-        with patch("dags.persons_new_backfill.copy_chunk"):
-            # Patch the attribute access by patching the property
-            import dags.persons_new_backfill as pnb
+        from unittest.mock import PropertyMock
 
-            original_fn = pnb.copy_chunk
-            # Use PropertyMock to mock the property
-            from unittest.mock import PropertyMock
-
-            with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-                result = original_fn(context, config, chunk)
+        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
+            result = copy_chunk(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
