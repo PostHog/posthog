@@ -230,9 +230,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         : (featureFlag.features?.length || 0) > 0
                                           ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
                                           : (featureFlag.experiment_set?.length || 0) > 0
-                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                            ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag.'
                                             : (featureFlag.surveys?.length || 0) > 0
-                                              ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
+                                              ? 'This feature flag is linked to a survey. Delete the survey to delete this flag.'
                                               : null
                                 }
                                 fullWidth
@@ -255,7 +255,7 @@ export const scene: SceneExport = {
 
 export function OverViewTab({
     flagPrefix = '',
-    searchPlaceholder = 'Search for feature flags',
+    searchPlaceholder = 'Search for feature flags (or experiment keys)',
     nouns = ['feature flag', 'feature flags'],
 }: {
     flagPrefix?: string
@@ -509,10 +509,10 @@ export function FeatureFlags(): JSX.Element {
                             identifier="create_feature_flag"
                             initialMaxPrompt="Create a feature flag for "
                             suggestions={[
-                                'Create a flag to gradually roll out our new checkout experience',
-                                'Create a dark mode toggle that starts at 10% rollout',
-                                'Create an experimental flag for testing our new recommendation algorithm',
-                                'Create a flag to enable advanced analytics for beta testers',
+                                'Create a flag to gradually roll out…',
+                                'Create a flag that starts at 10% rollout for…',
+                                'Create a multivariate flag for…',
+                                'Create a beta testing flag for…',
                             ]}
                             callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
                                 if (toolOutput?.error || !toolOutput?.flag_id) {

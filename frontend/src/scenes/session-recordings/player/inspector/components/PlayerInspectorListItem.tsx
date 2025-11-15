@@ -202,14 +202,12 @@ function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null 
 function RowItemDetail({
     item,
     finalTimestamp,
-    onClick,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    onClick: () => void
 }): JSX.Element | null {
     return (
-        <div onClick={onClick}>
+        <div>
             {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'app-state' ? (
@@ -330,14 +328,9 @@ const ListItemTitle = memo(function ListItemTitle({
 
 const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: InspectorListItem; index: number }) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     const { end } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-
-    // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-    // Ceiling second is used since this is what's displayed to the user.
-    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
     return (
         <div
@@ -347,7 +340,7 @@ const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: Ins
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                <RowItemDetail item={item} finalTimestamp={end} />
                 <LemonDivider dashed />
 
                 <div

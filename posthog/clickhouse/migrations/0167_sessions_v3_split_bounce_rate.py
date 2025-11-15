@@ -11,13 +11,19 @@ operations = [
     run_sql_with_exceptions(
         SPLIT_BOUNCE_RATE.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()),
         node_roles=[NodeRole.DATA],
+        sharded=True,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        SPLIT_BOUNCE_RATE.format(table_name=WRITABLE_RAW_SESSIONS_TABLE_V3()), node_roles=[NodeRole.DATA]
+        SPLIT_BOUNCE_RATE.format(table_name=WRITABLE_RAW_SESSIONS_TABLE_V3()),
+        node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
     run_sql_with_exceptions(
         SPLIT_BOUNCE_RATE.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
 ]

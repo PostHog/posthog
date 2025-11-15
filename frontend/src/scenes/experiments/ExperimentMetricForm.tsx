@@ -111,12 +111,14 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
 
 export function ExperimentMetricForm({
     metric,
+    isSharedMetric = false,
     handleSetMetric,
     filterTestAccounts,
     exposureCriteria,
     openExposureCriteriaModal,
 }: {
     metric: ExperimentMetric
+    isSharedMetric?: boolean
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
@@ -227,7 +229,7 @@ export function ExperimentMetricForm({
 
     return (
         <SceneContent>
-            <SceneSection title="Shared metric type" className="max-w-prose">
+            <SceneSection title={isSharedMetric ? 'Shared metric type' : 'Metric type'} className="max-w-prose">
                 <div>
                     <LemonRadio
                         data-attr="metrics-selector"

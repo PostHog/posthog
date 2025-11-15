@@ -70,8 +70,9 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
+        dateRange,
     } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter, setExplicitDate } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
@@ -228,6 +229,28 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Decimal places',
                       items: [{ label: () => <DecimalPrecisionInput /> }],
+                  },
+              ]
+            : []),
+        ...((isTrends || isStickiness || isLifecycle) && display !== ChartDisplayType.CalendarHeatmap
+            ? [
+                  {
+                      title: 'Date range',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Use exact time range"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={dateRange?.explicitDate ?? false}
+                                      onChange={(checked) => {
+                                          setExplicitDate(checked)
+                                      }}
+                                  />
+                              ),
+                          },
+                      ],
                   },
               ]
             : []),

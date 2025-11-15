@@ -54,9 +54,9 @@ export const currentPageLogic = kea<currentPageLogicType>([
         autoWildcardHref: true,
     })),
     reducers(() => ({
-        href: [window.location.href, { setHref: (_, { href }) => withoutPostHogInit(href) }],
+        href: [withoutPostHogInit(window.location.href), { setHref: (_, { href }) => withoutPostHogInit(href) }],
         wildcardHref: [
-            window.location.href,
+            withoutPostHogInit(window.location.href),
             {
                 setHref: (_, { href }) => withoutPostHogInit(href),
                 setWildcardHref: (_, { href }) => withoutPostHogInit(href),
@@ -92,8 +92,6 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        actions.setHref(withoutPostHogInit(values.href))
-
         cache.disposables.add(
             makeNavigateWrapper((): void => {
                 if (window.location.href !== values.href) {

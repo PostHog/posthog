@@ -5,7 +5,7 @@ import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
+import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -31,7 +31,7 @@ export const IssueTasks = (): JSX.Element => {
     }
     return (
         <ScenePanelLabel title="Tasks">
-            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading} variant="panel">
+            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
                 <IconPlus />
                 Create task in PostHog
             </ButtonPrimitive>
@@ -55,7 +55,7 @@ const createTaskForm = (
         if (props.$exception_list && Array.isArray(props.$exception_list) && props.$exception_list.length > 0) {
             const exception = props.$exception_list[0] as ErrorTrackingException
 
-            description += `## ${formatType(exception)}: ${exception.value}\n\n`
+            description += `## ${formatExceptionDisplay(exception)}\n\n`
 
             if (exception.mechanism) {
                 description += `**Handled:** ${exception.mechanism.handled ? 'Yes' : 'No'}\n\n`

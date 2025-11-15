@@ -172,6 +172,11 @@ def SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
     return AggregatingMergeTree(TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
 
 
+def SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3():
+    # try to make the backfill self-regulating by leaning on insert delays
+    return "parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000"
+
+
 def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
     return (
         RAW_SESSIONS_TABLE_BASE_SQL_V3
@@ -182,10 +187,18 @@ ORDER BY (
     session_timestamp,
     session_id_v7
 )
+SETTINGS {settings}
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
+        settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
+    )
+
+
+def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
+    return (
+        f"ALTER TABLE {SHARDED_RAW_SESSIONS_TABLE_V3()} MODIFY SETTING {SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3()}"
     )
 
 
@@ -492,7 +505,7 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
     return """
 INSERT INTO {database}.{writable_table}
 {select_sql}
@@ -501,8 +514,25 @@ INSERT INTO {database}.{writable_table}
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=where,
-            # use sharded_events for the source table, this means that the backfill MUST run on every shard
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
+            if use_sharded_source
+            else f"{settings.CLICKHOUSE_DATABASE}.events",
+        ),
+    )
+
+
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_source=True):
+    return """
+INSERT INTO {database}.{writable_table}
+{select_sql}
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
+            where=where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events"
+            if use_sharded_source
+            else f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 

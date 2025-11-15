@@ -3,7 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+    TeamId,
+} from '../../../../types'
 import { CreatePersonResult } from '../../../../utils/db/db'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
@@ -50,7 +57,7 @@ export interface PersonRepository {
 
     updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
@@ -63,7 +70,7 @@ export interface PersonRepository {
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 
-    personPropertiesSize(personId: string): Promise<number>
+    personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],

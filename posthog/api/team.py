@@ -547,6 +547,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        if value is None:
+            return value
+
+        request = self.context.get("request")
+        if not request:
+            return value
+
+        user = request.user
+
+        if self.instance:
+            try:
+                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
+                if membership.level < OrganizationMembership.Level.ADMIN:
+                    raise exceptions.PermissionDenied(
+                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                    )
+            except OrganizationMembership.DoesNotExist:
+                raise exceptions.PermissionDenied("You must be a member of this organization.")
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)

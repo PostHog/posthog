@@ -213,8 +213,10 @@ impl ServerHandle {
             });
 
             let app = feature_flags::router::router(
-                redis_reader_client,
-                redis_writer_client,
+                redis_reader_client.clone(),
+                redis_writer_client.clone(),
+                None::<Arc<MockRedisClient>>, // No dedicated flags Redis in tests
+                None::<Arc<MockRedisClient>>,
                 database_pools,
                 cohort_cache,
                 geoip_service,
