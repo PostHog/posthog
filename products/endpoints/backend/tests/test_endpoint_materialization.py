@@ -279,6 +279,64 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("sync_frequency", response_data["materialization"])
         self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
 
+    def test_force_blocking_refresh_uses_materialized_table(self):
+        """Test that force_blocking refresh still uses materialized table."""
+        with mock.patch(
+            "products.endpoints.backend.api.process_query_model"
+        ) as mock_process_query, mock.patch.object(DataWarehouseSavedQuery, "status", "Completed"), mock.patch.object(
+            DataWarehouseSavedQuery, "table", "test_table"
+        ):
+            # Create and materialize an endpoint
+            endpoint = Endpoint.objects.create(
+                name="test_force_blocking",
+                team=self.team,
+                query=self.sample_query,
+                created_by=self.user,
+                is_active=True,
+            )
+
+            # Create saved_query manually to simulate completed materialization
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=endpoint.name,
+                query=endpoint.query,
+                is_materialized=True,
+                sync_frequency_interval=timedelta(hours=12),
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            )
+            endpoint.saved_query = saved_query
+            endpoint.save()
+
+            # Mock the process_query_model to return a success response
+            mock_process_query.return_value = {
+                "results": [[1, 2, 3]],
+                "columns": ["col1"],
+                "types": ["Integer"],
+                "query_status": {"complete": True},
+            }
+
+            # Run endpoint with force_blocking refresh
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force_blocking"},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+            # Verify that process_query_model was called (meaning query was executed)
+            self.assertTrue(mock_process_query.called)
+
+            # Verify the query used was the materialized query (SELECT * FROM saved_query.name)
+            call_args = mock_process_query.call_args
+            query_arg = call_args[0][1]  # Second positional argument is the query
+            self.assertEqual(query_arg.kind, "HogQLQuery")
+            self.assertIn(f"SELECT * FROM {endpoint.name}", query_arg.query)
+
+            # Verify the response includes materialization metadata
+            response_data = response.json()
+            self.assertTrue(response_data.get("_materialized", False))
+
 
 @pytest.mark.asyncio
 class TestEndpointMaterializationTemporal:

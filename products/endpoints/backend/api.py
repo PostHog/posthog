@@ -387,7 +387,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Not materialized
         - Materialization incomplete/failed
         - User overrides present (variables, filters, query)
-        - Force refresh requested
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -400,9 +399,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return False
 
         if data.variables_values:
-            return False
-
-        if data.refresh in ["force_blocking"]:
             return False
 
         if data.query_override or data.filters_override:
