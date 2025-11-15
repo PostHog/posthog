@@ -828,7 +828,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
             if (newView) {
                 const oldTab = values.activeTab
-                if (oldTab) {
+                // Only update the tab if it doesn't have a view (new query being saved)
+                // or if it's the same view being recreated (edge case)
+                if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
                     actions.updateTab({ ...oldTab, view: newView })
                 }
             }
