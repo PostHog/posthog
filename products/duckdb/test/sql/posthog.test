@@ -1,0 +1,26 @@
+# name: test/sql/posthog.test
+# description: test posthog extension
+# group: [sql]
+
+# Before we load the extension, this will fail
+statement error
+SELECT * FROM posthog_query('SELECT 1');
+----
+Catalog Error: Table Function with name posthog_query does not exist!
+
+# Require statement will ensure this test is run with this extension loaded
+require posthog
+
+# Test that the function exists and requires parameters
+statement error
+SELECT * FROM posthog_query();
+----
+Binder Error: No function matches the given name and argument types
+
+# Test that with 4 parameters it fails with invalid credentials (no network call in test)
+# Note: This test validates parameter parsing, not actual PostHog connectivity
+# Real integration tests would require valid PostHog credentials and network access
+statement error
+SELECT * FROM posthog_query('http://invalid-host', 'test_project', 'test_key', 'SELECT 1');
+----
+IO Error: HTTP request to PostHog failed
