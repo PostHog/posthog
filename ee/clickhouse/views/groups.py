@@ -268,7 +268,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
             )
         except IntegrityError as exc:
-            if "unique team_id/group_key/group_type_index combo" in str(exc):
+            # Check for both old Django constraint name and new sqlx migration constraint name
+            if "unique_team_group_key_group_type" in str(
+                exc
+            ) or "unique team_id/group_key/group_type_index combo" in str(exc):
                 raise ValidationError({"detail": "A group with this key already exists"})
             raise
 
