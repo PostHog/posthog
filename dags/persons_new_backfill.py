@@ -276,11 +276,6 @@ ORDER BY s.id DESC
                             context.log.info(f"Retrying batch {retry_attempt} of 3...")
                             time.sleep(1)
                             continue
-                        else:
-                            context.log.exception(
-                                f"Failed to copy batch at attempt {retry_attempt} of 3. Raising failure."
-                            )
-                            raise dagster.Failure(description=error_msg) from batch_error
 
                     failed_batch_start_id = batch_start_id
                     error_msg = (
