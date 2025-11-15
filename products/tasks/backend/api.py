@@ -352,9 +352,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except Exception as exc:
                 logger.warning(
                     "task_run.artifact_tag_failed",
-                    task_run_id=str(task_run.id),
-                    storage_path=storage_path,
-                    error=str(exc),
+                    extra={
+                        "task_run_id": str(task_run.id),
+                        "storage_path": storage_path,
+                        "error": str(exc),
+                    },
                 )
 
             uploaded_at = timezone.now().isoformat()
@@ -372,10 +374,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             logger.info(
                 "task_run.artifact_uploaded",
-                task_run_id=str(task_run.id),
-                storage_path=storage_path,
-                artifact_type=artifact["type"],
-                size=len(content_bytes),
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                    "artifact_type": artifact["type"],
+                    "size": len(content_bytes),
+                },
             )
 
         task_run.artifacts = manifest
