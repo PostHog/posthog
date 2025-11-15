@@ -84,6 +84,7 @@ class TestBingAdsSource:
         is_valid, error = self.source.validate_credentials(self.valid_config, self.team_id)
 
         assert is_valid is False
+        assert error is not None
         assert "Failed to validate Bing Ads credentials" in error
 
     def test_get_schemas(self):
