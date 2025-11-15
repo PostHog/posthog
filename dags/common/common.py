@@ -92,7 +92,7 @@ class PostgresResource(dagster.ConfigurableResource):
     port: str = "5432"
     database: str
     user: str
-    password: str = dagster.EnvVar("POSTGRES_PASSWORD")
+    password: str
 
     def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
         return psycopg2.connect(
