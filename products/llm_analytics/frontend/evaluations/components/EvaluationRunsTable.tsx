@@ -27,7 +27,10 @@ export function EvaluationRunsTable(): JSX.Element {
             render: (_, run) => (
                 <div className="font-mono text-sm">
                     <Link
-                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.generation_id })}
+                        to={urls.llmAnalyticsTrace(run.trace_id, {
+                            event: run.generation_id,
+                            event_type: 'generation',
+                        })}
                         className="text-primary"
                     >
                         {run.generation_id.slice(0, 12)}...

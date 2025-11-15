@@ -120,6 +120,7 @@ export const manifest: ProductManifest = {
                 timestamp?: string
                 exception_ts?: string
                 search?: string
+                event_type?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)
