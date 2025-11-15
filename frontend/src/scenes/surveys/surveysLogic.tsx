@@ -405,6 +405,15 @@ export const surveysLogic = kea<surveysLogicType>([
                 return !currentTeam?.surveys_opt_in
             },
         ],
+        linkedInsightIds: [
+            (s) => [s.data],
+            (data): Set<number> => {
+                const ids = data.surveys
+                    .map((survey) => survey.linked_insight_id)
+                    .filter((id): id is number => id !== null)
+                return new Set(ids)
+            },
+        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
             (): SidePanelSceneContext => ({

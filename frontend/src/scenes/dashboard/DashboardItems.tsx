@@ -15,6 +15,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
@@ -55,7 +56,9 @@ export function DashboardItems(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { featureFlags } = useValues(featureFlagLogic)
-    const bestSurveyOpportunityFunnel = getBestSurveyOpportunityFunnel(tiles || [])
+    const { linkedInsightIds } = useValues(surveysLogic)
+
+    const bestSurveyOpportunityFunnel = getBestSurveyOpportunityFunnel(tiles || [], linkedInsightIds)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 

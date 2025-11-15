@@ -71,6 +71,15 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
+    linked_insight = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_linked_insight",
+        related_query_name="survey_linked_insight",
+        help_text="The insight this survey was created for (e.g., from funnel cross-sell)",
+    )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
