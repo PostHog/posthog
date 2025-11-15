@@ -27,9 +27,7 @@ export function extractFunnelContext(insight: Partial<QueryBasedInsightModel>): 
         return null
     }
 
-    const firstStepCount = result[0]?.count || 0
-    const lastStepCount = result[result.length - 1]?.count || 0
-    const conversionRate = firstStepCount > 0 ? (lastStepCount / firstStepCount) * 100 : 0
+    const conversionRate = conversionRateFromInsight(result)
     const steps = result.map((step: any) => step.name || 'Unknown step')
 
     return {
@@ -51,15 +49,19 @@ function getBestSurveyOpportunityFromDashboard(
                 return { tile, conversionRate: 1 }
             }
 
-            const first = result[0]?.count || 1
-            const last = result[result.length - 1]?.count || 0
-            const conversionRate = last / first
+            const conversionRate = conversionRateFromInsight(result)
             return { tile, conversionRate }
         })
         .filter(({ conversionRate }) => conversionRate < 0.5)
         .sort((a, b) => a.conversionRate - b.conversionRate)
 
     return funnelTiles[0]?.tile || null
+}
+
+function conversionRateFromInsight(result: QueryBasedInsightModel['result']): number {
+    const first = result[0]?.count || 1
+    const last = result[result.length - 1]?.count || 0
+    return last / first
 }
 
 function isFunnelInsight(query: any): query is InsightVizNode<FunnelsQuery> {
