@@ -185,7 +185,7 @@ def copy_chunk(
 INSERT INTO {destination_table}
 SELECT s.*
 FROM {source_table} s
-WHERE s.id > %s AND s.id <= %s
+WHERE s.id >= %s AND s.id <= %s
   AND NOT EXISTS (
     SELECT 1
     FROM {destination_table} d
@@ -246,7 +246,7 @@ ORDER BY s.id DESC
                     )
 
                     # Update batch_start_id for next iteration
-                    batch_start_id = batch_end_id
+                    batch_start_id = batch_end_id + 1
                     retry_attempt = 0
 
                 except Exception as batch_error:
