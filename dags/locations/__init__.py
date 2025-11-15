@@ -20,11 +20,11 @@ resources_by_env = {
         "slack": dagster_slack.SlackResource(token=dagster.EnvVar("SLACK_TOKEN")),
         # Postgres resource (universal for all dags)
         "database": PostgresResource(
-            host=dagster.EnvVar("PGHOST"),
-            port=dagster.EnvVar("PGPORT"),
-            database=dagster.EnvVar("PGDATABASE"),
-            user=dagster.EnvVar("PGUSER"),
-            password=dagster.EnvVar("PGPASSWORD"),
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
     },
     "local": {
@@ -37,13 +37,13 @@ resources_by_env = {
             aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
         "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
-        # Postgres resource (universal for all dags) - uses same env vars as Django
+        # Postgres resource (universal for all dags) - use Django settings or env vars for local dev
         "database": PostgresResource(
-            host=dagster.EnvVar("PGHOST"),
-            port=dagster.EnvVar("PGPORT"),
-            database=dagster.EnvVar("PGDATABASE"),
-            user=dagster.EnvVar("PGUSER"),
-            password=dagster.EnvVar("PGPASSWORD"),
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
     },
 }
