@@ -228,7 +228,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             (traceId, eventId, eventType): SidePanelSceneContext => {
                 // Compute activity_scope from state values
                 let activity_scope: ActivityScope
-                if (!eventId) {
+                // If eventId is same as traceId, treat it as trace-level discussion
+                if (!eventId || eventId === traceId) {
                     activity_scope = ActivityScope.LLM_TRACE
                 } else {
                     switch (eventType) {
@@ -250,7 +251,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 }
 
                 // Compute activity_item_id from state values
-                const activity_item_id = eventId || traceId || ''
+                // When eventId equals traceId, use traceId for consistency
+                const activity_item_id = eventId && eventId !== traceId ? eventId : traceId || ''
 
                 return {
                     activity_scope,
