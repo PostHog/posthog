@@ -378,6 +378,24 @@ def mock_email_mfa_verifier(request, mocker):
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_persons_tables_between_tests(request, django_db_blocker):
+    """Truncate sqlx-managed tables between tests when using --reuse-db.
+
+    Sqlx-managed tables are marked managed=False so Django's flush command skips them.
+    With --reuse-db (default in pytest.ini), data persists between tests causing
+    constraint violations. This fixture cleans them up after each test.
+
+    Mirrors the approach used by ClickhouseDestroyTablesMixin for ClickHouse tables.
+    """
+    yield  # Let test run
+
+    # Cleanup after test (only with --reuse-db)
+    if request.config.getoption("--reuse-db"):
+        with django_db_blocker.unblock():
+            reset_persons_tables()
+
+
 def pytest_sessionstart():
     """
     A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
