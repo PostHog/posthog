@@ -260,10 +260,29 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 // When eventId equals traceId, use traceId for consistency
                 const activity_item_id = eventId && eventId !== traceId ? eventId : traceId || ''
 
+                // Build activity_item_context with trace_id and event metadata
+                const isEventLevel = eventId && eventId !== traceId
+                const activity_item_context: Record<string, string> = {
+                    trace_id: traceId || '',
+                }
+
+                if (isEventLevel) {
+                    activity_item_context.event_id = eventId
+                    // Map internal event types to HogQL event types
+                    if (eventType === 'generation') {
+                        activity_item_context.event_type = '$ai_generation'
+                    } else if (eventType === 'span') {
+                        activity_item_context.event_type = '$ai_span'
+                    } else if (eventType === 'embedding') {
+                        activity_item_context.event_type = '$ai_embedding'
+                    }
+                }
+
                 return {
                     activity_scope,
                     activity_item_id,
                     discussions_disabled: !featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
+                    activity_item_context,
                 }
             },
         ],
