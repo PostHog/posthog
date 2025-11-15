@@ -6,8 +6,8 @@ from typing import Any
 
 import dagster
 import psycopg2
-import dagster_k8s
 import psycopg2.errors
+from dagster_k8s import k8s_job_executor
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -386,7 +386,7 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
 
 @dagster.job(
     tags={"owner": JobOwners.TEAM_INGESTION.value},
-    executor_def=dagster_k8s.k8s_job_executor.configured({"max_concurrent": 48}),
+    executor_def=k8s_job_executor,
 )
 def persons_new_backfill_job():
     """
