@@ -75,8 +75,10 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
         }
     }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const logicKey = `${logicProps.scope}-${logicProps.item_id || ''}`
+
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div key={logicKey} className="flex flex-col flex-1 overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2" ref={setCommentsListRef}>
                 <CommentsList {...logicProps} />
             </div>
