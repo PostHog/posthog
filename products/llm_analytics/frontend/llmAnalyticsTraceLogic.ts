@@ -1,7 +1,9 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -51,6 +53,10 @@ export function getDataNodeLogicProps({
 
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -224,8 +230,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.eventId, s.eventType],
-            (traceId, eventId, eventType): SidePanelSceneContext => {
+            (s) => [s.traceId, s.eventId, s.eventType, s.featureFlags],
+            (traceId, eventId, eventType, featureFlags): SidePanelSceneContext => {
                 // Compute activity_scope from state values
                 let activity_scope: ActivityScope
                 // If eventId is same as traceId, treat it as trace-level discussion
@@ -257,6 +263,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 return {
                     activity_scope,
                     activity_item_id,
+                    discussions_disabled: !featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
                 }
             },
         ],

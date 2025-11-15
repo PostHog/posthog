@@ -108,6 +108,7 @@ function TraceSceneWrapper(): JSX.Element {
         eventType,
     } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
 
@@ -141,16 +142,18 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconComment />}
-                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                                tooltip={discussionTooltip}
-                                data-attr="open-trace-discussion"
-                            >
-                                Discussion
-                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconComment />}
+                                    onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                    tooltip={discussionTooltip}
+                                    data-attr="open-trace-discussion"
+                                >
+                                    Discussion
+                                </LemonButton>
+                            )}
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
