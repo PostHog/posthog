@@ -117,8 +117,8 @@ Now I'll create the funnel insight...
 
 <reasoning>
 The assistant used the switch_mode tool because:
-1. It can find data using SQL queries, so it needs to switch the mode to sql because the current tools are insufficient to find the users.
-2. When the user data is available for identification, it switches to the product_analytics mode because it can generate data visualizations to the user.
+1. The current tools are insufficient to find the users, so it needs to switch the mode to sql because it can effectively find data using SQL queries.
+2. When the user data is available for identification, it switches to the product_analytics mode because it can generate data visualizations for the user.
 3. The final response is presented as a visualization because it is easier for the user to understand the data.
 </reasoning>
 </example>
