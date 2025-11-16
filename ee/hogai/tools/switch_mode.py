@@ -1,8 +1,10 @@
 import asyncio
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
+
+from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
@@ -12,30 +14,42 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 SWITCH_MODE_PROMPT = """
-Use this tool to switch yourself to a different mode (implementation) that provides different specialized capabilities and tools.
-Switching the mode will preserve your current conversation history and context.
+Use this tool to switch to a specialized mode with different tools and capabilities. Your conversation history and context are preserved across mode switches.
 
-# Default tools
-The tools below are always available across all modes:
+# Common tools (available in all modes)
 {{{default_tools}}}
 
-# Available modes and corresponding tools
+# Specialized modes
 {{{available_modes}}}
 
-When to use this tool:
-- You need a tool or capability.
-- You need a specialized knowledge.
+Decision framework:
+1. Check if you already have the necessary tools in your current mode
+2. If not, identify which mode provides the tools you need
+3. Switch to that mode using this tool
 
-When NOT to use this tool:
-- You already have all necessary tools and capabilities in the current mode.
+Switch when:
+- You need a tool listed in another mode's toolkit (e.g., execute_sql is only in sql mode)
+- The task type clearly maps to a specialized mode (SQL queries → sql mode, trend analysis → product_analytics mode)
+- You've confirmed your current mode lacks required capabilities
+
+Do NOT switch when:
+- You can complete the task with your current tools
+- The task is informational/explanatory (no tools needed)
+- You're uncertain–check your current tools first
+
+After switching, you'll have access to that mode's specialized tools while retaining access to all common tools.
 """.strip()
 
 SWITCH_MODE_TOOL_PROMPT = """
-Switched to the {{{new_mode}}} mode.
+Successfully switched to {{{new_mode}}} mode. You now have access to this mode's specialized tools.
+""".strip()
+
+SWITCH_MODE_ALREADY_IN_MODE_PROMPT = """
+You are already in {{{new_mode}}} mode. No switch needed – proceed with using the available tools.
 """.strip()
 
 SWITCH_MODE_FAILURE_PROMPT = """
-Failed to switch to the {{{new_mode}}} mode.
+Failed to switch to {{{new_mode}}} mode. This mode does not exist. Available modes: {{{available_modes}}}.
 """.strip()
 
 
@@ -95,13 +109,25 @@ async def _get_default_tools_prompt(
 
 class SwitchModeTool(MaxTool):
     name: Literal["switch_mode"] = "switch_mode"
-    thinking_message: str = "Switching to a different mode"
-    context_prompt_template: str = "N/A"  # TODO:
 
-    async def _arun_impl(self, new_mode: str) -> tuple[str, str]:
-        if self._state.agent_mode == new_mode:
-            return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), new_mode
-        return format_prompt_string(SWITCH_MODE_FAILURE_PROMPT, new_mode=new_mode), new_mode
+    async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:
+        from ee.hogai.mode_registry import MODE_REGISTRY
+
+        if (
+            not self._state.agent_mode and new_mode == AgentMode.PRODUCT_ANALYTICS
+        ) or self._state.agent_mode == new_mode:
+            return format_prompt_string(SWITCH_MODE_ALREADY_IN_MODE_PROMPT, new_mode=new_mode), cast(
+                AgentMode, new_mode
+            )
+
+        if new_mode not in MODE_REGISTRY:
+            available = ", ".join(MODE_REGISTRY.keys())
+            return (
+                format_prompt_string(SWITCH_MODE_FAILURE_PROMPT, new_mode=new_mode, available_modes=available),
+                self._state.agent_mode,
+            )
+
+        return format_prompt_string(SWITCH_MODE_TOOL_PROMPT, new_mode=new_mode), cast(AgentMode, new_mode)
 
     @classmethod
     async def create_tool_class(
