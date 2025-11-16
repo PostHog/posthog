@@ -405,12 +405,15 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                 with connection.cursor() as cursor:
                     # Truncate tables with constraint leakage issues, but only if they exist.
                     # Some test environments may not create all sqlx-managed tables.
-                    # Truncate in dependency order to minimize need for CASCADE
+                    # Truncate in dependency order: children before parents (to avoid FK constraint issues).
+                    # - posthog_personoverride (child) -> posthog_personoverridemapping (parent)
+                    # - posthog_group has no incoming FKs, so no ordering required
+                    # - posthog_grouptypemapping is independent
                     for table in [
-                        "posthog_personoverride",
-                        "posthog_group",
-                        "posthog_personoverridemapping",
-                        "posthog_grouptypemapping",
+                        "posthog_personoverride",  # Child table, truncate first
+                        "posthog_personoverridemapping",  # Parent of personoverride
+                        "posthog_group",  # Independent
+                        "posthog_grouptypemapping",  # Independent
                     ]:
                         try:
                             cursor.execute(f"TRUNCATE TABLE {table}")
