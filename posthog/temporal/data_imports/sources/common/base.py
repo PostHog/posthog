@@ -55,7 +55,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return config
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        """Returns the errors for which the the source should be disabled on"""
+        """Returns the errors for which the the source should be disabled on.
+
+        Returns `dict[str, str | None]`:
+            key = a partial error message to match on
+            value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+        """
 
         return {}
 
