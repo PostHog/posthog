@@ -26,6 +26,7 @@ export interface TraceDataLogicProps {
     traceId: string
     query: DataTableNode
     cachedResults?: AnyResponseType | null
+    searchQuery: string
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
@@ -81,14 +82,14 @@ function findEventWithParents(
 }
 
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
-    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
             llmAnalyticsTraceLogic,
             ['eventId', 'searchQuery'],
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['response', 'responseLoading', 'responseError'],
         ],
     })),
     selectors({
@@ -241,15 +242,6 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     return null
                 }
                 return showableEvents.find((event) => event.id === eventId) || null
-            },
-        ],
-        eventType: [
-            (s) => [s.event],
-            (event): string | null => {
-                if (event) {
-                    return getEventType(event)
-                }
-                return null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
