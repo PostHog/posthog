@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -104,6 +104,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                 resourceType={{
                     type: config.iconType || 'insight/hog',
                 }}
+                actions={<LemonTag type="warning">BETA</LemonTag>}
             />
             <div className="deprecated-space-y-4">
                 <div className="flex justify-between gap-2 flex-wrap">
