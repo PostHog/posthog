@@ -160,6 +160,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
     reducers(({ props }) => ({
@@ -319,12 +320,55 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             } catch (e) {
-                actions.setForAnotherAgenticIteration(false) // Cancel any next iteration
+                // Cancel any next iteration
+                actions.setForAnotherAgenticIteration(false)
+
+                // Retry logic
+                async function retry(): Promise<void> {
+                    await breakpoint(1000 * (generationAttempt + 1))
+                    // Need to decrement the active streaming threads here, as we exit early.
+                    actions.decrActiveStreamingThreads()
+                    actions.streamConversation(
+                        {
+                            content: streamData.content,
+                            conversation: streamData.conversation,
+                            contextual_tools: streamData.contextual_tools,
+                            ui_context: streamData.ui_context,
+                        },
+                        generationAttempt + 1
+                    )
+                }
+
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
                     let releaseException = true
-                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                    // Generic message by default
+                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
+                    const offlineMessage = 'You appear to be offline. Please check your internet connection.'
 
-                    if (e instanceof ApiError) {
+                    // Network exception errors might be overwritten by the API wrapper, so we check for the generic Error type.
+                    if (e instanceof Error && e.message.toLowerCase().includes('failed to fetch')) {
+                        // Failed to fetch -> request failed to connect.
+                        // If the conversation is in progress, we retry up to 15 times.
+                        if (values.conversation?.status === ConversationStatus.InProgress) {
+                            if (generationAttempt > 15) {
+                                relevantErrorMessage.content = offlineMessage
+                            } else {
+                                await retry()
+                                return
+                            }
+                        } else {
+                            // No started conversation, show the offline message.
+                            relevantErrorMessage.content = offlineMessage
+                        }
+                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
+                        // Network error -> request failed in progress.
+                        if (generationAttempt > 15) {
+                            relevantErrorMessage.content = offlineMessage
+                        } else {
+                            await retry()
+                            return
+                        }
+                    } else if (e instanceof ApiError) {
                         if (e.status === 400) {
                             // Validation exception for non-retryable errors, such as idempotency conflict
                             if (!e.data?.attr && e.data?.code === 'invalid_input') {
@@ -339,26 +383,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         // Prevents parallel generation attempts. Total wait time is: 21 seconds.
-                        if (e.status === 409 && generationAttempt < 6) {
-                            await breakpoint(1000 * (generationAttempt + 1))
-                            actions.streamConversation(
-                                {
-                                    content: streamData.content,
-                                    conversation: streamData.conversation,
-                                    contextual_tools: streamData.contextual_tools,
-                                    ui_context: streamData.ui_context,
-                                },
-                                generationAttempt + 1
-                            )
+                        if (e.status === 409 && generationAttempt <= 5) {
+                            await retry()
                             return
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for now. Please try again ${e.formattedRetryAfter}.`
                         }
-                    } else if (e instanceof Error && e.message.toLowerCase() === 'network error') {
-                        relevantErrorMessage.content =
-                            'Oops! You appear to be offline. Please check your internet connection.'
+
+                        if (e.status && e.status >= 500) {
+                            relevantErrorMessage.content =
+                                'Something is wrong with our servers. Please try again later.'
+                        }
                     } else {
                         posthog.captureException(e)
                         console.error(e)
@@ -419,6 +456,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         stopGeneration: async () => {
             if (!values.conversation?.id) {
+                actions.setCancelLoading(false)
                 return
             }
 
@@ -694,7 +732,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     }),
 
     afterMount((logic) => {
-        const { actions, values, props } = logic
+        const { actions, values, props, cache } = logic
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
                 // We found a logic with the same conversationId, but a different tabId
@@ -711,6 +749,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+        } else if (
+            props.conversation?.status === ConversationStatus.InProgress &&
+            !values.streamingActive &&
+            !cache.generationController
+        ) {
+            // If the conversation is in progress and we don't have an active stream, reconnect
+            setTimeout(() => {
+                actions.reconnectToStream()
+            }, 0)
         }
     }),
 ])
