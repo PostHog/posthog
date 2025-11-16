@@ -1,6 +1,6 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -31,6 +31,9 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
+const DEFAULT_LOG_LIMIT = 100
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 3000
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 10000
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -143,9 +146,13 @@ export const logsLogic = kea<logsLogicType>([
         runQuery: (debounce?: integer) => ({ debounce }),
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
+        cancelInProgressLiveTail: (liveTailAbortController: AbortController | null) => ({ liveTailAbortController }),
         setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
             sparklineAbortController,
+        }),
+        setLiveTailAbortController: (liveTailAbortController: AbortController | null) => ({
+            liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
@@ -172,6 +179,10 @@ export const logsLogic = kea<logsLogicType>([
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
+        setLiveTailEnabled: (enabled: boolean) => ({ enabled }),
+        setLiveTailInterval: (interval: number) => ({ interval }),
+        pollForNewLogs: true,
+        setLogs: (logs: LogMessage[]) => ({ logs }),
     }),
 
     reducers({
@@ -241,6 +252,12 @@ export const logsLogic = kea<logsLogicType>([
                 setSparklineAbortController: (_, { sparklineAbortController }) => sparklineAbortController,
             },
         ],
+        liveTailAbortController: [
+            null as AbortController | null,
+            {
+                setLiveTailAbortController: (_, { liveTailAbortController }) => liveTailAbortController,
+            },
+        ],
         hasRunQuery: [
             false as boolean,
             {
@@ -280,8 +297,27 @@ export const logsLogic = kea<logsLogicType>([
             [] as LogMessage[],
             { persist: true },
             {
-                pinLog: (state, { log }) => [...state, log],
-                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+              pinLog: (state, { log }) => [...state, log],
+              unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+            },
+        ],
+        liveTailEnabled: [
+            false as boolean,
+            {
+                setLiveTailEnabled: (_, { enabled }) => enabled,
+                setDateRange: () => false,
+                setFilterGroup: () => false,
+                setSearchTerm: () => false,
+                setSeverityLevels: () => false,
+                setServiceNames: () => false,
+                setOrderBy: () => false,
+                runQuery: () => false,
+            },
+        ],
+        liveTailPollInterval: [
+            DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS as number,
+            {
+                setLiveTailInterval: (_, { interval }) => interval,
             },
         ],
         highlightedLogId: [
@@ -293,38 +329,37 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     loaders(({ values, actions }) => ({
-        logs: [
-            [] as LogMessage[],
-            {
-                fetchLogs: async () => {
-                    const logsController = new AbortController()
-                    const signal = logsController.signal
-                    actions.cancelInProgressLogs(logsController)
+        logs: {
+            __default: [] as LogMessage[],
+            fetchLogs: async () => {
+                const logsController = new AbortController()
+                const signal = logsController.signal
+                actions.cancelInProgressLogs(logsController)
 
-                    const response = await api.logs.query({
-                        query: {
-                            limit: 100,
-                            offset: values.logs.length,
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
-                        },
-                        signal,
+                const response = await api.logs.query({
+                    query: {
+                        limit: DEFAULT_LOG_LIMIT,
+                        offset: values.logs.length,
+                        orderBy: values.orderBy,
+                        dateRange: values.utcDateRange,
+                        searchTerm: values.searchTerm,
+                        filterGroup: values.filterGroup as PropertyGroupFilter,
+                        severityLevels: values.severityLevels,
+                        serviceNames: values.serviceNames,
+                    },
+                    signal,
+                })
+                actions.setLogsAbortController(null)
+                response.results.forEach((row) => {
+                    Object.keys(row.attributes).forEach((key) => {
+                        const value = row.attributes[key]
+                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
                     })
-                    actions.setLogsAbortController(null)
-                    response.results.forEach((row) => {
-                        Object.keys(row.attributes).forEach((key) => {
-                            const value = row.attributes[key]
-                            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                        })
-                    })
-                    return response.results
-                },
+                })
+                return response.results
             },
-        ],
+            setLogs: ({ logs }) => logs,
+        },
         sparkline: [
             [] as any[],
             {
@@ -352,6 +387,20 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     selectors(() => ({
+        liveTailDisabledReason: [
+            (s) => [s.orderBy, s.dateRange],
+            (orderBy: LogsQuery['orderBy'], dateRange: DateRange): string | undefined => {
+                if (orderBy !== 'latest') {
+                    return 'Live tail only works with "Latest" ordering'
+                }
+
+                if (dateRange.date_to) {
+                    return 'Live tail requires an open-ended time range'
+                }
+
+                return undefined
+            },
+        ],
         utcDateRange: [
             (s) => [s.dateRange],
             (dateRange) => ({
@@ -466,13 +515,14 @@ export const logsLogic = kea<logsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
             }
             actions.fetchLogs()
             actions.fetchSparkline()
+            actions.cancelInProgressLiveTail(null)
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
@@ -485,6 +535,13 @@ export const logsLogic = kea<logsLogicType>([
                 values.sparklineAbortController.abort('new query started')
             }
             actions.setSparklineAbortController(sparklineAbortController)
+        },
+        cancelInProgressLiveTail: ({ liveTailAbortController }) => {
+            if (values.liveTailAbortController !== null) {
+                values.liveTailAbortController.abort('live tail request cancelled')
+            }
+            actions.setLiveTailAbortController(liveTailAbortController)
+            cache.disposables.dispose('liveTailTimer')
         },
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
@@ -539,6 +596,93 @@ export const logsLogic = kea<logsLogicType>([
                 if (logToPin) {
                     actions.pinLog(logToPin)
                 }
+            }
+        },
+        setLiveTailEnabled: ({ enabled }) => {
+            if (enabled) {
+                actions.pollForNewLogs()
+            } else {
+                actions.cancelInProgressLiveTail(null)
+            }
+        },
+        pollForNewLogs: async () => {
+            if (!values.liveTailEnabled || values.orderBy !== 'latest') {
+                return
+            }
+
+            const liveTailController = new AbortController()
+            const signal = liveTailController.signal
+            actions.cancelInProgressLiveTail(liveTailController)
+
+            const mostRecentLog = values.logs[0]
+            const dateFrom = mostRecentLog?.timestamp ?? values.utcDateRange.date_from
+
+            try {
+                const response = await api.logs.query({
+                    query: {
+                        limit: DEFAULT_LOG_LIMIT,
+                        orderBy: values.orderBy,
+                        dateRange: {
+                            date_from: dateFrom,
+                            date_to: null,
+                        },
+                        searchTerm: values.searchTerm,
+                        filterGroup: values.filterGroup as PropertyGroupFilter,
+                        severityLevels: values.severityLevels,
+                        serviceNames: values.serviceNames,
+                    },
+                    signal,
+                })
+
+                response.results.forEach((row) => {
+                    Object.keys(row.attributes).forEach((key) => {
+                        const value = row.attributes[key]
+                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
+                    })
+                })
+
+                const existingUuids = new Set(values.logs.map((log) => log.uuid))
+                const newLogs = response.results.filter((log) => !existingUuids.has(log.uuid))
+
+                if (newLogs.length > 0) {
+                    actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
+                    actions.setLogs([...newLogs, ...values.logs].slice(0, DEFAULT_LOG_LIMIT))
+                } else {
+                    const newInterval = Math.min(
+                        values.liveTailPollInterval * 1.5,
+                        DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS
+                    )
+                    actions.setLiveTailInterval(newInterval)
+                }
+            } catch (error) {
+                if (signal.aborted) {
+                    return
+                }
+                console.error('Live tail polling error:', error)
+                actions.setLiveTailEnabled(false)
+            } finally {
+                actions.setLiveTailAbortController(null)
+                if (values.liveTailEnabled) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.pollForNewLogs()
+                        }, values.liveTailPollInterval)
+                        return () => clearTimeout(timerId)
+                    }, 'liveTailTimer')
+                }
+            }
+        },
+    })),
+
+    events(({ values, actions }) => ({
+        beforeUnmount: () => {
+            actions.setLiveTailEnabled(false)
+            actions.cancelInProgressLiveTail(null)
+            if (values.logsAbortController) {
+                values.logsAbortController.abort('unmounting component')
+            }
+            if (values.sparklineAbortController) {
+                values.sparklineAbortController.abort('unmounting component')
             }
         },
     })),
