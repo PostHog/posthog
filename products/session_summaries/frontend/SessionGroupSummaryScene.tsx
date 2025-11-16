@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconCheck, IconDownload, IconSearch, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
@@ -238,9 +238,9 @@ export function SessionGroupSummary(): JSX.Element {
         sessionGroupSummaryLoading,
         sessionGroupSummaryMissing,
         accessDeniedToSessionGroupSummary,
+        selectedEvent,
     } = useValues(sessionGroupSummarySceneLogic)
-    const [selectedEvent, setSelectedEvent] = useState<PatternAssignedEventSegmentContext | null>(null)
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { openSessionDetails, closeSessionDetails } = useActions(sessionGroupSummarySceneLogic)
     const [sortBy, setSortBy] = useState<'severity' | 'session_count'>('severity')
     const summary = JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
 
@@ -254,13 +254,14 @@ export function SessionGroupSummary(): JSX.Element {
         }
         return patterns.sort((a, b) => b.stats.sessions_affected - a.stats.sessions_affected)
     }, [summary.patterns, sortBy])
-    const handleViewDetails = (event: PatternAssignedEventSegmentContext): void => {
-        setSelectedEvent(event)
-        setIsModalOpen(true)
+    const handleViewDetails = (
+        pattern: EnrichedSessionGroupSummaryPattern,
+        event: PatternAssignedEventSegmentContext
+    ): void => {
+        openSessionDetails(pattern.pattern_id, event.target_event.event_uuid)
     }
     const handleCloseModal = (): void => {
-        setIsModalOpen(false)
-        setSelectedEvent(null)
+        closeSessionDetails()
     }
     const backBreadcrumb: Breadcrumb = {
         key: Scene.SessionGroupSummariesTable,
@@ -320,18 +321,20 @@ export function SessionGroupSummary(): JSX.Element {
                 <FilterBar sortBy={sortBy} onSortChange={setSortBy} />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.map((pattern) => (
-                        <PatternCard key={pattern.pattern_id} pattern={pattern} onViewDetails={handleViewDetails} />
+                        <PatternCard
+                            key={pattern.pattern_id}
+                            pattern={pattern}
+                            onViewDetails={(event) => handleViewDetails(pattern, event)}
+                        />
                     ))}
                 </div>
             </div>
 
-            {selectedEvent && (
-                <SessionGroupSummaryDetailsModal
-                    isOpen={isModalOpen}
-                    onClose={handleCloseModal}
-                    event={selectedEvent}
-                />
-            )}
+            <SessionGroupSummaryDetailsModal
+                isOpen={selectedEvent !== null}
+                onClose={handleCloseModal}
+                event={selectedEvent}
+            />
         </SceneContent>
     )
 }
