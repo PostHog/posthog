@@ -27,6 +27,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -355,8 +356,8 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
+    const { logsLoading, liveTailEnabled, liveTailDisabledReason } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailEnabled } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -385,8 +386,18 @@ const Filters = (): JSX.Element => {
                         type="secondary"
                         onClick={() => runQuery()}
                         loading={logsLoading}
+                        disabledReason={liveTailEnabled ? 'Disable live tail to manually refresh' : undefined}
                     >
                         {logsLoading ? 'Loading...' : 'Search'}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type={liveTailEnabled ? 'primary' : 'secondary'}
+                        icon={liveTailEnabled ? <IconPauseCircle /> : <IconPlayCircle />}
+                        onClick={() => setLiveTailEnabled(!liveTailEnabled)}
+                        disabledReason={liveTailEnabled ? undefined : liveTailDisabledReason}
+                    >
+                        {liveTailEnabled ? 'Live tail' : 'Live tail'}
                     </LemonButton>
                 </div>
             </div>
