@@ -1,6 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -77,6 +80,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         handleTextViewFallback: true,
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        loadCommentCount: true,
     }),
 
     reducers({
@@ -167,6 +171,30 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             },
         ],
     }),
+
+    loaders(({ values }) => ({
+        commentCount: [
+            0,
+            {
+                loadCommentCount: async (_, breakpoint) => {
+                    if (!values.traceId || !values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]) {
+                        return 0
+                    }
+
+                    await breakpoint(100)
+                    const response = await api.comments.getCount({
+                        scope: ActivityScope.LLM_TRACE,
+                        item_id: values.traceId,
+                        exclude_emoji_reactions: true,
+                    })
+
+                    breakpoint()
+
+                    return response
+                },
+            },
+        ],
+    })),
 
     selectors({
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
@@ -295,6 +323,14 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             const url = new URL(window.location.href)
             url.searchParams.set('line', lineNumber.toString())
             copyToClipboard(url.toString(), 'permalink')
+        },
+    })),
+
+    subscriptions(({ actions }) => ({
+        traceId: (traceId: string) => {
+            if (traceId) {
+                actions.loadCommentCount()
+            }
         },
     })),
 

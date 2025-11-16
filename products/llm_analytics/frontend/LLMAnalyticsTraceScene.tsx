@@ -26,6 +26,7 @@ import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -89,7 +90,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const { eventId, searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
     const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
         useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -124,7 +125,11 @@ function TraceSceneWrapper(): JSX.Element {
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
-                                    icon={<IconComment />}
+                                    icon={
+                                        <IconWithCount count={commentCount} showZero={false}>
+                                            <IconComment />
+                                        </IconWithCount>
+                                    }
                                     onClick={() => openSidePanel(SidePanelTab.Discussion)}
                                     tooltip="Add comments on this trace"
                                     data-attr="open-trace-discussion"
