@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconEllipsis, IconShare, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconShare, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -62,15 +62,16 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                             <SessionGroupSummaryDetailsMetadata event={event} />
                         </div>
                         <div className="flex items-center gap-2">
-                            <LemonButton size="small" icon={<IconThumbsUp />} />
+                            {/* TODO: Enable thumbs up/down for feedback */}
+                            {/* <LemonButton size="small" icon={<IconThumbsUp />} />
                             <LemonButton size="small" icon={<IconThumbsDown />} />
-                            <div className="h-6 w-px bg-border mx-2" />
+                            <div className="h-6 w-px bg-border mx-2" /> */}
                             <LemonButton
                                 size="small"
                                 icon={<IconShare />}
                                 onClick={() => void copyToClipboard(window.location.href, 'link')}
                             />
-                            <LemonButton size="small" icon={<IconEllipsis />} />
+                            <LemonButton size="small" icon={<IconX />} onClick={onClose} />
                         </div>
                     </header>
 
