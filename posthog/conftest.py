@@ -388,28 +388,34 @@ def reset_group_tables_between_tests(request, django_db_blocker):
 
     Only truncates tables with actual constraint leakage issues, not all sqlx-managed
     tables, since most other sqlx tables don't have similar problems.
+
+    Skips non-database tests (e.g., SimpleTestCase subclasses) to avoid accessing the
+    database when not permitted.
     """
     yield  # Let test run
 
-    # Cleanup after test (only with --reuse-db)
+    # Cleanup after test (only with --reuse-db and only for tests that use the database)
     if request.config.getoption("--reuse-db"):
-        from django.db import connection
+        # Only run for tests that actually use the database (have django_db marker)
+        # Skip SimpleTestCase and other non-database tests
+        if request.node.get_closest_marker("django_db"):
+            from django.db import connection
 
-        with django_db_blocker.unblock():
-            with connection.cursor() as cursor:
-                # Truncate tables with constraint leakage issues, but only if they exist.
-                # Some test environments may not create all sqlx-managed tables.
-                for table in [
-                    "posthog_group",
-                    "posthog_grouptypemapping",
-                    "posthog_personoverride",
-                    "posthog_personoverridemapping",
-                ]:
-                    try:
-                        cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
-                    except Exception:
-                        # Table doesn't exist in this test environment, skip it
-                        pass
+            with django_db_blocker.unblock():
+                with connection.cursor() as cursor:
+                    # Truncate tables with constraint leakage issues, but only if they exist.
+                    # Some test environments may not create all sqlx-managed tables.
+                    for table in [
+                        "posthog_group",
+                        "posthog_grouptypemapping",
+                        "posthog_personoverride",
+                        "posthog_personoverridemapping",
+                    ]:
+                        try:
+                            cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                        except Exception:
+                            # Table doesn't exist in this test environment, skip it
+                            pass
 
 
 def pytest_sessionstart():
