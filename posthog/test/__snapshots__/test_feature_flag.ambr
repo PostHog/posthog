@@ -2697,7 +2697,7 @@
        target_person_ids
   WHERE EXISTS
       (SELECT 1
-       FROM posthog_person
+       FROM posthog_person_new
        WHERE id = person_id
          AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
@@ -2821,7 +2821,7 @@
        target_person_ids
   WHERE EXISTS
       (SELECT 1
-       FROM posthog_person
+       FROM posthog_person_new
        WHERE id = person_id
          AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
@@ -2885,7 +2885,7 @@
        target_person_ids
   WHERE EXISTS
       (SELECT 1
-       FROM posthog_person
+       FROM posthog_person_new
        WHERE id = person_id
          AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
@@ -3009,7 +3009,7 @@
        target_person_ids
   WHERE EXISTS
       (SELECT 1
-       FROM posthog_person
+       FROM posthog_person_new
        WHERE id = person_id
          AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
