@@ -380,14 +380,14 @@ def mock_email_mfa_verifier(request, mocker):
 
 @pytest.fixture(autouse=True)
 def reset_group_tables_between_tests(request, django_db_blocker):
-    """Truncate Group/GroupTypeMapping tables between tests when using --reuse-db.
+    """Truncate sqlx-managed tables with constraint issues between tests when using --reuse-db.
 
     These tables are marked managed=False so Django's flush command skips them.
     With --reuse-db (default in pytest.ini), data persists between tests causing
-    unique constraint violations on group_type_index.
+    constraint violations (group uniqueness, person override exclusion, etc).
 
-    Only truncates these two tables (not all sqlx-managed tables) since other
-    sqlx tables don't have similar constraint issues.
+    Only truncates tables with actual constraint leakage issues, not all sqlx-managed
+    tables, since most other sqlx tables don't have similar problems.
     """
     yield  # Let test run
 
@@ -397,10 +397,19 @@ def reset_group_tables_between_tests(request, django_db_blocker):
 
         with django_db_blocker.unblock():
             with connection.cursor() as cursor:
-                cursor.execute("""
-                    TRUNCATE TABLE posthog_group CASCADE;
-                    TRUNCATE TABLE posthog_grouptypemapping CASCADE;
-                """)
+                # Truncate tables with constraint leakage issues, but only if they exist.
+                # Some test environments may not create all sqlx-managed tables.
+                for table in [
+                    "posthog_group",
+                    "posthog_grouptypemapping",
+                    "posthog_personoverride",
+                    "posthog_personoverridemapping",
+                ]:
+                    try:
+                        cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                    except Exception:
+                        # Table doesn't exist in this test environment, skip it
+                        pass
 
 
 def pytest_sessionstart():
