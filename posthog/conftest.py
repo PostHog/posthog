@@ -218,6 +218,23 @@ def reset_persons_tables():
         """)
 
 
+def drop_problematic_constraints_for_tests():
+    """Drop constraints that are problematic for tests but needed in production.
+
+    The exclude_override_person_id_from_being_old_person_id constraint prevents
+    legitimate test scenarios (multiple old_person_ids merging into one override_person_id).
+    Production needs this constraint, but tests need to disable it to validate behavior.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        # Drop the problematic GIST EXCLUDE constraint
+        cursor.execute("""
+            ALTER TABLE IF EXISTS posthog_personoverride
+            DROP CONSTRAINT IF EXISTS exclude_override_person_id_from_being_old_person_id;
+        """)
+
+
 def run_persons_sqlx_migrations():
     """Run sqlx migrations for persons tables in test database.
 
@@ -302,6 +319,7 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Persons tables setup (parallel to ClickHouse)
     with django_db_blocker.unblock():
         create_persons_tables()
+        drop_problematic_constraints_for_tests()
 
     yield
 
