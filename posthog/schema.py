@@ -14151,6 +14151,7 @@ class LogsQuery(BaseModel):
     severityLevels: list[LogSeverityLevel]
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    liveLogsCheckpoint: str | None = None
 
 
 class QueryResponseAlternative18(BaseModel):
