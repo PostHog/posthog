@@ -405,16 +405,18 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                 with connection.cursor() as cursor:
                     # Truncate tables with constraint leakage issues, but only if they exist.
                     # Some test environments may not create all sqlx-managed tables.
+                    # NOTE: We don't use CASCADE because it can close connections in some scenarios.
+                    # Instead, truncate in dependency order: dependent tables first.
                     for table in [
-                        "posthog_group",
-                        "posthog_grouptypemapping",
                         "posthog_personoverride",
+                        "posthog_group",
                         "posthog_personoverridemapping",
+                        "posthog_grouptypemapping",
                     ]:
                         try:
-                            cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                            cursor.execute(f"TRUNCATE TABLE {table}")
                         except Exception:
-                            # Table doesn't exist in this test environment, skip it
+                            # Table doesn't exist or has dependencies, skip it
                             pass
 
 
