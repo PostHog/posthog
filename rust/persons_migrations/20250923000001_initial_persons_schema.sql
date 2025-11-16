@@ -94,14 +94,10 @@ BEGIN
     END IF;
 END $$;
 
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
--- NOTE: The original GIST EXCLUDE constraint had incorrect logic that prevented
--- legitimate use cases (multiple old_person_ids merging into one override_person_id).
--- Integrity is already ensured by:
+-- Note: The original GIST EXCLUDE constraint had inverted logic that prevented
+-- legitimate merge operations. Integrity is ensured by:
 -- - unique_override_per_old_person_id: prevents duplicate old_person_ids for same team
--- - old_person_id_different_from_override_person_id: prevents self-override
--- So this EXCLUDE constraint is not needed.
+-- - old_person_id_different_from_override_person_id: prevents self-override (A->A)
 
 -- PendingPersonOverride table
 CREATE TABLE IF NOT EXISTS posthog_pendingpersonoverride (

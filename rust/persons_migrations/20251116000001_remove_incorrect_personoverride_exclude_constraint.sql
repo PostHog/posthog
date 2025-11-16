@@ -1,8 +1,8 @@
 -- Remove the incorrect GIST EXCLUDE constraint that prevented legitimate merge operations.
 -- The constraint logic was inverted and caused the test_person_override_allows_duplicate_override_person_id
--- test to fail.  Integrity is already ensured by:
+-- test to fail. Integrity is already ensured by:
 -- - unique_override_per_old_person_id: prevents duplicate old_person_ids for same team
--- - old_person_id_different_from_override_person_id: prevents self-override
+-- - old_person_id_different_from_override_person_id: prevents self-override (A->A)
 
 DO $$
 BEGIN
