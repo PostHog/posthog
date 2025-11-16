@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { debounce } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -95,11 +96,14 @@ function SessionExampleCard({
 function FilterBar({
     sortBy,
     onSortChange,
+    searchValue,
+    onSearchChange,
 }: {
     sortBy: 'severity' | 'session_count'
     onSortChange: (sortBy: 'severity' | 'session_count') => void
+    searchValue: string
+    onSearchChange: (value: string) => void
 }): JSX.Element {
-    const [searchValue, setSearchValue] = useState('')
     const sortLabel = sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'
 
     return (
@@ -107,9 +111,9 @@ function FilterBar({
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
-                    placeholder="Filter patterns by keyword..."
+                    placeholder="Filter pattern examples by keyword..."
                     value={searchValue}
-                    onChange={setSearchValue}
+                    onChange={onSearchChange}
                     prefix={<IconSearch />}
                     fullWidth
                 />
@@ -248,18 +252,49 @@ export function SessionGroupSummary(): JSX.Element {
     } = useValues(sessionGroupSummarySceneLogic)
     const { openSessionDetails, closeSessionDetails } = useActions(sessionGroupSummarySceneLogic)
     const [sortBy, setSortBy] = useState<'severity' | 'session_count'>('severity')
+    const [searchValue, setSearchValue] = useState('')
+    const [debouncedSearchValue, setDebouncedSearchValue] = useState('')
     const summary = JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
 
-    const sortedPatterns = useMemo(() => {
+    const debouncedSetSearch = useRef(debounce((value: string) => setDebouncedSearchValue(value), 100)).current
+
+    useEffect(() => {
+        debouncedSetSearch(searchValue)
+    }, [searchValue, debouncedSetSearch])
+
+    const filteredPatterns = useMemo(() => {
         if (!summary.patterns) {
             return []
         }
-        const patterns = [...summary.patterns]
+        const trimmedSearch = debouncedSearchValue.trim().toLowerCase()
+        if (!trimmedSearch) {
+            return summary.patterns
+        }
+        return summary.patterns
+            .map((pattern) => {
+                const filteredEvents = pattern.events.filter(
+                    (event) =>
+                        event.target_event.description.toLowerCase().includes(trimmedSearch) ||
+                        event.segment_outcome.toLowerCase().includes(trimmedSearch)
+                )
+                if (filteredEvents.length === 0) {
+                    return null
+                }
+                return {
+                    ...pattern,
+                    events: filteredEvents,
+                }
+            })
+            .filter((pattern): pattern is EnrichedSessionGroupSummaryPattern => pattern !== null)
+    }, [summary.patterns, debouncedSearchValue])
+
+    const sortedPatterns = useMemo(() => {
+        const patterns = [...filteredPatterns]
         if (sortBy === 'severity') {
             return patterns.sort((a, b) => SEVERITY_ORDER[b.severity] - SEVERITY_ORDER[a.severity])
         }
         return patterns.sort((a, b) => b.stats.sessions_affected - a.stats.sessions_affected)
-    }, [summary.patterns, sortBy])
+    }, [filteredPatterns, sortBy])
     const handleViewDetails = (
         pattern: EnrichedSessionGroupSummaryPattern,
         event: PatternAssignedEventSegmentContext
@@ -328,15 +363,24 @@ export function SessionGroupSummary(): JSX.Element {
                 <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
             </div>
             <div className="space-y-4">
-                <FilterBar sortBy={sortBy} onSortChange={setSortBy} />
+                <FilterBar
+                    sortBy={sortBy}
+                    onSortChange={setSortBy}
+                    searchValue={searchValue}
+                    onSearchChange={setSearchValue}
+                />
                 <div className="flex flex-col gap-2">
-                    {sortedPatterns.map((pattern) => (
-                        <PatternCard
-                            key={pattern.pattern_id}
-                            pattern={pattern}
-                            onViewDetails={(event) => handleViewDetails(pattern, event)}
-                        />
-                    ))}
+                    {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
+                        <p className="text-muted">No patterns match your search</p>
+                    ) : (
+                        sortedPatterns.map((pattern) => (
+                            <PatternCard
+                                key={pattern.pattern_id}
+                                pattern={pattern}
+                                onViewDetails={(event) => handleViewDetails(pattern, event)}
+                            />
+                        ))
+                    )}
                 </div>
             </div>
 
