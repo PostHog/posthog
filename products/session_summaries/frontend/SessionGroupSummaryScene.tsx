@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconSearch, IconShare, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -157,18 +157,23 @@ function PatternCard({
         <div className="py-3 px-1">
             <div>
                 <h3 className="text-base font-medium mb-0">{pattern.pattern_name}</h3>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
-                    <span>{pattern.stats.sessions_affected} sessions</span>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted mb-2">
+                    <span>
+                        {pattern.stats.sessions_affected} session{pattern.stats.sessions_affected > 1 ? 's' : ''}
+                    </span>
+                    <span className="hidden sm:inline">·</span>
+                    <span>{(pattern.stats.sessions_affected_ratio * 100).toFixed(0)}%</span>
                     <span className="hidden sm:inline">·</span>
                     <div className="flex items-center gap-1.5">
                         <div className={`size-2 rounded-full ${severityConfig.color}`} />
                         <div className="text-sm font-normal mb-0">{capitalizeFirst(pattern.severity)}</div>
                     </div>
-                    <span className="hidden sm:inline">·</span>
+                    {/* TODO: Enable thumbs up/down for feedback */}
+                    {/* <span className="hidden sm:inline">·</span>
                     <div className="hidden sm:flex items-center gap-2">
                         <LemonButton size="xsmall" type="tertiary" icon={<IconThumbsUp />} />
                         <LemonButton size="xsmall" type="tertiary" icon={<IconThumbsDown />} />
-                    </div>
+                    </div> */}
                 </div>
             </div>
             <p className="text-sm text-muted-alt mb-0">{pattern.pattern_description}</p>
@@ -178,7 +183,7 @@ function PatternCard({
     const content = (
         <div className="p-2 bg-bg-3000">
             <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
                 {pattern.events.slice(0, visibleCount).map((event, index) => (
                     <SessionExampleCard
                         key={`${pattern.pattern_id}-${index}`}
