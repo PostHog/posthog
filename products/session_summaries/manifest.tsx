@@ -9,7 +9,8 @@ export const manifest: ProductManifest = {
             name: 'Session summaries',
             import: () => import('./frontend/SessionGroupSummariesTable'),
             projectBased: true,
-            description: 'View and analyze session summaries.',
+            description:
+                'View and deep-dive into AI-generated summaries of session recordings. Create summaries from the Session replay page by applying filters and asking PostHog AI to summarize sessions. If not filters, ask PostHog AI to find and summarize sessions based on provided criteria.',
             iconType: 'insight/hog',
         },
         SessionGroupSummary: {

@@ -9,7 +9,8 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -94,12 +95,14 @@ export function SessionGroupSummariesTable(): JSX.Element {
             },
         },
     ]
+    const config = sceneConfigurations[Scene.SessionGroupSummariesTable]
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Session summaries"
+                name={config.name}
+                description={config.description}
                 resourceType={{
-                    type: 'insight/hog',
+                    type: config.iconType || 'insight/hog',
                 }}
             />
             <div className="deprecated-space-y-4">
