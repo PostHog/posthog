@@ -1,0 +1,114 @@
+=== PERSON.OBJECTS METHOD CLUSTERING ===
+
+## Person.objects.get() calls:
+       8
+posthog/tasks/split_person.py:13:    person = Person.objects.get(pk=person_id)
+posthog/models/event/util.py:183:                person = Person.objects.get(
+posthog/models/person/person.py:166:        original_person = Person.objects.get(pk=self.pk)
+posthog/session_recordings/models/session_recording.py:142:            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
+posthog/api/cohort.py:1125:            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+posthog/api/person.py:551:        person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
+posthog/models/cohort/cohort.py:592:            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+posthog/management/commands/split_person.py:55:    person = Person.objects.get(pk=person_id)
+
+## Person.objects.filter() calls:
+      19
+posthog/hogql_queries/events_query_runner.py:139:                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
+posthog/management/commands/sync_persons_to_clickhouse.py:71:    persons = Person.objects.filter(team_id=team_id)
+posthog/models/feature_flag/flag_matching.py:518:                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+posthog/models/feature_flag/flag_matching.py:1240:        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
+posthog/management/commands/fix_future_person_created_at.py:44:    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)
+posthog/management/commands/fix_future_person_created_at.py:54:            Person.objects.filter(pk=person.id).update(version=F("version") + 1, created_at=new_date)
+posthog/hogql_queries/sessions_query_runner.py:84:                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
+posthog/tasks/verify_persons_data_in_sync.py:54:    max_pk = Person.objects.filter(created_at__lte=now() - period_start).latest("id").id
+posthog/tasks/verify_persons_data_in_sync.py:56:        Person.objects.filter(
+posthog/tasks/verify_persons_data_in_sync.py:92:            Person.objects.filter(id__in=person_ids).prefetch_related(
+posthog/management/commands/generate_persons.py:861:            person = Person.objects.filter(team=team).order_by("?").first()
+posthog/management/commands/export_distinct_ids.py:129:        total_persons = Person.objects.filter(team=team).count()
+posthog/management/commands/export_distinct_ids.py:130:        identified_persons = Person.objects.filter(team=team, is_identified=True).count()
+posthog/management/commands/export_distinct_ids.py:131:        demo_persons = Person.objects.filter(team=team, properties__is_demo=True).count()
+posthog/models/event/query_event_list.py:49:            person = get_pk_or_uuid(Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=team), v).first()
+posthog/api/person.py:551:        person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
+posthog/models/person/util.py:193:    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+posthog/models/person/util.py:201:    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
+posthog/models/team/util.py:38:    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+
+## Person.objects.bulk_create() calls:
+       3
+posthog/demo/matrix/manager.py:267:        Person.objects.bulk_create(bulk_persons.values())
+posthog/demo/legacy/data_generator.py:33:        self.people = Person.objects.bulk_create(self.people)
+posthog/models/person/util.py:89:        inserted = Person.objects.bulk_create(persons)
+
+## Person.objects.create() calls:
+       1
+posthog/management/commands/generate_persons.py:74:                person = Person.objects.create(
+
+## Person.objects.all() calls:
+       1
+posthog/api/person.py:222:    queryset = Person.objects.all()
+
+## Person.objects.db_manager() calls:
+      17
+posthog/hogql_queries/events_query_runner.py:139:                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
+posthog/queries/actor_base_query.py:276:        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/session_recordings/models/session_recording.py:142:            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
+posthog/models/feature_flag/flag_matching.py:518:                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+posthog/models/feature_flag/flag_matching.py:1240:        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
+posthog/models/person/util.py:193:    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+posthog/models/person/util.py:201:    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
+posthog/api/cohort.py:451:                    for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/api/cohort.py:1086:            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/api/cohort.py:1125:            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+posthog/api/cohort.py:1408:            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/hogql_queries/sessions_query_runner.py:84:                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
+posthog/models/event/query_event_list.py:49:            person = get_pk_or_uuid(Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=team), v).first()
+posthog/models/cohort/cohort.py:365:            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/models/cohort/cohort.py:479:            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+posthog/models/cohort/cohort.py:532:                    Person.objects.db_manager(db_read)
+posthog/models/cohort/cohort.py:592:            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+
+
+=== PERSONDISTINCTID FK RELATION CLUSTERING ===
+
+## persondistinctid__distinct_id queries:
+       5
+posthog/session_recordings/models/session_recording.py:143:                persondistinctid__distinct_id=self.distinct_id,
+posthog/models/feature_flag/flag_matching.py:520:                    persondistinctid__distinct_id=self.distinct_id,
+posthog/models/person/util.py:196:        persondistinctid__distinct_id__in=distinct_ids,
+posthog/models/event/util.py:184:                    persondistinctid__distinct_id=event["distinct_id"],
+posthog/api/person.py:400:            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+
+## persondistinctid_set prefetch:
+       7
+posthog/hogql_queries/events_query_runner.py:334:                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+posthog/queries/actor_base_query.py:280:                "persondistinctid_set",
+posthog/tasks/verify_persons_data_in_sync.py:93:                Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
+posthog/api/event.py:241:        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+posthog/api/person.py:234:        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+posthog/models/person/person.py:66:    that relies on reverse relations like persondistinctid_set.
+posthog/api/cohort.py:1430:                    "persondistinctid_set",
+
+
+=== PERSONDISTINCTID.OBJECTS METHOD CLUSTERING ===
+
+## PersonDistinctId.objects.filter() calls:
+       8
+posthog/management/commands/sync_persons_to_clickhouse.py:128:    person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id)
+posthog/management/commands/export_distinct_ids.py:68:        distinct_ids_query = PersonDistinctId.objects.filter(team=team)
+posthog/queries/actor_base_query.py:282:                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
+posthog/api/cohort.py:1419:            # distinct_id = PersonDistinctId.objects.filter(person=person, team_id=team_id).values_list(
+posthog/api/cohort.py:1432:                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+posthog/demo/matrix/manager.py:269:        pre_existing_id_count = PersonDistinctId.objects.filter(team_id=target_team_id).count()
+posthog/models/person/deletion.py:89:    person_distinct_id = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+posthog/models/team/util.py:29:    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
+
+## PersonDistinctId.objects.bulk_create() calls:
+       3
+posthog/demo/matrix/manager.py:293:        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
+posthog/demo/legacy/data_generator.py:39:        PersonDistinctId.objects.bulk_create(pids)
+posthog/models/person/util.py:112:        PersonDistinctId.objects.bulk_create(distinct_ids)
+
+## PersonDistinctId.objects.create() calls:
+       2
+posthog/management/commands/generate_persons.py:82:                PersonDistinctId.objects.create(
+posthog/models/person/person.py:158:        PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)

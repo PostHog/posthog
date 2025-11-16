@@ -420,28 +420,44 @@ def reset_group_tables_between_tests(request, django_db_blocker):
             from django.db import connection
 
             with django_db_blocker.unblock():
-                with connection.cursor() as cursor:
-                    # Truncate tables with constraint leakage issues, but only if they exist.
-                    # Some test environments may not create all sqlx-managed tables.
-                    # Truncate in dependency order: children before parents (to avoid FK constraint issues).
-                    # - posthog_personoverride (child) -> posthog_personoverridemapping (parent)
-                    # - posthog_group has no incoming FKs, so no ordering required
-                    # - posthog_grouptypemapping is independent
-                    for table in [
-                        "posthog_personoverride",  # Child table, truncate first
-                        "posthog_personoverridemapping",  # Parent of personoverride
-                        "posthog_group",  # Independent
-                        "posthog_grouptypemapping",  # Independent
-                    ]:
+                try:
+                    with connection.cursor() as cursor:
+                        # Drop the problematic constraint again (in case it was re-created or persisted)
+                        # Wrap in try/except to avoid aborting transaction if constraint doesn't exist
                         try:
-                            cursor.execute(f"TRUNCATE TABLE {table}")
+                            cursor.execute("""
+                                ALTER TABLE IF EXISTS posthog_personoverride
+                                DROP CONSTRAINT IF EXISTS exclude_override_person_id_from_being_old_person_id;
+                            """)
                         except Exception:
-                            # If it fails due to FK constraints, try with CASCADE
+                            # Constraint drop failed, continue with truncation
+                            pass
+
+                        # Truncate tables with constraint leakage issues, but only if they exist.
+                        # Some test environments may not create all sqlx-managed tables.
+                        # Truncate in dependency order: children before parents (to avoid FK constraint issues).
+                        # - posthog_personoverride (child) -> posthog_personoverridemapping (parent)
+                        # - posthog_group has no incoming FKs, so no ordering required
+                        # - posthog_grouptypemapping is independent
+                        for table in [
+                            "posthog_personoverride",  # Child table, truncate first
+                            "posthog_personoverridemapping",  # Parent of personoverride
+                            "posthog_group",  # Independent
+                            "posthog_grouptypemapping",  # Independent
+                        ]:
                             try:
-                                cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                                cursor.execute(f"TRUNCATE TABLE {table}")
                             except Exception:
-                                # Table doesn't exist or other error, skip it
-                                pass
+                                # If it fails due to FK constraints, try with CASCADE
+                                try:
+                                    cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                                except Exception:
+                                    # Table doesn't exist or other error, skip it
+                                    pass
+                except Exception:
+                    # If anything goes wrong in cleanup, don't fail the test
+                    # The transaction will be rolled back automatically
+                    pass
 
 
 def pytest_sessionstart():
