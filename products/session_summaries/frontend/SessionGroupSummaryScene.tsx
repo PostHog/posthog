@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconDownload, IconSearch, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconCheck, IconSearch, IconShare, IconSort, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -306,8 +307,12 @@ export function SessionGroupSummary(): JSX.Element {
                     type: sceneConfigurations[Scene.SessionGroupSummary]?.iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton type="secondary" icon={<IconDownload />}>
-                        Export
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconShare />}
+                        onClick={() => void copyToClipboard(window.location.href, 'link')}
+                    >
+                        Share
                     </LemonButton>
                 }
                 forceBackTo={backBreadcrumb}
