@@ -1,4 +1,4 @@
-import { JSONContent, generateText } from '@tiptap/core'
+import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
@@ -20,28 +20,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { CommentType } from '~/types'
 
 import { CommentWithRepliesType, commentsLogic } from './commentsLogic'
-
-/**
- * Recursively filters out empty text nodes from JSONContent to prevent ProseMirror errors.
- * ProseMirror doesn't allow text nodes with empty strings.
- */
-function sanitizeJSONContent(content: JSONContent): JSONContent {
-    const sanitized = { ...content }
-
-    if (sanitized.content) {
-        sanitized.content = sanitized.content
-            .filter((node) => {
-                // Filter out text nodes with empty text
-                if (node.type === 'text' && (!node.text || node.text === '')) {
-                    return false
-                }
-                return true
-            })
-            .map((node) => sanitizeJSONContent(node))
-    }
-
-    return sanitized
-}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -176,7 +154,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                 <div className="deprecated-space-y-2 border-t p-2">
                     <LemonRichContentEditor
                         placeholder="Edit comment"
-                        initialContent={comment.rich_content ? sanitizeJSONContent(comment.rich_content) : null}
+                        initialContent={comment.rich_content}
                         onCreate={setEditingCommentRichContentEditor}
                         onUpdate={(isEmpty) => {
                             if (editingCommentRichContentEditor) {
@@ -251,20 +229,18 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
 export function getText(comment: CommentType): string {
     // This is only temporary until all comments are backfilled to rich content
     const content = comment.rich_content
-        ? sanitizeJSONContent(comment.rich_content)
+        ? comment.rich_content
         : {
               type: 'doc',
               content: [
                   {
                       type: 'paragraph',
-                      content: comment.content
-                          ? [
-                                {
-                                    type: 'text',
-                                    text: comment.content,
-                                },
-                            ]
-                          : [], // Empty paragraphs are allowed, empty text nodes are not
+                      content: [
+                          {
+                              type: 'text',
+                              text: comment.content || '',
+                          },
+                      ],
                   },
               ],
           }

@@ -73,10 +73,6 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "LLMTrace",
-    "LLMEvent",
-    "LLMGeneration",
-    "LLMSpan",
-    "LLMEmbedding",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"

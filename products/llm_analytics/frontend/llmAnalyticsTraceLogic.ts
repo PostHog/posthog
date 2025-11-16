@@ -237,51 +237,14 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.eventId, s.eventType, s.featureFlags],
-            (traceId, eventId, eventType, featureFlags): SidePanelSceneContext => {
-                const traceIdOrEmpty = traceId || ''
-                const isTraceLevel = !eventId || eventId === traceId || !eventType
-
-                let activity_scope: ActivityScope
-                let activity_item_id: string
-                const activity_item_context: Record<string, string> = { trace_id: traceIdOrEmpty }
-
-                if (isTraceLevel) {
-                    activity_scope = ActivityScope.LLM_TRACE
-                    activity_item_id = traceIdOrEmpty
-                } else {
-                    activity_item_id = eventId || traceIdOrEmpty
-                    switch (eventType) {
-                        case 'generation':
-                            activity_scope = ActivityScope.LLM_GENERATION
-                            activity_item_context.event_type = '$ai_generation'
-                            break
-                        case 'span':
-                            activity_scope = ActivityScope.LLM_SPAN
-                            activity_item_context.event_type = '$ai_span'
-                            break
-                        case 'embedding':
-                            activity_scope = ActivityScope.LLM_EMBEDDING
-                            activity_item_context.event_type = '$ai_embedding'
-                            break
-                        case 'trace':
-                            activity_scope = ActivityScope.LLM_TRACE
-                            activity_item_id = traceIdOrEmpty
-                            break
-                        default:
-                            activity_scope = ActivityScope.LLM_EVENT
-                    }
-
-                    if (eventId) {
-                        activity_item_context.event_id = eventId
-                    }
-                }
-
+            (s) => [s.traceId, s.featureFlags],
+            (traceId, featureFlags): SidePanelSceneContext => {
+                // Discussions are always at the trace level, accessible from anywhere in the trace
                 return {
-                    activity_scope,
-                    activity_item_id,
-                    discussions_disabled: !featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
-                    activity_item_context,
+                    activity_scope: ActivityScope.LLM_TRACE,
+                    activity_item_id: traceId || '',
+                    discussions_disabled: !featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
+                    activity_item_context: { trace_id: traceId || '' },
                 }
             },
         ],

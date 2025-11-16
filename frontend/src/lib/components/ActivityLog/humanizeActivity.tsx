@@ -134,10 +134,6 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
-    [ActivityScope.LLM_EVENT]: { singular: 'LLM event', plural: 'LLM events' },
-    [ActivityScope.LLM_GENERATION]: { singular: 'LLM generation', plural: 'LLM generations' },
-    [ActivityScope.LLM_SPAN]: { singular: 'LLM span', plural: 'LLM spans' },
-    [ActivityScope.LLM_EMBEDDING]: { singular: 'LLM embedding', plural: 'LLM embeddings' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
