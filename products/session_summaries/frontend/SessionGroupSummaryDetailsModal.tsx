@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { IconEllipsis, IconShare, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -64,7 +65,11 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                             <LemonButton size="small" icon={<IconThumbsUp />} />
                             <LemonButton size="small" icon={<IconThumbsDown />} />
                             <div className="h-6 w-px bg-border mx-2" />
-                            <LemonButton size="small" icon={<IconShare />} />
+                            <LemonButton
+                                size="small"
+                                icon={<IconShare />}
+                                onClick={() => void copyToClipboard(window.location.href, 'link')}
+                            />
                             <LemonButton size="small" icon={<IconEllipsis />} />
                         </div>
                     </header>
