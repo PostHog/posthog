@@ -94,10 +94,20 @@ BEGIN
     END IF;
 END $$;
 
--- Note: The original GIST EXCLUDE constraint had inverted logic that prevented
--- legitimate merge operations. Integrity is ensured by:
--- - unique_override_per_old_person_id: prevents duplicate old_person_ids for same team
--- - old_person_id_different_from_override_person_id: prevents self-override (A->A)
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'exclude_override_person_id_from_being_old_person_id' 
+        AND conrelid = 'posthog_personoverride'::regclass
+    ) THEN
+        ALTER TABLE posthog_personoverride ADD CONSTRAINT exclude_override_person_id_from_being_old_person_id 
+            EXCLUDE USING gist (team_id WITH =, override_person_id WITH =, old_person_id WITH <>) 
+            DEFERRABLE INITIALLY DEFERRED;
+    END IF;
+END $$;
 
 -- PendingPersonOverride table
 CREATE TABLE IF NOT EXISTS posthog_pendingpersonoverride (
