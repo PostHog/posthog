@@ -13,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
+import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
 import { SessionGroupSummaryDetailsModal } from './SessionGroupSummaryDetailsModal'
 import { SessionGroupSummarySceneLogicProps, sessionGroupSummarySceneLogic } from './sessionGroupSummarySceneLogic'
 import {
@@ -80,10 +81,8 @@ function SessionExampleCard({
                     View details
                 </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted mb-2">
-                <span>{target_event.session_id}</span>
-                <span className="hidden sm:inline">·</span>
-                <span>alex.l@posthog.com</span>
+            <div className="mb-2">
+                <SessionGroupSummaryDetailsMetadata event={event} />
             </div>
             <p className="text-xs font-normal text-muted-alt mb-0">
                 <b>Outcome:</b> {segment_outcome}

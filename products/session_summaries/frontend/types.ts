@@ -30,6 +30,10 @@ export interface PatternAssignedEventSegmentContext {
     previous_events_in_segment: EnrichedPatternAssignedEvent[]
     target_event: EnrichedPatternAssignedEvent
     next_events_in_segment: EnrichedPatternAssignedEvent[]
+    session_start_time_str: string | null
+    session_duration: number | null
+    person_distinct_ids: string[]
+    person_email: string | null
 }
 
 // Matches EnrichedSessionGroupSummaryPatternStats from patterns.py

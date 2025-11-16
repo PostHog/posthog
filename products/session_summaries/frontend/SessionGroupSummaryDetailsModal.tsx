@@ -4,10 +4,10 @@ import { useEffect } from 'react'
 import { IconEllipsis, IconShare, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
 import { PatternAssignedEventSegmentContext } from './types'
 
 interface SessionDetailsModalProps {
@@ -42,7 +42,6 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
     if (!sessionRecordingId) {
         throw new Error('Session recording id not found')
     }
-    const formattedTimestamp = dayjs(event.target_event.timestamp).format('MMMM D, YYYY, h:mm A')
     return (
         <LemonModal
             isOpen={isOpen}
@@ -58,8 +57,8 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                     {/* Header */}
                     <header className="flex items-center justify-between p-4 border-b">
                         <div>
-                            <h2 className="text-lg font-semibold mb-0">Session {event.target_event.session_id}</h2>
-                            <p className="text-sm text-muted mb-0">{formattedTimestamp}</p>
+                            <h2 className="text-lg font-semibold mb-1">{event.target_event.description}</h2>
+                            <SessionGroupSummaryDetailsMetadata event={event} />
                         </div>
                         <div className="flex items-center gap-2">
                             <LemonButton size="small" icon={<IconThumbsUp />} />
