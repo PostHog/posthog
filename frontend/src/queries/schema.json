@@ -28601,6 +28601,35 @@
             },
             "type": "object"
         },
+        "WebAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties"],
+            "type": "object"
+        },
         "WebAnalyticsConversionGoal": {
             "anyOf": [
                 {
