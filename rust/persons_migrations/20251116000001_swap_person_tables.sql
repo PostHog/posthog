@@ -2,12 +2,31 @@
 -- Production already has posthog_person_new (partitioned), this migration makes it the main table
 -- and renames the old unpartitioned table out of the way.
 
--- Rename old unpartitioned table out of the way
-ALTER TABLE IF EXISTS posthog_person RENAME TO posthog_person_old;
+-- Rename old unpartitioned table out of the way (if it exists - it might not in fresh installs)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'posthog_person'
+        AND table_type = 'BASE TABLE'
+    ) THEN
+        -- Check if it's not partitioned (old table)
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_partitioned_table
+            WHERE relid = 'public.posthog_person'::regclass
+        ) THEN
+            ALTER TABLE posthog_person RENAME TO posthog_person_old;
+        END IF;
+    END IF;
+END $$;
 
 -- Rename new (partitioned) table to primary name
-ALTER TABLE IF EXISTS posthog_person_new RENAME TO posthog_person;
-
--- Create empty posthog_person_new for compatibility (in case any code still references it)
--- This won't be actively used, but allows for zero-downtime switchover
-CREATE TABLE IF NOT EXISTS posthog_person_new (LIKE posthog_person INCLUDING ALL);
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'posthog_person_new'
+    ) THEN
+        ALTER TABLE posthog_person_new RENAME TO posthog_person;
+    END IF;
+END $$;

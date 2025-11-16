@@ -91,11 +91,3 @@ class TestPersonSchemaConsistency(TestCase):
             f"Expected composite primary key (team_id, id) but got {pk_columns}. "
             "This indicates the table wasn't properly swapped to the partitioned schema.",
         )
-
-    def test_posthog_person_new_placeholder_exists(self):
-        """Verify posthog_person_new placeholder table exists for compatibility."""
-        self.assertTrue(
-            table_exists("posthog_person_new"),
-            "posthog_person_new placeholder table does not exist. "
-            "The swap migration should have created this for backward compatibility.",
-        )
