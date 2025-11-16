@@ -252,7 +252,6 @@ class SummarizeSessionsToolArgs(BaseModel):
 class SummarizeSessionsTool(MaxTool):
     name: Literal["summarize_sessions"] = "summarize_sessions"
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
-    thinking_message: str = "Searching for sessions to summarize"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
