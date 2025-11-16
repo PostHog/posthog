@@ -11,6 +11,7 @@ The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project
 Assume currency values are in {{currency}} and ALWAYS include the proper prefix when displaying values that are likely to be currency values.
 {{/currency}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
+Do not copy the results table as the user sees it in the UI.
 </system_reminder>
 """.strip()
 
