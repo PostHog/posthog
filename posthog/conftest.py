@@ -410,6 +410,31 @@ def reset_group_tables_between_tests(request, django_db_blocker):
     Skips non-database tests (e.g., SimpleTestCase subclasses) to avoid accessing the
     database when not permitted.
     """
+    # Setup before test: drop constraints that block tests
+    if request.config.getoption("--reuse-db"):
+        if request.node.get_closest_marker("django_db"):
+            from django.db import connection
+
+            with django_db_blocker.unblock():
+                try:
+                    connection.rollback()
+                    with connection.cursor() as cursor:
+                        # Must drop the constraint before test runs
+                        # It gets recreated by sqlx migrations, so drop it for each test
+                        cursor.execute("SAVEPOINT sp_drop_constraint_setup")
+                        try:
+                            cursor.execute("""
+                                ALTER TABLE IF EXISTS posthog_personoverride
+                                DROP CONSTRAINT IF EXISTS exclude_override_person_id_from_being_old_person_id;
+                            """)
+                        except Exception:
+                            cursor.execute("ROLLBACK TO SAVEPOINT sp_drop_constraint_setup")
+                except Exception:
+                    try:
+                        connection.rollback()
+                    except Exception:
+                        pass
+
     yield  # Let test run
 
     # Cleanup after test (only with --reuse-db and only for tests that use the database)
@@ -425,18 +450,6 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                     # that would get messed up by errors
                     connection.rollback()  # Rollback any failed transaction from the test
                     with connection.cursor() as cursor:
-                        # Drop the problematic constraint again (in case it was re-created or persisted)
-                        # Use savepoint to safely handle any errors
-                        cursor.execute("SAVEPOINT sp_drop_constraint")
-                        try:
-                            cursor.execute("""
-                                ALTER TABLE IF EXISTS posthog_personoverride
-                                DROP CONSTRAINT IF EXISTS exclude_override_person_id_from_being_old_person_id;
-                            """)
-                        except Exception:
-                            # Constraint drop failed, rollback to savepoint and continue with truncation
-                            cursor.execute("ROLLBACK TO SAVEPOINT sp_drop_constraint")
-
                         # Truncate tables with constraint leakage issues, but only if they exist.
                         # Some test environments may not create all sqlx-managed tables.
                         # Truncate in dependency order: children before parents (to avoid FK constraint issues).
