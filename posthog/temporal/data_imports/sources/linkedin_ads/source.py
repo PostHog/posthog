@@ -31,6 +31,11 @@ class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "REVOKED_ACCESS_TOKEN": None,
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

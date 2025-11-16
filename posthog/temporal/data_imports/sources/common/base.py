@@ -54,6 +54,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return config
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        """Returns the errors for which the the source should be disabled on"""
+
+        return {}
+
     def get_schemas(self, config: ConfigType, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()
 
