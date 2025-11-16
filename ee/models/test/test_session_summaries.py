@@ -8,7 +8,7 @@ from posthog.models import Organization, Team, User
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.models.session_summaries import (
     ExtraSummaryContext,
-    GroupSessionSummary,
+    SessionGroupSummary,
     SessionSummaryPage,
     SessionSummaryRunMeta,
     SingleSessionSummary,
@@ -524,7 +524,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
         )
 
 
-class TestGroupSessionSummary(BaseTest):
+class TestSessionGroupSummary(BaseTest):
     session_ids: list[str]
     summary_data: dict[str, Any]
     extra_context: ExtraSummaryContext
@@ -558,9 +558,9 @@ class TestGroupSessionSummary(BaseTest):
         self.run_metadata = SessionSummaryRunMeta(model_used="claude-7-1-sonnet", visual_confirmation=False)
 
     def test_create_group_summary(self) -> None:
-        summary = GroupSessionSummary.objects.create(
+        summary = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Checkout flow analysis",
+            title="Checkout flow analysis",
             session_ids=self.session_ids,
             summary=self.summary_data,
             extra_summary_context=asdict(self.extra_context),
@@ -569,7 +569,7 @@ class TestGroupSessionSummary(BaseTest):
         )
         self.assertIsNotNone(summary.id)
         self.assertEqual(summary.team_id, self.team.id)
-        self.assertEqual(summary.name, "Checkout flow analysis")
+        self.assertEqual(summary.title, "Checkout flow analysis")
         self.assertEqual(summary.session_ids, self.session_ids)
         self.assertEqual(summary.summary, self.summary_data)
         self.assertEqual(summary.extra_summary_context, asdict(self.extra_context))
@@ -578,48 +578,48 @@ class TestGroupSessionSummary(BaseTest):
 
     def test_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
-        summary = GroupSessionSummary.objects.create(
+        summary = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Team isolation test",
+            title="Team isolation test",
             session_ids=self.session_ids,
             summary=self.summary_data,
             created_by=self.user,
         )
         # Should not be able to get summary with wrong team_id
-        with self.assertRaises(GroupSessionSummary.DoesNotExist):
-            GroupSessionSummary.objects.get(id=summary.id, team_id=other_team.id)
+        with self.assertRaises(SessionGroupSummary.DoesNotExist):
+            SessionGroupSummary.objects.get(id=summary.id, team_id=other_team.id)
 
     def test_order_by_created_at(self) -> None:
         # Create multiple summaries
-        summary_1 = GroupSessionSummary.objects.create(
+        summary_1 = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Summary 1",
+            title="Summary 1",
             session_ids=["session-1"],
             summary=self.summary_data,
         )
-        summary_2 = GroupSessionSummary.objects.create(
+        summary_2 = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Summary 2",
+            title="Summary 2",
             session_ids=["session-2"],
             summary=self.summary_data,
         )
-        summary_3 = GroupSessionSummary.objects.create(
+        summary_3 = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Summary 3",
+            title="Summary 3",
             session_ids=["session-3"],
             summary=self.summary_data,
         )
         # Get recent summaries ordered by creation date
-        recent_summaries = list(GroupSessionSummary.objects.filter(team_id=self.team.id).order_by("-created_at"))
+        recent_summaries = list(SessionGroupSummary.objects.filter(team_id=self.team.id).order_by("-created_at"))
         self.assertEqual(len(recent_summaries), 3)
         self.assertEqual(recent_summaries[0].id, summary_3.id)  # Most recent
         self.assertEqual(recent_summaries[1].id, summary_2.id)
         self.assertEqual(recent_summaries[2].id, summary_1.id)  # Oldest
 
     def test_update_summary(self) -> None:
-        summary = GroupSessionSummary.objects.create(
+        summary = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="Update test summary",
+            title="Update test summary",
             session_ids=self.session_ids,
             summary=self.summary_data,
         )
@@ -645,13 +645,13 @@ class TestGroupSessionSummary(BaseTest):
         summary.summary = updated_data
         summary.save()
         # Verify the update
-        retrieved = GroupSessionSummary.objects.get(id=summary.id)
+        retrieved = SessionGroupSummary.objects.get(id=summary.id)
         self.assertEqual(retrieved.summary, updated_data)
 
     def test_str_representation(self) -> None:
-        summary = GroupSessionSummary.objects.create(
+        summary = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            name="String repr test",
+            title="String repr test",
             session_ids=self.session_ids,
             summary=self.summary_data,
         )

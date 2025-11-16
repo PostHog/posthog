@@ -50,6 +50,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
+from ee.hogai.session_summaries.session_group.patterns import dateutil_parser
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
@@ -126,7 +127,9 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
 
 
 def _store_final_summary_in_db_from_activity(
-    inputs: SingleSessionSummaryInputs, session_summary: SessionSummarySerializer
+    inputs: SingleSessionSummaryInputs,
+    session_summary: SessionSummarySerializer,
+    llm_input: SingleSessionSummaryLlmInputs,
 ) -> None:
     """Store the final summary in the DB from the activity"""
     exception_event_ids = get_exception_event_ids_from_summary(session_summary)
@@ -145,6 +148,9 @@ def _store_final_summary_in_db_from_activity(
             model_used=inputs.model_to_use,
             visual_confirmation=False,
         ),
+        session_start_time=dateutil_parser.isoparse(llm_input.session_start_time_str),
+        session_duration=llm_input.session_duration,
+        distinct_id=llm_input.distinct_id,
         created_by=user,
     )
 
@@ -209,7 +215,7 @@ async def get_llm_single_session_summary_activity(
     )
     # Store the final summary in the DB
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
-        inputs, session_summary
+        inputs, session_summary, llm_input
     )
     # Returning nothing as the data is stored in Redis
     return None
@@ -302,7 +308,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     session_summary = SessionSummarySerializer(data=json.loads(last_summary_state_str))
     session_summary.is_valid(raise_exception=True)
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
-        inputs, session_summary
+        inputs, session_summary, llm_input
     )
     # Return the last state as string to finish the function execution
     return last_summary_state_str

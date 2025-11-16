@@ -1,6 +1,6 @@
-from dataclasses import asdict
 import json
 import asyncio
+from dataclasses import asdict
 from math import ceil
 from typing import cast
 
@@ -10,7 +10,6 @@ from redis import asyncio as aioredis
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
 
-from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
 from posthog.models import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -59,6 +58,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     remove_excessive_content_from_session_summary_for_llm,
 )
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
+from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
 
 logger = structlog.get_logger(__name__)
 
@@ -425,8 +425,8 @@ async def assign_events_to_patterns_activity(
         raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
     await SessionGroupSummary.objects.acreate(
         team_id=inputs.team_id,
-        title=inputs.summary_title,  # Use default, if not provided
-        session_ids=inputs.single_session_summaries_inputs,
+        title=inputs.summary_title or "Group summary",
+        session_ids=session_ids,
         summary=patterns_with_events_context.model_dump_json(exclude_none=True),
         extra_summary_context=inputs.extra_summary_context,
         # We don't do visual confirmation on the patterns assignments level, only on single session level

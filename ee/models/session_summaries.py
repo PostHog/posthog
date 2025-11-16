@@ -1,4 +1,5 @@
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
@@ -104,6 +105,9 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         *,
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
+        session_start_time: datetime | None = None,
+        session_duration: int | None = None,
+        distinct_id: str | None = None,
         created_by: User | None = None,
     ) -> None:
         """Store a new session summary"""
@@ -120,6 +124,9 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
             exception_event_ids=exception_event_ids[:100],
             extra_summary_context=extra_summary_context_dict,
             run_metadata=run_metadata_dict,
+            session_start_time=session_start_time,
+            session_duration=session_duration,
+            distinct_id=distinct_id,
             created_by=created_by,
         )
 
@@ -230,6 +237,9 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         blank=True,
         help_text="Summary run metadata (SessionSummaryRunMeta schema)",
     )
+    session_start_time = models.DateTimeField(null=True, blank=True, help_text="Session start time")
+    session_duration = models.IntegerField(null=True, blank=True, help_text="Session duration in seconds")
+    distinct_id = models.CharField(max_length=200, null=True, blank=True, help_text="Distinct ID of the session's user")
 
     # TODO: Implement background job to delete summaries older than 1 year
 
@@ -323,4 +333,4 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
 
     def __str__(self):
         session_count = len(self.session_ids) if self.session_ids else 0
-        return f"{self.name} - {session_count} sessions (team {self.team_id})"
+        return f"{self.title} - {session_count} sessions (team {self.team_id})"

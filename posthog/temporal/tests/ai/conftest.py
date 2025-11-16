@@ -73,6 +73,7 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+            distinct_id="test_distinct_id",
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 

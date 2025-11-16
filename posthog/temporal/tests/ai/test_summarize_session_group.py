@@ -1068,6 +1068,7 @@ class TestSummarizeSessionGroupWorkflow:
                 team=mock_team,
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),
+                summary_title="Test summary",
             ):
                 results.append(update)
             # Verify we got the expected result
@@ -1290,6 +1291,7 @@ class TestSummarizeSessionGroupWorkflow:
             extra_summary_context=workflow_input.extra_summary_context,
             local_reads_prod=workflow_input.local_reads_prod,
             video_validation_enabled=video_validation_enabled,
+            summary_title="Test summary",
         )
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
@@ -1346,6 +1348,7 @@ class TestPatternExtractionChunking:
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
+            summary_title="Test summary",
         )
 
         # Execute the activity directly
@@ -1398,6 +1401,7 @@ class TestPatternExtractionChunking:
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=ExtraSummaryContext(focus_area="test"),
             redis_key_base="test",
+            summary_title="Test summary",
         )
 
         # Mock token estimation to ensure all sessions fit in a single chunk
@@ -1457,6 +1461,7 @@ class TestPatternExtractionChunking:
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
+            summary_title="Test summary",
         )
 
         # Mock token counts: base=1000, session0=80000, session1=70000, session2=500
@@ -1519,6 +1524,7 @@ class TestPatternExtractionChunking:
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
+            summary_title="Test summary",
         )
 
         # Mock token counts and logger:
