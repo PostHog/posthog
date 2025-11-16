@@ -61,7 +61,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
-        setEventType: (eventType: string | null) => ({ eventType }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
@@ -83,14 +82,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
-        eventType: [
-            null as string | null,
-            {
-                setEventType: (_, { eventType }) => eventType,
-                setEventId: () => null,
-                setTraceId: () => null,
-            },
-        ],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
