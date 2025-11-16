@@ -20,7 +20,6 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -336,7 +335,7 @@ def log_session_summary_group_activity(
 @extend_schema(
     description="API for retrieving and managing stored group session summaries.",
 )
-class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "session_recording"
     queryset = SessionGroupSummary.objects.all()
     lookup_field = "id"

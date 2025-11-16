@@ -84,7 +84,7 @@ export const sessionGroupSummariesTableLogic = kea<sessionGroupSummariesTableLog
                 },
                 deleteSessionGroupSummary: async ({ id }) => {
                     await api.sessionGroupSummaries.delete(id)
-                    return values.sessionGroupSummariesResponse
+                    return null
                 },
             },
         ],
