@@ -410,7 +410,7 @@ def reset_group_tables_between_tests(request, django_db_blocker):
     Skips non-database tests (e.g., SimpleTestCase subclasses) to avoid accessing the
     database when not permitted.
     """
-    # Setup before test: drop constraints that block tests
+    # Setup before test: clear state and drop constraints that block tests
     if request.config.getoption("--reuse-db"):
         if request.node.get_closest_marker("django_db"):
             from django.db import connection
@@ -419,6 +419,22 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                 try:
                     connection.rollback()
                     with connection.cursor() as cursor:
+                        # Truncate tables to clear state from previous tests that may have failed
+                        # This is a safety net for cleanup failures in previous tests
+                        for table in [
+                            "posthog_personoverride",
+                            "posthog_personoverridemapping",
+                            "posthog_group",
+                            "posthog_grouptypemapping",
+                        ]:
+                            try:
+                                cursor.execute(f"TRUNCATE TABLE {table}")
+                            except Exception:
+                                try:
+                                    cursor.execute(f"TRUNCATE TABLE {table} CASCADE")
+                                except Exception:
+                                    pass
+
                         # Must drop the constraint before test runs
                         # It gets recreated by sqlx migrations, so drop it for each test
                         cursor.execute("SAVEPOINT sp_drop_constraint_setup")
