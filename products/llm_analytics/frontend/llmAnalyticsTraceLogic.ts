@@ -83,7 +83,14 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
-        eventType: [null as string | null, { setEventType: (_, { eventType }) => eventType }],
+        eventType: [
+            null as string | null,
+            {
+                setEventType: (_, { eventType }) => eventType,
+                setEventId: () => null,
+                setTraceId: () => null,
+            },
+        ],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
@@ -232,49 +239,41 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.traceId, s.eventId, s.eventType, s.featureFlags],
             (traceId, eventId, eventType, featureFlags): SidePanelSceneContext => {
-                // Compute activity_scope from state values
+                const traceIdOrEmpty = traceId || ''
+                const isTraceLevel = !eventId || eventId === traceId || !eventType
+
                 let activity_scope: ActivityScope
-                // If eventId is same as traceId, treat it as trace-level discussion
-                if (!eventId || eventId === traceId) {
+                let activity_item_id: string
+                const activity_item_context: Record<string, string> = { trace_id: traceIdOrEmpty }
+
+                if (isTraceLevel) {
                     activity_scope = ActivityScope.LLM_TRACE
+                    activity_item_id = traceIdOrEmpty
                 } else {
+                    activity_item_id = eventId || traceIdOrEmpty
                     switch (eventType) {
                         case 'generation':
                             activity_scope = ActivityScope.LLM_GENERATION
+                            activity_item_context.event_type = '$ai_generation'
                             break
                         case 'span':
                             activity_scope = ActivityScope.LLM_SPAN
+                            activity_item_context.event_type = '$ai_span'
                             break
                         case 'embedding':
                             activity_scope = ActivityScope.LLM_EMBEDDING
+                            activity_item_context.event_type = '$ai_embedding'
                             break
                         case 'trace':
                             activity_scope = ActivityScope.LLM_TRACE
+                            activity_item_id = traceIdOrEmpty
                             break
                         default:
                             activity_scope = ActivityScope.LLM_EVENT
                     }
-                }
 
-                // Compute activity_item_id from state values
-                // When eventId equals traceId, use traceId for consistency
-                const activity_item_id = eventId && eventId !== traceId ? eventId : traceId || ''
-
-                // Build activity_item_context with trace_id and event metadata
-                const isEventLevel = eventId && eventId !== traceId
-                const activity_item_context: Record<string, string> = {
-                    trace_id: traceId || '',
-                }
-
-                if (isEventLevel) {
-                    activity_item_context.event_id = eventId
-                    // Map internal event types to HogQL event types
-                    if (eventType === 'generation') {
-                        activity_item_context.event_type = '$ai_generation'
-                    } else if (eventType === 'span') {
-                        activity_item_context.event_type = '$ai_span'
-                    } else if (eventType === 'embedding') {
-                        activity_item_context.event_type = '$ai_embedding'
+                    if (eventId) {
+                        activity_item_context.event_id = eventId
                     }
                 }
 
@@ -346,10 +345,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, event_type }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
-            actions.setEventType(event_type || null)
             actions.setLineNumber(line ? parseInt(line, 10) : null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)

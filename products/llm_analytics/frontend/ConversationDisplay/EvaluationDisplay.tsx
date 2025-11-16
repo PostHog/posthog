@@ -41,12 +41,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
                 )}
                 {traceId && targetEventId && (
                     <MetadataTag label="Target event">
-                        <Link
-                            to={urls.llmAnalyticsTrace(traceId, {
-                                event: targetEventId,
-                                event_type: 'generation',
-                            })}
-                        >
+                        <Link to={urls.llmAnalyticsTrace(traceId, { event: targetEventId })}>
                             {targetEventId.slice(0, 12)}...
                         </Link>
                     </MetadataTag>

@@ -76,11 +76,6 @@ enum TraceViewMode {
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
     logic: llmAnalyticsTraceLogic,
-    paramsToProps: ({ params: { id }, searchParams }) => ({
-        traceId: id ?? '',
-        eventId: searchParams.event ?? null,
-        eventType: searchParams.event_type ?? null,
-    }),
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
@@ -492,7 +487,6 @@ const TreeNode = React.memo(function TraceNode({
                     event: item.id,
                     timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                     ...(searchQuery?.trim() && { search: searchQuery }),
-                    ...(isLLMEvent(item) && { event_type: eventType }),
                 })}
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',

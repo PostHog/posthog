@@ -50,19 +50,9 @@ export function SegmentRenderer({
         const tag = tagMatch ? tagMatch[1] : segment.content
         const restContent = tagMatch ? tagMatch[2] : segment.content
 
-        // Derive event type from tag for URL parameter
-        const eventType =
-            tag === '[GEN]' ? 'generation' : tag === '[SPAN]' ? 'span' : tag === '[EMBED]' ? 'embedding' : undefined
-
         return (
             <span>
-                <Link
-                    to={urls.llmAnalyticsTrace(traceId!, {
-                        event: segment.eventId,
-                        ...(eventType && { event_type: eventType }),
-                    })}
-                    title="Jump to event"
-                >
+                <Link to={urls.llmAnalyticsTrace(traceId!, { event: segment.eventId })} title="Jump to event">
                     {tag}
                 </Link>
                 <button
