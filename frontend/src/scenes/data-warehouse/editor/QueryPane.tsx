@@ -4,7 +4,6 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { IconCheck, IconX } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
@@ -25,7 +24,7 @@ interface QueryPaneProps {
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    const hasAgentModesFeatureFlag = useFeatureFlag(FEATURE_FLAGS.AGENT_MODES)
+    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
     const {
         setSuggestedQueryInput,

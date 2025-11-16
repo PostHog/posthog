@@ -406,7 +406,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
     },
     switch_mode: {
         name: 'Switch agent mode',
-        description: 'Switch the chat to a different mode',
+        description: 'Switch agent mode to a specialized agent',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
             const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null

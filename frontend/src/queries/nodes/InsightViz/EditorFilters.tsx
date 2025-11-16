@@ -6,7 +6,7 @@ import { CSSTransition } from 'react-transition-group'
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -66,7 +66,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAgentModesFeatureFlag = useFeatureFlag(FEATURE_FLAGS.AGENT_MODES)
+    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     const { insightProps } = useValues(insightLogic)
     const {

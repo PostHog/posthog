@@ -4,7 +4,7 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool
+from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool, SessionSummarizationTool
 
 from ..factory import AgentModeDefinition
 from ..nodes import AgentToolkit
@@ -25,6 +25,8 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
             # The contextual insights tool overrides the static tool. Only inject if it's injected.
             if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
                 tools.append(CreateAndQueryInsightTool)
+            if self._has_session_summarization_feature_flag():
+                tools.append(SessionSummarizationTool)
 
         # Add other lower-priority tools
         tools.append(CreateDashboardTool)

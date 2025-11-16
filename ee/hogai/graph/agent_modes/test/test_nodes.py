@@ -54,7 +54,7 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.tool.get_contextual_tool_class", return_value=mock_tool_class):
+    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
         yield
 
 
@@ -518,7 +518,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         else:
             node._config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_prompt(node._config), expected_prompt)
+        self.assertEqual(await node._get_billing_prompt(), expected_prompt)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
@@ -959,7 +959,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class", return_value=None):
+        with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

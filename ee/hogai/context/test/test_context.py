@@ -500,7 +500,7 @@ Query results: 42 events
         self.assertEqual(result, "")
 
     @patch("ee.hogai.registry.get_contextual_tool_class")
-    def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
+    async def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
         """Test generation of contextual tools prompt"""
         # Mock the tool class
         mock_tool = MagicMock()
@@ -512,20 +512,18 @@ Query results: 42 events
         )
         context_manager = AssistantContextManager(self.team, self.user, config)
 
-        result = context_manager._get_contextual_tools_prompt()
-
-        self.assertIsNotNone(result)
-        assert result is not None  # Type guard for mypy
+        result = await context_manager._get_contextual_tools_prompt()
+        assert result is not None
         self.assertIn("<search_session_recordings>", result)
         self.assertIn("Tool system prompt", result)
         self.assertIn("</search_session_recordings>", result)
 
-    def test_get_contextual_tools_prompt_no_tools(self):
+    async def test_get_contextual_tools_prompt_no_tools(self):
         """Test generation of contextual tools prompt returns None when no tools"""
         config = RunnableConfig(configurable={})
         context_manager = AssistantContextManager(self.team, self.user, config)
 
-        result = context_manager._get_contextual_tools_prompt()
+        result = await context_manager._get_contextual_tools_prompt()
 
         self.assertIsNone(result)
 
