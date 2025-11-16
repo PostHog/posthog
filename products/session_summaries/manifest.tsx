@@ -51,6 +51,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-light)',
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
+            tags: ['beta'],
             sceneKey: 'SessionSummaries',
         },
     ],
