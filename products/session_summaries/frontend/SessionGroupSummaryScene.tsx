@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconShare, IconSort } from '@posthog/icons'
+import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -103,13 +103,15 @@ function FilterBar({
     const sortLabel = sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'
 
     return (
-        <div className="flex justify-between gap-2 flex-wrap mb-4">
+        <div className="flex flex-wrap justify-between gap-4 mb-4">
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
                     placeholder="Filter patterns by keyword..."
                     value={searchValue}
                     onChange={setSearchValue}
+                    prefix={<IconSearch />}
+                    fullWidth
                 />
             </div>
             <LemonMenu
