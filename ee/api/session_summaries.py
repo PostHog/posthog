@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
 
 import structlog
@@ -26,7 +27,7 @@ from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
@@ -314,7 +315,7 @@ class SessionGroupSummarySerializer(serializers.ModelSerializer):
 def log_session_summary_group_activity(
     activity: str,
     summary: SessionGroupSummary,
-    organization_id: UUIDT,
+    organization_id: UUID | None,
     team_id: int,
     user: User,
     was_impersonated: bool,
@@ -375,6 +376,9 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, vie
         return queryset
 
     def perform_destroy(self, instance: SessionGroupSummary) -> None:
+        if isinstance(self.request.user, AnonymousUser):
+            # Don't log activity for anonymous users
+            return
         log_session_summary_group_activity(
             activity="deleted",
             summary=instance,

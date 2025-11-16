@@ -49,7 +49,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
     create_event_ids_mapping_from_ready_summaries,
-    session_summary_to_serializer,
+    get_persons_for_sessions_from_distinct_ids,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
@@ -359,6 +359,14 @@ async def assign_events_to_patterns_activity(
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
+    session_id_to_ready_summaries_mapping = {summary.session_id: summary for summary in ready_summaries}
+    # Get persons for sessions to be able to display in the UI
+    session_id_to_person_mapping = await database_sync_to_async(
+        get_persons_for_sessions_from_distinct_ids, thread_sensitive=False
+    )(
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping,
+        team_id=inputs.team_id,
+    )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
         json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
@@ -398,10 +406,10 @@ async def assign_events_to_patterns_activity(
         extra_summary_context=inputs.extra_summary_context,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    # Convert session summaries strings to objects to extract event-related data
-    session_summaries = [session_summary_to_serializer(summary.summary) for summary in ready_summaries]
     # Create event ids mappings from ready summaries to identify events and sessions assigned to patterns
-    combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(session_summaries=session_summaries)
+    combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping
+    )
     # Combine patterns assignments to have a single pattern-to-events list
     combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
         patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
@@ -410,7 +418,8 @@ async def assign_events_to_patterns_activity(
     pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
         combined_event_ids_mappings=combined_event_ids_mappings,
         combined_patterns_assignments=combined_patterns_assignments,
-        session_summaries=session_summaries,
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping,
+        session_id_to_person_mapping=session_id_to_person_mapping,
     )
     # Combine patterns info (name, description, etc.) with enriched events context
     patterns_with_events_context = combine_patterns_with_events_context(

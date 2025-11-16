@@ -11,6 +11,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -50,7 +51,6 @@ from ee.hogai.session_summaries.session.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.hogai.session_summaries.session_group.patterns import dateutil_parser
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
