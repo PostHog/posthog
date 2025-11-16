@@ -26,7 +26,11 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
         return ExternalDataSourceType.METAADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None}
+        return {
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            "Ad account owner has NOT": None,
+            "cannot be loaded due to missing permissions": None,
+        }
 
     def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [

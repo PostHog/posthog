@@ -31,6 +31,7 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
             "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
+            "inactive organization": None,
         }
 
     def get_schemas(
