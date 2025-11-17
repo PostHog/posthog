@@ -188,12 +188,34 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             )}
                         </h3>
                     </div>
-                    {!conversationHistoryVisible && !threadVisible && (
+                    {conversationId && !conversationHistoryVisible && !threadVisible && (
                         <LemonButton
                             size="small"
                             icon={<IconPlus />}
                             onClick={() => startNewConversation()}
                             tooltip="Start a new chat"
+                            tooltipPlacement="bottom"
+                        />
+                    )}
+                    {conversationId && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconShare />}
+                            tooltip={
+                                <>
+                                    Share link to chat
+                                    <br />
+                                    <em>
+                                        <IconLock /> Requires organization access
+                                    </em>
+                                </>
+                            }
+                            onClick={() => {
+                                copyToClipboard(
+                                    urls.absolute(urls.currentProject(urls.max(conversationId))),
+                                    'conversation sharing link'
+                                )
+                            }}
                             tooltipPlacement="bottom"
                         />
                     )}
@@ -209,28 +231,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltip="Open as main focus"
                         tooltipPlacement="bottom-end"
                     />
-                    {conversationId && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconShare />}
-                            tooltip={
-                                <>
-                                    Copy conversation sharing link
-                                    <br />
-                                    <em>
-                                        <IconLock /> Access is behind organization login
-                                    </em>
-                                </>
-                            }
-                            onClick={() => {
-                                copyToClipboard(
-                                    urls.absolute(urls.currentProject(urls.max(conversationId))),
-                                    'conversation sharing link'
-                                )
-                            }}
-                            tooltipPlacement="bottom"
-                        />
-                    )}
                 </div>
             </SidePanelPaneHeader>
             {content}
@@ -241,19 +241,36 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 name={null}
                 resourceType={{ type: 'chat' }}
                 actions={
-                    conversationId && tabId ? (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            sideIcon={<IconOpenSidebar />}
-                            onClick={() => {
-                                openSidePanelMax(conversationId)
-                                closeTabId(tabId)
-                            }}
-                        >
-                            Open in side panel
-                        </LemonButton>
-                    ) : undefined
+                    <>
+                        {tabId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconShare />}
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.max(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                            >
+                                Share link to chat
+                            </LemonButton>
+                        ) : undefined}
+                        {tabId ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                sideIcon={<IconOpenSidebar />}
+                                onClick={() => {
+                                    openSidePanelMax(conversationId)
+                                    closeTabId(tabId)
+                                }}
+                            >
+                                Open in side panel
+                            </LemonButton>
+                        ) : undefined}
+                    </>
                 }
             />
             <div className="grow flex flex-col">{content}</div>
