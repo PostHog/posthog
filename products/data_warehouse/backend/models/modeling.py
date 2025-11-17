@@ -16,7 +16,7 @@ from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.table import DataWarehouseTable
@@ -283,25 +283,29 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
         A path will be created for each parent, as extracted from the given query.
         """
-        base_params = {
-            "team": team,
-            "created_by": created_by,
-            "saved_query_id": saved_query_id,
-            "table_id": table_id,
-        }
-
         with transaction.atomic():
             if self.filter(team=team, saved_query_id=saved_query_id).exists():
                 raise ModelPathAlreadyExistsError(saved_query_id.hex)
 
             parent_paths = self.get_or_create_query_parent_paths(query, team=team)
 
-            results = self.bulk_create(
-                [
-                    DataWarehouseModelPath(id=uuid7(), path=[*model_path.path, label], **base_params)
-                    for model_path in parent_paths
-                ]
-            )
+            # One path just for us, and then one including us on the parent paths for each parent
+            paths = [
+                [label],
+                *[[*model_path.path, label] for model_path in parent_paths],
+            ]
+
+            results: list[DataWarehouseModelPath] = []
+            for path in paths:
+                model, _ = DataWarehouseModelPath.objects.get_or_create(
+                    team=team,
+                    saved_query_id=saved_query_id,
+                    table_id=table_id,
+                    path=path,
+                    defaults={"created_by": created_by},
+                )
+                results.append(model)
+
         return results
 
     def get_or_create_root_path_for_posthog_source(
@@ -415,15 +419,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
         )
-
-    def create_or_update_from_saved_query(
-        self, saved_query: DataWarehouseSavedQuery
-    ) -> "list[DataWarehouseModelPath] | None":
-        """Create or update model paths from a `DataWarehouseSavedQuery`."""
-        if self.filter(team=saved_query.team, saved_query=saved_query).exists():
-            self.update_from_saved_query(saved_query)
-            return None
-        return self.create_from_saved_query(saved_query)
 
     def update_paths_from_query(
         self,
