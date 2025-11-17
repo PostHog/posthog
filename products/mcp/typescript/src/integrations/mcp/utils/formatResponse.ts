@@ -2,11 +2,7 @@ import { encode } from '@byjohann/toon'
 
 const QUERY_PLACEHOLDER_PREFIX = '__QUERY_PLACEHOLDER_'
 
-function preprocessKeys(
-    obj: any,
-    placeholderMap: Map<string, string>,
-    placeholderId = { current: 0 }
-): any {
+function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placeholderId = { current: 0 }): any {
     if (obj === null || obj === undefined) {
         return obj
     }
