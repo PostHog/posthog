@@ -25,6 +25,7 @@ dependencies = [
     "dagster-aws==0.26.18",
     "dagster-celery==0.26.18",
     "dagster-docker==0.26.18",
+    "dagster-k8s==0.26.18",
     "dagster-pipes==1.10.18",
     "dagster-postgres==0.26.18",
     "dagster-slack==0.26.18",
