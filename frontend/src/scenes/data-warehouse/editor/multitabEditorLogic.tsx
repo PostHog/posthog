@@ -10,7 +10,6 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -999,8 +998,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.sourceQuery],
             (sourceQuery) => {
                 // TODO: use active tab at some point
-                const timestamp = dayjs().format('YYYY-MM-DD-HHmmss')
-                const filename = `export-${timestamp}`
+                const filename = 'export'
 
                 return {
                     ...queryExportContext(sourceQuery.source, undefined, undefined),
