@@ -415,5 +415,9 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
+    return defaultDescriber(
+        logItem,
+        asNotification,
+        nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)
+    )
 }

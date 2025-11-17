@@ -38,6 +38,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -518,7 +519,14 @@ class EnterpriseExperimentsViewSet(
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         """Override to filter out deleted experiments and apply filters."""
-        queryset = queryset.exclude(deleted=True)
+        include_deleted = False
+        if self.action in ("partial_update", "update") and hasattr(self, "request"):
+            deleted_value = self.request.data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
+
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
 
         # Only apply filters for list view, not detail view
         if self.action == "list":

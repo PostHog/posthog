@@ -52,5 +52,5 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
             ),
         }
     }
-    return defaultDescriber(logItem, asNotification, nameOrLinkToCohort(logItem?.detail.short_id))
+    return defaultDescriber(logItem, asNotification, nameOrLinkToCohort(logItem?.detail.short_id, logItem?.detail.name))
 }

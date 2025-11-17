@@ -47,7 +47,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
@@ -650,12 +650,11 @@ class DashboardsViewSet(
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
-        include_deleted = (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
-        )
+        include_deleted = False
+        if self.action in ("partial_update", "update") and hasattr(self, "request"):
+            deleted_value = self.request.data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
 
         if not include_deleted:
             # a dashboard can be un-deleted by patching {"deleted": False}
