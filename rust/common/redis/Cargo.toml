@@ -14,3 +14,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = "0.13"
 
+[dev-dependencies]
+tokio = { workspace = true }
+

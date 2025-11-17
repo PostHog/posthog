@@ -1969,6 +1969,7 @@ dependencies = [
  "redis",
  "serde-pickle",
  "thiserror 2.0.16",
+ "tokio",
  "tracing",
  "zstd",
 ]
