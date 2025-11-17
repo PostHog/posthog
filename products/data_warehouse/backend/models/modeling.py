@@ -288,11 +288,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
             parent_paths = self.get_or_create_query_parent_paths(query, team=team)
 
-            # One path just for us, and then one including us on the parent paths for each parent
-            paths = [
-                [label],
-                *[[*model_path.path, label] for model_path in parent_paths],
-            ]
+            # If we don't have any parent paths then we can treat ourselves as a root node
+            # This can happen when creating a query that returns a static set of rows, like a SELECT 1.e
+            paths = [[*model_path.path, label] for model_path in parent_paths]
+            if not paths:
+                paths = [[label]]
 
             results: list[DataWarehouseModelPath] = []
             for path in paths:
