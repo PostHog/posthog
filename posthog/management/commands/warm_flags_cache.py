@@ -1,36 +1,36 @@
 """
-Management command to warm the team metadata cache.
+Management command to warm the flags cache.
 
 IMPORTANT: This command requires FLAGS_REDIS_URL to be set. It will error if the
 dedicated flags cache is not configured to prevent warming the wrong cache.
 
 Usage:
     # Initial cache warm (preserves existing caches)
-    python manage.py warm_team_metadata_cache
+    python manage.py warm_flags_cache
 
     # Warm specific teams
-    python manage.py warm_team_metadata_cache --team-ids 12345 67890
+    python manage.py warm_flags_cache --team-ids 12345 67890
 
     # Schema changes (invalidates all caches first)
-    python manage.py warm_team_metadata_cache --invalidate-first
+    python manage.py warm_flags_cache --invalidate-first
 
     # Custom batch size and TTL range
-    python manage.py warm_team_metadata_cache --batch-size 200 --min-ttl-days 6 --max-ttl-days 8
+    python manage.py warm_flags_cache --batch-size 200 --min-ttl-days 6 --max-ttl-days 8
 """
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+from posthog.models.feature_flag.flags_cache import FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
 
 
 class Command(BaseHyperCacheCommand):
-    help = "Warm team metadata cache for all teams (initial build or schema migration)"
+    help = "Warm flags cache for all teams (initial build or schema migration)"
 
     def add_arguments(self, parser):
         self.add_common_team_arguments(parser)
         self.add_warm_arguments(parser)
 
     def handle(self, *args, **options):
-        # Check if dedicated cache is configured (fail fast)
+        # Check if dedicated flags cache is configured (fail fast)
         if not self.check_dedicated_cache_configured():
             return
 
@@ -61,4 +61,4 @@ class Command(BaseHyperCacheCommand):
 
     def get_hypercache_config(self):
         """Return the HyperCache management configuration."""
-        return TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+        return FLAGS_HYPERCACHE_MANAGEMENT_CONFIG

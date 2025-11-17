@@ -67,6 +67,7 @@ class HyperCache:
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_client: Optional[BaseCache] = None,
+        batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -75,6 +76,7 @@ class HyperCache:
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
         self.cache_client = cache_client or cache
+        self.batch_load_fn = batch_load_fn
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
