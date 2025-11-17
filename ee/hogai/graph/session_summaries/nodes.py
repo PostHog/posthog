@@ -4,6 +4,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import structlog
+import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -65,15 +66,13 @@ class SessionSummarizationNode(AssistantNode):
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return True
-        # TODO: Revert after testing
-        # return posthoganalytics.feature_enabled(
-        #     "max-session-summarization-video-validation",
-        #     str(self._user.distinct_id),
-        #     groups={"organization": str(self._team.organization_id)},
-        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
-        #     send_feature_flag_events=False,
-        # )
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization-video-validation",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()

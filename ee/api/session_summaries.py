@@ -8,6 +8,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -88,16 +89,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
 
     def _if_video_validation_enabled(self, user: User) -> bool | None:
-        return True
-        # TODO: Revert after testing
         # Check if the summaries should be validated with videos
-        # return posthoganalytics.feature_enabled(
-        #     "max-session-summarization-video-validation",
-        #     str(user.distinct_id),
-        #     groups={"organization": str(self.team.organization_id)},
-        #     group_properties={"organization": {"id": str(self.team.organization_id)}},
-        #     send_feature_flag_events=False,
-        # )
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization-video-validation",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     @staticmethod
     async def _get_summary_from_progress_stream(
