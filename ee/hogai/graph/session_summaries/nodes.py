@@ -4,13 +4,13 @@ from typing import Any, cast
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
+    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
@@ -89,17 +89,119 @@ class SessionSummarizationNode(AssistantNode):
         # Stream the notebook update
         self.dispatcher.message(notebook_message)
 
+    def _convert_tiptap_to_markdown(self, content: dict) -> str:
+        """Convert TipTap document to markdown string."""
+
+        def convert_node(node: dict, indent: int = 0) -> str:
+            node_type = node.get("type", "")
+            result = ""
+
+            if node_type == "doc":
+                parts = [convert_node(child) for child in node.get("content", [])]
+                result = "\n".join(parts)
+
+            elif node_type == "heading":
+                level = node.get("attrs", {}).get("level", 1)
+                text = extract_text(node)
+                prefix = "#" * level
+                result = f"{prefix} {text}\n"
+
+            elif node_type == "paragraph":
+                text = extract_text(node)
+                result = f"{text}\n"
+
+            elif node_type == "taskList":
+                items = []
+                for item in node.get("content", []):
+                    if item.get("type") == "taskItem":
+                        checked = item.get("attrs", {}).get("checked", False)
+                        checkbox = "[x]" if checked else "[ ]"
+                        text = extract_text(item)
+                        items.append(f"- {checkbox} {text}")
+                result = "\n".join(items) + "\n"
+
+            elif node_type == "bulletList":
+                items = []
+                for item in node.get("content", []):
+                    if item.get("type") == "listItem":
+                        item_text = convert_list_item(item, indent)
+                        items.append(item_text)
+                result = "\n".join(items) + "\n"
+
+            elif node_type == "horizontalRule":
+                result = "---\n"
+
+            else:
+                for child in node.get("content", []):
+                    result += convert_node(child, indent)
+
+            return result
+
+        def extract_text(node: dict) -> str:
+            if node.get("type") == "text":
+                text = node.get("text", "")
+                marks = node.get("marks", [])
+                for mark in marks:
+                    if mark.get("type") == "bold":
+                        text = f"**{text}**"
+                return text
+
+            parts = []
+            for child in node.get("content", []):
+                parts.append(extract_text(child))
+            return "".join(parts)
+
+        def convert_list_item(item: dict, indent: int = 0) -> str:
+            prefix = "  " * indent + "- "
+            parts = []
+            nested_lists = []
+
+            for child in item.get("content", []):
+                if child.get("type") == "paragraph":
+                    parts.append(extract_text(child))
+                elif child.get("type") == "bulletList":
+                    nested_lists.append(convert_nested_list(child, indent + 1))
+                else:
+                    parts.append(extract_text(child))
+
+            result = prefix + " ".join(parts)
+            for nested in nested_lists:
+                result += "\n" + nested.rstrip("\n")
+            return result
+
+        def convert_nested_list(node: dict, indent: int) -> str:
+            items = []
+            for item in node.get("content", []):
+                if item.get("type") == "listItem":
+                    items.append(convert_list_item(item, indent))
+            return "\n".join(items)
+
+        return convert_node(content).strip()
+
+    async def _stream_chat_content(self, content: dict) -> None:
+        """Stream TipTap content as markdown to chat."""
+        try:
+            markdown_str = self._convert_tiptap_to_markdown(content)
+            chat_message = AssistantMessage(content=markdown_str)
+            self.dispatcher.message(chat_message)
+        except Exception as e:
+            self.logger.warning(f"Failed to convert TipTap to markdown for chat: {e}")
+            fallback_message = AssistantMessage(content="Updating progress...")
+            self.dispatcher.message(fallback_message)
+
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return True
+        # TODO: Revert after testing
+        # return posthoganalytics.feature_enabled(
+        #     "max-session-summarization-video-validation",
+        #     str(self._user.distinct_id),
+        #     groups={"organization": str(self._team.organization_id)},
+        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
+        #     send_feature_flag_events=False,
+        # )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -144,13 +246,7 @@ class SessionSummarizationNode(AssistantNode):
                         id=str(uuid4()),
                     )
                 )
-            return PartialAssistantState(
-                messages=messages,
-                session_summarization_query=None,
-                root_tool_call_id=None,
-                # Ensure to pass the notebook id to the next node
-                notebook_short_id=state.notebook_short_id,
-            )
+            return PartialAssistantState(messages=messages, session_summarization_query=None, root_tool_call_id=None)
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
             return self._create_error_response(self._base_error_instructions, state)
@@ -166,7 +262,6 @@ class SessionSummarizationNode(AssistantNode):
             ],
             session_summarization_query=None,
             root_tool_call_id=None,
-            notebook_short_id=state.notebook_short_id,
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
@@ -481,6 +576,7 @@ class _SessionSummarizer:
         # Stream initial plan
         initial_state = self._intermediate_state.format_intermediate_state()
         await self._node._stream_notebook_content(initial_state, state)
+        await self._node._stream_chat_content(initial_state)
 
         async for update_type, step, data in execute_summarize_session_group(
             session_ids=session_ids,
@@ -515,6 +611,7 @@ class _SessionSummarizer:
                 # Stream the updated intermediate state
                 formatted_state = self._intermediate_state.format_intermediate_state()
                 await self._node._stream_notebook_content(formatted_state, state)
+                await self._node._stream_chat_content(formatted_state)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:

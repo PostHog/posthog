@@ -1264,8 +1264,8 @@ class SessionRecordingViewSet(
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
+        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        #     raise exceptions.ValidationError("session summary is not enabled for this user")
 
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True

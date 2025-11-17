@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Literal, TypeVar, Union
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -187,13 +186,15 @@ class RootNode(AssistantNode):
         """
         Check if the user has the session summarization feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return True
+        # TODO: Revert after testing
+        # return posthoganalytics.feature_enabled(
+        #     "max-session-summarization",
+        #     str(self._user.distinct_id),
+        #     groups={"organization": str(self._team.organization_id)},
+        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
+        #     send_feature_flag_events=False,
+        # )
 
     async def _get_billing_prompt(self, config: RunnableConfig) -> str:
         """Get billing information including whether to include the billing tool and the prompt.
