@@ -77,10 +77,14 @@ class MaterializedColumn:
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
         cache_key = f"materialized_columns:{table}"
-        cached_result = cache.get(cache_key)
 
-        if cached_result is not None:
-            return cached_result
+        try:
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+        except Exception:
+            # If cache fails, continue to query ClickHouse
+            pass
 
         with tags_context(name="get_all_materialized_columns"):
             result = sync_execute(
@@ -96,7 +100,12 @@ class MaterializedColumn:
                 ch_user=ClickHouseUser.HOGQL,
             )
 
-        cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+        try:
+            cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+        except Exception:
+            # If cache set fails, log but don't fail the request
+            logger.warning(f"Failed to cache materialized columns for table {table}")
+
         return result
 
     @staticmethod
