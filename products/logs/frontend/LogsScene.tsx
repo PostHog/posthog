@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconCopy, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,11 +14,11 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -184,13 +184,6 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     render: (_, record) => (
                         <div className="flex gap-x-0">
                             <LemonButton
-                                tooltip="Copy attribute value"
-                                size="xsmall"
-                                onClick={() => copyToClipboard(String(record.value), 'attribute value')}
-                            >
-                                <IconCopy />
-                            </LemonButton>
-                            <LemonButton
                                 tooltip="Add as filter"
                                 size="xsmall"
                                 onClick={() => addFilter(record.key, record.value)}
@@ -224,6 +217,18 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     title: 'Value',
                     key: 'value',
                     dataIndex: 'value',
+                    render: (_, record) => (
+                        <CopyToClipboardInline
+                            explicitValue={String(record.value)}
+                            description="attribute value"
+                            iconSize="xsmall"
+                            iconPosition="start"
+                            selectable
+                            className="gap-1"
+                        >
+                            {String(record.value)}
+                        </CopyToClipboardInline>
+                    ),
                 },
             ]}
             dataSource={rows}
