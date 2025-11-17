@@ -1,6 +1,5 @@
 from typing import Literal, Optional, cast
 
-from django.conf import settings
 from django.db import connection, connections
 
 import orjson as json
@@ -51,7 +50,7 @@ class PersonStrategy(ActorStrategy):
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        person_table = settings.PERSON_TABLE_NAME
+        person_table = "posthog_person"
         persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
             FROM {person_table}
             WHERE {person_table}.uuid = ANY(%(uuids)s)
