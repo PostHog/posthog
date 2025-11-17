@@ -10,7 +10,7 @@ from django.http import HttpResponse
 
 from rest_framework import exceptions
 
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStreamUpdate
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
@@ -25,20 +25,17 @@ class TestSessionSummariesAPI(APIBaseTest):
 
     async def _create_async_generator(
         self, result: EnrichedSessionGroupSummaryPatternsList
-    ) -> AsyncIterator[
-        tuple[SessionSummaryStreamUpdate, SessionSummaryStep, Union[str, EnrichedSessionGroupSummaryPatternsList]]
-    ]:
+    ) -> AsyncIterator[tuple[SessionSummaryStreamUpdate, Union[str, EnrichedSessionGroupSummaryPatternsList]]]:
         """Helper to create an async generator that yields progress updates and final result."""
         # Yield progress updates in the new tuple format
         yield (
             SessionSummaryStreamUpdate.UI_STATUS,
-            SessionSummaryStep.WATCHING_SESSIONS,
             "Starting session group summarization...",
         )
-        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing sessions...")
-        yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.FINDING_PATTERNS, "Finding patterns...")
+        yield (SessionSummaryStreamUpdate.UI_STATUS, "Processing sessions...")
+        yield (SessionSummaryStreamUpdate.UI_STATUS, "Finding patterns...")
         # Yield final result
-        yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, result)
+        yield (SessionSummaryStreamUpdate.FINAL_RESULT, result)
 
     def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
@@ -283,7 +280,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Mock execution failure - create async generator that raises exception
         async def failing_generator():
-            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Starting...")
+            yield (SessionSummaryStreamUpdate.UI_STATUS, "Starting...")
             raise Exception("Workflow execution failed")
 
         mock_execute.return_value = failing_generator()

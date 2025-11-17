@@ -10,15 +10,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
-    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
-    NotebookUpdateMessage,
     RecordingsQuery,
     SessionGroupSummaryMessage,
 )
 
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
@@ -26,8 +23,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
-
-from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
@@ -41,12 +36,6 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    SummaryNotebookIntermediateState,
-    create_empty_notebook_for_summary,
-    generate_notebook_content_from_summary,
-    update_notebook_from_summary_content,
-)
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -71,123 +60,6 @@ class SessionSummarizationNode(AssistantNode):
         content = prepare_reasoning_progress_message(progress_message)
         if content:
             self.dispatcher.update(content)
-
-    async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
-        """Stream TipTap content directly to a notebook if notebook_id is present in state."""
-        # Check if we have a notebook_id in the state
-        if not state.notebook_short_id:
-            self.logger.exception("No notebook_short_id in state, skipping notebook update")
-            return
-        if partial:
-            # Create a notebook update message; not providing id to count it as a partial message on FE
-            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_short_id, content=content)
-        else:
-            # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
-            notebook_message = NotebookUpdateMessage(
-                notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
-            )
-        # Stream the notebook update
-        self.dispatcher.message(notebook_message)
-
-    def _convert_tiptap_to_markdown(self, content: dict) -> str:
-        """Convert TipTap document to markdown string."""
-
-        def convert_node(node: dict, indent: int = 0) -> str:
-            node_type = node.get("type", "")
-            result = ""
-
-            if node_type == "doc":
-                parts = [convert_node(child) for child in node.get("content", [])]
-                result = "\n".join(parts)
-
-            elif node_type == "heading":
-                level = node.get("attrs", {}).get("level", 1)
-                text = extract_text(node)
-                prefix = "#" * level
-                result = f"{prefix} {text}\n"
-
-            elif node_type == "paragraph":
-                text = extract_text(node)
-                result = f"{text}\n"
-
-            elif node_type == "taskList":
-                items = []
-                for item in node.get("content", []):
-                    if item.get("type") == "taskItem":
-                        checked = item.get("attrs", {}).get("checked", False)
-                        checkbox = "[x]" if checked else "[ ]"
-                        text = extract_text(item)
-                        items.append(f"- {checkbox} {text}")
-                result = "\n".join(items) + "\n"
-
-            elif node_type == "bulletList":
-                items = []
-                for item in node.get("content", []):
-                    if item.get("type") == "listItem":
-                        item_text = convert_list_item(item, indent)
-                        items.append(item_text)
-                result = "\n".join(items) + "\n"
-
-            elif node_type == "horizontalRule":
-                result = "---\n"
-
-            else:
-                for child in node.get("content", []):
-                    result += convert_node(child, indent)
-
-            return result
-
-        def extract_text(node: dict) -> str:
-            if node.get("type") == "text":
-                text = node.get("text", "")
-                marks = node.get("marks", [])
-                for mark in marks:
-                    if mark.get("type") == "bold":
-                        text = f"**{text}**"
-                return text
-
-            parts = []
-            for child in node.get("content", []):
-                parts.append(extract_text(child))
-            return "".join(parts)
-
-        def convert_list_item(item: dict, indent: int = 0) -> str:
-            prefix = "  " * indent + "- "
-            parts = []
-            nested_lists = []
-
-            for child in item.get("content", []):
-                if child.get("type") == "paragraph":
-                    parts.append(extract_text(child))
-                elif child.get("type") == "bulletList":
-                    nested_lists.append(convert_nested_list(child, indent + 1))
-                else:
-                    parts.append(extract_text(child))
-
-            result = prefix + " ".join(parts)
-            for nested in nested_lists:
-                result += "\n" + nested.rstrip("\n")
-            return result
-
-        def convert_nested_list(node: dict, indent: int) -> str:
-            items = []
-            for item in node.get("content", []):
-                if item.get("type") == "listItem":
-                    items.append(convert_list_item(item, indent))
-            return "\n".join(items)
-
-        return convert_node(content).strip()
-
-    async def _stream_chat_content(self, content: dict) -> None:
-        """Stream TipTap content as markdown to chat."""
-        try:
-            markdown_str = self._convert_tiptap_to_markdown(content)
-            chat_message = AssistantMessage(content=markdown_str)
-            self.dispatcher.message(chat_message)
-        except Exception as e:
-            self.logger.warning(f"Failed to convert TipTap to markdown for chat: {e}")
-            fallback_message = AssistantMessage(content="Updating progress...")
-            self.dispatcher.message(fallback_message)
 
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
@@ -523,7 +395,6 @@ class _SessionSummarizer:
 
     def __init__(self, node: SessionSummarizationNode):
         self._node = node
-        self._intermediate_state: SummaryNotebookIntermediateState | None = None
 
     async def _summarize_sessions_individually(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
@@ -559,26 +430,14 @@ class _SessionSummarizer:
         return summaries_str
 
     async def _summarize_sessions_as_group(
-        self,
-        session_ids: list[str],
-        state: AssistantState,
-        summary_title: str | None,
-        notebook: Notebook | None,
+        self, session_ids: list[str], state: AssistantState, summary_title: str | None
     ) -> tuple[str, str]:
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._node._has_video_validation_feature_flag()
-        # Initialize intermediate state with plan
-        self._intermediate_state = SummaryNotebookIntermediateState(
-            team_name=self._node._team.name, summary_title=summary_title
-        )
-        # Stream initial plan
-        initial_state = self._intermediate_state.format_intermediate_state()
-        await self._node._stream_notebook_content(initial_state, state)
-        await self._node._stream_chat_content(initial_state)
 
-        async for update_type, step, data in execute_summarize_session_group(
+        async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=self._node._user.id,
             team=self._node._team,
@@ -595,23 +454,8 @@ class _SessionSummarizer:
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
-                # Update intermediate state based on step enum (no content, as it's just a status message)
-                self._intermediate_state.update_step_progress(content=None, step=step)
                 # Status message - stream to user
                 await self._node._stream_progress(progress_message=data)
-            # Notebook intermediate data update messages
-            elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
-                if not isinstance(data, dict):
-                    raise TypeError(
-                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
-                        f"(expected: dict)"
-                    )
-                # Update intermediate state based on step enum
-                self._intermediate_state.update_step_progress(content=data, step=step)
-                # Stream the updated intermediate state
-                formatted_state = self._intermediate_state.format_intermediate_state()
-                await self._node._stream_notebook_content(formatted_state, state)
-                await self._node._stream_chat_content(formatted_state)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:
@@ -625,23 +469,6 @@ class _SessionSummarizer:
                         f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
-                # Replace the intermediate state with final report
-                tasks_available = await database_sync_to_async(
-                    check_is_feature_available_for_team, thread_sensitive=False
-                )(self._node._team.id, "TASK_SUMMARIES")
-                summary_content = generate_notebook_content_from_summary(
-                    summary=summary,
-                    session_ids=session_ids,
-                    project_name=self._node._team.name,
-                    team_id=self._node._team.id,
-                    tasks_available=tasks_available,
-                    summary_title=summary_title,
-                )
-                await self._node._stream_notebook_content(summary_content, state, partial=False)
-                # Update the notebook through BE for cases where the chat was closed
-                await update_notebook_from_summary_content(
-                    notebook=notebook, summary_content=summary_content, session_ids=session_ids
-                )
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
@@ -673,23 +500,11 @@ class _SessionSummarizer:
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
-        # Check if the notebook is provided, create a notebook to fill if not
-        notebook = None
-        if not state.notebook_short_id:
-            notebook = await create_empty_notebook_for_summary(
-                user=self._node._user, team=self._node._team, summary_title=state.summary_title
-            )
-            # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
-            state.notebook_short_id = notebook.short_id
         # For large groups, process in detail, searching for patterns
-        # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
         await self._node._stream_progress(
-            progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
+            progress_message=f"{base_message}. We will analyze in detail, and store the report",
         )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
-            session_ids=session_ids,
-            state=state,
-            summary_title=state.summary_title,
-            notebook=notebook,
+            session_ids=session_ids, state=state, summary_title=state.summary_title
         )
         return summaries_content, session_group_summary_id

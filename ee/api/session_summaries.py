@@ -29,17 +29,13 @@ from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStreamUpdate
 from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_notebook_from_summary_content,
-    generate_notebook_content_from_summary,
-)
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.models.session_summaries import SessionGroupSummary
 
@@ -114,9 +110,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
-        results: list[
-            tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict]
-        ] = []
+        results: list[tuple[SessionSummaryStreamUpdate, tuple[EnrichedSessionGroupSummaryPatternsList, str] | str]] = []
         async for update in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=user_id,
@@ -134,7 +128,12 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
         last_result = results[-1]
-        summary = last_result[-1]
+        summary_iteration = last_result[-1]
+        if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 2:
+            error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
+            logger.exception(error_message)
+            raise exceptions.APIException(error_message)
+        summary, _ = summary_iteration
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
             error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
             logger.exception(error_message)
@@ -161,17 +160,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 max_timestamp=max_timestamp,
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
-            )
-            summary_title = "API generated"
-            summary_content = generate_notebook_content_from_summary(
-                summary=summary,
-                session_ids=session_ids,
-                project_name=self.team.name,
-                team_id=self.team.id,
-                summary_title=summary_title,
-            )
-            async_to_sync(create_notebook_from_summary_content)(
-                user=user, team=self.team, summary_content=summary_content, summary_title=summary_title
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:

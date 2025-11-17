@@ -10,16 +10,7 @@ class SessionSummaryStreamUpdate(Enum):
     """Types of updates that can be streamed during session group summarization."""
 
     UI_STATUS = "ui_status"  # Status messages for UI progress display
-    NOTEBOOK_UPDATE = "notebook_update"  # Intermediate state for notebook display
     FINAL_RESULT = "final_result"  # Final summarization result
-
-
-class SessionSummaryStep(Enum):
-    """Steps in the session group summarization process."""
-
-    WATCHING_SESSIONS = "watching_sessions"
-    FINDING_PATTERNS = "finding_patterns"
-    GENERATING_REPORT = "generating_report"
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
