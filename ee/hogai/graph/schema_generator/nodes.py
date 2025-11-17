@@ -66,6 +66,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             max_tokens=8192,
             billable=True,
             output_version="responses/v1",
+            use_responses_api=True,
             reasoning={
                 "effort": "none",
             },

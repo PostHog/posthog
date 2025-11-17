@@ -339,6 +339,7 @@ def sort_schema_properties(
     """
     Sorts properties in the JSON schema according to predefined order.
     Uses startswith matching for schema names to handle variants.
+    Modifies the schema in place.
     """
     default_order_map = {
         # Events and Actions nodes - prioritize kind and identifying field
@@ -384,19 +385,16 @@ def sort_schema_properties(
         obj["properties"] = ordered_properties
         return obj
 
-    # Process the schema
-    result = schema.copy()
-
     # Reorder top-level properties using provided order
-    if "properties" in result:
-        result = reorder_properties(result, top_level_order)
+    if "properties" in schema:
+        schema = reorder_properties(schema, top_level_order)
 
     # Reorder properties in $defs
-    if "$defs" in result:
-        defs = result["$defs"]
+    if "$defs" in schema:
+        defs = schema["$defs"]
         for def_name in defs:
             order = get_property_order(def_name)
             if order:
                 defs[def_name] = reorder_properties(defs[def_name], order)
 
-    return result
+    return schema
