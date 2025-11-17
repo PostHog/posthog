@@ -1,7 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconApps,
@@ -27,6 +27,13 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -36,6 +43,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
@@ -62,6 +70,7 @@ const navBarStyles = cva({
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const {
         showLayoutPanel,
         setActivePanelIdentifier,
@@ -309,7 +318,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                         const iconClassName = 'flex text-tertiary group-hover:text-primary'
 
-                                        return (
+                                        const listItem = (
                                             <ListBox.Item
                                                 key={item.identifier}
                                                 asChild
@@ -373,6 +382,28 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 )}
                                             </ListBox.Item>
                                         )
+
+                                        if (item.identifier === 'ProjectHomepage') {
+                                            return (
+                                                <ContextMenu key={item.identifier}>
+                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuContent className="max-w-[300px]">
+                                                        <ContextMenuGroup>
+                                                            <ContextMenuItem asChild>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                >
+                                                                    <IconGear /> Configure tabs & home
+                                                                </ButtonPrimitive>
+                                                            </ContextMenuItem>
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        }
+
+                                        return listItem
                                     })}
                                 </div>
 
@@ -545,6 +576,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
             </div>
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </>
     )
 }
