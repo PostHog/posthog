@@ -1102,6 +1102,12 @@ class EnterpriseExperimentsViewSet(
 def handle_experiment_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    if before_update and after_update:
+        before_deleted = getattr(before_update, "deleted", None)
+        after_deleted = getattr(after_update, "deleted", None)
+        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
+            activity = "restored" if after_deleted is False else "deleted"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,

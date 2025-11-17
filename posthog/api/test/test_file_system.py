@@ -97,6 +97,20 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
         ),
     ),
     (
+        "action",
+        FileSystemActivityCase(
+            type_string="action",
+            scope="Action",
+            create_instance=lambda test: Action.objects.create(
+                team=test.team,
+                name="File system action",
+                created_by=test.user,
+            ),
+            ref_getter=lambda instance: str(instance.id),
+            item_id_getter=lambda instance: str(instance.id),
+        ),
+    ),
+    (
         "feature_flag",
         FileSystemActivityCase(
             type_string="feature_flag",
@@ -653,3 +667,37 @@ class TestFileSystemDeletion(APIBaseTest):
         assert undo_response.status_code == status.HTTP_200_OK
         self._assert_activity_log_count(case.scope, "deleted", item_id)
         self._assert_activity_log_count(case.scope, "restored", item_id)
+
+    def test_insight_restore_activity_log_includes_name(self) -> None:
+        ActivityLog.objects.all().delete()
+        insight = Insight.objects.create(
+            team=self.team,
+            name="File system insight",
+            saved=True,
+            created_by=self.user,
+            filters={"events": []},
+        )
+        entry = FileSystem.objects.get(team=self.team, type="insight", ref=insight.short_id)
+
+        self.client.delete(f"/api/environments/{self.team.id}/file_system/{entry.id}/")
+        self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "insight", "ref": insight.short_id}]},
+        )
+
+        log = ActivityLog.objects.get(scope="Insight", activity="restored", item_id=str(insight.id))
+        assert log.detail["name"] == "File system insight"
+
+    def test_cohort_restore_activity_log_includes_name(self) -> None:
+        ActivityLog.objects.all().delete()
+        cohort = Cohort.objects.create(team=self.team, name="File system cohort", filters={"properties": []})
+        entry = FileSystem.objects.get(team=self.team, type="cohort", ref=str(cohort.id))
+
+        self.client.delete(f"/api/environments/{self.team.id}/file_system/{entry.id}/")
+        self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "cohort", "ref": str(cohort.id)}]},
+        )
+
+        log = ActivityLog.objects.get(scope="Cohort", activity="restored", item_id=str(cohort.id))
+        assert log.detail["name"] == "File system cohort"

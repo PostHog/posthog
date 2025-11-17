@@ -165,8 +165,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
+        activity = "updated"
+        if changes:
+            deleted_change = next((change for change in changes if change.field == "deleted"), None)
+            if deleted_change:
+                activity = "restored" if deleted_change.after is False else "deleted"
+
         log_notebook_activity(
-            activity="updated",
+            activity=activity,
             notebook=updated_notebook,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],

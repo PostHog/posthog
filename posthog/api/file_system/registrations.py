@@ -44,6 +44,7 @@ def _log_deletion_activity(
         return
 
     team_id = getattr(context.team, "id", None)
+    display_name = _first_non_blank(name, short_id, object_type) or scope
     log_activity(
         organization_id=organization.id,
         team_id=team_id,
@@ -52,7 +53,7 @@ def _log_deletion_activity(
         item_id=str(item_id),
         scope=scope,
         activity="deleted",
-        detail=Detail(name=name, short_id=short_id, type=object_type, changes=changes),
+        detail=Detail(name=display_name, short_id=short_id, type=object_type, changes=changes),
     )
 
 
@@ -73,6 +74,7 @@ def _log_restore_activity(
     team_id = getattr(context.team, "id", None)
     changes = list(extra_changes or [])
     changes.append(Change(type=scope, action="changed", field="deleted", before=True, after=False))
+    display_name = _first_non_blank(name, short_id, object_type) or scope
     log_activity(
         organization_id=organization.id,
         team_id=team_id,
@@ -81,7 +83,7 @@ def _log_restore_activity(
         item_id=str(item_id),
         scope=scope,
         activity="restored",
-        detail=Detail(name=name, short_id=short_id, type=object_type, changes=changes),
+        detail=Detail(name=display_name, short_id=short_id, type=object_type, changes=changes),
     )
 
 
@@ -254,6 +256,26 @@ def _cohort_post_restore(context: RestoreContext, cohort: Any) -> None:
     )
 
 
+def _action_post_delete(context: DeletionContext, action: Any) -> None:
+    _log_deletion_activity(
+        context,
+        scope="Action",
+        item_id=action.id,
+        name=_first_non_blank(getattr(action, "name", None)) or "Untitled action",
+        object_type="action",
+    )
+
+
+def _action_post_restore(context: RestoreContext, action: Any) -> None:
+    _log_restore_activity(
+        context,
+        scope="Action",
+        item_id=action.id,
+        name=_first_non_blank(getattr(action, "name", None)) or "Untitled action",
+        object_type="action",
+    )
+
+
 def _hog_function_pre_delete(context: DeletionContext, hog_function: Any) -> None:
     hog_function.enabled = False
 
@@ -321,6 +343,8 @@ def register_core_file_system_types() -> None:
         "Action",
         undo_message="Send PATCH /api/projects/@current/actions/{id} with deleted=false.",
     )
+    register_post_delete_hook("action", _action_post_delete)
+    register_post_restore_hook("action", _action_post_restore)
 
     register_file_system_type(
         "dashboard",
