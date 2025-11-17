@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import type { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -23,7 +23,6 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
     })),
 
     actions({
-        triggerNewTab: true,
         triggerCloseCurrentTab: true,
         toggleSearchBar: true,
         registerAppShortcut: (tabId: string, shortcut: AppShortcut) => ({ tabId, shortcut }),
@@ -118,13 +117,24 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                         newTab: {
                             keys: ['command', 'option', 't'],
                             description: 'New tab',
-                            onAction: () => appShortcutLogic.actions.triggerNewTab(),
+                            onAction: () => {
+                                const mountedLogic = sceneLogic.findMounted()
+                                if (mountedLogic) {
+                                    mountedLogic.actions.newTab()
+                                }
+                            },
                             order: -2,
                         },
                         closeCurrentTab: {
                             keys: ['command', 'option', 'w'],
                             description: 'Close current tab',
-                            onAction: () => appShortcutLogic.actions.triggerCloseCurrentTab(),
+                            onAction: () => {
+                                const mountedLogic = sceneLogic.findMounted()
+                                const activeTab = sceneLogic.values.activeTab
+                                if (mountedLogic && activeTab) {
+                                    mountedLogic.actions.removeTab(activeTab)
+                                }
+                            },
                             order: -1,
                         },
                         debugClickhouseQueries: {
@@ -187,17 +197,6 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 return conflicts
             },
         ],
-    })),
-
-    listeners(({ values, actions }) => ({
-        triggerNewTab: () => {
-            actions.newTab()
-        },
-        triggerCloseCurrentTab: () => {
-            if (values.activeTab) {
-                actions.removeTab(values.activeTab)
-            }
-        },
     })),
 
     afterMount(({ actions, cache, values }) => {
