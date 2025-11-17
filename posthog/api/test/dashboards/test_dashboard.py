@@ -549,7 +549,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.update_dashboard(dashboard_id, {"deleted": False})
 
         log = ActivityLog.objects.get(scope="Dashboard", activity="restored", item_id=str(dashboard_id))
-        assert log.detail["name"] == "Activity board"
+        assert log.detail["name"] == "Activity board"  # type: ignore
 
     def test_delete_does_not_delete_insights_by_default(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})

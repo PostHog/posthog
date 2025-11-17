@@ -686,7 +686,7 @@ class TestFileSystemDeletion(APIBaseTest):
         )
 
         log = ActivityLog.objects.get(scope="Insight", activity="restored", item_id=str(insight.id))
-        assert log.detail["name"] == "File system insight"
+        assert log.detail["name"] == "File system insight"  # type: ignore
 
     def test_cohort_restore_activity_log_includes_name(self) -> None:
         ActivityLog.objects.all().delete()
@@ -700,4 +700,4 @@ class TestFileSystemDeletion(APIBaseTest):
         )
 
         log = ActivityLog.objects.get(scope="Cohort", activity="restored", item_id=str(cohort.id))
-        assert log.detail["name"] == "File system cohort"
+        assert log.detail["name"] == "File system cohort"  # type: ignore
