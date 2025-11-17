@@ -115,7 +115,8 @@ def fetch_data_in_yearly_chunks(
                 }
             )
 
-        current_start = chunk_end
+        # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
+        current_start = chunk_end + dt.timedelta(days=1)
 
     if errors:
         logger.exception(
