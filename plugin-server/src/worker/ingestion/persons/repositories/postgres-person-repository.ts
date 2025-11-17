@@ -75,17 +75,11 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
-    private getTableName(personId?: string, person?: InternalPerson): string {
+    private getTableName(personId?: string): string {
         if (!this.options.tableCutoverEnabled || !this.options.newTableName || !this.options.newTableIdOffset) {
             return 'posthog_person'
         }
 
-        // If person object provided with routing decision, use it
-        if (person?.__useNewTable !== undefined) {
-            return person.__useNewTable ? this.options.newTableName : 'posthog_person'
-        }
-
-        // Fall back to ID-based routing
         if (!personId) {
             return 'posthog_person'
         }
@@ -104,7 +98,7 @@ export class PostgresPersonRepository
         update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const currentSize = await this.personPropertiesSize(person.id, person.team_id, person)
+        const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
@@ -275,11 +269,10 @@ export class PostgresPersonRepository
             }
 
             const personId = distinctIdRows[0].person_id
+            const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
             const forUpdateClause = options.forUpdate ? ' FOR UPDATE' : ''
 
-            // Check new table first (by existence, not by ID threshold)
-            const newTableName = sanitizeSqlIdentifier(this.options.newTableName)
-            const personQueryNew = `
+            const personQuery = `
                 SELECT
                     id,
                     uuid,
@@ -291,51 +284,18 @@ export class PostgresPersonRepository
                     is_user_id,
                     version,
                     is_identified
-                FROM ${newTableName}
+                FROM ${tableName}
                 WHERE team_id = $1 AND id = $2${forUpdateClause}`
 
-            const { rows: newTableRows } = await this.postgres.query<RawPerson>(
+            const { rows } = await this.postgres.query<RawPerson>(
                 options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
-                personQueryNew,
+                personQuery,
                 [teamId, personId],
-                'fetchPersonFromNewTable'
+                'fetchPerson'
             )
 
-            if (newTableRows.length > 0) {
-                const person = this.toPerson(newTableRows[0])
-                // Mark that this person exists in the new table
-                ;(person as any).__useNewTable = true
-                return person
-            }
-
-            // Fall back to old table
-            const personQueryOld = `
-                SELECT
-                    id,
-                    uuid,
-                    created_at,
-                    team_id,
-                    properties,
-                    properties_last_updated_at,
-                    properties_last_operation,
-                    is_user_id,
-                    version,
-                    is_identified
-                FROM posthog_person
-                WHERE team_id = $1 AND id = $2${forUpdateClause}`
-
-            const { rows: oldTableRows } = await this.postgres.query<RawPerson>(
-                options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
-                personQueryOld,
-                [teamId, personId],
-                'fetchPersonFromOldTable'
-            )
-
-            if (oldTableRows.length > 0) {
-                const person = this.toPerson(oldTableRows[0])
-                // Mark that this person exists in the old table
-                ;(person as any).__useNewTable = false
-                return person
+            if (rows.length > 0) {
+                return this.toPerson(rows[0])
             }
         } else {
             const forUpdateClause = options.forUpdate ? ' FOR UPDATE' : ''
@@ -749,7 +709,7 @@ export class PostgresPersonRepository
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         let rows: { version: string }[] = []
         try {
-            const tableName = sanitizeSqlIdentifier(this.getTableName(person.id, person))
+            const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
             const result = await this.postgres.query<{ version: string }>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 `DELETE FROM ${tableName} WHERE team_id = $1 AND id = $2 RETURNING version`,
@@ -1003,8 +963,8 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
-    async personPropertiesSize(personId: string, teamId: number, person?: InternalPerson): Promise<number> {
-        const tableName = sanitizeSqlIdentifier(this.getTableName(personId, person))
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
 
         // For partitioned tables, we need team_id for efficient querying
         const queryString = `
@@ -1064,7 +1024,7 @@ export class PostgresPersonRepository
         }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
-        const tableName = sanitizeSqlIdentifier(this.getTableName(person.id, person))
+        const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
 
         // Add team_id and person_id to values for WHERE clause (for partitioning)
         const allValues = [...values, person.team_id, person.id]
@@ -1161,7 +1121,7 @@ export class PostgresPersonRepository
                 personUpdate.version,
             ]
 
-            const tableName = sanitizeSqlIdentifier(this.getTableName(personUpdate.id, personUpdate))
+            const tableName = sanitizeSqlIdentifier(this.getTableName(personUpdate.id))
             const queryString = `
                 UPDATE ${tableName} SET
                     properties = $1,
