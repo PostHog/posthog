@@ -52,7 +52,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
-    SessionSummaryStep,
     SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -1054,7 +1053,7 @@ class TestSummarizeSessionGroupWorkflow:
 
         async def mock_workflow_generator():
             """Mock async generator that yields only the final result"""
-            yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, expected_patterns)
+            yield (SessionSummaryStreamUpdate.FINAL_RESULT, expected_patterns)
 
         with patch(
             "posthog.temporal.ai.session_summary.summarize_session_group._start_session_group_summary_workflow",
@@ -1075,7 +1074,6 @@ class TestSummarizeSessionGroupWorkflow:
             assert len(results) == 1
             assert results[0] == (
                 SessionSummaryStreamUpdate.FINAL_RESULT,
-                SessionSummaryStep.GENERATING_REPORT,
                 expected_patterns,
             )
 
