@@ -899,7 +899,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={event.distinct_id ?? undefined}
+                                                      distinctId={trace.person.distinct_id}
                                                   />
                                               ),
                                           },
