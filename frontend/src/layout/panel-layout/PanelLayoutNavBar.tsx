@@ -12,6 +12,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconLogomark,
     IconPeople,
     IconShortcut,
     IconSidebarClose,
@@ -25,7 +26,9 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
@@ -85,6 +88,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -117,6 +121,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         const currentPath = removeProjectIdIfPresent(pathname)
 
         if (itemIdentifier === 'Home' && currentPath === '/') {
+            return true
+        }
+        if (itemIdentifier === 'AI' && currentPath.startsWith('/max')) {
             return true
         }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
@@ -235,6 +242,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG_LAUNCHED]) {
+        navItems.insert(0, {
+            identifier: 'AI',
+            label: 'PostHog AI',
+            icon: <IconLogomark />,
+            to: urls.ai(),
+            onClick: () => handleStaticNavbarItemClick(urls.ai(), true),
+            documentationUrl: 'https://posthog.com/docs/posthog-ai',
+        })
+    }
 
     return (
         <>
