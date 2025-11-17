@@ -70,6 +70,7 @@ class QuotaResource(Enum):
     LLM_EVENTS = "llm_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
+    AI_CREDITS_USED = "ai_credits_used"
 
 
 class QuotaLimitingCaches(Enum):
@@ -167,6 +168,11 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key.value}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
+
+
+def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
+    limited_team_tokens_rows_synced = list_limited_team_attributes(resource, cache_key)
+    return team_api_token in limited_team_tokens_rows_synced
 
 
 # -------------------------------------------------------------------------------------------------

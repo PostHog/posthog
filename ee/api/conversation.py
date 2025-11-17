@@ -17,13 +17,14 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
 from posthog.utils import get_instance_region
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.stream.conversation_stream import ConversationStreamManager
 from ee.hogai.utils.aio import async_to_sync
@@ -127,6 +128,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         - If message is provided: Start new conversation processing
         - If no message: Stream from existing conversation
         """
+
+        if is_team_limited(
+            self.team.api_token, QuotaResource.AI_CREDITS_USED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
+            raise QuotaLimitExceeded("You have exceeded your limit of AI credits used")
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation_id = serializer.validated_data["conversation"]

@@ -23,6 +23,12 @@ class UnspecifiedCompressionFallbackParsingError(Exception):
     pass
 
 
+class QuotaLimitExceeded(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "quota_limit_exceeded"
+    default_detail = "You have exceeded your billing limit for this product"
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"

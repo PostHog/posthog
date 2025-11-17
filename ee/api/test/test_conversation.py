@@ -637,3 +637,43 @@ class TestConversation(APIBaseTest):
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][0]
                 self.assertEqual(workflow_inputs.billing_context, None)
+
+    @patch("ee.api.conversation.is_team_limited")
+    def test_quota_limit_exceeded(self, mock_is_team_limited):
+        """Test that requests are blocked when team exceeds quota limits."""
+        mock_is_team_limited.return_value = True
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+                "conversation": str(uuid.uuid4()),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.json()["detail"], "You have exceeded your limit of AI credits used")
+        mock_is_team_limited.assert_called_once()
+
+    @patch("ee.api.conversation.is_team_limited")
+    def test_quota_limit_not_exceeded(self, mock_is_team_limited):
+        """Test that requests proceed normally when team has not exceeded quota limits."""
+        mock_is_team_limited.return_value = False
+
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_is_team_limited.assert_called_once()

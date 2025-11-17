@@ -11,7 +11,7 @@ from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 LOGGER = get_logger(__name__)
 
@@ -61,13 +61,9 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
         )
         return False
 
-    team: Team = Team.objects.get(id=inputs.team_id)
+    team: Team = Team.objects.only("api_token").get(id=inputs.team_id)
 
-    limited_team_tokens_rows_synced = list_limited_team_attributes(
-        QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-    )
-
-    if team.api_token in limited_team_tokens_rows_synced:
+    if is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
         logger.info("Billing limits hit. Canceling sync")
         return True
 
