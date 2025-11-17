@@ -798,7 +798,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 for (const schema of schemas) {
                     if (schema.sync_type === null) {
                         showToast = true
-                        // Auto-enable suggested tables, preserve original behavior for others
                         schema.should_sync = true
 
                         // Use incremental if available
