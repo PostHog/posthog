@@ -100,13 +100,25 @@ class DualPersonQuerySet:
     both PersonOld and PersonNew tables.
     """
 
-    def __init__(self, manager, q_objects=None, filters=None, excludes=None, ordering=None, db=None):
+    def __init__(
+        self,
+        manager,
+        q_objects=None,
+        filters=None,
+        excludes=None,
+        ordering=None,
+        db=None,
+        prefetch=None,
+        only_fields=None,
+    ):
         self.manager = manager
         self.q_objects = q_objects or []  # List of Q objects for complex queries
         self.filters = filters or {}
         self.excludes = excludes or {}
         self.ordering = ordering or []
         self.db = db or "default"
+        self.prefetch = prefetch or []
+        self.only_fields = only_fields or []
 
     def filter(self, *args, **kwargs):
         """Chain additional filters. Supports Q objects and keyword arguments. Returns new DualPersonQuerySet."""
@@ -120,6 +132,8 @@ class DualPersonQuerySet:
             excludes=self.excludes,
             ordering=self.ordering,
             db=self.db,
+            prefetch=self.prefetch,
+            only_fields=self.only_fields,
         )
 
     def exclude(self, *args, **kwargs):
@@ -134,16 +148,47 @@ class DualPersonQuerySet:
             excludes=new_excludes,
             ordering=self.ordering,
             db=self.db,
+            prefetch=self.prefetch,
+            only_fields=self.only_fields,
         )
 
     def order_by(self, *fields):
         """Add ordering. Returns new DualPersonQuerySet."""
         return DualPersonQuerySet(
             manager=self.manager,
+            q_objects=self.q_objects,
             filters=self.filters,
             excludes=self.excludes,
             ordering=list(fields),
             db=self.db,
+            prefetch=self.prefetch,
+            only_fields=self.only_fields,
+        )
+
+    def prefetch_related(self, *args, **kwargs):
+        """Add prefetch_related to be applied to underlying queries. Returns new DualPersonQuerySet."""
+        return DualPersonQuerySet(
+            manager=self.manager,
+            q_objects=self.q_objects,
+            filters=self.filters,
+            excludes=self.excludes,
+            ordering=self.ordering,
+            db=self.db,
+            prefetch=list(args),
+            only_fields=self.only_fields,
+        )
+
+    def only(self, *fields):
+        """Add only() to limit fields on underlying queries. Returns new DualPersonQuerySet."""
+        return DualPersonQuerySet(
+            manager=self.manager,
+            q_objects=self.q_objects,
+            filters=self.filters,
+            excludes=self.excludes,
+            ordering=self.ordering,
+            db=self.db,
+            prefetch=self.prefetch,
+            only_fields=list(fields),
         )
 
     def count(self):
@@ -183,6 +228,10 @@ class DualPersonQuerySet:
             old_qs = old_qs.order_by(*self.ordering)
             new_qs = new_qs.order_by(*self.ordering)
 
+        if self.only_fields:
+            old_qs = old_qs.only(*self.only_fields)
+            new_qs = new_qs.only(*self.only_fields)
+
         old_values = list(old_qs.values_list(*fields, flat=flat))
         new_values = list(new_qs.values_list(*fields, flat=flat))
 
@@ -196,6 +245,14 @@ class DualPersonQuerySet:
         if self.ordering:
             old_qs = old_qs.order_by(*self.ordering)
             new_qs = new_qs.order_by(*self.ordering)
+
+        if self.prefetch:
+            old_qs = old_qs.prefetch_related(*self.prefetch)
+            new_qs = new_qs.prefetch_related(*self.prefetch)
+
+        if self.only_fields:
+            old_qs = old_qs.only(*self.only_fields)
+            new_qs = new_qs.only(*self.only_fields)
 
         # Convert model instances to Person class for FK compatibility
         old_results = list(old_qs)
@@ -290,6 +347,13 @@ class DualPersonManager(models.Manager):
                 return person
             except fallback.DoesNotExist:
                 raise Person.DoesNotExist()
+
+    def all(self):
+        """Get all persons from both tables, returning DualPersonQuerySet.
+
+        Returns a QuerySet-like object that supports chaining and terminal operations.
+        """
+        return DualPersonQuerySet(manager=self, db=self._db)
 
     def filter(self, *args, **kwargs):
         """Filter across both tables, returning DualPersonQuerySet.

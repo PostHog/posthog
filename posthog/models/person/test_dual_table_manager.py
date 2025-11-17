@@ -637,4 +637,81 @@ class TestDualTablePersonManager(BaseTest):
             self.assertGreater(count, 0)
         finally:
             CohortPeople.objects.filter(cohort_id=cohort.id).delete()
-            cohort.delete()
+
+    def test_all_returns_dual_queryset(self):
+        """Test that .all() returns DualPersonQuerySet with persons from both tables."""
+        from posthog.models.person.person import DualPersonQuerySet
+
+        queryset = Person.objects.all()
+
+        # Should return DualPersonQuerySet
+        self.assertIsInstance(queryset, DualPersonQuerySet)
+
+        # Should be able to filter by team
+        team_persons = queryset.filter(team_id=self.team.id)
+        person_uuids = {str(p.uuid) for p in team_persons}
+
+        # Should include both old and new persons
+        self.assertIn(str(self.old_person_uuid), person_uuids)
+        self.assertIn(str(self.new_person_uuid), person_uuids)
+
+    def test_prefetch_related_on_queryset(self):
+        """Test that .prefetch_related() works on DualPersonQuerySet."""
+        from django.db.models import Prefetch
+
+        # Create distinct IDs for both persons
+        PersonDistinctId.objects.create(team=self.team, person_id=100, distinct_id="old_distinct_id")
+        PersonDistinctId.objects.create(team=self.team, person_id=PERSON_ID_CUTOFF + 100, distinct_id="new_distinct_id")
+
+        queryset = Person.objects.filter(team_id=self.team.id)
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
+        persons = list(queryset)
+
+        # Should have prefetched distinct_ids_cache
+        for person in persons:
+            self.assertTrue(hasattr(person, "distinct_ids_cache"))
+            # Verify the cache is populated
+            if person.id == 100:
+                distinct_ids = [d.distinct_id for d in person.distinct_ids_cache]
+                self.assertIn("old_distinct_id", distinct_ids)
+            elif person.id == PERSON_ID_CUTOFF + 100:
+                distinct_ids = [d.distinct_id for d in person.distinct_ids_cache]
+                self.assertIn("new_distinct_id", distinct_ids)
+
+    def test_only_on_queryset(self):
+        """Test that .only() limits fields on DualPersonQuerySet."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        queryset = queryset.only("id", "uuid")
+
+        persons = list(queryset)
+
+        # Should return persons
+        self.assertEqual(len(persons), 3)  # old_person, new_person, old_person2
+
+        # Accessing only() fields should work
+        for person in persons:
+            self.assertIsNotNone(person.id)
+            self.assertIsNotNone(person.uuid)
+
+    def test_all_with_chained_operations(self):
+        """Test that .all() chains properly with filter, prefetch, and only."""
+        from django.db.models import Prefetch
+
+        PersonDistinctId.objects.create(team=self.team, person_id=100, distinct_id="chain_test_old")
+
+        queryset = Person.objects.all()
+        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "uuid", "properties")
+
+        persons = list(queryset)
+
+        # Should return persons from both tables
+        self.assertGreaterEqual(len(persons), 2)
+
+        # Should have prefetch applied
+        old_person = next(p for p in persons if p.id == 100)
+        self.assertTrue(hasattr(old_person, "distinct_ids_cache"))
+        distinct_ids = [d.distinct_id for d in old_person.distinct_ids_cache]
+        self.assertIn("chain_test_old", distinct_ids)
