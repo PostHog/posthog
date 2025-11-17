@@ -283,6 +283,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpBackfill) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpBackfillConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.logsIngestion) {
                 serviceLoaders.push(async () => {
                     const consumer = new LogsIngestionConsumer(hub)

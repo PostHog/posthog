@@ -79,6 +79,7 @@ export enum PluginServerMode {
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
+    cdp_backfill = 'cdp-backfill',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -551,6 +552,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
+    cdpBackfill?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
