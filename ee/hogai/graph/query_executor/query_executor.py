@@ -53,6 +53,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 
 from .prompts import (
@@ -88,14 +89,6 @@ SupportedQueryTypes = (
     | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsTopCustomersQuery
 )
-
-
-class QueryExecutorError(Exception):
-    """
-    Exception raised when there is an error executing a query.
-    """
-
-    pass
 
 
 class AssistantQueryExecutor:
@@ -381,7 +374,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise QueryExecutorError(err_message)
+            raise MaxToolRetryableError(err_message)
         except:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution

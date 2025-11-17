@@ -38,11 +38,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.graph.query_executor.query_executor import (
-    AssistantQueryExecutor,
-    QueryExecutorError,
-    execute_and_format_query,
-)
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, execute_and_format_query
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -166,7 +163,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("API error message", str(context.exception))
@@ -179,7 +176,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantHogQLQuery(query="SELECT invalid")
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("HogQL error", str(context.exception))
@@ -192,7 +189,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("ClickHouse error", str(context.exception))

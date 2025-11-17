@@ -11,7 +11,7 @@ from posthog.models import Team, User
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.query_executor.query_executor import QueryExecutorError, execute_and_format_query
+from ee.hogai.graph.query_executor.query_executor import execute_and_format_query
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.graph.sql.prompts import (
@@ -20,6 +20,7 @@ from ee.hogai.graph.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -75,9 +76,9 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         try:
             result = await execute_and_format_query(self._team, parsed_query.query)
-        except QueryExecutorError as e:
+        except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
-        except:
+        except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
         # Add a unique ID to the visualization message, so it gets persisted.
