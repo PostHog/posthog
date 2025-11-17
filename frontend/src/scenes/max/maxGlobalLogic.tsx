@@ -70,13 +70,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'session_summarization' as const,
         name: TOOL_DEFINITIONS['session_summarization'].name,
         description: TOOL_DEFINITIONS['session_summarization'].description,
-        callback: async (toolOutput, conversationId) => {
-            const { session_group_summary_id } = toolOutput
-            if (session_group_summary_id) {
-                maxGlobalLogic.findMounted()?.actions.openSidePanelMax(conversationId)
-                router.actions.push(urls.sessionSummary(session_group_summary_id))
-            }
-        },
     },
     {
         identifier: 'create_and_query_insight' as const,

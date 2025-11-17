@@ -15,6 +15,7 @@ from posthog.schema import (
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
     RecordingsQuery,
+    SessionGroupSummaryMessage,
 )
 
 from posthog.models.team.team import check_is_feature_available_for_team
@@ -101,25 +102,6 @@ class SessionSummarizationNode(AssistantNode):
         )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        # TODO: Remove after testing
-        return PartialAssistantState(
-            messages=[
-                AssistantToolCallMessage(
-                    content="No issues found in any sessions",
-                    tool_call_id=state.root_tool_call_id or "unknown",
-                    id=str(uuid4()),
-                    ui_payload={
-                        "session_summarization": {
-                            "session_group_summary_id": "019a8d90-74b8-7f1b-99de-75b6db20688d",
-                        }
-                    },
-                ),
-            ],
-            session_summarization_query=None,
-            root_tool_call_id=None,
-            # Ensure to pass the notebook id to the next node
-            notebook_short_id=state.notebook_short_id,
-        )
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         # Search for session ids with filters (current or generated)
@@ -145,23 +127,25 @@ class SessionSummarizationNode(AssistantNode):
             summaries_content, session_group_summary_id = await self._session_summarizer.summarize_sessions(
                 session_ids=search_result, state=state
             )
-            # Build ui_payload for frontend navigation (only for group summaries)
-            ui_payload = None
+            # Build messages list
+            messages: list = [
+                AssistantToolCallMessage(
+                    content=summaries_content,
+                    tool_call_id=state.root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                ),
+            ]
+            # Add session group summary message for frontend "View summary" button (only for group summaries)
             if session_group_summary_id:
-                ui_payload = {
-                    "session_summarization": {
-                        "session_group_summary_id": session_group_summary_id,
-                    }
-                }
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=summaries_content,
-                        tool_call_id=state.root_tool_call_id or "unknown",
+                messages.append(
+                    SessionGroupSummaryMessage(
+                        session_group_summary_id=session_group_summary_id,
+                        title=state.summary_title or "Session group summary complete",
                         id=str(uuid4()),
-                        ui_payload=ui_payload,
-                    ),
-                ],
+                    )
+                )
+            return PartialAssistantState(
+                messages=messages,
                 session_summarization_query=None,
                 root_tool_call_id=None,
                 # Ensure to pass the notebook id to the next node

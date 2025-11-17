@@ -185,6 +185,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_SESSION_GROUP_SUMMARY = "ai/session_group_summary"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -2674,6 +2675,17 @@ class SessionEventsItem(BaseModel):
         description="List of events for this session, each event is a list of field values matching the query columns",
     )
     session_id: str = Field(..., description="Session ID these events belong to")
+
+
+class SessionGroupSummaryMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
+    session_group_summary_id: str
+    title: Optional[str] = None
+    type: Literal["ai/session_group_summary"] = "ai/session_group_summary"
 
 
 class SessionPropertyFilter(BaseModel):
@@ -16084,6 +16096,7 @@ class RootAssistantMessage(
             HumanMessage,
             FailureMessage,
             NotebookUpdateMessage,
+            SessionGroupSummaryMessage,
             PlanningMessage,
             TaskExecutionMessage,
             AssistantToolCallMessage,
@@ -16098,6 +16111,7 @@ class RootAssistantMessage(
         HumanMessage,
         FailureMessage,
         NotebookUpdateMessage,
+        SessionGroupSummaryMessage,
         PlanningMessage,
         TaskExecutionMessage,
         AssistantToolCallMessage,

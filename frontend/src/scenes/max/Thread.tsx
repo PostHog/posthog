@@ -62,6 +62,7 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
+    SessionGroupSummaryMessage,
     VisualizationItem,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -85,6 +86,7 @@ import {
     isHumanMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
+    isSessionGroupSummaryMessage,
     isVisualizationMessage,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
@@ -326,6 +328,8 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
+                    } else if (isSessionGroupSummaryMessage(message)) {
+                        return <SessionGroupSummaryAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })()}
@@ -574,6 +578,31 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                 </div>
                 <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
+                </LemonButton>
+            </div>
+        </MessageTemplate>
+    )
+}
+
+interface SessionGroupSummaryAnswerProps {
+    message: SessionGroupSummaryMessage
+}
+
+function SessionGroupSummaryAnswer({ message }: SessionGroupSummaryAnswerProps): JSX.Element {
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <IconCheck className="text-success size-4" />
+                    <span>Summary: {message.title || 'Session group summary complete'}</span>
+                </div>
+                <LemonButton
+                    to={urls.sessionSummary(message.session_group_summary_id)}
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconOpenInNew />}
+                >
+                    View report
                 </LemonButton>
             </div>
         </MessageTemplate>
