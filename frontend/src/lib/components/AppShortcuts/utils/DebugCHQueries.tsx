@@ -474,7 +474,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
 
 function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
     const [areAllStatsShown, setAreAllStatsShown] = useState(false)
-    // @ts-expect-error
+
     const event = item['profile_events']
     if (!event) {
         return null
