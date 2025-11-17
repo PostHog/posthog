@@ -103,14 +103,26 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         if exported_asset.insight is not None:
-            # Check if the insight has legend enabled
+            # Check if the insight has legend enabled (matches frontend getShowLegend logic)
             legend_enabled = False
             if exported_asset.insight.query and isinstance(exported_asset.insight.query, dict):
                 source = exported_asset.insight.query.get("source", {})
                 if isinstance(source, dict):
-                    trends_filter = source.get("trendsFilter", {})
-                    if isinstance(trends_filter, dict):
-                        legend_enabled = trends_filter.get("showLegend", False)
+                    query_kind = source.get("kind")
+
+                    # Check legend based on query type (matches frontend getShowLegend function)
+                    if query_kind == "TrendsQuery":
+                        trends_filter = source.get("trendsFilter", {})
+                        if isinstance(trends_filter, dict):
+                            legend_enabled = trends_filter.get("showLegend", False)
+                    elif query_kind == "LifecycleQuery":
+                        lifecycle_filter = source.get("lifecycleFilter", {})
+                        if isinstance(lifecycle_filter, dict):
+                            legend_enabled = lifecycle_filter.get("showLegend", False)
+                    elif query_kind == "StickinessQuery":
+                        stickiness_filter = source.get("stickinessFilter", {})
+                        if isinstance(stickiness_filter, dict):
+                            legend_enabled = stickiness_filter.get("showLegend", False)
 
             url_to_render = absolute_uri(f"/exporter?token={access_token}{'&legend' if legend_enabled else ''}")
             wait_for_css_selector = ".ExportedInsight"
