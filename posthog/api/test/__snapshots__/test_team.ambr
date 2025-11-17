@@ -4,8 +4,8 @@
   DELETE
   FROM "posthog_persondistinctid"
   WHERE ("id",
-         "team_id") IN ((174,
-                         120),(175,
+         "team_id") IN ((10,
+                         120),(11,
                                120))
   '''
 # ---
@@ -14,7 +14,7 @@
   DELETE
   FROM "posthog_person"
   WHERE ("id",
-         "team_id") IN ((172,
+         "team_id") IN ((8,
                          120))
   '''
 # ---
