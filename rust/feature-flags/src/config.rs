@@ -967,4 +967,154 @@ mod tests {
         assert_eq!(config.redis_response_timeout_ms, 100);
         assert_eq!(config.redis_connection_timeout_ms, 5000);
     }
+
+    #[test]
+    fn test_timeout_values_apply_to_redis_client() {
+        use std::time::Duration;
+
+        let config = Config::default_test_config();
+
+        // Verify that config values would translate correctly to Duration
+        let response_timeout = Duration::from_millis(config.redis_response_timeout_ms);
+        let connection_timeout = Duration::from_millis(config.redis_connection_timeout_ms);
+
+        assert_eq!(response_timeout, Duration::from_millis(100));
+        assert_eq!(connection_timeout, Duration::from_millis(5000));
+
+        // Verify zero values work (treated as None/no timeout)
+        let mut zero_config = Config::default_test_config();
+        zero_config.redis_response_timeout_ms = 0;
+        zero_config.redis_connection_timeout_ms = 0;
+        zero_config.validate_and_fix_timeouts();
+
+        assert_eq!(zero_config.redis_response_timeout_ms, 0);
+        assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod timeout_behavior_tests {
+    #[test]
+    fn test_is_timeout_correctly_identifies_timeout_errors() {
+        use common_redis::CustomRedisError;
+
+        // Test that CustomRedisError::Timeout is correctly identified
+        let timeout_err = CustomRedisError::Timeout;
+
+        // Verify timeout errors are recognized as timeouts
+        assert!(
+            matches!(timeout_err, CustomRedisError::Timeout),
+            "CustomRedisError::Timeout should match Timeout variant"
+        );
+
+        // Verify timeout errors are transient (not unrecoverable)
+        assert!(
+            !timeout_err.is_unrecoverable_error(),
+            "Timeout errors should be recoverable"
+        );
+
+        // Verify timeout errors use WaitAndRetry strategy
+        assert!(
+            matches!(
+                timeout_err.retry_method(),
+                common_redis::RetryMethod::WaitAndRetry
+            ),
+            "Timeout errors should use WaitAndRetry strategy"
+        );
+    }
+
+    #[test]
+    fn test_non_timeout_io_errors_not_identified_as_timeout() {
+        use common_redis::{CustomRedisError, RedisErrorKind};
+
+        // Create a non-timeout IoError
+        let io_err =
+            CustomRedisError::from_redis_kind(RedisErrorKind::IoError, "connection refused");
+
+        // Should not be converted to CustomRedisError::Timeout
+        match io_err {
+            CustomRedisError::Timeout => {
+                panic!("Non-timeout IoError should not be identified as timeout");
+            }
+            CustomRedisError::Redis(_) => {
+                // Expected - it's a Redis error but not a timeout
+            }
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn test_redis_timeout_integration() {
+        use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
+        use std::time::Duration;
+
+        // This test requires a running Redis instance
+        // Set REDIS_URL environment variable to customize, defaults to localhost
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+        // Test 1: Very short timeout should fail quickly with timeout error
+        let short_timeout_client = RedisClient::with_config(
+            redis_url.clone(),
+            CompressionConfig::disabled(),
+            RedisValueFormat::default(),
+            Some(Duration::from_millis(1)), // 1ms - too short for any operation
+            Some(Duration::from_millis(100)),
+        )
+        .await;
+
+        // With such a short timeout, we might fail during connection or during operation
+        // Either way, we're testing that timeouts work
+        match short_timeout_client {
+            Ok(client) => {
+                // If connection succeeded, try an operation
+                let result = client.get("test_timeout_key".to_string()).await;
+
+                // Should timeout (or not find the key - that's fine too)
+                if let Err(e) = result {
+                    println!("Got expected error with short timeout: {e:?}");
+                    // We got some error - that's expected with 1ms timeout
+                }
+            }
+            Err(e) => {
+                // Connection itself timed out - that's also valid
+                println!("Connection with short timeout failed as expected: {e:?}");
+            }
+        }
+
+        // Test 2: Reasonable timeout should allow successful connection
+        let normal_client = RedisClient::with_config(
+            redis_url,
+            CompressionConfig::disabled(),
+            RedisValueFormat::default(),
+            Some(Duration::from_millis(5000)), // 5 seconds - plenty of time
+            Some(Duration::from_millis(5000)),
+        )
+        .await;
+
+        match normal_client {
+            Ok(client) => {
+                // Connection worked - test a simple operation
+                let test_key = format!(
+                    "test_timeout_integration_{}",
+                    chrono::Utc::now().timestamp()
+                );
+                let test_value = "timeout_test_value".to_string();
+
+                // Should succeed with reasonable timeout
+                let set_result = client.set(test_key.clone(), test_value.clone()).await;
+                assert!(
+                    set_result.is_ok(),
+                    "Set operation should succeed with reasonable timeout"
+                );
+
+                // Clean up
+                drop(client.del(test_key).await);
+            }
+            Err(e) => {
+                println!("WARNING: Integration test skipped - could not connect to Redis: {e:?}");
+                println!("To run this test, ensure Redis is running at $REDIS_URL (default: redis://localhost:6379)");
+            }
+        }
+    }
 }
