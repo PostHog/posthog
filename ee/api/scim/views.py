@@ -5,6 +5,8 @@ from django.db.models import QuerySet
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import status
+from rest_framework.parsers import JSONParser
+from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,6 +33,24 @@ SCIM_USER_ATTR_MAP = {
 SCIM_GROUP_ATTR_MAP = {
     ("displayName", None, None): "name",
 }
+
+
+class SCIMJSONParser(JSONParser):
+    media_type = "application/scim+json"
+
+
+class SCIMJSONRenderer(JSONRenderer):
+    media_type = "application/scim+json"
+
+
+class SCIMBaseView(APIView):
+    """
+    Base view for all SCIM endpoints.
+    """
+
+    authentication_classes = [SCIMBearerTokenAuthentication]
+    renderer_classes = [SCIMJSONRenderer, JSONRenderer]
+    parser_classes = [SCIMJSONParser, JSONParser]
 
 
 class PostHogUserFilterQuery(UserFilterQuery):
@@ -63,9 +83,7 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
         )
 
 
-class SCIMUsersView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMUsersView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
@@ -116,9 +134,7 @@ class SCIMUsersView(APIView):
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class SCIMUserDetailView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         organization_domain = cast(OrganizationDomain, self.request.auth)
         user = User.objects.filter(id=user_id).first()
@@ -178,9 +194,7 @@ class SCIMUserDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SCIMGroupsView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMGroupsView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
@@ -231,9 +245,7 @@ class SCIMGroupsView(APIView):
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class SCIMGroupDetailView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMGroupDetailView(SCIMBaseView):
     def get_object(self, group_id: str) -> PostHogSCIMGroup:
         organization_domain = cast(OrganizationDomain, self.request.auth)
         role = Role.objects.filter(id=group_id, organization=organization_domain.organization).first()
@@ -293,9 +305,7 @@ class SCIMGroupDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SCIMServiceProviderConfigView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMServiceProviderConfigView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
@@ -320,9 +330,7 @@ class SCIMServiceProviderConfigView(APIView):
         )
 
 
-class SCIMResourceTypesView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMResourceTypesView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
@@ -336,9 +344,7 @@ class SCIMResourceTypesView(APIView):
         )
 
 
-class SCIMSchemasView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMSchemasView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
