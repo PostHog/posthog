@@ -444,17 +444,6 @@ class BillingManager:
     def authorize(
         self, organization: Organization, billing_provider: str | None = None, integration_id: str | None = None
     ):
-        """
-        Initiate billing authorization for an organization.
-
-        Args:
-            organization: The organization to authorize
-            billing_provider: Optional billing provider (e.g., "vercel", "aws_marketplace")
-                            If set, creates Stripe customer with send_invoice collection method
-            integration_id: Optional integration/configuration ID from the marketplace provider
-                          (e.g., Vercel installation ID like "icfg_abc123xyz")
-                          Stored in Stripe customer metadata for linking invoices back to the provider
-        """
         data = {}
         if billing_provider:
             data["billing_provider"] = billing_provider
