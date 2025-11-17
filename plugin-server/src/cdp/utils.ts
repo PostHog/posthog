@@ -7,7 +7,7 @@ import { sanitizeForUTF8 } from '~/utils/strings'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
-import { CdpInternalEvent } from './schema'
+import { CdpDataWarehouseEvent, CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
@@ -82,6 +82,34 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
+    }
+
+    return context
+}
+
+export function convertToDataWarehouseEventToHogFunctionInvocationGlobals(
+    event: CdpDataWarehouseEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const data = event.properties ? parseJSON(event.properties) : {}
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: 'uuid-abc',
+            event: 'event-abc',
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: 'distinct-id-abc',
+            properties: data,
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
     }
 
     return context

@@ -1,6 +1,5 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
@@ -10,10 +9,9 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
 } from '~/schema/cyclotron'
-import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
+import { FetchOptions } from '~/utils/request'
 
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -32,114 +30,27 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import {
+    HogExecutorExecuteAsyncOptions,
+    HogExecutorExecuteOptions,
+    MAX_ASYNC_STEPS,
+    MAX_HOG_LOGS,
+    cdpTrackedFetch,
+    hogExecutionDuration,
+    hogFunctionStateMemory,
+    isFetchResponseRetriable,
+} from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EmailService } from './messaging/email.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
-
-export const cdpHttpRequests = new Counter({
-    name: 'cdp_http_requests',
-    help: 'HTTP requests and their outcomes',
-    labelNames: ['status', 'template_id'],
-})
-
-export const cdpHttpRequestTiming = new Histogram({
-    name: 'cdp_http_request_timing_ms',
-    help: 'Timing of HTTP requests',
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
-})
-
-export async function cdpTrackedFetch({
-    url,
-    fetchParams,
-    templateId,
-}: {
-    url: string
-    fetchParams: FetchOptions
-    templateId: string
-}): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
-    const start = performance.now()
-    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
-    const fetchDuration = performance.now() - start
-    cdpHttpRequestTiming.observe(fetchDuration)
-    cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
-
-    return { fetchError, fetchResponse, fetchDuration }
-}
-
-export const RETRIABLE_STATUS_CODES = [
-    408, // Request Timeout
-    429, // Too Many Requests (rate limiting)
-    500, // Internal Server Error
-    502, // Bad Gateway
-    503, // Service Unavailable
-    504, // Gateway Timeout
-]
 
 function formatNumber(val: number) {
     return Number(val.toPrecision(2)).toString()
 }
 
-export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
-    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
-
-    if (error) {
-        if (
-            error instanceof SecureRequestError ||
-            error instanceof InvalidRequestError ||
-            error.name === 'ResponseContentLengthMismatchError'
-        ) {
-            canRetry = false
-        } else {
-            canRetry = true // Only retry on general errors, not security, validation, or response parsing errors
-        }
-    }
-
-    return canRetry
-}
-
-export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
-    const backoffMs = Math.min(
-        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
-        config.CDP_FETCH_BACKOFF_MAX_MS
-    )
-    return DateTime.utc().plus({ milliseconds: backoffMs })
-}
-
-export const MAX_ASYNC_STEPS = 5
-export const MAX_HOG_LOGS = 25
-export const EXTEND_OBJECT_KEY = '$$_extend_object'
-
-export const hogExecutionDuration = new Histogram({
-    name: 'cdp_hog_function_execution_duration_ms',
-    help: 'Processing time and success status of internal functions',
-    // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
-})
-
-export const hogFunctionStateMemory = new Histogram({
-    name: 'cdp_hog_function_execution_state_memory_kb',
-    help: 'The amount of memory in kb used by a hog function',
-    buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],
-})
-
-export type HogExecutorExecuteOptions = {
-    functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
-}
-
-export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
-    maxAsyncFunctions?: number
-}
-
-export class HogExecutorService {
+export class DataWarehouseExecutorService {
     private hogInputsService: HogInputsService
-    private emailService: EmailService
-    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
-        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
-        this.emailService = new EmailService(hub)
     }
 
     async buildInputsWithGlobals(

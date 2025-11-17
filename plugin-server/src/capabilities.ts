@@ -14,6 +14,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpDataWarehouseEvents: true,
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
@@ -31,6 +32,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 ingestionV2: true,
                 cdpProcessedEvents: true,
+                cdpDataWarehouseEvents: true,
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
