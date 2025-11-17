@@ -20,7 +20,7 @@ async fn test_evaluation_reasons_endpoint_basic() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -46,7 +46,7 @@ async fn test_evaluation_reasons_endpoint_basic() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -95,7 +95,7 @@ async fn test_evaluation_reasons_with_variant() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -128,7 +128,7 @@ async fn test_evaluation_reasons_with_variant() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -170,7 +170,7 @@ async fn test_evaluation_reasons_with_property_conditions() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Insert person with properties
     context
@@ -212,7 +212,7 @@ async fn test_evaluation_reasons_with_property_conditions() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -246,7 +246,7 @@ async fn test_evaluation_reasons_missing_distinct_id() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -272,7 +272,7 @@ async fn test_evaluation_reasons_with_groups() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -299,7 +299,7 @@ async fn test_evaluation_reasons_with_groups() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -335,7 +335,7 @@ async fn test_evaluation_reasons_multiple_flags() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -391,7 +391,7 @@ async fn test_evaluation_reasons_multiple_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -441,7 +441,7 @@ async fn test_evaluation_reasons_response_format_matches_python() -> Result<()> 
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -466,7 +466,7 @@ async fn test_evaluation_reasons_response_format_matches_python() -> Result<()> 
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -528,7 +528,7 @@ async fn test_evaluation_reasons_with_disabled_flags() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -555,7 +555,7 @@ async fn test_evaluation_reasons_with_disabled_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -631,7 +631,7 @@ async fn test_active_flag_precedence_over_disabled() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -657,7 +657,7 @@ async fn test_active_flag_precedence_over_disabled() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -719,7 +719,7 @@ async fn test_large_number_of_disabled_flags() -> Result<()> {
 
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(redis_team.id)).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -745,7 +745,7 @@ async fn test_large_number_of_disabled_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
