@@ -1093,15 +1093,16 @@ describe('PostgresPersonRepository', () => {
                 },
             })
 
-            const size = await repository.personPropertiesSize(person.id)
+            const size = await repository.personPropertiesSize(person.id, person.team_id)
 
             expect(size).toBeGreaterThan(0)
             expect(typeof size).toBe('number')
         })
 
         it('should return 0 for non-existent person', async () => {
+            const team = await getFirstTeam(hub)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
-            const size = await repository.personPropertiesSize(fakePersonId)
+            const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
             expect(size).toBe(0)
         })
@@ -1117,11 +1118,11 @@ describe('PostgresPersonRepository', () => {
             const person2 = await createTestPerson(team2Id, 'different-distinct', { name: 'Team 2 Person' })
 
             // Check size for person 1
-            const size1 = await repository.personPropertiesSize(person1.id)
+            const size1 = await repository.personPropertiesSize(person1.id, team1.id)
             expect(size1).toBeGreaterThan(0)
 
             // Check size for person 2
-            const size2 = await repository.personPropertiesSize(person2.id)
+            const size2 = await repository.personPropertiesSize(person2.id, team2Id)
             expect(size2).toBeGreaterThan(0)
         })
 
@@ -1130,7 +1131,7 @@ describe('PostgresPersonRepository', () => {
 
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
-            const minimalSize = await repository.personPropertiesSize(minimalPerson.id)
+            const minimalSize = await repository.personPropertiesSize(minimalPerson.id, team.id)
 
             // Create person with extensive properties
             const extensiveProperties = {
@@ -1159,7 +1160,7 @@ describe('PostgresPersonRepository', () => {
                 },
             }
             const extensivePerson = await createTestPerson(team.id, 'extensive-person', extensiveProperties)
-            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id)
+            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id, team.id)
 
             expect(extensiveSize).toBeGreaterThan(minimalSize)
         })

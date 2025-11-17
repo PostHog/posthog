@@ -71,7 +71,7 @@ export class PostgresPersonRepository
         update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const currentSize = await this.personPropertiesSize(person.id)
+        const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
@@ -771,16 +771,16 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
             FROM posthog_person
-            WHERE id = $1`
+            WHERE id = $1 AND team_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
             PostgresUse.PERSONS_READ,
             queryString,
-            [personId],
+            [personId, teamId],
             'personPropertiesSize'
         )
 
@@ -812,7 +812,7 @@ export class PostgresPersonRepository
             return [person, [], false]
         }
 
-        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+        const values = [...updateValues, person.id, person.team_id].map(sanitizeJsonbValue)
 
         // Measure JSON field sizes after sanitization (using already sanitized values)
         const updateKeys = Object.keys(unparsedUpdate)
@@ -836,18 +836,20 @@ export class PostgresPersonRepository
          * but we can't add that constraint check until we know the impact of adding that constraint check for every update/insert on Persons.
          * Added benefit, we can get more observability into the sizes of properties field, if we can turn this up to 100%
          */
+        const idParamIndex = Object.values(update).length + 1
+        const teamIdParamIndex = Object.values(update).length + 2
         const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(
             update
-        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
-            Object.values(update).length + 1
-        }
+        ).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 

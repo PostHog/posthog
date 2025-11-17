@@ -70,7 +70,7 @@ export interface PersonRepository {
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 
-    personPropertiesSize(personId: string): Promise<number>
+    personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
