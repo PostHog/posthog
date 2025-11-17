@@ -481,20 +481,7 @@ export class PostgresPersonRepository
 
             // Fetch from old table if needed
             if (oldTablePersonIds.length > 0) {
-                // Build conditions matching both person_id and team_id to avoid full table scans
-                const oldTableConditions = oldTablePersonIds
-                    .map((_personId, index) => {
-                        const idParam = index * 2 + 1
-                        const teamIdParam = index * 2 + 2
-                        return `(id = $${idParam} AND team_id = $${teamIdParam})`
-                    })
-                    .join(' OR ')
-
-                const oldTableParams = oldTablePersonIds.flatMap((personId) => {
-                    const mapping = personIdToDistinctId.get(personId)!
-                    return [personId, mapping.team_id]
-                })
-
+                const oldTableConditions = oldTablePersonIds.map((_, index) => `$${index + 1}`).join(', ')
                 const oldTableQuery = `
                     SELECT
                         id,
@@ -508,12 +495,12 @@ export class PostgresPersonRepository
                         version,
                         is_identified
                     FROM posthog_person
-                    WHERE ${oldTableConditions}`
+                    WHERE id IN (${oldTableConditions})`
 
                 const { rows: oldTableRows } = await this.postgres.query<RawPerson>(
                     PostgresUse.PERSONS_READ,
                     oldTableQuery,
-                    oldTableParams,
+                    oldTablePersonIds,
                     'fetchPersonsFromOldTable'
                 )
 
@@ -527,20 +514,7 @@ export class PostgresPersonRepository
 
             // Fetch from new table if needed
             if (newTablePersonIds.length > 0) {
-                // Build conditions matching both person_id and team_id to avoid full table scans
-                const newTableConditions = newTablePersonIds
-                    .map((_personId, index) => {
-                        const idParam = index * 2 + 1
-                        const teamIdParam = index * 2 + 2
-                        return `(id = $${idParam} AND team_id = $${teamIdParam})`
-                    })
-                    .join(' OR ')
-
-                const newTableParams = newTablePersonIds.flatMap((personId) => {
-                    const mapping = personIdToDistinctId.get(personId)!
-                    return [personId, mapping.team_id]
-                })
-
+                const newTableConditions = newTablePersonIds.map((_, index) => `$${index + 1}`).join(', ')
                 const safeNewTableName = sanitizeSqlIdentifier(this.options.newTableName)
                 const newTableQuery = `
                     SELECT
@@ -555,12 +529,12 @@ export class PostgresPersonRepository
                         version,
                         is_identified
                     FROM ${safeNewTableName}
-                    WHERE ${newTableConditions}`
+                    WHERE id IN (${newTableConditions})`
 
                 const { rows: newTableRows } = await this.postgres.query<RawPerson>(
                     PostgresUse.PERSONS_READ,
                     newTableQuery,
-                    newTableParams,
+                    newTablePersonIds,
                     'fetchPersonsFromNewTable'
                 )
 
@@ -598,7 +572,7 @@ export class PostgresPersonRepository
                     posthog_person.is_identified,
                     posthog_persondistinctid.distinct_id
                 FROM posthog_person
-                JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id AND posthog_persondistinctid.team_id = posthog_person.team_id)
+                JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
                 WHERE ${conditions}`
 
             const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
