@@ -522,5 +522,5 @@ def pytest_sessionstart():
     unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
     for m in unmanaged_models:
         # Keep sqlx-managed models unmanaged
-        if m._meta.model_name.lower() not in SQLX_MANAGED_MODELS:
+        if m._meta.model_name and m._meta.model_name.lower() not in SQLX_MANAGED_MODELS:
             m._meta.managed = True
