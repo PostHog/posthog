@@ -4442,7 +4442,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
-            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person_new"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -4460,7 +4460,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
-            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person_new"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -4478,7 +4478,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
             # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
-            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person_new"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(

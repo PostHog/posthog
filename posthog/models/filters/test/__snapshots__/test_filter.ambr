@@ -461,21 +461,21 @@
 # ---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.5
   '''
-  SELECT "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
-  FROM "posthog_person_new"
-  WHERE (UPPER(("posthog_person_new"."properties" ->> 'urls')::text) LIKE UPPER('%["abcd"]%')
-         AND "posthog_person_new"."properties" ? 'urls'
-         AND NOT (("posthog_person_new"."properties" -> 'urls') = 'null'::jsonb)
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> 'urls')::text) LIKE UPPER('%["abcd"]%')
+         AND "posthog_person"."properties" ? 'urls'
+         AND NOT (("posthog_person"."properties" -> 'urls') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.6
@@ -489,43 +489,43 @@
 # ---
 # name: TestDjangoPropertiesToQ.test_icontains_with_array_value
   '''
-  SELECT "posthog_person_new"."uuid"
-  FROM "posthog_person_new"
-  WHERE (UPPER(("posthog_person_new"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
-         AND "posthog_person_new"."properties" ? '$key'
-         AND NOT (("posthog_person_new"."properties" -> '$key') = 'null'::jsonb)
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertiesToQ.test_icontains_with_array_value.1
   '''
-  SELECT "posthog_person_new"."uuid"
-  FROM "posthog_person_new"
-  WHERE (UPPER(("posthog_person_new"."properties" ->> '$key')::text) LIKE UPPER('%red%')
-         AND "posthog_person_new"."properties" ? '$key'
-         AND NOT (("posthog_person_new"."properties" -> '$key') = 'null'::jsonb)
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%red%')
+         AND "posthog_person"."properties" ? '$key'
+         AND NOT (("posthog_person"."properties" -> '$key') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
   '''
   SELECT 1 AS "a"
-  FROM "posthog_person_new"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_person_new"."team_id" = 99999
-         AND ("posthog_person_new"."properties" -> 'created_at') > '["2m", "3d"]'::jsonb)
+         AND "posthog_person"."team_id" = 99999
+         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]'::jsonb)
   LIMIT 1
   '''
 # ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.1
   '''
   SELECT 1 AS "a"
-  FROM "posthog_person_new"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_person_new"."team_id" = 99999
-         AND ("posthog_person_new"."properties" -> 'created_at') > '"bazinga"'::jsonb)
+         AND "posthog_person"."team_id" = 99999
+         AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"'::jsonb)
   LIMIT 1
   '''
 # ---
@@ -601,33 +601,33 @@
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.2
   '''
-  SELECT "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
-  FROM "posthog_person_new"
-  WHERE (((("posthog_person_new"."properties" -> 'url') = '"https://whatever.com"'::jsonb
-           AND "posthog_person_new"."properties" ? 'url'
-           AND NOT (("posthog_person_new"."properties" -> 'url') = 'null'::jsonb)
-           AND ("posthog_person_new"."properties" -> 'bla') = '1'::jsonb
-           AND "posthog_person_new"."properties" ? 'bla'
-           AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)
-           AND ((("posthog_person_new"."properties" -> 'bla') = '1'::jsonb
-                 AND "posthog_person_new"."properties" ? 'bla'
-                 AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb))
-                OR (("posthog_person_new"."properties" -> 'bla') = '2'::jsonb
-                    AND "posthog_person_new"."properties" ? 'bla'
-                    AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb))))
-          OR (("posthog_person_new"."properties" -> 'bla') = '3'::jsonb
-              AND "posthog_person_new"."properties" ? 'bla'
-              AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)))
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'::jsonb
+           AND "posthog_person"."properties" ? 'url'
+           AND NOT (("posthog_person"."properties" -> 'url') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
+           AND "posthog_person"."properties" ? 'bla'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
+                 AND "posthog_person"."properties" ? 'bla'
+                 AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
+                    AND "posthog_person"."properties" ? 'bla'
+                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))))
+          OR (("posthog_person"."properties" -> 'bla') = '3'::jsonb
+              AND "posthog_person"."properties" ? 'bla'
+              AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.3
@@ -842,33 +842,33 @@
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.2
   '''
-  SELECT "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
-  FROM "posthog_person_new"
-  WHERE (((("posthog_person_new"."properties" -> 'url') = '"https://whatever.com"'::jsonb
-           AND "posthog_person_new"."properties" ? 'url'
-           AND NOT (("posthog_person_new"."properties" -> 'url') = 'null'::jsonb)
-           AND ("posthog_person_new"."properties" -> 'bla') = '1'::jsonb
-           AND "posthog_person_new"."properties" ? 'bla'
-           AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)
-           AND ("posthog_person_new"."properties" -> 'bla') = '1'::jsonb
-           AND "posthog_person_new"."properties" ? 'bla'
-           AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)
-           AND ("posthog_person_new"."properties" -> 'bla') = '2'::jsonb
-           AND "posthog_person_new"."properties" ? 'bla'
-           AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb))
-          OR (("posthog_person_new"."properties" -> 'bla') = '3'::jsonb
-              AND "posthog_person_new"."properties" ? 'bla'
-              AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)))
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'::jsonb
+           AND "posthog_person"."properties" ? 'url'
+           AND NOT (("posthog_person"."properties" -> 'url') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
+           AND "posthog_person"."properties" ? 'bla'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '1'::jsonb
+           AND "posthog_person"."properties" ? 'bla'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)
+           AND ("posthog_person"."properties" -> 'bla') = '2'::jsonb
+           AND "posthog_person"."properties" ? 'bla'
+           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+          OR (("posthog_person"."properties" -> 'bla') = '3'::jsonb
+              AND "posthog_person"."properties" ? 'bla'
+              AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.3
@@ -2012,33 +2012,33 @@
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.8
   '''
-  SELECT "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
-  FROM "posthog_person_new"
-  WHERE (NOT ((("posthog_person_new"."properties" -> 'bla') = '1'::jsonb
-               AND "posthog_person_new"."properties" ? 'bla'
-               AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb))
-              OR (("posthog_person_new"."properties" -> 'bla') = '2'::jsonb
-                  AND "posthog_person_new"."properties" ? 'bla'
-                  AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)))
-         AND NOT ((("posthog_person_new"."properties" -> 'bla') = '3'::jsonb
-                   AND "posthog_person_new"."properties" ? 'bla'
-                   AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb))
-                  OR (("posthog_person_new"."properties" -> 'bla') = '4'::jsonb
-                      AND "posthog_person_new"."properties" ? 'bla'
-                      AND NOT (("posthog_person_new"."properties" -> 'bla') = 'null'::jsonb)))
-         AND ("posthog_person_new"."properties" -> 'other') = '1'::jsonb
-         AND "posthog_person_new"."properties" ? 'other'
-         AND NOT (("posthog_person_new"."properties" -> 'other') = 'null'::jsonb)
-         AND "posthog_person_new"."team_id" = 99999)
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE (NOT ((("posthog_person"."properties" -> 'bla') = '1'::jsonb
+               AND "posthog_person"."properties" ? 'bla'
+               AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+              OR (("posthog_person"."properties" -> 'bla') = '2'::jsonb
+                  AND "posthog_person"."properties" ? 'bla'
+                  AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND NOT ((("posthog_person"."properties" -> 'bla') = '3'::jsonb
+                   AND "posthog_person"."properties" ? 'bla'
+                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb))
+                  OR (("posthog_person"."properties" -> 'bla') = '4'::jsonb
+                      AND "posthog_person"."properties" ? 'bla'
+                      AND NOT (("posthog_person"."properties" -> 'bla') = 'null'::jsonb)))
+         AND ("posthog_person"."properties" -> 'other') = '1'::jsonb
+         AND "posthog_person"."properties" ? 'other'
+         AND NOT (("posthog_person"."properties" -> 'other') = 'null'::jsonb)
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.9

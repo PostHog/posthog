@@ -5,8 +5,6 @@ from django.db import connection, connections
 
 import structlog
 
-from posthog.models.person import Person
-
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -46,10 +44,9 @@ def run(options):
         logger.info(f"-> Person IDs: {person_ids}")
     logger.info(f"-> Batches: {batches} of {batch_size}")
 
-    person_table = Person._meta.db_table
     select_query = f"""
         SELECT id
-        FROM {person_table}
+        FROM posthog_person
         WHERE team_id=%(team_id)s {f"AND id IN ({person_ids})" if person_ids else ""}
         ORDER BY id ASC
         LIMIT %(limit)s
@@ -75,7 +72,7 @@ def run(options):
 
     delete_query_person = f"""
     WITH to_delete AS ({select_query})
-    DELETE FROM {person_table}
+    DELETE FROM posthog_person
     WHERE id IN (SELECT id FROM to_delete);
     """
 

@@ -236,18 +236,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3')
@@ -1067,18 +1067,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2')
          AND "posthog_persondistinctid"."team_id" = 99999)
@@ -1731,18 +1731,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1')
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
@@ -3131,18 +3131,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user_one_0')
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
@@ -4017,18 +4017,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
                                                       'user_one_0')
          AND "posthog_persondistinctid"."team_id" = 99999)
@@ -4619,18 +4619,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
                                                       'user_one_0')
          AND "posthog_persondistinctid"."team_id" = 99999)
@@ -5221,18 +5221,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
                                                       'user_one_0')
          AND "posthog_persondistinctid"."team_id" = 99999)
@@ -5730,18 +5730,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',
@@ -6508,18 +6508,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',
@@ -7313,18 +7313,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',
@@ -8098,18 +8098,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',
@@ -8947,18 +8947,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',
@@ -9759,18 +9759,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user10',
                                                       'user2',
@@ -10211,18 +10211,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1')
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
@@ -10950,18 +10950,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2')
          AND "posthog_persondistinctid"."team_id" = 99999)
@@ -11704,18 +11704,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3')
@@ -12481,18 +12481,18 @@
          "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version",
-         "posthog_person_new"."id",
-         "posthog_person_new"."created_at",
-         "posthog_person_new"."properties_last_updated_at",
-         "posthog_person_new"."properties_last_operation",
-         "posthog_person_new"."team_id",
-         "posthog_person_new"."properties",
-         "posthog_person_new"."is_user_id",
-         "posthog_person_new"."is_identified",
-         "posthog_person_new"."uuid",
-         "posthog_person_new"."version"
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
   FROM "posthog_persondistinctid"
-  INNER JOIN "posthog_person_new" ON ("posthog_persondistinctid"."person_id" = "posthog_person_new"."id")
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3',

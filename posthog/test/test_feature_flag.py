@@ -6306,9 +6306,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 execute(sql, *args, **kwargs)
 
                 raise IntegrityError(
-                    f"""
+                    """
                     insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
-                    DETAIL:  Key (person_id)=(1487010281) is not present in table "{Person._meta.db_table}".
+                    DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
                 """
                 )
             return execute(sql, *args, **kwargs)
@@ -6399,9 +6399,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                     execute(sql, *args, **kwargs)
                     # then raise an error
                     raise IntegrityError(
-                        f"""
+                        """
                         insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
-                        DETAIL:  Key (person_id)=(1487010281) is not present in table "{Person._meta.db_table}".
+                        DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
                     """
                     )
                 return execute(sql, *args, **kwargs)

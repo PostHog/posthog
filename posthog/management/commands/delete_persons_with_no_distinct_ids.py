@@ -3,8 +3,6 @@ import time
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-from posthog.models.person import Person
-
 
 class Command(BaseCommand):
     help = "Delete person rows that have no associated persondistinctid rows, by team"
@@ -36,18 +34,17 @@ class Command(BaseCommand):
 
 
 def delete_persons_without_distinct_ids_raw_sql(team_id, max_delete):
-    person_table = Person._meta.db_table
     with connection.cursor() as cursor:
         cursor.execute(
-            f"""
+            """
             WITH persons_to_delete AS (
                 SELECT p.id
-                FROM {person_table} p
+                FROM posthog_person p
                 LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
                 WHERE p.team_id = %(team_id)s AND pd.id IS NULL
                 LIMIT %(max_delete)s
             )
-            DELETE FROM {person_table}
+            DELETE FROM posthog_person
             WHERE id IN (SELECT id FROM persons_to_delete)
             RETURNING id;
         """,
@@ -62,13 +59,12 @@ def delete_persons_without_distinct_ids_raw_sql(team_id, max_delete):
 
 
 def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id, max_delete):
-    person_table = Person._meta.db_table
     with connection.cursor() as cursor:
         cursor.execute(
-            f"""
+            """
             WITH persons_to_delete AS (
                 SELECT p.id
-                FROM {person_table} p
+                FROM posthog_person p
                 LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
                 WHERE p.team_id = %(team_id)s AND pd.id IS NULL
                 LIMIT %(max_delete)s

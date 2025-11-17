@@ -1097,7 +1097,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                     INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
                         SELECT team_id, person_id, key, %(hash_key_override)s
                         FROM flags_to_override, target_person_ids
-                        WHERE EXISTS (SELECT 1 FROM {person_table} WHERE id = person_id AND team_id = %(team_id)s)
+                        WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
                         ON CONFLICT DO NOTHING
                 """
                 # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
@@ -1110,7 +1110,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                 # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
                 # but we don't care about that case because first override wins.
                 cursor.execute(
-                    query.format(person_table=Person._meta.db_table),
+                    query,
                     {
                         "team_id": team.id,
                         "project_id": team.project_id,

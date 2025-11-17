@@ -541,13 +541,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-                # Use actual Person table name (posthog_person or posthog_person_new)
-                person_table = Person._meta.db_table
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        f'FROM "{person_table}"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "{person_table}"',
+                        'FROM "posthog_person"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
                         1,
                     ),
                 )
