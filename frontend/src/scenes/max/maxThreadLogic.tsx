@@ -333,6 +333,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
                         }
 
+                        if (e.status === 402) {
+                            relevantErrorMessage.content =
+                                'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
+                        }
+
                         if (e.status === 400 && e.data?.attr === 'content') {
                             relevantErrorMessage.content =
                                 'Oops! Your message is too long. Ensure it has no more than 40000 characters.'

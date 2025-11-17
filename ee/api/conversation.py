@@ -132,7 +132,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if is_team_limited(
             self.team.api_token, QuotaResource.AI_CREDITS_USED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         ):
-            raise QuotaLimitExceeded("You have exceeded your limit of AI credits used")
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+            )
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

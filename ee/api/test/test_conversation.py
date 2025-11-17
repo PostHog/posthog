@@ -653,7 +653,10 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["detail"], "You have exceeded your limit of AI credits used")
+        self.assertEqual(
+            response.json()["detail"],
+            "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so.",
+        )
         mock_is_team_limited.assert_called_once()
 
     @patch("ee.api.conversation.is_team_limited")
