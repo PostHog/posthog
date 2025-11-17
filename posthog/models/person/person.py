@@ -110,6 +110,7 @@ class DualPersonQuerySet:
         db=None,
         prefetch=None,
         only_fields=None,
+        annotations=None,
     ):
         self.manager = manager
         self.model = manager.model  # Needed for queryset.model access
@@ -120,6 +121,7 @@ class DualPersonQuerySet:
         self.db = db  # None means use router, explicit value bypasses router
         self.prefetch = prefetch or []
         self.only_fields = only_fields or []
+        self.annotations = annotations or {}
 
     def filter(self, *args, **kwargs):
         """Chain additional filters. Supports Q objects and keyword arguments. Returns new DualPersonQuerySet."""
@@ -135,6 +137,7 @@ class DualPersonQuerySet:
             db=self.db,
             prefetch=self.prefetch,
             only_fields=self.only_fields,
+            annotations=self.annotations,
         )
 
     def exclude(self, *args, **kwargs):
@@ -151,6 +154,7 @@ class DualPersonQuerySet:
             db=self.db,
             prefetch=self.prefetch,
             only_fields=self.only_fields,
+            annotations=self.annotations,
         )
 
     def order_by(self, *fields):
@@ -164,6 +168,7 @@ class DualPersonQuerySet:
             db=self.db,
             prefetch=self.prefetch,
             only_fields=self.only_fields,
+            annotations=self.annotations,
         )
 
     def prefetch_related(self, *args, **kwargs):
@@ -177,6 +182,7 @@ class DualPersonQuerySet:
             db=self.db,
             prefetch=list(args),
             only_fields=self.only_fields,
+            annotations=self.annotations,
         )
 
     def only(self, *fields):
@@ -190,6 +196,7 @@ class DualPersonQuerySet:
             db=self.db,
             prefetch=self.prefetch,
             only_fields=list(fields),
+            annotations=self.annotations,
         )
 
     def get(self, *args, **kwargs):
@@ -294,8 +301,17 @@ class DualPersonQuerySet:
         """Execute query on both tables and return merged Person instances."""
         from django.db.models.query import prefetch_related_objects
 
-        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
-        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        old_qs = PersonOld.objects.db_manager(self.db)
+        new_qs = PersonNew.objects.db_manager(self.db)
+
+        # Apply annotations FIRST so that filters/excludes can reference annotated fields
+        if self.annotations:
+            old_qs = old_qs.annotate(**self.annotations)
+            new_qs = new_qs.annotate(**self.annotations)
+
+        # Now apply filters and excludes (which may reference annotated fields)
+        old_qs = old_qs.filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = new_qs.filter(*self.q_objects, **self.filters).exclude(**self.excludes)
 
         if self.ordering:
             old_qs = old_qs.order_by(*self.ordering)
@@ -347,6 +363,33 @@ class DualPersonQuerySet:
         Routes to PersonOld during migration. After migration, will route based on ID.
         """
         return self.manager.bulk_create(objs, batch_size=batch_size, ignore_conflicts=ignore_conflicts)
+
+    def annotate(self, **kwargs):
+        """Add annotations. Returns new DualPersonQuerySet with annotations.
+
+        Annotations will be applied to both PersonOld and PersonNew queries when executed.
+        """
+        new_annotations = {**self.annotations, **kwargs}
+        return DualPersonQuerySet(
+            manager=self.manager,
+            q_objects=self.q_objects,
+            filters=self.filters,
+            excludes=self.excludes,
+            ordering=self.ordering,
+            db=self.db,
+            prefetch=self.prefetch,
+            only_fields=self.only_fields,
+            annotations=new_annotations,
+        )
+
+    def _add_hints(self, **hints):
+        """Add query hints. Returns self for chaining.
+
+        This is used internally by Django for query optimization hints.
+        For DualPersonQuerySet, we ignore hints since we're querying both tables.
+        """
+        # Ignore hints for dual-table queries
+        return self
 
 
 class DualPersonManager(models.Manager):
