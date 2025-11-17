@@ -1215,8 +1215,8 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
     @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_prepare_toolbar_flags_with_feature_flags(self, patched_token):
-        """Test that prepare_toolbar_flags creates a cache entry with feature flags"""
+    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, patched_token):
+        """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
         from django.core.cache import cache
 
         from posthog.models import FeatureFlag
@@ -1233,7 +1233,7 @@ class TestUserAPI(APIBaseTest):
         )
 
         response = self.client.post(
-            "/api/user/prepare_toolbar_flags/", {"distinct_id": "user123"}, content_type="application/json"
+            "/api/user/prepare_toolbar_preloaded_flags/", {"distinct_id": "user123"}, content_type="application/json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1256,8 +1256,8 @@ class TestUserAPI(APIBaseTest):
         self.assertIn("test-flag-1", cached_data["feature_flags"])
         self.assertIn("test-flag-2", cached_data["feature_flags"])
 
-    def test_get_toolbar_flags_retrieves_from_cache(self):
-        """Test that get_toolbar_flags retrieves flags from cache"""
+    def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
+        """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
         from django.core.cache import cache
 
         # Set up cached flags with metadata
@@ -1266,20 +1266,20 @@ class TestUserAPI(APIBaseTest):
         cache_key = "toolbar_flags_test-key-456"
         cache.set(cache_key, cache_data, timeout=300)
 
-        response = self.client.get("/api/user/get_toolbar_flags/?key=test-key-456")
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-456")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["featureFlags"], test_flags)
 
-    def test_get_toolbar_flags_returns_404_for_missing_key(self):
-        """Test that get_toolbar_flags returns 404 for expired/missing cache key"""
-        response = self.client.get("/api/user/get_toolbar_flags/?key=nonexistent-key")
+    def test_get_toolbar_preloaded_flags_returns_404_for_missing_key(self):
+        """Test that get_toolbar_preloaded_flags returns 404 for expired/missing cache key"""
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=nonexistent-key")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIn("error", response.json())
 
-    def test_get_toolbar_flags_prevents_cross_team_access(self):
+    def test_get_toolbar_preloaded_flags_prevents_cross_team_access(self):
         """Test that users cannot access flags from other teams"""
         from django.core.cache import cache
 
@@ -1291,7 +1291,7 @@ class TestUserAPI(APIBaseTest):
         cache.set(cache_key, cache_data, timeout=300)
 
         # Try to access with current user (who belongs to self.team, not other_team)
-        response = self.client.get("/api/user/get_toolbar_flags/?key=test-key-789")
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-789")
 
         # Should be forbidden
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

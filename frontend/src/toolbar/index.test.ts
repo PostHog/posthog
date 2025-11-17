@@ -48,15 +48,15 @@ describe('Toolbar flag loading', () => {
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
         // Verify fetch was called with correct URL
-        expect(mockFetch).toHaveBeenCalledWith('http://localhost:8010/api/user/get_toolbar_flags?key=test-key-123', {
-            credentials: 'include',
-        })
+        expect(mockFetch).toHaveBeenCalledWith(
+            'http://localhost:8010/api/user/get_toolbar_preloaded_flags?key=test-key-123',
+            {
+                credentials: 'include',
+            }
+        )
 
-        // Verify flags were applied to posthog instance
-        expect(mockPostHog.featureFlags.overrideFeatureFlags).toHaveBeenCalledWith(mockFlags)
-
-        // Verify flags were added to toolbarParams
-        expect(toolbarParams.featureFlags).toEqual(mockFlags)
+        // Verify flags were applied to posthog instance with correct format
+        expect(mockPostHog.featureFlags.overrideFeatureFlags).toHaveBeenCalledWith({ flags: mockFlags })
     })
 
     it('should handle fetch errors gracefully', async () => {

@@ -690,11 +690,9 @@ class UserViewSet(
 
 
 @authenticate_secondarily
-def get_toolbar_flags(request):
+def get_toolbar_preloaded_flags(request):
     """Retrieve cached feature flags for toolbar using a session key."""
     toolbar_flags_key = request.GET.get("key")
-
-    logger.info(f"[Toolbar Flags] get_toolbar_flags called with key: {toolbar_flags_key}")
 
     if not toolbar_flags_key:
         logger.warning("[Toolbar Flags] No key parameter provided")
@@ -702,8 +700,6 @@ def get_toolbar_flags(request):
 
     cache_key = f"toolbar_flags_{toolbar_flags_key}"
     cache_data = cache.get(cache_key)
-
-    logger.info(f"[Toolbar Flags] Cache lookup for key {cache_key}: {'found' if cache_data else 'not found'}")
 
     if cache_data is None:
         logger.warning(f"[Toolbar Flags] Flags not found or expired for key: {toolbar_flags_key}")
@@ -719,10 +715,6 @@ def get_toolbar_flags(request):
 
     feature_flags = cache_data.get("feature_flags", {})
     distinct_id = cache_data.get("distinct_id")
-    logger.info(f"[Toolbar Flags] Returning {len(feature_flags)} flags for distinct_id: {distinct_id}")
-    logger.info(
-        f"[Toolbar Flags] test-flags-load-toolbar value: {feature_flags.get('test-flags-load-toolbar', 'NOT PRESENT')}"
-    )
 
     # Don't delete - allow multiple retrievals during the 5-minute window
     return JsonResponse({"featureFlags": feature_flags, "distinctId": distinct_id})
@@ -730,7 +722,7 @@ def get_toolbar_flags(request):
 
 @authenticate_secondarily
 @require_http_methods(["POST"])
-def prepare_toolbar_flags(request):
+def prepare_toolbar_preloaded_flags(request):
     """
     Evaluate feature flags for a user and store them in cache for toolbar launch.
     Returns a cache key to avoid URL length limits.
@@ -738,8 +730,6 @@ def prepare_toolbar_flags(request):
     try:
         data = json.loads(request.body)
         distinct_id = data.get("distinct_id")
-
-        logger.info(f"[Toolbar Flags] prepare_toolbar_flags called for distinct_id: {distinct_id}")
 
         if not distinct_id:
             logger.warning("[Toolbar Flags] No distinct_id provided")
@@ -749,8 +739,6 @@ def prepare_toolbar_flags(request):
         if not team:
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
-
-        logger.info(f"[Toolbar Flags] Evaluating flags for team {team.id}, user {request.user.id}")
 
         # Evaluate all feature flags for this user
         flags, reasons, _, _ = get_all_feature_flags(team, distinct_id, groups={})
@@ -775,15 +763,6 @@ def prepare_toolbar_flags(request):
 
         # Store in cache
         cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
-
-        # Immediately verify it was stored
-        verification = cache.get(cache_key)
-        if verification is None:
-            logger.error(f"[Toolbar Flags] CACHE VERIFICATION FAILED! Data was not stored properly")
-            logger.error(f"[Toolbar Flags] Cache backend: {cache.__class__.__name__}")
-        else:
-            logger.info(f"[Toolbar Flags] Cache verification successful - data found immediately after set")
-            logger.info(f"[Toolbar Flags] Cached {len(feature_flags)} flags for 5 minutes")
 
         return JsonResponse({"key": key, "flag_count": len(feature_flags)})
     except (json.JSONDecodeError, ValueError, KeyError) as e:
@@ -824,18 +803,7 @@ def redirect_to_site(request):
     # Pass the key to the toolbar instead of expanding flags (avoids URL length limits)
     toolbar_flags_key = request.GET.get("toolbarFlagsKey")
     if toolbar_flags_key:
-        # Pass the key to the toolbar - it will retrieve flags from backend
         params["toolbarFlagsKey"] = toolbar_flags_key
-        # Note: We don't delete from cache here because toolbar will need to retrieve it
-    else:
-        # Fallback to direct JSON parameter (for backwards compatibility)
-        # Note: This may fail with DisallowedRedirect if there are too many flags
-        feature_flags = request.GET.get("featureFlags")
-        if feature_flags:
-            try:
-                params["featureFlags"] = json.loads(feature_flags)
-            except (json.JSONDecodeError, ValueError):
-                logger.warning("Invalid featureFlags parameter passed to redirect_to_site")
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

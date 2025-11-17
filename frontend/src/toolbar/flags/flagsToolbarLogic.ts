@@ -64,9 +64,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                         console.warn('[Flags Toolbar Logic] Failed to fetch user flags:', response.status)
                         return []
                     }
-                    const flags = await response.json()
-
-                    return flags
+                    return await response.json()
                 },
             },
         ],

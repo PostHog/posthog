@@ -126,7 +126,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
         setIsLaunching(true)
         try {
             // Prepare toolbar flags on backend and get cache key
-            const response = await api.create('api/user/prepare_toolbar_flags', {
+            const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
                 distinct_id: distinctId,
             })
 

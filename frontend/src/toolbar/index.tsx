@@ -75,31 +75,16 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: 
     // If toolbarFlagsKey is present, fetch the feature flags from the backend
     if (toolbarParams.toolbarFlagsKey && toolbarParams.apiURL) {
         try {
-            const url = `${toolbarParams.apiURL}/api/user/get_toolbar_flags?key=${toolbarParams.toolbarFlagsKey}`
+            const url = `${toolbarParams.apiURL}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`
 
             const response = await fetch(url, {
-                credentials: 'include', // Include cookies for authentication
+                credentials: 'include',
             })
 
             if (response.ok) {
                 const data = await response.json()
-
-                // Apply the feature flags to posthog instance
                 if (posthog && data.featureFlags) {
-                    const testFlag = 'test-local-toolbar-load-flags'
-
-                    // Intercept network requests to see if overrideFeatureFlags makes any
-                    const originalFetch = window.fetch
-                    window.fetch = function (...args) {
-                        return originalFetch.apply(this, args)
-                    }
-
-                    // CRITICAL: overrideFeatureFlags expects { flags: {...} } format
-
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
-
-                    // Restore original fetch
-                    window.fetch = originalFetch
                 }
                 // Also store in toolbarParams for backward compatibility
                 toolbarParams.featureFlags = data.featureFlags
@@ -110,7 +95,9 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: 
                 console.error('[Toolbar Flags] Error response:', errorText)
                 console.error('[Toolbar Flags] Request URL:', url)
                 console.error('[Toolbar Flags] This likely means:')
-                console.error('[Toolbar Flags]   1. prepare_toolbar_flags was not called before launching toolbar')
+                console.error(
+                    '[Toolbar Flags]   1. prepare_toolbar_preloaded_flags was not called before launching toolbar'
+                )
                 console.error('[Toolbar Flags]   2. The cache key expired (5 min TTL)')
                 console.error('[Toolbar Flags]   3. The cache key does not match')
             }

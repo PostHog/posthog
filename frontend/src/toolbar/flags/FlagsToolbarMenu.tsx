@@ -43,14 +43,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
             // Read the current values directly and update state
             const currentFlags = posthogClient.featureFlags.getFlagVariants()
             setFeatureFlagValueFromPostHogClient(Object.keys(currentFlags), currentFlags)
-        } else {
         }
 
-        // Always fetch flag metadata (names, descriptions, etc.) from the backend
-        // The actual VALUES will come from posthogClientFlagValues (which includes pre-loaded flags)
         getUserFlags()
-
-        // Check for any local overrides (important for counting overrides in the UI)
         checkLocalOverrides()
     })
 
@@ -61,8 +56,8 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     <LemonInput
                         autoFocus
                         placeholder="Search"
-                        className="flex-1"
-                        fullWidth={true}
+                        //    className="flex-1"
+                        fullWidth
                         type="search"
                         value={searchTerm}
                         onChange={(s) => setSearchTerm(s)}
