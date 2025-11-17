@@ -58,6 +58,7 @@ interface RawDateFilterProps extends DateFilterProps {
      */
     forceGranularity?: LemonCalendarSelectProps['granularity']
     explicitDate?: boolean
+    showExplicitDateToggle?: boolean
 }
 
 export function DateFilter({
@@ -82,6 +83,7 @@ export function DateFilter({
     fullWidth = false,
     forceGranularity,
     explicitDate,
+    showExplicitDateToggle = false,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -245,32 +247,36 @@ export function DateFilter({
                         </LemonButton>
                     </>
                 )}
-                <LemonDivider />
-                <div className="LemonSwitch pb-2 pt-2 LemonSwitch--medium LemonSwitch--full-width">
-                    <label className="flex items-center gap-1">
-                        <span>Exact time range</span>
-                        <Tooltip
-                            title={
-                                <>
-                                    <div className="font-semibold mb-1">When enabled:</div>
-                                    <div className="mb-2">
-                                        Uses the current time for period boundaries instead of full days.
-                                    </div>
-                                    <div className="font-semibold mb-1">When disabled:</div>
-                                    <div>Dates are rounded to full day periods (start and end of day).</div>
-                                </>
-                            }
-                        >
-                            <IconInfo className="text-muted-alt w-4 h-4" />
-                        </Tooltip>
-                    </label>
-                    <LemonSwitch
-                        checked={explicitDate ?? false}
-                        onChange={(checked) => {
-                            setExplicitDate(checked)
-                        }}
-                    />
-                </div>
+                {showExplicitDateToggle && (
+                    <>
+                        <LemonDivider />
+                        <div className="LemonSwitch pb-2 pt-2 LemonSwitch--medium LemonSwitch--full-width">
+                            <label className="flex items-center gap-1">
+                                <span>Exact time range</span>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            <div className="font-semibold mb-1">When enabled:</div>
+                                            <div className="mb-2">
+                                                Uses the current time for period boundaries instead of full days.
+                                            </div>
+                                            <div className="font-semibold mb-1">When disabled:</div>
+                                            <div>Dates are rounded to full day periods (start and end of day).</div>
+                                        </>
+                                    }
+                                >
+                                    <IconInfo className="text-muted-alt w-4 h-4" />
+                                </Tooltip>
+                            </label>
+                            <LemonSwitch
+                                checked={explicitDate ?? false}
+                                onChange={(checked) => {
+                                    setExplicitDate(checked)
+                                }}
+                            />
+                        </div>
+                    </>
+                )}
             </div>
         )
 
