@@ -38,7 +38,7 @@ pub fn read_pairs(
     prefix: &Option<String>,
 ) -> Result<Vec<SourcePair>> {
     let selection =
-        FileSelection::new(directory, ignore_globs.to_vec(), vec![]).filter(is_javascript_file);
+        FileSelection::new(directory, vec![], ignore_globs.to_vec()).filter(is_javascript_file);
 
     posthog_cli::sourcemaps::source_pairs::read_pairs(selection, prefix)
 }
@@ -66,6 +66,16 @@ fn test_ignore() {
     let pairs = read_pairs(get_case_path(""), vec!["**/search/**".to_string()], &None)
         .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 3);
+    assert_eq!(
+        pairs.first().unwrap().source.inner.path,
+        get_case_path("inject/chunk.js")
+    );
+    // Make sure chunks are ignored
+    let all_path = pairs
+        .iter()
+        .map(|pair| pair.source.inner.path.clone())
+        .collect::<Vec<_>>();
+    assert!(!all_path.contains(&get_case_path("search/assets/chunk.min.js")));
 }
 
 #[test]
