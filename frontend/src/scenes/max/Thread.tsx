@@ -602,7 +602,7 @@ function SessionGroupSummaryAnswer({ message }: SessionGroupSummaryAnswerProps):
                     type="primary"
                     icon={<IconOpenInNew />}
                 >
-                    View report
+                    Open report
                 </LemonButton>
             </div>
         </MessageTemplate>
