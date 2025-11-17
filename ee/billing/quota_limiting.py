@@ -89,6 +89,7 @@ OVERAGE_BUFFER = {
     QuotaResource.LLM_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
+    QuotaResource.AI_CREDITS_USED: 0,
 }
 
 # These trust score keys match billing default_plans_config.yml product keys (top level key)
@@ -103,6 +104,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.LLM_EVENTS: "llm_events",
     QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
     QuotaResource.ROWS_EXPORTED: "rows_exported",
+    QuotaResource.AI_CREDITS_USED: "ai_credits",
 }
 
 
@@ -117,6 +119,7 @@ class UsageCounters(TypedDict):
     llm_events: int
     cdp_trigger_events: int
     rows_exported: int
+    ai_credits_used: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -238,7 +241,27 @@ def org_quota_limited_until(
             )
         return None
 
-    # 1b. never drop
+    # 1b. AI credits have no grace period and ignore never_drop_data - immediately limit
+    if resource == QuotaResource.AI_CREDITS_USED:
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "suspended",
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "trust_score": trust_score,
+            },
+        )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+        )
+        return {
+            "quota_limited_until": billing_period_end,
+            "quota_limiting_suspended_until": None,
+        }
+
+    # 1c. never drop
     if organization.never_drop_data:
         report_organization_action(
             organization,
@@ -639,7 +662,9 @@ def update_all_orgs_billing_quotas(
             get_teams_with_ai_event_count_in_period(period_start, period_end)
         ),
         "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
+            convert_team_usage_rows_to_dict(get_teams_with_ai_credits_used_in_period(period_start, period_end))
+            if is_ai_billing_enabled
+            else {}
         ),
     }
 
