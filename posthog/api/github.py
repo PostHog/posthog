@@ -8,6 +8,7 @@ import requests
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from prometheus_client import Counter
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
@@ -23,6 +24,15 @@ from posthog.tasks.email import send_personal_api_key_exposed
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
+
+PERSONAL_API_KEY_LEAKED_COUNTER = Counter(
+    "github_secrets_scanning_personal_api_key_leaked",
+    "Number of valid Personal API Keys identified by GitHub secrets scanning",
+)
+PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
+    "github_secrets_scanning_project_secret_api_key_leaked",
+    "Number of valid Project Secret API Keys identified by GitHub secrets scanning",
+)
 
 
 class SignatureVerificationError(Exception):
@@ -159,6 +169,9 @@ class SecretAlert(APIView):
                     # roll key
                     key, _ = key_lookup
                     old_mask_value = key.mask_value
+
+                    PERSONAL_API_KEY_LEAKED_COUNTER.inc()
+
                     serializer = PersonalAPIKeySerializer(instance=key)
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
@@ -168,6 +181,8 @@ class SecretAlert(APIView):
                     _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
                     # TODO send email to team members
                     result["label"] = "true_positive"
+
+                    PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
 
                 except Team.DoesNotExist:
                     pass
