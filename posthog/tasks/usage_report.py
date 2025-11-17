@@ -935,7 +935,7 @@ def get_teams_with_ai_event_count_in_period(
     return results
 
 
-# AI billing markup: 20% markup on top of cost (1 USD = 100 cents + 20% = 120 cents = 120 credits)
+# AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
 
 
@@ -956,33 +956,42 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Only counts generations where $ai_billable is true and cost > 0.
+    Events are stored in team 2, with the actual team (on which we group by) in properties.
     """
     results = sync_execute(
         """
-        WITH
-            accurateCastOrNull(
-                replaceRegexpAll(
-                    nullIf(nullIf(JSONExtractRaw(properties, '$ai_total_cost_usd'), ''), 'null'),
-                    '^"|"$',
-                    ''
-                ),
-                'Float64'
-            ) AS cost_usd
+        WITH costs AS (
+            SELECT
+                JSONExtractInt(properties, 'team_id') AS customer_team_id,
+                toDecimal32OrNull(JSONExtractString(properties, '$ai_total_cost_usd'), 5) AS cost_usd,
+                JSONExtractBool(properties, '$ai_billable') AS ai_billable,
+                timestamp
+            FROM events
+            WHERE
+                -- hardcoding data inside PostHog project used as ground truth for billing
+                team_id = 2
+                AND event = '$ai_generation'
+                AND timestamp >= %(begin)s
+                AND timestamp < %(end)s
+        )
         SELECT
-            team_id,
-            toInt64(roundBankers(
-                sumIf(cost_usd * 100 * %(markup_multiplier)s,
-                      coalesce(JSONExtractBool(properties, '$ai_billable'), 0) = 1
-                      AND cost_usd > 0)
-            )) AS ai_credits
-        FROM events
+            customer_team_id AS team,
+            toInt64(
+                roundBankers(
+                    sum(cost_usd * 100 * %(markup_multiplier)s)
+                )
+            ) AS ai_credits
+        FROM costs
         WHERE
-            timestamp >= %(begin)s
-            AND timestamp < %(end)s
-            AND event = '$ai_generation'
-            AND team_id = 2
-        GROUP BY team_id
-        HAVING ai_credits > 0
+            ai_billable = 1
+            AND cost_usd > 0
+            AND cost_usd IS NOT NULL
+        GROUP BY
+            customer_team_id
+        HAVING
+            ai_credits > 0
+        ORDER BY
+            ai_credits DESC
     """,
         {
             "begin": begin,

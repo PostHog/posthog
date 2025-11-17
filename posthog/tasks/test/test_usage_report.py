@@ -3069,6 +3069,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # Create a fresh team for testing
         self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+
+        # Create analytics team for AI credits tests (team 2 for US region)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
         # Create test events across a time period
         self.begin = datetime(2023, 1, 1, 0, 0)
         self.end = datetime(2023, 1, 2, 0, 0)
@@ -3423,10 +3428,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create billable AI generation events with valid costs
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_1",
             timestamp=self.begin + relativedelta(hours=1),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
             },
@@ -3434,10 +3440,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_2",
             timestamp=self.begin + relativedelta(hours=2),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 0.50,
                 "$ai_billable": True,
             },
@@ -3446,10 +3453,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create non-billable event (should not be counted)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_3",
             timestamp=self.begin + relativedelta(hours=3),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": False,
             },
@@ -3458,10 +3466,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create event with zero cost (should not be counted)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_4",
             timestamp=self.begin + relativedelta(hours=4),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 0.0,
                 "$ai_billable": True,
             },
@@ -3470,10 +3479,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create event with negative cost (should not be counted)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_5",
             timestamp=self.begin + relativedelta(hours=5),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": -1.0,
                 "$ai_billable": True,
             },
@@ -3482,10 +3492,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create event without cost property (should not be counted)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_6",
             timestamp=self.begin + relativedelta(hours=6),
             properties={
+                "team_id": self.team.id,
                 "$ai_billable": True,
             },
         )
@@ -3493,10 +3504,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create event without billable property (should not be counted, defaults to false)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_7",
             timestamp=self.begin + relativedelta(hours=7),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 3.0,
             },
         )
@@ -3504,10 +3516,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Create event outside the period (should not be counted)
         _create_event(
             event="$ai_generation",
-            team=self.team,
+            team=self.analytics_team,
             distinct_id="user_8",
             timestamp=self.begin - relativedelta(hours=1),
             properties={
+                "team_id": self.team.id,
                 "$ai_total_cost_usd": 5.0,
                 "$ai_billable": True,
             },
