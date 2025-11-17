@@ -9,7 +9,7 @@ defs = dagster.Definitions(
         duplicate_pg_table.postgres_env_check,
     ],
     jobs=[
-        duplicate_pg_table.duplicate_pg_table_job,
+        duplicate_pg_table.duplicate_postgres_table_job,
     ],
     resources=resources,
 )
