@@ -1,4 +1,4 @@
-"""Tests for the persons new backfill job."""
+"""Tests for the duplicate Postgres table job."""
 
 from unittest.mock import MagicMock, patch
 
@@ -251,7 +251,7 @@ class TestCopyChunk:
         insert_query = insert_calls[0]
         assert "INSERT INTO posthog_person_new" in insert_query
         assert "SELECT s.*" in insert_query
-        assert "FROM posthog_persons s" in insert_query
+        assert "FROM posthog_person s" in insert_query
         assert "WHERE s.id >" in insert_query
         assert "AND s.id <=" in insert_query
         assert "NOT EXISTS" in insert_query
@@ -362,7 +362,7 @@ class TestCopyChunk:
     def test_copy_chunk_error_handling_and_rollback(self):
         """Test error handling and rollback on non-duplicate errors."""
         config = DuplicatePgTableConfig(
-            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+            chunk_size=1000, batch_size=100, source_table="posthog_person", destination_table="posthog_person_new"
         )
         chunk = (1, 100)
 
