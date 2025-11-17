@@ -10,7 +10,7 @@ from dlt.common.configuration.exceptions import LookupTrace, ValueNotSecretExcep
 from dlt.common.configuration.providers.provider import ConfigProvider
 from dlt.common.configuration.specs.base_configuration import is_secret_hint
 
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
 # Redefine a broken DLT func

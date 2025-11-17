@@ -1,8 +1,9 @@
 import { useState } from 'react'
 
+import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { IconBranch, IconGithub } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
 
 import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
 import { Task, TaskWorkflow } from '../types'

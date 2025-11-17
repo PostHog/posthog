@@ -75,7 +75,6 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
@@ -95,6 +94,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # A column, usually properties, exceeds the limit for a VARCHAR field,
     # usually the max of 65535 bytes
     "StringDataRightTruncation",
+    "StringLimitExceededError",
     # Raised by our PostgreSQL client when failing to connect after several attempts.
     "PostgreSQLConnectionError",
     # Column missing in Redshift, likely the schema was altered.
@@ -114,6 +114,16 @@ NON_RETRYABLE_ERROR_TYPES = (
     # compared.
     "UndefinedFunction",
 )
+
+
+class StringLimitExceededError(Exception):
+    """Error raised when exceeding Redshift VARCHAR limit."""
+
+    def __init__(self, column: str, table: str, schema: str):
+        msg = f"Column '{column}' in '{schema}.{table}' exceeds Redshift's 'VARCHAR' limit and cannot be exported"
+        if column in {"properties", "set", "set_once", "person_properties"}:
+            msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
+        super().__init__(msg)
 
 
 class ClientErrorGroup(ExceptionGroup):
@@ -401,7 +411,27 @@ class RedshiftClient(PostgreSQLClient):
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
-                await cursor.execute(copy_query)
+                try:
+                    await cursor.execute(copy_query)
+                except psycopg.errors.InternalError_ as err:
+                    msg_detail = err.diag.message_detail
+                    # This error is generic, and not well parsed by psycopg
+                    # so we have to do some awkward substring check.
+                    if msg_detail is not None and all(
+                        s in msg_detail
+                        for s in (
+                            "Spectrum Scan Error",
+                            "length of the data column",
+                            "longer than the length defined in the table",
+                        )
+                    ):
+                        try:
+                            column = msg_detail.split("length of the data column ", 1)[1].split(" ")[0]
+                        except Exception:
+                            column = "unknown"
+
+                        raise StringLimitExceededError(column, table_name, schema_name)
+                    raise
 
 
 def redshift_default_fields() -> list[BatchExportField]:
@@ -835,7 +865,7 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
 
-        self.logger.bind(table=table)
+        self.logger = self.logger.bind(table=table)
 
     async def consume_chunk(self, data: bytes):
         self.current_buffer.write(data)
@@ -1133,14 +1163,13 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     table_columns=[field[0] for field in table_fields],
                     known_json_columns=table_schemas.super_columns,
                     redshift_client=redshift_client,
+                    max_query_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
-                    schema=record_batch_schema,
-                    max_file_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 
                 if merge_settings.requires_merge is True:
@@ -1401,9 +1430,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         )
 
         transformer = ParquetStreamTransformer(
-            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=table_schemas.super_columns),
             compression="zstd",
             include_inserted_at=False,
+            max_file_size_bytes=max_file_size_mb * 1024**2,
         )
 
         merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
@@ -1423,8 +1452,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
-            schema=record_batch_schema,
-            max_file_size_bytes=max_file_size_mb * 1024**2,
             json_columns=table_schemas.super_columns,
         )
 
@@ -1495,7 +1522,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
                     await redshift_client.acopy_from_s3_bucket(
                         table_name=redshift_stage_table,
-                        parquet_fields=[field.name for field in record_batch_schema],
+                        parquet_fields=[field.name for field in transformer.schema],
                         schema_name=inputs.table.schema_name,
                         s3_bucket=inputs.copy.s3_bucket.name,
                         manifest_key=manifest_key,

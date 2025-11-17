@@ -10,7 +10,6 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
@@ -62,7 +61,6 @@ function InternalNewSourceWizardScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
             <InternalSourcesWizard />
         </SceneContent>
     )

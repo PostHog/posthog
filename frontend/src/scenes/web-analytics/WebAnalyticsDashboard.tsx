@@ -544,7 +544,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
+                <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
                     {/* Empty fragment so tabs are not part of the sticky bar */}
                     <Filters tabs={<></>} />

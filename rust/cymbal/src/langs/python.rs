@@ -20,6 +20,7 @@ pub struct RawPythonFrame {
     pub pre_context: Vec<String>, // The lines of code before the context line
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
+    pub code_variables: Option<serde_json::Value>,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -80,7 +81,7 @@ impl RawPythonFrame {
 impl From<&RawPythonFrame> for Frame {
     fn from(raw: &RawPythonFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -96,6 +97,8 @@ impl From<&RawPythonFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
+            exception_type: None,
+            code_variables: raw.code_variables.clone(),
         }
     }
 }

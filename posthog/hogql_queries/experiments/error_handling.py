@@ -122,6 +122,14 @@ def experiment_error_handler(method: F) -> F:
                 },
             )
 
+            # If this is not user-facing, re-raise the original exception after logging/capturing
+            user_facing = True
+            if self is not None:
+                user_facing = getattr(self, "user_facing", True)
+            if not user_facing:
+                # Preserve original exception for internal callers
+                raise
+
             # Raise user-friendly error
             user_message = get_user_friendly_message(e)
             raise ValidationError(user_message)

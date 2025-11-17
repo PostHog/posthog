@@ -168,12 +168,16 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
 
-        assert actual == [
-            ("watched movie", 2, ["/"]),
-            ("terminate funnel", 2, ["/"]),
-            ("watched movie", 2, ["/home"]),
-            ("terminate funnel", 2, ["/home"]),
-        ]
+        sk = lambda x: (x[1], x[2][0], x[0])
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["/"]),
+                ("terminate funnel", 2, ["/"]),
+                ("watched movie", 2, ["/home"]),
+                ("terminate funnel", 2, ["/home"]),
+            ],
+            key=sk,
+        )
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_current_url(self) -> None:
@@ -196,9 +200,13 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
 
-        assert actual == [
-            ("watched movie", 2, ["https://example.com/home"]),
-            ("terminate funnel", 2, ["https://example.com/home"]),
-            ("watched movie", 2, ["https://example.com"]),
-            ("terminate funnel", 2, ["https://example.com"]),
-        ]
+        sk = lambda x: (x[1], x[2][0], x[0])
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["https://example.com/home"]),
+                ("terminate funnel", 2, ["https://example.com/home"]),
+                ("watched movie", 2, ["https://example.com"]),
+                ("terminate funnel", 2, ["https://example.com"]),
+            ],
+            key=sk,
+        )

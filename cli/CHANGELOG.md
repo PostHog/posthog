@@ -1,5 +1,23 @@
 # posthog-cli
 
+# 0.5.11
+
+- Do not read bundle files as part of hermes sourcemap commands
+- Change hermes clone command to take two file paths (for the minified and composed maps respectively)
+
+# 0.5.10
+
+- Add terminal checks for login and query command
+
+# 0.5.9
+
+- Improve error handling from api
+- Reduce logs for sourcemap processing
+
+# 0.5.8
+
+- Adding experimental support for proguard mappings
+
 # 0.5.7
 
 - Fix bug where files point to the same sourcemap

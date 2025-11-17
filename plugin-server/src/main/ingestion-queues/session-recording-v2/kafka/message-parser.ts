@@ -5,6 +5,7 @@ import { gunzip } from 'zlib'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { logger } from '../../../../utils/logger'
+import { TopTracker } from '../top-tracker'
 import { KafkaMetrics } from './metrics'
 import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
 
@@ -54,12 +55,15 @@ function getValidEvents(events: unknown[]): {
 }
 
 export class KafkaMessageParser {
+    constructor(private topTracker?: TopTracker) {}
+
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
         const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
         return parsedMessages.filter((msg): msg is ParsedMessageData => msg !== null)
     }
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
+        const parseStartTime = performance.now()
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
 
@@ -128,7 +132,7 @@ export class KafkaMessageParser {
             return dropMessage('message_timestamp_diff_too_large')
         }
 
-        return {
+        const parsedMessage = {
             metadata: {
                 partition: message.partition,
                 topic: message.topic,
@@ -149,6 +153,16 @@ export class KafkaMessageParser {
             snapshot_source: $snapshot_source ?? null,
             snapshot_library: $lib ?? null,
         }
+
+        // Track parsing time per session_id
+        if (this.topTracker) {
+            const parseEndTime = performance.now()
+            const parseDurationMs = parseEndTime - parseStartTime
+            const trackingKey = `session_id:${$session_id}`
+            this.topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
+        }
+
+        return parsedMessage
     }
 
     private isGzipped(buffer: Buffer): boolean {

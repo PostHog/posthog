@@ -96,7 +96,6 @@ export function Group(): JSX.Element {
                     />
                 }
             />
-            <SceneDivider />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
             <SceneDivider />
             <LemonTabs

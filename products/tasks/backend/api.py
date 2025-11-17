@@ -2,24 +2,23 @@ import logging
 import traceback
 from typing import cast
 
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .agents import get_agent_dict_by_id, get_all_agents
 from .models import Task, TaskRun
 from .serializers import (
-    AgentDefinitionSerializer,
-    AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
     TaskSerializer,
@@ -55,6 +54,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "run",
         ]
     }
+
+    @validated_request(
+        query_serializer=TaskListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+        },
+        summary="List tasks",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).order_by("position")
@@ -127,21 +137,22 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save()
         logger.info(f"Task {task.id} updated successfully")
 
-    @extend_schema(
-        summary="Update task position",
-        description="Update the position of a task within its current stage",
-        request=TaskUpdatePositionRequestSerializer,
+    @validated_request(
+        request_serializer=TaskUpdatePositionRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated position"),
             400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid position"),
             404: OpenApiResponse(description="Task not found"),
         },
+        summary="Update task position",
+        description="Update the position of a task within its current stage",
+        strict_request_validation=True,
     )
     @action(detail=True, methods=["patch"], required_scopes=["task:write"])
     def update_position(self, request, pk=None, **kwargs):
         task = self.get_object()
 
-        new_position = request.data.get("position")
+        new_position = request.validated_data.get("position")
 
         if new_position is None:
             return Response(
@@ -153,14 +164,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskSerializer(task).data)
 
-    @extend_schema(
-        summary="Run task",
-        description="Kick off the workflow for the task in its current stage.",
-        request=None,
+    @validated_request(
+        request_serializer=None,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
             404: OpenApiResponse(description="Task not found"),
         },
+        summary="Run task",
+        description="Kick off the workflow for the task in its current stage.",
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
@@ -199,6 +210,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
+        },
+        summary="List task runs",
+        description="Get a list of runs for a specific task.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+        },
+        summary="Create task run",
+        description="Create a new run for a specific task.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -221,14 +252,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
 
-    @extend_schema(
-        summary="Set run output",
-        description="Update the output field for a task run (e.g., PR URL, commit SHA, etc.)",
-        request=serializers.Serializer,
+    @validated_request(
+        request_serializer=None,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
             404: OpenApiResponse(description="Run not found"),
         },
+        summary="Set run output",
+        description="Update the output field for a task run (e.g., PR URL, commit SHA, etc.)",
     )
     @action(detail=True, methods=["patch"], url_path="set_output", required_scopes=["task:write"])
     def set_output(self, request, pk=None, **kwargs):
@@ -247,85 +278,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
-    @extend_schema(
-        summary="Append log entries",
-        description="Append one or more log entries to the task run log array",
-        request=TaskRunAppendLogRequestSerializer,
+    @validated_request(
+        request_serializer=TaskRunAppendLogRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
         },
+        summary="Append log entries",
+        description="Append one or more log entries to the task run log array",
+        strict_request_validation=True,
     )
     @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
-        serializer = TaskRunAppendLogRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        entries = serializer.validated_data["entries"]
+        entries = request.validated_data["entries"]
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
-
-
-@extend_schema(tags=["agents"])
-class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    API for retrieving agent definitions. Agents are automation services that can be assigned to tasks to process them.
-    """
-
-    serializer_class = AgentDefinitionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    queryset = None  # No model queryset since we're using hardcoded agents
-    scope_object = "task"
-    posthog_feature_flag = {"tasks": ["list", "retrieve"]}
-
-    @extend_schema(
-        summary="List agent definitions",
-        description="Get a list of available agent definitions that can be assigned to tasks.",
-        responses={
-            200: OpenApiResponse(
-                response=AgentListResponseSerializer,
-                description="List of agent definitions",
-                examples=[
-                    OpenApiExample(
-                        "Agent List Response",
-                        description="Example response with available agents",
-                        response_only=True,
-                        value={
-                            "results": [
-                                {
-                                    "id": "claude_code_agent",
-                                    "name": "Claude Code Agent",
-                                    "agent_type": "code_execution",
-                                    "description": "Executes code changes and technical tasks using Claude Code",
-                                    "config": {"timeout": 3600, "sandbox": True},
-                                    "is_active": True,
-                                }
-                            ]
-                        },
-                    )
-                ],
-            )
-        },
-    )
-    def list(self, request, *args, **kwargs):
-        agents = get_all_agents()
-        return Response(AgentListResponseSerializer({"results": agents}).data)
-
-    @extend_schema(
-        summary="Get agent definition",
-        description="Retrieve a specific agent definition by ID.",
-        responses={
-            200: OpenApiResponse(response=AgentDefinitionSerializer, description="Agent definition"),
-            404: OpenApiResponse(description="Agent not found"),
-        },
-    )
-    def retrieve(self, request, pk=None, *args, **kwargs):
-        agent = get_agent_dict_by_id(pk)
-        if agent:
-            return Response(AgentDefinitionSerializer(agent).data)
-
-        raise NotFound(f"Unable to find agent definition")

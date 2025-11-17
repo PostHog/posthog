@@ -21,7 +21,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
 
@@ -99,7 +98,6 @@ function Surveys(): JSX.Element {
 
     return (
         <SceneContent>
-            <SurveysDisabledBanner />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Surveys].name}
                 description={sceneConfigurations[Scene.Surveys].description}
@@ -113,7 +111,7 @@ function Surveys(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
+            <SurveysDisabledBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}

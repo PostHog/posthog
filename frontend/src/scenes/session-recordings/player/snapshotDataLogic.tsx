@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
@@ -34,8 +35,6 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
-
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -51,7 +50,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
         maybeStartPolling: true,
         startPolling: true,
         stopPolling: true,
@@ -63,12 +61,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
-            },
-        ],
-        targetTimestampToBufferMillis: [
-            null as number | null,
-            {
-                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
             },
         ],
         loadingSources: [
@@ -180,10 +172,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
-                    // sorting is very cheap for already sorted lists
-                    const parsedSnapshots = (await parseEncodedSnapshots(response, props.sessionRecordingId)).sort(
-                        (a, b) => a.timestamp - b.timestamp
+                    const featureFlagValue = values.featureFlags[FEATURE_FLAGS.REPLAY_DECOMPRESSION_WORKER]
+                    const decompressionMode = normalizeMode(
+                        typeof featureFlagValue === 'string' ? featureFlagValue : undefined
                     )
+                    // sorting is very cheap for already sorted lists
+                    const parsedSnapshots = (
+                        await parseEncodedSnapshots(response, props.sessionRecordingId, decompressionMode, posthog)
+                    ).sort((a, b) => a.timestamp - b.timestamp)
                     // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
@@ -263,19 +259,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 })
             }
 
-            actions.loadNextSnapshotSource()
-        },
-
-        loadUntilTimestamp: ({ targetBufferTimestampMillis }) => {
-            // load until timestmap changes frequently we want to be careful not to load if we already are
-            if (
-                targetBufferTimestampMillis === cache.lastTargetTimestamp ||
-                values.snapshotSourcesLoading ||
-                values.snapshotsForSourceLoading
-            ) {
-                return
-            }
-            cache.lastTargetTimestamp = targetBufferTimestampMillis
+            // if not then whenever we load a set of data, we try to load the next set right away
             actions.loadNextSnapshotSource()
         },
 
@@ -295,24 +279,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadSnapshotSources(values.pollingInterval)
         },
 
-        loadNextSnapshotSource: () => {
+        loadNextSnapshotSource: async (_, breakpoint) => {
+            if (values.snapshotsForSourceLoading) {
+                // we already are
+                return
+            }
+
+            await breakpoint(1)
+
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
                 const nextSourcesToLoad = values.snapshotSources.filter((s) => {
                     if (s.source === SnapshotSourceType.file) {
                         return false
                     }
-                    const sourceKey = keyForSource(s)
-                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
-                        return false
-                    }
-                    // Load sources that have timestamps <= target, once a target is set
-                    //if (s.start_timestamp && values.targetTimestampToBufferMillis) {
-                    //   const sourceStartTime = new Date(s.start_timestamp).getTime()
-                    //    return sourceStartTime <= values.targetTimestampToBufferMillis
-                    //}
 
-                    return true
+                    const sourceKey = keyForSource(s)
+                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
                 })
 
                 // Load up to 10 sources at once
@@ -352,11 +335,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         snapshotsBySources: [
             (s) => [s.snapshotsBySourceSuccessCount],
             (
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount: number
-            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> => {
+                snapshotsBySourceSuccessCount: number
+            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> & { _count?: number } => {
                 if (!cache.snapshotsBySource) {
                     return {}
+                }
+
+                // KLUDGE: we keep the data in a cache so we can avoid creating large objects every time something changes
+                // KLUDGE: but if we change the data without changing the object instance then dependents don't recalculate
+                if (cache.snapshotsBySource['_count'] !== snapshotsBySourceSuccessCount) {
+                    // so we make a new object instance when the count changes
+                    // technically this should only be called when success count changes anyway...
+                    // but let's be very careful, it is relatively free to track the count
+                    cache.snapshotsBySource = { ...cache.snapshotsBySource }
+                    cache.snapshotsBySource['_count'] = snapshotsBySourceSuccessCount
                 }
                 return cache.snapshotsBySource
             },
@@ -403,6 +395,5 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.snapshotsBySource = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
-        cache.lastTargetTimestamp = undefined
     }),
 ])

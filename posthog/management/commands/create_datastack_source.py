@@ -12,10 +12,11 @@ import textcase
 from git import Repo
 from structlog import get_logger
 
-from posthog.warehouse import types
+from products.data_warehouse.backend import types
 
 os.environ["DEBUG"] = "1"
 os.environ["SKIP_ASYNC_MIGRATIONS_SETUP"] = "1"
+
 
 SOURCE_TEMPLATE = """\
 from typing import cast
@@ -30,7 +31,7 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 # TODO({git_user}): implement the source logic for {pascal}Source
 
@@ -82,7 +83,7 @@ class Migration(migrations.Migration):
             model_name="externaldatasource",
             name="source_type",
             field=models.CharField(
-                choices=[ {choices} ],
+                choices={choices},
                 max_length=128,
             ),
         ),
@@ -137,6 +138,7 @@ class Command(BaseCommand):
             "constant": textcase.constant(name),
             "caps": textcase.constant(name).replace("_", ""),
         }
+        self._fix_common_endings(transforms=name_transforms)
         logo_filename = f"{name_transforms['kebab']}.png"
 
         self._setup_source_structure(repo, transforms=name_transforms)
@@ -160,6 +162,12 @@ class Command(BaseCommand):
         self._update_config_references(repo, transforms=name_transforms)
         self._schema_build(transforms=name_transforms)
         self._format_files()
+
+    def _fix_common_endings(self, transforms: NameTransforms):
+        common_endings = ("Io", "Ai", "Db", "Ci")
+        for end in common_endings:
+            if transforms["pascal"].endswith(end):
+                transforms["pascal"] = transforms["pascal"][: -len(end)] + end.upper()
 
     def _setup_source_structure(self, repo: Repo, transforms: NameTransforms):
         sources_root = os.path.join(repo.working_dir, "posthog", "temporal", "data_imports", "sources")

@@ -15,10 +15,11 @@ from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
-from posthog.warehouse.models import ExternalDataJob
+
+from products.data_warehouse.backend.models import ExternalDataJob
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 
 def _get_hash_key(team_id: int) -> str:
