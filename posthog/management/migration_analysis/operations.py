@@ -13,24 +13,21 @@ SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/
 
 
 def is_unmanaged_model(op, migration) -> bool:
-    """Check if operation targets a managed=False model.
+    """Check if operation explicitly declares managed=False.
 
-    managed=False models have their schema managed externally (e.g., via rust/persons_migrations).
-    Django will not execute DDL for these models, so operations are safe.
+    Only operations that explicitly set managed=False (CreateModel, AlterModelOptions)
+    are skipped. We don't check the current model state because a migration written
+    when a model was managed=True would still execute DDL even if the model later
+    becomes managed=False.
+
+    Example: Migration 0873 sets Person to managed=False, but earlier migrations
+    (0180, 0188, etc.) that create/alter Person should still be analyzed as they
+    execute real DDL.
     """
-    # Check CreateModel/AlterModelOptions directly for managed=False
+    # Only check CreateModel and AlterModelOptions operations
+    # These are the only operations that explicitly declare managed=False
     if hasattr(op, "options") and op.options.get("managed") is False:
         return True
-
-    # For field operations, check current model state
-    if hasattr(op, "model_name") and migration:
-        try:
-            from django.apps import apps
-
-            model = apps.get_model(migration.app_label, op.model_name)
-            return model._meta.managed is False
-        except LookupError:
-            return False
 
     return False
 
