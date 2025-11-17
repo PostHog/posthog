@@ -459,10 +459,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             return self.query_previous_date_range
         return self.query_date_range
 
-    @property
-    def exact_timerange(self):
-        return self.query.dateRange and self.query.dateRange.explicitDate
-
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
@@ -470,7 +466,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             team=self.team,
             interval=self.query.interval,
             now=now(),
-            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
@@ -482,12 +477,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 interval=self.query.interval,
                 now=now(),
                 compare_to=self.query.compareFilter.compare_to,
-                exact_timerange=self.exact_timerange,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=now(),
-            exact_timerange=self.exact_timerange,
         )
