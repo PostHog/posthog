@@ -434,7 +434,6 @@ class TestCopyChunk:
         assert "WHERE s.id >=" in insert_query
         assert "AND s.id <=" in insert_query
         assert "NOT EXISTS" in insert_query
-        assert "d.team_id = s.team_id" in insert_query
         assert "d.id = s.id" in insert_query
         assert "ORDER BY s.id DESC" in insert_query
 

@@ -197,8 +197,7 @@ WHERE s.id >= %s AND s.id <= %s
   AND NOT EXISTS (
     SELECT 1
     FROM {destination_table} d
-    WHERE d.team_id = s.team_id
-      AND d.id = s.id
+    WHERE d.id = s.id
   )
 ORDER BY s.id DESC
 """
