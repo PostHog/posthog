@@ -387,17 +387,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
-            (selectedConnector: SourceConfig | null): Record<string, string | undefined> => {
+            (selectedConnector: SourceConfig | null): Record<string, string | null> => {
                 if (!selectedConnector?.suggestedTables) {
                     return {}
                 }
 
                 return selectedConnector.suggestedTables.reduce(
-                    (acc: Record<string, string | undefined>, suggested: SuggestedTable) => {
-                        acc[suggested.table] = suggested.tooltip ?? undefined
+                    (acc: Record<string, string | null>, suggested: SuggestedTable) => {
+                        acc[suggested.table] = suggested.tooltip ?? null
                         return acc
                     },
-                    {} as Record<string, string | undefined>
+                    {} as Record<string, string | null>
                 )
             },
         ],

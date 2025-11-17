@@ -59,8 +59,10 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    const isSuggested = suggestedTablesMap[schema.table] !== undefined
-                                    const tooltip = suggestedTablesMap[schema.table]
+                                    const isSuggested = suggestedTablesMap[schema.table] !== null
+                                    const tooltip =
+                                        suggestedTablesMap[schema.table] ??
+                                        'This table is suggested to be enabled for this source'
 
                                     return (
                                         <div className="flex items-center gap-2">
@@ -71,13 +73,7 @@ export default function SchemaForm(): JSX.Element {
                                                 {schema.table}
                                             </span>
                                             {isSuggested && (
-                                                <Tooltip
-                                                    title={
-                                                        tooltip ||
-                                                        'This table is suggested to be enabled for this source'
-                                                    }
-                                                    placement="top"
-                                                >
+                                                <Tooltip title={tooltip} placement="top">
                                                     <LemonTag type="primary" className="cursor-help">
                                                         Suggested
                                                     </LemonTag>
