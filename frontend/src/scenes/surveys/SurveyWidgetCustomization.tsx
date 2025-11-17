@@ -101,6 +101,7 @@ export function SurveyWidgetCustomization(): JSX.Element {
                                     label="Button position"
                                     className="gap-1 col-span-2"
                                     premiumFeature={AvailableFeature.SURVEYS_STYLING}
+                                    info="Requires at least version 1.294.0 of posthog-js"
                                 >
                                     <div className="flex items-center gap-2">
                                         <SurveyTabPositionSelector
