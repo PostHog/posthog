@@ -8,6 +8,7 @@ and group type mappings), this cache provides just the raw flag data.
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
+- Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
 - Uses team_id as the key
@@ -16,25 +17,53 @@ Cache Key Pattern:
 Configuration:
 - Redis TTL: 7 days (configurable via FLAGS_CACHE_TTL env var)
 - Miss TTL: 1 day (configurable via FLAGS_CACHE_MISS_TTL env var)
+
+Manual operations:
+    from posthog.models.feature_flag.flags_cache import clear_flags_cache
+    clear_flags_cache(team_id)
 """
 
+import time
+from collections import defaultdict
 from typing import Any
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache, caches
 from django.db import transaction
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 import structlog
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import get_feature_flags, serialize_feature_flags
 from posthog.models.team import Team
+from posthog.redis import get_client
+from posthog.storage.cache_expiry_manager import (
+    CacheExpiryConfig,
+    cleanup_stale_expiry_tracking as cleanup_generic,
+    get_teams_with_expiring_caches,
+    refresh_expiring_caches,
+)
 from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats,
+    invalidate_all_caches,
+    warm_all_caches,
+)
 
 logger = structlog.get_logger(__name__)
+
+# Sorted set key for tracking cache expirations
+FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
+
+# Cache expiry configuration for generic manager functions (initialized after update_flags_cache is defined)
+FLAGS_CACHE_EXPIRY_CONFIG: CacheExpiryConfig
 
 
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
@@ -62,6 +91,82 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     return {"flags": flags_data}
 
 
+def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
+    """
+    Batch load feature flags for multiple teams in one query.
+
+    This avoids N+1 queries by loading all flags for all teams at once,
+    then grouping them by team_id.
+
+    Args:
+        teams: List of Team objects to load flags for
+
+    Returns:
+        Dict mapping team_id to {"flags": [...]} for each team
+    """
+    if not teams:
+        return {}
+
+    # Load all flags for all teams in one query with evaluation tags pre-loaded
+    all_flags = list(
+        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False)
+        .select_related("team")
+        .annotate(
+            evaluation_tag_names_agg=ArrayAgg(
+                "evaluation_tags__tag__name",
+                filter=Q(evaluation_tags__isnull=False),
+                distinct=True,
+            )
+        )
+    )
+
+    # Transfer aggregated tag names to model instances
+    for flag in all_flags:
+        flag.evaluation_tag_names = flag.evaluation_tag_names_agg or []
+
+    # Group flags by team_id
+    flags_by_team_id: dict[int, list[FeatureFlag]] = defaultdict(list)
+    for flag in all_flags:
+        flags_by_team_id[flag.team_id].append(flag)
+
+    # Serialize flags for each team
+    result: dict[int, dict[str, Any]] = {}
+    for team in teams:
+        team_flags = flags_by_team_id.get(team.id, [])
+        flags_data = serialize_feature_flags(team_flags)
+
+        logger.info(
+            "Loaded feature flags for service cache (batch)",
+            team_id=team.id,
+            project_id=team.project_id,
+            flag_count=len(flags_data),
+        )
+
+        result[team.id] = {"flags": flags_data}
+
+    return result
+
+
+def _track_cache_expiry(team: Team | int, ttl_seconds: int) -> None:
+    """
+    Track cache expiration in Redis sorted set for efficient expiry queries.
+
+    Args:
+        team: Team object or team ID
+        ttl_seconds: TTL in seconds from now
+    """
+    try:
+        redis_client = get_client()
+
+        # Get team ID for tracking
+        team_id = team.id if isinstance(team, Team) else team
+
+        expiration_timestamp = time.time() + ttl_seconds
+        redis_client.zadd(FLAGS_CACHE_EXPIRY_SORTED_SET, {str(team_id): expiration_timestamp})
+    except Exception as e:
+        logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
+
+
 # Use dedicated flags cache if available, otherwise fall back to default cache
 if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
     _flags_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
@@ -76,10 +181,11 @@ flags_hypercache = HyperCache(
     cache_ttl=settings.FLAGS_CACHE_TTL,
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
     cache_client=_flags_cache_client,
+    batch_load_fn=_get_feature_flags_for_teams_batch,
 )
 
 
-def get_flags_from_cache(team: Team) -> list[dict[str, Any]]:
+def get_flags_from_cache(team: Team) -> list[dict[str, Any]] | None:
     """
     Get feature flags from the cache for a team.
 
@@ -89,47 +195,213 @@ def get_flags_from_cache(team: Team) -> list[dict[str, Any]]:
         team: The team to get flags for
 
     Returns:
-        List of flag dictionaries (empty list if not found or FLAGS_REDIS_URL not configured)
+        list: Flag dictionaries (empty list if team has zero flags)
+        None: Cache miss or FLAGS_REDIS_URL not configured
     """
     if not settings.FLAGS_REDIS_URL:
-        return []
+        return None
 
     result = flags_hypercache.get_from_cache(team)
     if result is None:
-        return []
+        return None
     return result.get("flags", [])
 
 
-def update_flags_cache(team: Team) -> None:
+def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     """
     Update the flags cache for a team.
 
     This explicitly updates both Redis and S3 with the latest flag data.
     Only operates when FLAGS_REDIS_URL is configured to avoid writing to shared cache.
 
+    Note: Update duration is tracked by CACHE_SYNC_DURATION_HISTOGRAM in hypercache.py
+
     Args:
-        team: The team to update cache for
+        team: Team object or team ID
+        ttl: Optional custom TTL in seconds (defaults to FLAGS_CACHE_TTL)
+
+    Returns:
+        True if cache update succeeded, False otherwise
     """
     if not settings.FLAGS_REDIS_URL:
-        return
+        return False
 
-    flags_hypercache.update_cache(team)
+    success = flags_hypercache.update_cache(team, ttl=ttl)
+
+    team_id = team.id if isinstance(team, Team) else team
+
+    if not success:
+        logger.warning("Failed to update flags cache", team_id=team_id)
+    else:
+        # Track expiration in sorted set for efficient queries
+        ttl_seconds = ttl if ttl is not None else settings.FLAGS_CACHE_TTL
+        _track_cache_expiry(team, ttl_seconds)
+
+    return success
 
 
-def clear_flags_cache(team: Team, kinds: list[str] | None = None) -> None:
+# Initialize cache expiry config after update_flags_cache is defined
+FLAGS_CACHE_EXPIRY_CONFIG = CacheExpiryConfig(
+    sorted_set_key=FLAGS_CACHE_EXPIRY_SORTED_SET,
+    log_prefix="flags caches",
+    query_field="id",
+    identifier_type=int,
+    update_fn=update_flags_cache,
+    namespace="feature_flags",
+)
+
+# Initialize hypercache management config after update_flags_cache is defined
+FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    namespace="feature_flags",
+    redis_pattern="cache/teams/*/feature_flags/*",
+    redis_stats_pattern="cache/teams/*/feature_flags/flags.json",
+    expiry_sorted_set_key=FLAGS_CACHE_EXPIRY_SORTED_SET,
+    hypercache=flags_hypercache,
+    update_fn=update_flags_cache,
+    log_prefix="flags caches",
+    management_command_name="analyze_flags_cache_sizes",
+)
+
+
+def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
     """
     Clear the flags cache for a team.
 
     Only operates when FLAGS_REDIS_URL is configured to avoid writing to shared cache.
 
     Args:
-        team: The team to clear cache for
+        team: Team object or team ID
         kinds: Optional list of cache kinds to clear ("redis", "s3")
     """
     if not settings.FLAGS_REDIS_URL:
         return
 
     flags_hypercache.clear_cache(team, kinds=kinds)
+
+    # Remove from expiry tracking sorted set
+    try:
+        redis_client = get_client()
+        team_id = team.id if isinstance(team, Team) else team
+        redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team_id))
+    except Exception as e:
+        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
+
+
+def invalidate_all_flags_caches() -> int:
+    """
+    Invalidate all flags caches.
+
+    Used internally by warm_all_flags_caches when run with --invalidate-first.
+
+    Returns:
+        Number of cache keys deleted
+    """
+    return invalidate_all_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
+
+
+def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> list[Team]:
+    """
+    Get teams whose flags caches are expiring soon using sorted set for efficient lookup.
+
+    Uses ZRANGEBYSCORE on the expiry tracking sorted set instead of scanning all Redis keys.
+    This is O(log N + M) where M is the number of expiring teams, vs O(N) for SCAN.
+
+    Args:
+        ttl_threshold_hours: Refresh caches expiring within this many hours
+        limit: Maximum number of teams to return (default 5000)
+
+    Returns:
+        List of Team objects whose caches need refresh (up to limit)
+    """
+    return get_teams_with_expiring_caches(FLAGS_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+
+
+def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+    """
+    Refresh flags caches that are expiring soon to prevent cache misses.
+
+    This is the main hourly job that keeps caches fresh. It:
+    1. Finds cache entries with TTL < threshold (up to limit)
+    2. Refreshes them with new data and full TTL
+
+    Processes teams in batches (default 5000). If more teams are expiring than the limit,
+    subsequent runs will process the next batch.
+
+    Note: Metrics are tracked by refresh_expiring_caches() using consolidated HYPERCACHE_TEAMS_PROCESSED_COUNTER
+
+    Args:
+        ttl_threshold_hours: Refresh caches expiring within this many hours
+        limit: Maximum number of teams to refresh per run (default 5000)
+
+    Returns:
+        Tuple of (successful_refreshes, failed_refreshes)
+    """
+    # Metrics are now tracked in cache_expiry_manager.py using consolidated counters
+    return refresh_expiring_caches(FLAGS_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+
+
+def cleanup_stale_expiry_tracking() -> int:
+    """
+    Clean up orphaned entries in the expiry tracking sorted set.
+
+    Removes entries for teams that no longer exist in the database.
+    Should be run periodically (e.g., daily) to prevent sorted set bloat.
+
+    Returns:
+        Number of stale entries removed
+    """
+    removed = cleanup_generic(FLAGS_CACHE_EXPIRY_CONFIG)
+
+    if removed > 0:
+        TOMBSTONE_COUNTER.labels(namespace="flags", operation="stale_expiry_tracking", component="flags_cache").inc(
+            removed
+        )
+
+    return removed
+
+
+def warm_all_flags_caches(
+    batch_size: int = 100,
+    invalidate_first: bool = False,
+    stagger_ttl: bool = True,
+    min_ttl_days: int = 5,
+    max_ttl_days: int = 7,
+) -> tuple[int, int]:
+    """
+    Warm flags cache for all teams.
+
+    Run as a management command for initial cache build or when schema changes require
+    cache invalidation. Processes all teams in batches with staggered TTLs to avoid
+    synchronized expiration. Continues on errors.
+
+    Args:
+        batch_size: Number of teams to process at a time
+        invalidate_first: If True, clear all caches before warming
+        stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
+        min_ttl_days: Minimum TTL in days (when staggering)
+        max_ttl_days: Maximum TTL in days (when staggering)
+
+    Returns:
+        Tuple of (successful_updates, failed_updates)
+    """
+    return warm_all_caches(
+        FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+        batch_size=batch_size,
+        invalidate_first=invalidate_first,
+        stagger_ttl=stagger_ttl,
+        min_ttl_days=min_ttl_days,
+        max_ttl_days=max_ttl_days,
+    )
+
+
+def get_flags_cache_stats() -> dict[str, Any]:
+    """
+    Get statistics about the flags cache.
+
+    Returns:
+        Dictionary with cache statistics including size information
+    """
+    return get_cache_stats(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
 
 
 # Signal handlers for automatic cache invalidation
@@ -150,6 +422,7 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
     from posthog.tasks.feature_flags import update_team_service_flags_cache
 
     # Defer task execution until after the transaction commits to avoid race conditions
+    # Note: Metric tracking happens in the task itself to capture actual success/failure result
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
 
 
@@ -166,6 +439,8 @@ def team_created_flags_cache(sender, instance: "Team", created: bool, **kwargs):
 
     from posthog.tasks.feature_flags import update_team_service_flags_cache
 
+    # Defer task execution until after the transaction commits
+    # Note: Metric tracking happens in the task itself to capture actual success/failure result
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.id))
 
 

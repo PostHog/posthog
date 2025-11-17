@@ -43,3 +43,9 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: int = get_from_env(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = get_from_env(
     "FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int
 )
+
+# Feature flag cache refresh settings
+FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
+    "FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS", 24, type_cast=int
+)
+FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
