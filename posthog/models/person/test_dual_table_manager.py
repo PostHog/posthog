@@ -687,6 +687,63 @@ class TestDualTablePersonManager(BaseTest):
             self.assertIsNotNone(person.uuid)
             self.assertIsNotNone(person.properties)
 
+    def test_prefetch_related_on_queryset(self):
+        """Test that .prefetch_related() works like PersonViewSet.safely_get_queryset()."""
+        from django.db.models import Prefetch
+
+        # Create distinct IDs directly in DB to avoid signal handlers that use FK
+        with connection.cursor() as cursor:
+            # For person 100 (old table)
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+                VALUES (%s, %s, %s, 0)
+                """,
+                [self.team.id, 100, "old_person_distinct_id"],
+            )
+            # For person PERSON_ID_CUTOFF + 100 (new table)
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+                VALUES (%s, %s, %s, 0)
+                """,
+                [self.team.id, PERSON_ID_CUTOFF + 100, "new_person_distinct_id"],
+            )
+            # For person 200 (old table)
+            cursor.execute(
+                """
+                INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+                VALUES (%s, %s, %s, 0)
+                """,
+                [self.team.id, 200, "old_person2_distinct_id"],
+            )
+
+        # Simulate PersonViewSet.safely_get_queryset()
+        queryset = Person.objects.filter(team_id=self.team.id)
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
+
+        persons = list(queryset)
+
+        # Should return persons from both tables
+        self.assertEqual(len(persons), 3)
+
+        # Should be able to access prefetched distinct_ids
+        for person in persons:
+            # Check that distinct_ids_cache was populated by the prefetch
+            self.assertTrue(hasattr(person, "distinct_ids_cache"))
+            # The person should have at least one distinct ID
+            self.assertGreaterEqual(len(person.distinct_ids_cache), 1)
+
+        # Verify specific persons have their distinct IDs
+        person_100 = next(p for p in persons if p.id == 100)
+        distinct_ids_100 = [did.distinct_id for did in person_100.distinct_ids_cache]
+        self.assertIn("old_person_distinct_id", distinct_ids_100)
+
+        person_new = next(p for p in persons if p.id == PERSON_ID_CUTOFF + 100)
+        distinct_ids_new = [did.distinct_id for did in person_new.distinct_ids_cache]
+        self.assertIn("new_person_distinct_id", distinct_ids_new)
+
     def test_queryset_has_model_attribute(self):
         """Test that DualPersonQuerySet has .model attribute for compatibility."""
         queryset = Person.objects.filter(team_id=self.team.id)

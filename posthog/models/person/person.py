@@ -292,6 +292,8 @@ class DualPersonQuerySet:
 
     def _execute(self):
         """Execute query on both tables and return merged Person instances."""
+        from django.db.models.query import prefetch_related_objects
+
         old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
         new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
 
@@ -299,20 +301,23 @@ class DualPersonQuerySet:
             old_qs = old_qs.order_by(*self.ordering)
             new_qs = new_qs.order_by(*self.ordering)
 
-        if self.prefetch:
-            old_qs = old_qs.prefetch_related(*self.prefetch)
-            new_qs = new_qs.prefetch_related(*self.prefetch)
-
         if self.only_fields:
             old_qs = old_qs.only(*self.only_fields)
             new_qs = new_qs.only(*self.only_fields)
 
-        # Convert model instances to Person class for FK compatibility
+        # Get results WITHOUT prefetch first
         old_results = list(old_qs)
         new_results = list(new_qs)
 
+        # Convert model instances to Person class BEFORE prefetch
+        # This is critical: prefetch_related needs the Person class to find reverse relations
         for result in old_results + new_results:
             result.__class__ = Person
+
+        # Now apply prefetch_related on Person instances (not PersonOld/PersonNew)
+        if self.prefetch:
+            all_results = old_results + new_results
+            prefetch_related_objects(all_results, *self.prefetch)
 
         return old_results + new_results
 
