@@ -96,7 +96,7 @@ const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams
 
     searchGroups.forEach((search) => {
         query = (query +
-            hogql`\nAND (message ILIKE '%${hogql.raw(search)}%' OR instance_id ILIKE '%${hogql.raw(search)}%')`) as HogQLQueryString
+            hogql`\nAND (message ILIKE concat('%', ${search}, '%') OR instance_id ILIKE concat('%', ${search}, '%'))`) as HogQLQueryString
     })
 
     if (instanceId) {
