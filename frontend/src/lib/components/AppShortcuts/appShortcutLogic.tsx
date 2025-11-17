@@ -2,11 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 
 import type { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { AppShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
-import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
+import { openCHQueriesDebugModal } from './utils/DebugCHQueries'
 
 export const appShortcutLogic = kea<appShortcutLogicType>([
     path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
