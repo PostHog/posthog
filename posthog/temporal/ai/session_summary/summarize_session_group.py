@@ -518,7 +518,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return session_ids_with_patterns_extracted
 
     @temporalio.workflow.run
-    async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
+    async def run(self, inputs: SessionGroupSummaryInputs) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
         self._total_sessions = len(inputs.session_ids)
         # Initialize session tracking with all sessions as not yet summarized
         self._single_sessions_summarized = {session_id: False for session_id in inputs.session_ids}
@@ -585,7 +585,12 @@ async def _wait_for_update() -> None:
 async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
 ) -> AsyncGenerator[
-    tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict], None
+    tuple[
+        SessionSummaryStreamUpdate,
+        SessionSummaryStep,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
+    ],
+    None,
 ]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
@@ -619,9 +624,14 @@ async def _start_session_group_summary_workflow(
         pattern_assignments_progress: int = await handle.query("get_pattern_assignments_progress")
         # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
-            result_raw: dict = await handle.result()
-            result = EnrichedSessionGroupSummaryPatternsList(**result_raw)
-            yield (SessionSummaryStreamUpdate.FINAL_RESULT, SessionSummaryStep.GENERATING_REPORT, result)
+            result_raw: list = await handle.result()
+            patterns_dict, summary_id = result_raw
+            patterns = EnrichedSessionGroupSummaryPatternsList(**patterns_dict)
+            yield (
+                SessionSummaryStreamUpdate.FINAL_RESULT,
+                SessionSummaryStep.GENERATING_REPORT,
+                (patterns, summary_id),
+            )
             break
         # Workflow failed - raise an exception
         elif workflow_description.status in (
@@ -705,7 +715,12 @@ async def execute_summarize_session_group(
     local_reads_prod: bool = False,
     video_validation_enabled: bool | None = None,
 ) -> AsyncGenerator[
-    tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict], None
+    tuple[
+        SessionSummaryStreamUpdate,
+        SessionSummaryStep,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
+    ],
+    None,
 ]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.

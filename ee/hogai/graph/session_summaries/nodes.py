@@ -101,6 +101,25 @@ class SessionSummarizationNode(AssistantNode):
         )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        # TODO: Remove after testing
+        return PartialAssistantState(
+            messages=[
+                AssistantToolCallMessage(
+                    content="No issues found in any sessions",
+                    tool_call_id=state.root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                    ui_payload={
+                        "session_summarization": {
+                            "session_group_summary_id": "019a8d90-74b8-7f1b-99de-75b6db20688d",
+                        }
+                    },
+                ),
+            ],
+            session_summarization_query=None,
+            root_tool_call_id=None,
+            # Ensure to pass the notebook id to the next node
+            notebook_short_id=state.notebook_short_id,
+        )
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         # Search for session ids with filters (current or generated)
@@ -123,15 +142,24 @@ class SessionSummarizationNode(AssistantNode):
             if isinstance(search_result, PartialAssistantState):
                 return search_result
             # Summarize sessions
-            summaries_content = await self._session_summarizer.summarize_sessions(
+            summaries_content, session_group_summary_id = await self._session_summarizer.summarize_sessions(
                 session_ids=search_result, state=state
             )
+            # Build ui_payload for frontend navigation (only for group summaries)
+            ui_payload = None
+            if session_group_summary_id:
+                ui_payload = {
+                    "session_summarization": {
+                        "session_group_summary_id": session_group_summary_id,
+                    }
+                }
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
                         content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
+                        ui_payload=ui_payload,
                     ),
                 ],
                 session_summarization_query=None,
@@ -457,8 +485,8 @@ class _SessionSummarizer:
         state: AssistantState,
         summary_title: str | None,
         notebook: Notebook | None,
-    ) -> str:
-        """Summarize sessions as a group (for larger sets)."""
+    ) -> tuple[str, str]:
+        """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._node._team)
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._node._has_video_validation_feature_flag()
@@ -505,13 +533,18 @@ class _SessionSummarizer:
                 await self._node._stream_notebook_content(formatted_state, state)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
-                if not isinstance(data, EnrichedSessionGroupSummaryPatternsList):
+                if not isinstance(data, tuple) or len(data) != 2:
                     raise ValueError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
+                        f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
+                    )
+                summary, session_group_summary_id = data
+                if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
+                    raise ValueError(
+                        f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
                 # Replace the intermediate state with final report
-                summary = data
                 tasks_available = await database_sync_to_async(
                     check_is_feature_available_for_team, thread_sensitive=False
                 )(self._node._team.id, "TASK_SUMMARIES")
@@ -531,7 +564,7 @@ class _SessionSummarizer:
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
-                return summary_str
+                return summary_str, session_group_summary_id
             else:
                 raise ValueError(
                     f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
@@ -545,7 +578,11 @@ class _SessionSummarizer:
         self,
         session_ids: list[str],
         state: AssistantState,
-    ) -> str:
+    ) -> tuple[str, str | None]:
+        """
+        Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
+        session_group_summary_id is None for individual summaries (< 6 sessions).
+        """
         # Process sessions based on count
         base_message = f"Found sessions ({len(session_ids)})"
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
@@ -554,7 +591,7 @@ class _SessionSummarizer:
                 progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
-            return summaries_content
+            return summaries_content, None
         # Check if the notebook is provided, create a notebook to fill if not
         notebook = None
         if not state.notebook_short_id:
@@ -568,10 +605,10 @@ class _SessionSummarizer:
         await self._node._stream_progress(
             progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
         )
-        summaries_content = await self._summarize_sessions_as_group(
+        summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             state=state,
             summary_title=state.summary_title,
             notebook=notebook,
         )
-        return summaries_content
+        return summaries_content, session_group_summary_id

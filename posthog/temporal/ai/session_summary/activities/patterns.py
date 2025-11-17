@@ -333,8 +333,8 @@ async def _generate_patterns_assignments(
 @temporalio.activity.defn
 async def assign_events_to_patterns_activity(
     inputs: SessionGroupSummaryOfSummariesInputs,
-) -> EnrichedSessionGroupSummaryPatternsList:
-    """Summarize a group of sessions in one call"""
+) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
+    """Summarize a group of sessions in one call. Returns tuple of (patterns, session_group_summary_id)."""
     session_ids = _get_session_ids_from_inputs(inputs)
     redis_client, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
@@ -351,7 +351,15 @@ async def assign_events_to_patterns_activity(
     )
     # Return if it's processed already
     if patterns_with_events_context:
-        return patterns_with_events_context
+        # Fetch the existing summary ID from DB
+        existing_summary = await SessionGroupSummary.objects.filter(
+            team_id=inputs.team_id, session_ids=session_ids
+        ).afirst()
+        if not existing_summary:
+            raise ValueError(
+                f"Cached patterns found but no SessionGroupSummary in DB for team {inputs.team_id} and sessions {logging_session_ids(session_ids)}"
+            )
+        return patterns_with_events_context, str(existing_summary.id)
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
@@ -432,7 +440,7 @@ async def assign_events_to_patterns_activity(
     user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
     if not user:
         raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
-    await SessionGroupSummary.objects.acreate(
+    session_group_summary = await SessionGroupSummary.objects.acreate(
         team_id=inputs.team_id,
         title=inputs.summary_title or "Group summary",
         session_ids=session_ids,
@@ -450,7 +458,7 @@ async def assign_events_to_patterns_activity(
         data=patterns_with_events_context_str,
         label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
     )
-    return patterns_with_events_context
+    return patterns_with_events_context, str(session_group_summary.id)
 
 
 @temporalio.activity.defn
