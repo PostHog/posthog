@@ -841,3 +841,34 @@ class TestDualTablePersonManager(BaseTest):
         # This allows the router to work in production where persons_db exists
         expected_db = router.db_for_write(PersonOld) or "default"
         self.assertIsNotNone(expected_db, "Router should return a database")
+
+    def test_exists_returns_true_when_person_in_old_table(self):
+        """Test that exists() returns True when person exists in old table."""
+        queryset = Person.objects.filter(id=100)
+        self.assertTrue(queryset.exists())
+
+    def test_exists_returns_true_when_person_in_new_table(self):
+        """Test that exists() returns True when person exists in new table."""
+        queryset = Person.objects.filter(id=PERSON_ID_CUTOFF + 100)
+        self.assertTrue(queryset.exists())
+
+    def test_exists_returns_false_when_no_person(self):
+        """Test that exists() returns False when no matching persons."""
+        queryset = Person.objects.filter(id=999999)
+        self.assertFalse(queryset.exists())
+
+    def test_exists_with_filters(self):
+        """Test that exists() works with filters."""
+        # Exists with matching filter
+        queryset = Person.objects.filter(team_id=self.team.id, id=100)
+        self.assertTrue(queryset.exists())
+
+        # Does not exist with non-matching filter
+        queryset = Person.objects.filter(team_id=self.team.id, id=999999)
+        self.assertFalse(queryset.exists())
+
+    def test_next_is_sticky_returns_self(self):
+        """Test that _next_is_sticky() returns self for QuerySet chaining."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+        result = queryset._next_is_sticky()
+        self.assertIs(result, queryset)

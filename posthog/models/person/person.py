@@ -248,6 +248,25 @@ class DualPersonQuerySet:
 
         return old_qs.count() + new_qs.count()
 
+    def exists(self):
+        """Return True if any records exist in either table."""
+        # Check PersonOld first for performance (typically has more data)
+        old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        if old_qs.exists():
+            return True
+
+        # Check PersonNew
+        new_qs = PersonNew.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        return new_qs.exists()
+
+    def _next_is_sticky(self):
+        """Return self - Django QuerySet method for internal query building.
+
+        This is used by Django's ORM internally when chaining QuerySet methods.
+        For dual-table queries, we just return self to maintain the chain.
+        """
+        return self
+
     def first(self):
         """Get the first Person from both tables based on ordering."""
         results = self._execute()
