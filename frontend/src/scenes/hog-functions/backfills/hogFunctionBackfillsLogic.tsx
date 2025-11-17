@@ -45,9 +45,10 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 name: values.configuration.name,
                 interval: 'once' as const,
                 model: 'events',
-                filters: values.configuration.filters,
+                filters: [...values.configuration.filters.events],
                 destination: {
-                    type: 'RealtimeDestinationBackfill' as const,
+                    type: 'PostHogRealtimeDestinations' as const,
+                    config: {},
                 },
             }
 

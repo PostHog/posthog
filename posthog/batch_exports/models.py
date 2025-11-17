@@ -187,6 +187,7 @@ BATCH_EXPORT_INTERVALS = [
     ("day", "day"),
     ("week", "week"),
     ("every 5 minutes", "every 5 minutes"),
+    ("once", "once"),
 ]
 
 
