@@ -1,7 +1,7 @@
 import json
 
-from rest_framework import exceptions
 from pydantic import ValidationError
+from rest_framework import exceptions
 
 from posthog.schema import RecordingsQuery
 

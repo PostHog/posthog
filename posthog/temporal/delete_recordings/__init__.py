@@ -7,8 +7,8 @@ from posthog.temporal.delete_recordings.activities import (
 )
 from posthog.temporal.delete_recordings.workflows import (
     DeleteRecordingsWithPersonWorkflow,
-    DeleteRecordingWorkflow,
     DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingWorkflow,
 )
 
 WORKFLOWS = [
