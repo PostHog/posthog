@@ -14,6 +14,7 @@ export const USAGE_TYPES = [
     { label: 'Data Pipelines (deprecated)', value: 'data_pipelines' },
     { label: 'Destinations Trigger Events', value: 'cdp_billable_invocations_in_period' },
     { label: 'Rows Exported', value: 'rows_exported_in_period' },
+    { label: 'PostHog AI Credits', value: 'ai_credits_used_in_period' },
 ] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]
