@@ -56,9 +56,11 @@ export function DashboardItems(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { linkedInsightIds } = useValues(surveysLogic)
+    const { linkedInsightIds, dataLoading: surveyDataLoading } = useValues(surveysLogic)
 
-    const bestSurveyOpportunityFunnel = getBestSurveyOpportunityFunnel(tiles || [], linkedInsightIds)
+    const bestSurveyOpportunityFunnel = surveyDataLoading
+        ? null
+        : getBestSurveyOpportunityFunnel(tiles || [], linkedInsightIds)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
