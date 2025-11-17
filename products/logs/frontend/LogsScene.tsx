@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { IconClock, IconCopy, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,6 +18,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -182,6 +183,13 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     width: 0,
                     render: (_, record) => (
                         <div className="flex gap-x-0">
+                            <LemonButton
+                                tooltip="Copy attribute value"
+                                size="xsmall"
+                                onClick={() => copyToClipboard(String(record.value), 'attribute value')}
+                            >
+                                <IconCopy />
+                            </LemonButton>
                             <LemonButton
                                 tooltip="Add as filter"
                                 size="xsmall"
