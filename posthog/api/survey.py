@@ -401,6 +401,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             raise serializers.ValidationError("Schedule must be one of: once, recurring, always")
         return value
 
+    def validate_linked_insight_id(self, value):
+        if value is None:
+            return value
+
+        from posthog.models import Insight
+
+        try:
+            insight = Insight.objects.get(id=value, team__project_id=self.context["project_id"])
+            return insight.id
+        except Insight.DoesNotExist:
+            raise serializers.ValidationError("Insight does not exist or you do not have access to it")
+
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
         linked_flag = None
