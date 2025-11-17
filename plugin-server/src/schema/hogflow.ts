@@ -128,6 +128,18 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    // AI
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('ai'),
+        config: z.object({
+            prompt: z.string(),
+            model: z.string().optional(),
+            temperature: z.number().optional(),
+            max_tokens: z.number().optional(),
+        }),
+    }),
+
     // Native messages
     z.object({
         ..._commonActionFields,

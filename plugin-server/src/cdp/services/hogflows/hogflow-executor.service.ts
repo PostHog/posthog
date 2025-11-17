@@ -17,9 +17,11 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { AIService } from '../ai/ai.service'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
+import { AIHandler } from './actions/ai.handler'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
@@ -77,9 +79,11 @@ export class HogFlowExecutorService {
         recipientPreferencesService: RecipientPreferencesService
     ) {
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
+        const aiService = new AIService()
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
+            ai: new AIHandler(aiService),
             conditional_branch: new ConditionalBranchHandler(),
             wait_until_condition: new ConditionalBranchHandler(),
             delay: new DelayHandler(),

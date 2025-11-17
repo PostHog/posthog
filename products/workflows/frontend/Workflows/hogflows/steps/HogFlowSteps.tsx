@@ -11,6 +11,7 @@ import {
     IconLeave,
     IconLetter,
     IconPercentage,
+    IconSparkles,
     IconWebhooks,
 } from '@posthog/icons'
 
@@ -21,6 +22,7 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { StepAIConfiguration } from './StepAI'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { StepExitConfiguration } from './StepExit'
@@ -50,6 +52,12 @@ type HogFlowStep<T extends HogFlowAction['type']> = {
 const HogFlowStepConfigs: Partial<{
     [K in HogFlowAction['type']]: HogFlowStepBuilder<K>
 }> = {
+    ai: {
+        type: 'ai',
+        icon: () => <IconSparkles />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#A78BFA' : '#7C3AED'),
+        renderConfiguration: (node) => <StepAIConfiguration node={node} />,
+    },
     conditional_branch: {
         type: 'conditional_branch',
         icon: () => <IconDecisionTree />,

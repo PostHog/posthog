@@ -46,6 +46,18 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+export const AI_NODES_TO_SHOW: CreateActionType[] = [
+    {
+        type: 'ai',
+        name: 'AI',
+        description: 'Generate content or analyze data using AI.',
+        config: {
+            prompt: '',
+            model: 'gpt-4-turbo',
+        },
+    },
+]
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     { type: 'delay', name: 'Delay', description: 'Wait for a specified duration.', config: { delay_duration: '10m' } },
     {
@@ -136,6 +148,7 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
 
 const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
     ...ACTION_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...AI_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
@@ -276,6 +289,13 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
             ))}
             <HogFunctionTemplatesChooser />
+
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                AI <LemonDivider className="flex-1" />
+            </span>
+            {AI_NODES_TO_SHOW.map((action, index) => (
+                <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+            ))}
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Delays <LemonDivider className="flex-1" />
