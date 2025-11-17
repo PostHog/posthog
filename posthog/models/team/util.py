@@ -58,10 +58,9 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
         if not batch_ids:
             break
 
-        # Create a new queryset from the original to preserve filters (e.g., team_id)
-        # then add the id__in filter for the batch
-        batch_queryset = queryset.filter(id__in=batch_ids)
-        batch_queryset._raw_delete(queryset.db)
+        # Preserve original queryset filters (e.g., team_id__in) by filtering the original queryset
+        # This ensures the DELETE query includes both team_id and id filters
+        queryset.filter(id__in=batch_ids)._raw_delete(queryset.db)
 
         # If we got fewer records than batch_size, we're done
         if len(batch_ids) < batch_size:

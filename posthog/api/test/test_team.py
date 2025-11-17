@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -550,6 +550,7 @@ def team_api_test_factory():
             assert mock_capture.call_args_list == expected_capture_calls
             mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
+        @snapshot_postgres_queries
         def test_delete_bulky_postgres_data(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
