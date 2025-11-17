@@ -2,6 +2,10 @@
     1. The table schemas are assumed to be identical
     2. The schema includes an integer ID PK we can use to divide the ID space to parallelize data migration
 
+WARNING: the original inner subselect (NOT EXISTS clause) in the insertion SQL for persons duplication job employed
+         multiple WHERE filter to take advantage of (team_id, id) index. Depending on the table you're duplicating,
+         you may require similar customization for efficiency. See comments on the SQL in copy_chunk for details.
+
 Note: duplicate keys are not rewritten (we assume *new* row writes/creates are handled elsewhere and that process is already active.)"""
 
 import os
@@ -189,6 +193,8 @@ def copy_chunk(
                     cursor.execute("BEGIN")
 
                     # Execute INSERT INTO ... SELECT with NOT EXISTS check
+                    # IMPORTANT: original NOT EXISTS subselect included additional
+                    # WHERE filter clauses: ```WHERE d.team_id = s.team_id AND d.id = s.id```
                     insert_query = f"""
 INSERT INTO {destination_table}
 SELECT s.*
