@@ -18,6 +18,7 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.experiment import Experiment
@@ -301,6 +302,39 @@ class VercelIntegration:
                 # Only create user mapping for new users, existing users get mapped during SSO
                 if user_created:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
+
+                # Create Stripe customer + subscription for Vercel installations
+                # This enables billing tracking even for free tier customers
+                from ee.billing.billing_manager import BillingManager
+
+                license = get_cached_instance_license()
+                if license:
+                    try:
+                        billing_manager = BillingManager(license)
+                        # Calls POST /api/activate/authorize with billing_provider and integration_id
+                        # Note: No email is passed - Billing Service will create Stripe customer with email=None
+                        # integration_id is stored in Stripe metadata for linking invoices back to Vercel
+                        billing_manager.authorize(
+                            organization, billing_provider="vercel", integration_id=installation_id
+                        )
+                        logger.info(
+                            "Created Stripe customer for Vercel installation",
+                            installation_id=installation_id,
+                            organization_id=str(organization.id),
+                        )
+                    except Exception as e:
+                        # If Stripe customer creation fails, rollback the installation
+                        # Rationale: Free tier still requires Stripe for usage tracking and limits
+                        logger.exception(
+                            "Failed to create Stripe customer for Vercel installation",
+                            installation_id=installation_id,
+                            organization_id=str(organization.id),
+                        )
+                        capture_exception(e)
+                        raise exceptions.ValidationError(
+                            {"validation_error": "Failed to initialize billing. Please try again."},
+                            code="billing_error",
+                        )
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
             except IntegrityError as e:
