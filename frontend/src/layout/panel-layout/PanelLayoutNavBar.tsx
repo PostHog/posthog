@@ -42,6 +42,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SidePanelTab } from '~/types'
@@ -77,6 +78,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         clearActivePanelIdentifier,
         toggleLayoutNavCollapsed,
         showLayoutNavBar,
+        resetPanelLayout,
     } = useActions(panelLayoutLogic)
     const {
         pathname,
@@ -397,6 +399,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                     <IconGear /> Configure tabs & home
                                                                 </ButtonPrimitive>
                                                             </ContextMenuItem>
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        } else if (item.identifier === 'Activity' && item.to) {
+                                            return (
+                                                <ContextMenu key={item.identifier}>
+                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuContent className="max-w-[300px]">
+                                                        <ContextMenuGroup>
+                                                            <BrowserLikeMenuItems
+                                                                MenuItem={ContextMenuItem}
+                                                                href={item.to}
+                                                                resetPanelLayout={resetPanelLayout}
+                                                            />
                                                         </ContextMenuGroup>
                                                     </ContextMenuContent>
                                                 </ContextMenu>
