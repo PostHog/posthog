@@ -3,32 +3,19 @@
   '''
   DELETE
   FROM "posthog_persondistinctid"
-  WHERE ("posthog_persondistinctid"."team_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */)
-         AND "posthog_persondistinctid"."id" IN (1,
-                                                 2,
-                                                 3,
-                                                 4,
-                                                 5 /* ... */))
+  WHERE ("id",
+         "team_id") IN ((5,
+                         53),(6,
+                              53))
   '''
 # ---
 # name: TestTeamAPI.test_delete_bulky_postgres_data.1
   '''
   DELETE
   FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" IN (1,
-                                        2,
-                                        3,
-                                        4,
-                                        5 /* ... */)
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  WHERE ("id",
+         "team_id") IN ((3,
+                         53))
   '''
 # ---
 # name: TestTeamAPI.test_delete_bulky_postgres_data.2
