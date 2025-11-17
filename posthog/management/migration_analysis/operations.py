@@ -12,22 +12,35 @@ from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
-def is_unmanaged_model(op, migration) -> bool:
-    """Check if operation explicitly declares managed=False.
+def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
+    """Check if operation should be skipped due to managed=False.
 
-    Only operations that explicitly set managed=False (CreateModel, AlterModelOptions)
-    are skipped. We don't check the current model state because a migration written
-    when a model was managed=True would still execute DDL even if the model later
-    becomes managed=False.
+    Skip if:
+    1. Operation explicitly declares managed=False (e.g., AlterModelOptions, CreateModel)
+    2. Model is currently managed=False in app registry (Django won't execute DDL)
 
-    Example: Migration 0873 sets Person to managed=False, but earlier migrations
-    (0180, 0188, etc.) that create/alter Person should still be analyzed as they
-    execute real DDL.
+    Otherwise analyze normally.
+
+    Args:
+        op: Migration operation
+        migration: Current migration object
+        unapplied_migrations: Unused, kept for signature compatibility
     """
-    # Only check CreateModel and AlterModelOptions operations
-    # These are the only operations that explicitly declare managed=False
+    # Case 1: Operation explicitly declares managed=False
     if hasattr(op, "options") and op.options.get("managed") is False:
         return True
+
+    # Case 2: Check if model is currently managed=False
+    model_name = getattr(op, "model_name", None) or getattr(op, "name", None)
+    if model_name and migration:
+        try:
+            from django.apps import apps
+
+            model = apps.get_model(migration.app_label, model_name)
+            if model._meta.managed is False:
+                return True
+        except LookupError:
+            pass
 
     return False
 
