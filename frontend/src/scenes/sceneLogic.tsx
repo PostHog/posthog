@@ -1566,7 +1566,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const isTKey = keyCode === 'keyt' || key === 't'
                 const isWKey = keyCode === 'keyw' || key === 'w'
                 const isKKey = keyCode === 'keyk' || key === 'k'
-                const isBKey = keyCode === 'keyb' || key === 'b'
 
                 // New shortcuts: Command+Option+T for new tab, Command+Option+W for close tab
                 if (commandKey && optionKey) {
@@ -1611,25 +1610,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     router.actions.push(urls.newTab())
 
                     return
-                }
-
-                // Existing shortcuts (to be deprecated)
-                if (commandKey && isBKey) {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.shiftKey) {
-                        if (activeTab) {
-                            actions.removeTab(activeTab)
-                        }
-                    } else {
-                        // else open a new tab as normal
-                        actions.newTab()
-                    }
                 }
             }
             window.addEventListener('keydown', onKeyDown)
