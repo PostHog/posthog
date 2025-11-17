@@ -82,9 +82,6 @@ class PostHogConfig(AppConfig):
         if not settings.TEST:
             queue_sync_hog_function_templates()
 
-        # Import signal handlers to register them
-        from posthog.models.feature_flag import flags_cache  # noqa: F401
-
     def _setup_lazy_admin(self):
         """Set up lazy loading of admin classes to avoid importing all at startup."""
         import sys

@@ -1,0 +1,415 @@
+"""
+Batch management operations for HyperCache-backed team caches.
+
+This module provides unified batch operations for managing team-indexed HyperCaches
+(flags, team metadata, etc.). Each cache type can define a HyperCacheManagementConfig
+that specifies how to perform batch operations.
+
+Operations include:
+- Invalidating all caches for a namespace
+- Warming all caches with configurable batching and TTL staggering
+- Gathering cache statistics and coverage metrics
+"""
+
+import random
+import statistics
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from django.conf import settings
+from django.db import connection
+
+import structlog
+from posthoganalytics import capture_exception
+from prometheus_client import Counter, Gauge, Histogram
+
+from posthog.models.team.team import Team
+from posthog.redis import get_client
+from posthog.storage.hypercache import HyperCache
+
+logger = structlog.get_logger(__name__)
+
+
+# Consolidated HyperCache metrics with namespace labels
+# These replace cache-specific metrics in flags_cache.py and team_metadata_cache.py
+
+HYPERCACHE_BATCH_REFRESH_COUNTER = Counter(
+    "posthog_hypercache_batch_refresh",
+    "Batch refresh operations for HyperCaches",
+    labelnames=["namespace", "result"],
+)
+
+HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM = Histogram(
+    "posthog_hypercache_batch_refresh_duration_seconds",
+    "Time taken for batch refresh operations",
+    labelnames=["namespace"],
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float("inf")),
+)
+
+HYPERCACHE_TEAMS_PROCESSED_COUNTER = Counter(
+    "posthog_hypercache_teams_processed",
+    "Teams processed by batch refresh operations",
+    labelnames=["namespace", "result"],
+)
+
+HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
+    "posthog_hypercache_signal_updates",
+    "Cache updates triggered by Django signals",
+    labelnames=["namespace", "result"],
+)
+
+HYPERCACHE_INVALIDATION_COUNTER = Counter(
+    "posthog_hypercache_invalidations",
+    "Full cache invalidations (schema changes)",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_COVERAGE_GAUGE = Gauge(
+    "posthog_hypercache_coverage_percent",
+    "Percentage of teams with cached data",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_SIZE_GAUGE = Gauge(
+    "posthog_hypercache_size_bytes",
+    "Estimated total cache size in bytes",
+    labelnames=["namespace"],
+)
+
+
+class UpdateFn(Protocol):
+    """Protocol for cache update functions that accept team and optional TTL."""
+
+    def __call__(self, team: Team | int, ttl: int | None = None) -> bool: ...
+
+
+@dataclass
+class HyperCacheManagementConfig:
+    """
+    Configuration for batch HyperCache management operations.
+
+    Each HyperCache (flags, team metadata, etc.) should define one of these
+    configs to specify how batch operations should work.
+
+    Metrics are now consolidated and use namespace labels instead of per-cache counters.
+    """
+
+    namespace: str  # Cache namespace (e.g., "feature_flags", "team_metadata") - used for metric labels
+    redis_pattern: str  # Redis key pattern for scanning (e.g., "cache/teams/*/feature_flags/*")
+    redis_stats_pattern: str  # Specific pattern for stats (e.g., "cache/teams/*/feature_flags/flags.json")
+    expiry_sorted_set_key: str  # Sorted set key for expiry tracking
+    hypercache: HyperCache  # HyperCache instance
+    update_fn: UpdateFn  # Function to update cache for a team
+    log_prefix: str  # Prefix for log messages (e.g., "flags caches", "team metadata caches")
+    management_command_name: str  # Name of management command for detailed analysis
+
+
+def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
+    """
+    Invalidate all caches for a specific HyperCache namespace.
+
+    Scans Redis for all keys matching the cache pattern, deletes them,
+    and clears the expiry tracking sorted set.
+
+    Args:
+        config: Cache configuration specifying which cache to invalidate
+
+    Returns:
+        Number of cache keys deleted
+    """
+    try:
+        redis_client = get_client()
+
+        deleted = 0
+        for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
+            redis_client.delete(key)
+            deleted += 1
+
+        # Clear the expiry tracking sorted set
+        redis_client.delete(config.expiry_sorted_set_key)
+
+        HYPERCACHE_INVALIDATION_COUNTER.labels(namespace=config.namespace).inc()
+
+        logger.info(f"Invalidated all {config.log_prefix}", deleted_keys=deleted)
+        return deleted
+    except Exception as e:
+        logger.exception(f"Failed to invalidate {config.log_prefix}", error=str(e))
+        capture_exception(e)
+        return 0
+
+
+def warm_all_caches(
+    config: HyperCacheManagementConfig,
+    batch_size: int = 100,
+    invalidate_first: bool = False,
+    stagger_ttl: bool = True,
+    min_ttl_days: int = 5,
+    max_ttl_days: int = 7,
+) -> tuple[int, int]:
+    """
+    Warm cache for all teams.
+
+    Run as a management command for initial cache build or when schema changes require
+    cache invalidation. Processes all teams in batches with staggered TTLs to avoid
+    synchronized expiration. Continues on errors.
+
+    Uses persistent database connection to avoid connection overhead across batches.
+    With CONN_MAX_AGE=0, each query creates a new connection (20-50ms overhead).
+    By maintaining a single connection, we eliminate this overhead for batch operations.
+
+    Args:
+        config: Cache configuration specifying which cache to warm
+        batch_size: Number of teams to process at a time
+        invalidate_first: If True, clear all caches before warming
+        stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
+        min_ttl_days: Minimum TTL in days (when staggering)
+        max_ttl_days: Maximum TTL in days (when staggering)
+
+    Returns:
+        Tuple of (successful_updates, failed_updates)
+    """
+    # Establish persistent database connection for batch operations
+    # This avoids connection overhead (20-50ms per query) across all batches
+    # Skip in tests to avoid interfering with test database management
+    use_connection_pooling = not settings.TEST
+
+    if use_connection_pooling:
+        connection.ensure_connection()
+
+    try:
+        if invalidate_first:
+            logger.info(f"Invalidating all existing {config.log_prefix} before warming")
+            invalidated = invalidate_all_caches(config)
+            logger.info("Invalidated caches", count=invalidated)
+
+        teams_queryset = Team.objects.select_related("organization", "project")
+        total_teams = teams_queryset.count()
+
+        logger.info(
+            f"Starting {config.log_prefix} warm",
+            total_teams=total_teams,
+            batch_size=batch_size,
+            stagger_ttl=stagger_ttl,
+            invalidate_first=invalidate_first,
+        )
+
+        successful = 0
+        failed = 0
+        processed = 0
+
+        last_id = 0
+        while True:
+            batch = list(teams_queryset.filter(id__gt=last_id).order_by("id")[:batch_size])
+            if not batch:
+                break
+
+            # Pre-load data for all teams in batch if the hypercache has batch loading
+            batch_data = None
+            if config.hypercache.batch_load_fn:
+                try:
+                    batch_data = config.hypercache.batch_load_fn(batch)
+                except Exception as e:
+                    logger.warning(
+                        f"Batch load failed for {config.log_prefix}, falling back to individual loads",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+
+            for team in batch:
+                try:
+                    # Use pre-loaded data if available
+                    if batch_data and team.id in batch_data:
+                        if stagger_ttl:
+                            ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
+                        else:
+                            ttl_seconds = None
+
+                        # Directly write pre-loaded data to cache
+                        config.hypercache.set_cache_value(team, batch_data[team.id], ttl=ttl_seconds)
+                    else:
+                        # Fall back to regular update (will load individually)
+                        if stagger_ttl:
+                            ttl_seconds = random.randint(min_ttl_days * 24 * 3600, max_ttl_days * 24 * 3600)
+                            config.update_fn(team, ttl=ttl_seconds)
+                        else:
+                            config.update_fn(team, ttl=None)
+
+                    successful += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to warm {config.log_prefix[:-1]} for team",
+                        team_id=team.id,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    capture_exception(e)
+                    failed += 1
+
+                processed += 1
+
+            last_id = batch[-1].id
+
+            if processed % (batch_size * 10) == 0:
+                logger.info(
+                    f"{config.log_prefix.capitalize()} warm progress",
+                    processed=processed,
+                    total=total_teams,
+                    successful=successful,
+                    failed=failed,
+                    percent=round(100 * processed / total_teams, 1),
+                )
+
+        logger.info(
+            f"{config.log_prefix.capitalize()} warm completed",
+            total_teams=total_teams,
+            successful=successful,
+            failed=failed,
+        )
+
+        return successful, failed
+    finally:
+        # Close the connection only if we opened it (not in tests)
+        if use_connection_pooling:
+            connection.close()
+
+
+def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
+    """
+    Get statistics about a HyperCache.
+
+    Scans Redis to calculate coverage, TTL distribution, and memory estimates.
+    Updates Prometheus gauges with the latest metrics.
+
+    Uses Redis pipelining to batch operations and reduce network round trips
+    by ~90% (e.g., 100K individual calls → 100 batched calls).
+
+    Args:
+        config: Cache configuration specifying which cache to analyze
+
+    Returns:
+        Dictionary with cache statistics including size information
+    """
+    try:
+        redis_client = get_client()
+
+        total_keys = 0
+        ttl_buckets = {
+            "expired": 0,
+            "expires_1h": 0,
+            "expires_24h": 0,
+            "expires_7d": 0,
+            "expires_later": 0,
+        }
+
+        sample_sizes: list[int] = []
+        sample_limit = 100
+
+        # Use pipelining to batch Redis operations and reduce network round trips
+        pipeline_batch_size = 1000
+        pipeline = redis_client.pipeline(transaction=False)
+        batch_keys: list[bytes] = []
+
+        for key in redis_client.scan_iter(match=config.redis_stats_pattern, count=1000):
+            # Queue TTL command in pipeline
+            pipeline.ttl(key)
+            batch_keys.append(key)
+
+            # Process batch when we hit the batch size
+            if len(batch_keys) >= pipeline_batch_size:
+                ttls = pipeline.execute()
+
+                # Process TTL results
+                for ttl in ttls:
+                    total_keys += 1
+
+                    if ttl <= 0:
+                        ttl_buckets["expired"] += 1
+                    elif ttl <= 3600:
+                        ttl_buckets["expires_1h"] += 1
+                    elif ttl <= 86400:
+                        ttl_buckets["expires_24h"] += 1
+                    elif ttl <= 604800:
+                        ttl_buckets["expires_7d"] += 1
+                    else:
+                        ttl_buckets["expires_later"] += 1
+
+                # Reset for next batch
+                batch_keys = []
+                pipeline = redis_client.pipeline(transaction=False)
+
+        # Process remaining keys in the last batch
+        if batch_keys:
+            ttls = pipeline.execute()
+
+            for ttl in ttls:
+                total_keys += 1
+
+                if ttl <= 0:
+                    ttl_buckets["expired"] += 1
+                elif ttl <= 3600:
+                    ttl_buckets["expires_1h"] += 1
+                elif ttl <= 86400:
+                    ttl_buckets["expires_24h"] += 1
+                elif ttl <= 604800:
+                    ttl_buckets["expires_7d"] += 1
+                else:
+                    ttl_buckets["expires_later"] += 1
+
+        # Sample memory usage for a subset of keys (up to sample_limit)
+        # Use a second scan with pipelining for memory sampling
+        if total_keys > 0:
+            pipeline = redis_client.pipeline(transaction=False)
+            sampled_keys = 0
+
+            for key in redis_client.scan_iter(match=config.redis_stats_pattern, count=100):
+                if sampled_keys >= sample_limit:
+                    break
+
+                pipeline.memory_usage(key)
+                sampled_keys += 1
+
+            if sampled_keys > 0:
+                try:
+                    memory_results = pipeline.execute()
+                    sample_sizes = [mem for mem in memory_results if mem is not None]
+                except Exception as e:
+                    logger.warning(f"Failed to sample memory usage for {config.log_prefix}", error=str(e))
+
+        total_teams = Team.objects.count()
+        coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
+
+        size_stats = {}
+        if sample_sizes:
+            avg_size = statistics.mean(sample_sizes)
+            estimated_total_bytes = avg_size * total_keys
+
+            size_stats = {
+                "sample_count": len(sample_sizes),
+                "avg_size_bytes": int(avg_size),
+                "median_size_bytes": int(statistics.median(sample_sizes)),
+                "min_size_bytes": min(sample_sizes),
+                "max_size_bytes": max(sample_sizes),
+                "estimated_total_mb": round(estimated_total_bytes / (1024 * 1024), 2),
+            }
+
+            HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
+
+        HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
+
+        return {
+            "total_cached": total_keys,
+            "total_teams": total_teams,
+            "cache_coverage": f"{coverage_percent:.1f}%",
+            "cache_coverage_percent": coverage_percent,
+            "ttl_distribution": ttl_buckets,
+            "size_statistics": size_stats,
+            "namespace": config.hypercache.namespace,
+            "note": f"Run 'python manage.py {config.management_command_name}' for detailed analysis",
+        }
+
+    except Exception as e:
+        logger.exception(f"Error getting {config.log_prefix} stats", error=str(e))
+        return {
+            "error": str(e),
+            "namespace": config.hypercache.namespace,
+        }
