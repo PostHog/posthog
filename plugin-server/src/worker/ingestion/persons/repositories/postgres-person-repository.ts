@@ -234,7 +234,10 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
@@ -286,7 +289,10 @@ export class PostgresPersonRepository
                 posthog_person.is_identified,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
             WHERE ${conditions}`
 
         // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
