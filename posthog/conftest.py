@@ -1,3 +1,7 @@
+import os
+import subprocess
+from urllib.parse import quote_plus
+
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
@@ -142,8 +146,94 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
+def run_persons_sqlx_migrations():
+    """Run sqlx migrations for persons tables in test database.
+
+    This creates posthog_person_new and related tables needed for dual-table
+    person model migration. Mirrors production migrations in rust/persons_migrations/.
+    """
+    # Build database URL from Django test database settings
+    db_config = settings.DATABASES["default"]
+    db_name = db_config["NAME"]
+    db_user = db_config["USER"]
+    db_password = db_config["PASSWORD"]
+    db_host = db_config["HOST"]
+    db_port = db_config["PORT"]
+
+    # URL encode password to handle special characters
+    password_part = f":{quote_plus(db_password)}" if db_password else ""
+    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
+
+    # Get path to migrations (relative to this file)
+    # conftest.py is at posthog/conftest.py, go up one level to repo root
+    migrations_path = os.path.join(os.path.dirname(__file__), "..", "rust", "persons_migrations")
+    migrations_path = os.path.abspath(migrations_path)
+
+    env = {**os.environ, "DATABASE_URL": database_url}
+
+    # Create database if it doesn't exist (idempotent)
+    try:
+        subprocess.run(
+            ["sqlx", "database", "create"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to create test database with sqlx. "
+            f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+        ) from e
+
+    # Run migrations
+    try:
+        subprocess.run(
+            ["sqlx", "migrate", "run", "--source", migrations_path],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to run sqlx migrations from {migrations_path}. "
+            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+        ) from e
+
+
 @pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb):
+def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+    # Django migrations have run (via django_db_setup parameter)
+    # Drop FK constraints that reference posthog_person to allow dual-table migration
+    from django.db import connection
+
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            # Drop all FK constraints pointing to posthog_person, regardless of naming convention
+            # This is needed because:
+            # 1. Django creates FKs with hash suffix: posthog_persondistin_person_id_5d655bba_fk_posthog_p
+            # 2. sqlx migration tries to drop: posthog_persondistinctid_person_id_fkey
+            # 3. Mismatch means FK remains and blocks dual-table writes
+            cursor.execute("""
+                DO $$
+                DECLARE r RECORD;
+                BEGIN
+                    -- Only drop if posthog_person table exists
+                    IF EXISTS (SELECT FROM pg_tables WHERE tablename = 'posthog_person') THEN
+                        FOR r IN
+                            SELECT conname, conrelid::regclass AS table_name
+                            FROM pg_constraint
+                            WHERE contype = 'f'
+                            AND confrelid = 'posthog_person'::regclass
+                        LOOP
+                            EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', r.table_name, r.conname);
+                        END LOOP;
+                    END IF;
+                END $$;
+            """)
+
+    # Run sqlx migrations to create posthog_person_new and related tables
+    run_persons_sqlx_migrations()
+
     database = Database(
         settings.CLICKHOUSE_DATABASE,
         db_url=settings.CLICKHOUSE_HTTP_URL,
@@ -161,6 +251,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
             pass
 
     database.create_database()  # Create database if it doesn't exist
+
     create_clickhouse_tables()
 
     yield

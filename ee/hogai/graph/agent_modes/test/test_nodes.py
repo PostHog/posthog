@@ -445,6 +445,46 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
 
+    async def test_node_includes_core_memory_in_system_prompt(self):
+        """Test that core memory content is appended to the conversation in system prompts"""
+        with (
+            patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
+            patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
+            patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._aget_core_memory_text") as mock_core_memory,
+        ):
+            mock_core_memory.return_value = "User prefers concise responses and technical details"
+            mock_generate.return_value = ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="Response"))],
+                llm_output={},
+            )
+
+            node = _create_agent_node(self.team, self.user)
+            config = RunnableConfig(configurable={})
+            node._config = config
+
+            await node.arun(AssistantState(messages=[HumanMessage(content="Test")]), config)
+
+            # Verify _agenerate was called
+            mock_generate.assert_called_once()
+
+            # Get the messages passed to _agenerate
+            call_args = mock_generate.call_args
+            messages = call_args[0][0]
+
+            # Check system messages contain core memory
+            system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
+            self.assertGreater(len(system_messages), 0)
+
+            content_parts = []
+            for msg in system_messages:
+                if isinstance(msg.content, str):
+                    content_parts.append(msg.content)
+                else:
+                    content_parts.append(str(msg.content))
+            system_content = "\n\n".join(content_parts)
+
+            self.assertIn("User prefers concise responses and technical details", system_content)
+
     @parameterized.expand(
         [
             # (membership_level, add_context, expected_prompt)
@@ -480,13 +520,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(await node._get_billing_prompt(), expected_prompt)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch(
-        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
-    )
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    async def test_conversation_summarization_flow(self, mock_summarize, mock_should_compact, mock_model):
+    async def test_conversation_summarization_flow(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that conversation is summarized when it gets too long"""
-        mock_should_compact.return_value = True
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
+        mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "This is a summary of the conversation so far."
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response after summary")])
@@ -514,13 +553,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch(
-        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
-    )
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_should_compact, mock_model):
+    async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that on first turn, the last message is excluded from summarization"""
-        mock_should_compact.return_value = True
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
+        mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "Summary without last message"
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])

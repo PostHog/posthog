@@ -12,7 +12,6 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -140,11 +139,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             yield from response.results
 
-        try:
-            results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
         return Response({"query": query, "results": results}, status=200)
 
     @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
@@ -160,11 +155,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        try:
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
