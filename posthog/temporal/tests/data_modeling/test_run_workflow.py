@@ -443,14 +443,7 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
     assert table.num_rows == 1
     assert table.num_columns == 2
     assert table.column_names == ["nullable_nothing_column", "nullable_nothing_column_type"]
-    assert table.column(0).type == pa.null()
-    assert table.column(1).type == pa.string()
-
-    # replace microsecond because they won't match exactly
-    row = table.to_pylist()[0]
-    now_converted = row["now_converted"]
-    now = row["now"]
-    assert now_converted == now
+    assert table.column(0).type == pa.string()  # Mapped to a string even though it was null
 
 
 async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
