@@ -1,7 +1,6 @@
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
@@ -100,7 +99,6 @@ export function GlobalModals(): JSX.Element {
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <CreateEnvironmentModal isVisible={isCreateEnvironmentModalShown} onClose={hideCreateEnvironmentModal} />
             <UpgradeModal />
-            <ConfirmUpgradeModal />
             <TimeSensitiveAuthenticationModal />
             <SessionPlayerModal />
             <PreviewingCustomCssModal />

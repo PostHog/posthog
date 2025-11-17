@@ -14,7 +14,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   path: posthog
-                  fetch-depth: 0
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -39,7 +38,7 @@ jobs:
               with:
                   path: storybook-build
                   repository: PostHog/storybook-build
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Copy built changes to PostHog/storybook-build repo
               run: |

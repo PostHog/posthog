@@ -5,6 +5,7 @@ import { CSSProperties } from 'react'
 import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 
+import { patch } from '~/toolbar/patch'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 
@@ -491,4 +492,53 @@ export function getHeatMapHue(count: number, maxCount: number): number {
  */
 export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
     return foundSelector.replace(/\\./g, '.')
+}
+
+export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {
+    return () => {
+        let unwrapPushState: undefined | (() => void)
+        let unwrapReplaceState: undefined | (() => void)
+        if (!(window.history.pushState as any)?.[patchKey]) {
+            unwrapPushState = patch(
+                window.history,
+                'pushState',
+                (originalPushState) => {
+                    return function patchedPushState(
+                        this: History,
+                        state: any,
+                        title: string,
+                        url?: string | URL | null
+                    ): void {
+                        ;(originalPushState as History['pushState']).call(this, state, title, url)
+                        onNavigate()
+                    }
+                },
+                patchKey
+            )
+        }
+
+        if (!(window.history.replaceState as any)?.[patchKey]) {
+            unwrapReplaceState = patch(
+                window.history,
+                'replaceState',
+                (originalReplaceState) => {
+                    return function patchedReplaceState(
+                        this: History,
+                        state: any,
+                        title: string,
+                        url?: string | URL | null
+                    ): void {
+                        ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
+                        onNavigate()
+                    }
+                },
+                patchKey
+            )
+        }
+
+        return () => {
+            unwrapPushState?.()
+            unwrapReplaceState?.()
+        }
+    }
 }

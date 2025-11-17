@@ -197,7 +197,12 @@ export function MenuItems({
                 <>
                     <MenuSub key="new">
                         <MenuSubTrigger asChild data-attr="tree-item-menu-open-new-menu-button">
-                            <ButtonPrimitive menuItem>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                }}
+                            >
                                 New...
                                 <IconChevronRight className="ml-auto size-3" />
                             </ButtonPrimitive>
@@ -281,7 +286,9 @@ export function MenuItems({
                 </MenuItem>
             ) : null}
 
-            {item.record?.path && item.record?.type === 'folder' ? (
+            {item.record?.path &&
+            item.record?.type === 'folder' &&
+            !(item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
                 <MenuItem
                     asChild
                     onClick={(e) => {
@@ -318,7 +325,9 @@ export function MenuItems({
                 >
                     <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                 </MenuItem>
-            ) : item.record?.path && item.record?.type === 'folder' ? (
+            ) : item.record?.path &&
+              item.record?.type === 'folder' &&
+              !(item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
                 <MenuItem
                     asChild
                     onClick={(e) => {

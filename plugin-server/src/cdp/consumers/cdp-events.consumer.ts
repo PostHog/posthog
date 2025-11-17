@@ -216,7 +216,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
-                        item.queue = 'hog_overflow'
+                        item.queue = 'hogoverflow'
                     }
                 }
 
@@ -351,9 +351,23 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             validInvocations.push(item)
         })
 
+        // Now we can filter by masking configs
+        const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            masked.map((item) => ({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'masked',
+                count: 1,
+            })),
+            'hog_flow'
+        )
+
         const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 
-        validInvocations.forEach((item) => {
+        notMaskedInvocations.forEach((item) => {
             triggeredInvocationsMetrics.push({
                 team_id: item.teamId,
                 app_source_id: item.functionId,
@@ -373,9 +387,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
         this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
-        // TODO: Add back in Masking options
-
-        return validInvocations
+        return notMaskedInvocations
     }
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
@@ -440,25 +452,5 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
-    }
-
-    private async isAddonRequired(hogFunction: HogFunctionType): Promise<boolean> {
-        // Load the template if possible
-        if (hogFunction.type !== 'destination') {
-            // Only destinations are part of the paid plan
-            return false
-        }
-
-        if (!hogFunction.template_id) {
-            return true // Assume templateless requires the addon
-        }
-
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(hogFunction.template_id)
-
-        if (!template) {
-            return true // Assume templateless requires the addon
-        }
-
-        return !template.free
     }
 }

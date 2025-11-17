@@ -2,7 +2,7 @@ from itertools import chain
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.ast import BooleanType, IntegerType, StringType
+from posthog.hogql.ast import IntegerType, StringType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 
@@ -168,6 +168,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
     "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
     "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
+    "indexHint": HogQLFunctionMeta("indexHint", 1, 1),
+    "extractIPv4Substrings": HogQLFunctionMeta("extractIPv4Substrings", 1, 1),
     # time window
     "tumble": HogQLFunctionMeta("tumble", 2, 2),
     "hop": HogQLFunctionMeta("hop", 3, 3),
@@ -219,13 +221,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((UnknownType(), IntegerType(), UnknownType()), UnknownType()),
         ],
     ),
-    # survey functions
-    "getSurveyResponse": HogQLFunctionMeta(
-        "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
-    ),
-    "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
-        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
-    ),
     # Translates languages codes to full language name
     "languageCodeToName": HogQLFunctionMeta(
         clickhouse_name="transform",
@@ -256,6 +251,7 @@ def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Option
     func = functions.get(name.lower())
     if func is None:
         return None
+
     # If we haven't found a function with the case preserved, but we have found it in lowercase,
     # then the function names are different case-wise only.
     if func.case_sensitive:

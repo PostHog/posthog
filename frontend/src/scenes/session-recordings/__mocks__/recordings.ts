@@ -27,6 +27,8 @@ export const recordings: SessionRecordingType[] = [
                 email: 'test@posthog.com',
             },
         },
+        expiry_time: '2021-10-14T00:00:00.000000Z',
+        recording_ttl: 10,
     },
     {
         id: '017c49bd-a0ca-0000-5893-880c691608db',
@@ -54,5 +56,7 @@ export const recordings: SessionRecordingType[] = [
                 email: 'smith.nunez@gmail.com',
             },
         },
+        expiry_time: '2021-10-14T00:00:00.000000Z',
+        recording_ttl: 10,
     },
 ]

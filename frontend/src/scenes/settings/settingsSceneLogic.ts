@@ -8,7 +8,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
@@ -44,6 +45,18 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                     iconType: 'dashboard',
                 },
             ],
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.selectedSectionId],
+            (selectedSectionId: SettingSectionId | null): SidePanelSceneContext | null => {
+                if (selectedSectionId === 'user-api-keys') {
+                    return {
+                        activity_scope: ActivityScope.PERSONAL_API_KEY,
+                    }
+                }
+                return null
+            },
         ],
     }),
 
@@ -98,9 +111,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         },
         selectSetting({ setting }) {
             return [
-                urls.settings(values.selectedSectionId ?? values.selectedLevel, setting),
-                undefined,
-                undefined,
+                urls.settings(values.selectedSectionId ?? values.selectedLevel),
+                router.values.searchParams,
+                { ...router.values.hashParams, setting },
                 { replace: true },
             ]
         },

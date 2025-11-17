@@ -26,6 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActionType,
     AvailableFeature,
@@ -196,7 +197,7 @@ export function ActionsTable(): JSX.Element {
                             <>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Action}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={action.user_access_level}
                                 >
                                     <LemonButton to={urls.action(action.id)} fullWidth>
@@ -245,7 +246,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonDivider />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Action}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={action.user_access_level}
                                 >
                                     <LemonButton

@@ -23,5 +23,9 @@ declare global {
         }
         IMPERSONATED_SESSION?: boolean
         POSTHOG_JS_UUID_VERSION?: string
+
+        // These are used to track global errors across the app.
+        // Can be used to determine whether we should show warnings in different places in the app.
+        POSTHOG_GLOBAL_ERRORS?: Record<string, boolean>
     }
 }

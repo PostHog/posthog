@@ -23,10 +23,10 @@ type HeatmapData = Record<string, HeatmapDataItem[]>
 export async function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
-): Promise<[PreIngestionEvent, Promise<void>[]]> {
+): Promise<[PreIngestionEvent, Promise<unknown>[]]> {
     const { eventUuid, teamId } = event
 
-    const acks: Promise<void>[] = []
+    const acks: Promise<unknown>[] = []
 
     try {
         const team = await runner.hub.teamManager.getTeam(teamId)

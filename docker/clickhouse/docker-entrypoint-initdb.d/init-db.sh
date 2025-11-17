@@ -10,3 +10,6 @@ if [[ $(readlink /usr/bin/python3) != "/usr/bin/python3.9" ]]; then
 fi
 
 cp -r /idl/* /var/lib/clickhouse/format_schemas/
+
+# flush all log tables to ensure they are created
+clickhouse client --query "system flush logs"

@@ -11,10 +11,10 @@ import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/Dashboards
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -53,10 +53,10 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
 
             <SceneTitleSection
-                name="Dashboards"
-                description="Create and manage your dashboards"
+                name={sceneConfigurations[Scene.Dashboards].name}
+                description={sceneConfigurations[Scene.Dashboards].description}
                 resourceType={{
-                    type: 'dashboard',
+                    type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
                 }}
                 actions={
                     <>
@@ -76,7 +76,6 @@ export function Dashboards(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(newKey) => setCurrentTab(newKey)}

@@ -1,0 +1,115 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row {
+        margin-bottom: 15px;
+    }
+    .help {
+        font-size: 11px;
+        color: #666;
+    }
+    .submit-row {
+        margin-top: 30px;
+    }
+    .alert {
+        padding: 10px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    .alert-info {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        color: #1565c0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>Note:</strong> This tool triggers the Temporal workflow for realtime cohort calculation. 
+    The calculation runs asynchronously in the background and processes all actions with bytecode.
+    Check the Temporal UI for progress and results.
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<form method="post" id="actions-analysis-form">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <h2>Configuration</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.days.id_for_label }}" class="required">
+                {{ form.days.label }}:
+            </label>
+            {{ form.days }}
+            {% if form.days.help_text %}
+                <p class="help">{{ form.days.help_text }}</p>
+            {% endif %}
+            {{ form.days.errors }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.min_matches.id_for_label }}" class="required">
+                {{ form.min_matches.label }}:
+            </label>
+            {{ form.min_matches }}
+            {% if form.min_matches.help_text %}
+                <p class="help">{{ form.min_matches.help_text }}</p>
+            {% endif %}
+            {{ form.min_matches.errors }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.parallelism.id_for_label }}" class="required">
+                {{ form.parallelism.label }}:
+            </label>
+            {{ form.parallelism }}
+            {% if form.parallelism.help_text %}
+                <p class="help">{{ form.parallelism.help_text }}</p>
+            {% endif %}
+            {{ form.parallelism.errors }}
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>Jittered Scheduling</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.workflows_per_batch.id_for_label }}" class="required">
+                {{ form.workflows_per_batch.label }}:
+            </label>
+            {{ form.workflows_per_batch }}
+            {% if form.workflows_per_batch.help_text %}
+                <p class="help">{{ form.workflows_per_batch.help_text }}</p>
+            {% endif %}
+            {{ form.workflows_per_batch.errors }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.batch_delay_minutes.id_for_label }}" class="required">
+                {{ form.batch_delay_minutes.label }}:
+            </label>
+            {{ form.batch_delay_minutes }}
+            {% if form.batch_delay_minutes.help_text %}
+                <p class="help">{{ form.batch_delay_minutes.help_text }}</p>
+            {% endif %}
+            {{ form.batch_delay_minutes.errors }}
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Run Calculation" class="default" />
+    </div>
+</form>
+{% endblock %}

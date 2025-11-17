@@ -2,12 +2,20 @@ import time
 import datetime
 
 from django.conf import settings
+from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.http import HttpRequest
+from django.utils.crypto import constant_time_compare
+from django.utils.http import base36_to_int
 
 from loginas.utils import is_impersonated_session
+from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
+from posthog.cloud_utils import is_dev_mode
+from posthog.email import is_email_available
+from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 # Enforce Two-Factor Authentication only on sessions created after this date
@@ -25,6 +33,7 @@ WHITELISTED_PATHS = [
     "/api/logout/",
     "/api/login/",
     "/api/login/token/",
+    "/api/login/email-mfa/",
     "/api/users/@me/",
     "/_health/",
 ]
@@ -103,7 +112,8 @@ def enforce_two_factor(request, user):
         if is_impersonated_session(request._request):
             return
 
-        if not default_device(user):
+        device = default_device(user)
+        if not device:
             raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
         if not is_two_factor_verified_in_session(request._request):
@@ -161,3 +171,98 @@ def is_sso_authentication_backend(request: HttpRequest):
     SSO_AUTHENTICATION_BACKENDS = list(set(SSO_AUTHENTICATION_BACKENDS) - set(NON_SSO_AUTHENTICATION_BACKENDS))
 
     return request.session.get("_auth_user_backend") in SSO_AUTHENTICATION_BACKENDS
+
+
+class EmailMFATokenGenerator(PasswordResetTokenGenerator):
+    """
+    Token generator for email-based MFA login verification.
+    Tokens are valid for 10 minutes and become invalid after use or expiration.
+    """
+
+    def check_token(self, user, token):
+        """Override to use 10-minute timeout instead of PASSWORD_RESET_TIMEOUT (1 hour)."""
+        if not (user and token):
+            return False
+
+        try:
+            ts_b36, _ = token.split("-")
+            ts = base36_to_int(ts_b36)
+        except ValueError:
+            return False
+
+        # Validate token signature
+        for secret in [self.secret, *self.secret_fallbacks]:
+            if constant_time_compare(self._make_token_with_timestamp(user, ts, secret), token):
+                break
+        else:
+            return False
+
+        # Check 10-minute timeout (600 seconds)
+        return (self._num_seconds(self._now()) - ts) <= 600
+
+    def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
+        """Include last_login and is_active to invalidate tokens after use or deactivation."""
+        from posthog.models.user import User
+
+        usable_user: User = User.objects.get(pk=user.pk)
+        login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
+        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}"
+
+
+email_mfa_token_generator = EmailMFATokenGenerator()
+
+
+class EmailMFAVerifier:
+    def should_send_email_mfa_verification(self, user: User) -> bool:
+        if is_dev_mode() and not settings.TEST:
+            return False
+
+        if not is_email_available(with_absolute_urls=True):
+            return False
+
+        try:
+            import posthoganalytics
+
+            organization = user.organization
+            if not organization:
+                return False
+
+            return posthoganalytics.feature_enabled(
+                "email-mfa",
+                str(user.distinct_id),
+                groups={"organization": str(organization.id)},
+            )
+        except Exception:
+            return False
+
+    def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
+        from posthog.tasks import email
+
+        if not self.should_send_email_mfa_verification(user):
+            return False
+
+        try:
+            token = email_mfa_token_generator.make_token(user)
+            email.send_email_mfa_link(user.pk, token)
+            request.session["email_mfa_pending_user_id"] = user.pk
+            request.session["email_mfa_token_created_at"] = int(time.time())
+            return True
+        except Exception as e:
+            capture_exception(Exception(f"Email MFA verification email failed: {e}"))
+            return False
+
+    def has_pending_email_mfa_verification(self, request: HttpRequest) -> bool:
+        return request.session.get("email_mfa_pending_user_id") is not None
+
+    def get_pending_email_mfa_verification_user_id(self, request: HttpRequest) -> int | None:
+        user_id: int | None = request.session.get("email_mfa_pending_user_id")
+        return user_id
+
+    def get_pending_email_mfa_verification_token_created_at(self, request: HttpRequest) -> int:
+        return request.session.get("email_mfa_token_created_at", int(time.time()))
+
+    def check_token(self, user: User, token: str) -> bool:
+        return email_mfa_token_generator.check_token(user, token)
+
+
+email_mfa_verifier = EmailMFAVerifier()

@@ -330,5 +330,5 @@ export function logDroppedMessage(originalMessage: Message, reason: string, step
         reason,
     })
 
-    droppedEventCounter.inc()
+    droppedEventCounter.labels({ reason }).inc()
 }

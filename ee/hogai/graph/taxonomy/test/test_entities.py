@@ -9,6 +9,8 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
+    _parent_tool_call_id: str | None = None
+
     def get_tools(self):
         return self._get_default_tools()
 
@@ -50,14 +52,26 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
             properties={"name": "Test User"},
         )
 
-        self.toolkit = DummyToolkit(self.team)
+        self.toolkit = DummyToolkit(self.team, self.user)
 
     async def test_retrieve_entity_properties(self):
-        result = await self.toolkit.retrieve_entity_properties("person")
+        result = await self.toolkit.retrieve_entity_properties_parallel(["person"])
         assert (
             "<properties><String><prop><name>name</name></prop><prop><name>property_no_values</name></prop></String></properties>"
-            == result
+            == result["person"]
         )
+
+    async def test_retrieve_entity_properties_entity_not_found(self):
+        result = await self.toolkit.retrieve_entity_properties_parallel(["test"])
+        assert "Entity test not found. Available entities: person, session, organization, project" == result["test"]
+
+    async def test_retrieve_entity_properties_entity_with_group(self):
+        result = await self.toolkit.retrieve_entity_properties_parallel(["organization", "session"])
+        assert "session" in result
+        assert (
+            "<properties><String><prop><name>name_group</name></prop></String></properties>" == result["organization"]
+        )
+        assert "<properties>" in result["session"]
 
     async def test_person_property_values_exists(self):
         result = await self.toolkit._get_entity_names()

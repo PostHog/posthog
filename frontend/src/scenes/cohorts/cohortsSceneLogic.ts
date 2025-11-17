@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -50,16 +50,9 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean) => ({ filters, replace }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
-        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
     })),
     reducers({
-        pollTimeout: [
-            null as number | null,
-            {
-                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
-            },
-        ],
         cohortFilters: [
             DEFAULT_COHORT_FILTERS,
             {
@@ -163,13 +156,16 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, cache, values }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
             const is_calculating = cohorts.results.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating || !router.values.location.pathname.includes(urls.cohorts())) {
                 return
             }
-            actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
+            cache.disposables.add(() => {
+                const timerId = window.setTimeout(actions.loadCohorts, POLL_TIMEOUT)
+                return () => clearTimeout(timerId)
+            }, 'pollTimeout')
         },
         setCohortFilters: async (_, breakpoint) => {
             await breakpoint(300)
@@ -276,9 +272,6 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.setCohortSorting(currentSorting)
         },
     })),
-    beforeUnmount(({ values }) => {
-        clearTimeout(values.pollTimeout || undefined)
-    }),
     afterMount(({ actions }) => {
         actions.loadCohorts()
     }),

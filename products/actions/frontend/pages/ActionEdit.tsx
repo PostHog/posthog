@@ -5,17 +5,19 @@ import { useEffect } from 'react'
 
 import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 
-import { AccessControlAction, getAccessControlDisabledReason, userHasAccess } from 'lib/components/AccessControlAction'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -34,7 +36,14 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlResourceType, ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionStepType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -67,12 +76,21 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     // Check if user can edit this action
-    const canEdit = userHasAccess(AccessControlResourceType.Action, 'editor', action.user_access_level)
+    const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
     const cannotEditReason = getAccessControlDisabledReason(
         AccessControlResourceType.Action,
-        'editor',
+        AccessControlLevel.Editor,
         action.user_access_level
     )
+
+    const actionId = typeof action?.id === 'number' ? action.id : null
+
+    useFileSystemLogView({
+        type: 'action',
+        ref: actionId,
+        enabled: Boolean(actionId && !actionLoading),
+        deps: [actionId, actionLoading],
+    })
 
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
@@ -163,7 +181,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
-                        <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel="editor">
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Action}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
                             {({ disabledReason }) => (
                                 <ButtonPrimitive
                                     onClick={() => {
@@ -225,8 +246,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                         </>
                     }
                 />
-
-                <SceneDivider />
 
                 <SceneSection
                     title="Match groups"

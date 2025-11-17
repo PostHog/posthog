@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
@@ -207,6 +208,7 @@ def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) 
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
             "project_feature_flags-local-evaluation",
+            "project_live_debugger_breakpoints-active-breakpoints",
         }
     )
 
@@ -325,6 +327,16 @@ class TimeSensitiveActionPermission(BasePermission):
 
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
+        allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        if allow_if_only_fields and request.method not in SAFE_METHODS:
+            data = getattr(request, "data", None)
+            data_keys: set[str] = set()
+            if data is not None and hasattr(data, "keys"):
+                data_keys = {str(key) for key in data.keys()}
+
+            if data_keys and data_keys.issubset(set(allow_if_only_fields)):
+                return True
+
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True
 
@@ -397,7 +409,7 @@ class ScopeBasePermission(BasePermission):
 
 class APIScopePermission(ScopeBasePermission):
     """
-    The request is via an API key and the user has the appropriate scopes.
+    The request is via an API key or OAuth token and the user has the appropriate scopes.
 
     This permission requires that the view has a "scope" attribute which is the base scope required for the action.
     E.g. scope="insight" for a view that requires "insight:read" or "insight:write" for the relevant actions.
@@ -411,14 +423,22 @@ class APIScopePermission(ScopeBasePermission):
         # Helps devs remember to add it.
         self._get_scope_object(request, view)
 
-        # API Scopes currently only apply to PersonalAPIKeyAuthentication
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            return True
+        # API Scopes apply to PersonalAPIKeyAuthentication and OAuthAccessTokenAuthentication
 
-        key_scopes = request.successful_authenticator.personal_api_key.scopes
-
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not key_scopes:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            key_scopes = request.successful_authenticator.personal_api_key.scopes
+            # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
+            if not key_scopes:
+                return True
+        elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            # OAuth tokens store scopes as space-separated string
+            token_scope_string = request.successful_authenticator.access_token.scope
+            key_scopes = token_scope_string.split() if token_scope_string else []
+            # OAuth tokens with no scopes should not have access
+            if not key_scopes:
+                self.message = "OAuth token has no scopes and cannot access this resource"
+                return False
+        else:
             return True
 
         required_scopes = self._get_required_scopes(request, view)
@@ -452,8 +472,14 @@ class APIScopePermission(ScopeBasePermission):
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
-        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
+            scoped_teams = request.successful_authenticator.access_token.scoped_teams
+        elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
+            scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        else:
+            raise ValueError("Unexpected authentication type")
 
         if scoped_teams:
             try:

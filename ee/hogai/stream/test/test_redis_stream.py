@@ -21,10 +21,10 @@ from ee.hogai.stream.redis_stream import (
     ConversationRedisStream,
     ConversationStreamSerializer,
     MessageEvent,
-    StatusEvent,
     StatusPayload,
     StreamError,
     StreamEvent,
+    StreamStatusEvent,
 )
 from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
@@ -102,7 +102,7 @@ class TestRedisStream(BaseTest):
             # Mock xread to return completion status
             import pickle
 
-            test_event = StreamEvent(event=StatusEvent(type="status", payload=StatusPayload(status="complete")))
+            test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
             serialized_data = pickle.dumps(test_event)
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
@@ -118,9 +118,7 @@ class TestRedisStream(BaseTest):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             import pickle
 
-            test_event = StreamEvent(
-                event=StatusEvent(type="status", payload=StatusPayload(status="error", error="Test error"))
-            )
+            test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="error", error="Test error")))
             serialized_data = pickle.dumps(test_event)
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
@@ -264,7 +262,7 @@ class TestRedisStream(BaseTest):
             test_event2 = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="chunk 2"))
             )
-            complete_event = StreamEvent(event=StatusEvent(type="status", payload=StatusPayload(status="complete")))
+            complete_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
             mock_client.xread = AsyncMock(
                 return_value=[
                     (
@@ -295,7 +293,7 @@ class TestRedisStream(BaseTest):
             valid_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="valid chunk"))
             )
-            complete_event = StreamEvent(event=StatusEvent(type="status", payload=StatusPayload(status="complete")))
+            complete_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
             mock_client.xread = AsyncMock(
                 return_value=[
                     (
@@ -461,7 +459,7 @@ class TestRedisStream(BaseTest):
 
         # Create an ACK message as a MESSAGE event (since STATUS is treated as MESSAGE)
         ack_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-        event: AssistantOutput = (AssistantEventType.MESSAGE, ack_message)
+        event: AssistantOutput = (AssistantEventType.STATUS, ack_message)
 
         # Should return None for ACK messages
         result = serializer.dumps(event)
@@ -474,7 +472,7 @@ class TestRedisStream(BaseTest):
 
         # Test with a non-ACK status message
         status_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        event: AssistantOutput = (AssistantEventType.MESSAGE, status_message)
+        event: AssistantOutput = (AssistantEventType.STATUS, status_message)
 
         result = serializer.dumps(event)
         self.assertIsNotNone(result)
@@ -494,7 +492,7 @@ class TestRedisStream(BaseTest):
             async def test_generator():
                 yield (AssistantEventType.MESSAGE, AssistantMessage(content="regular message"))
                 yield (
-                    AssistantEventType.MESSAGE,
+                    AssistantEventType.STATUS,
                     AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK),
                 )
                 yield (AssistantEventType.MESSAGE, AssistantMessage(content="another message"))
@@ -541,7 +539,7 @@ class TestRedisStream(BaseTest):
         # Test deserialization - need to convert string keys to bytes
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
-        self.assertEqual(deserialized.event.type, "status")
+        self.assertEqual(deserialized.event.type, "STREAM_STATUS")
         payload = cast(StatusPayload, deserialized.event.payload)
         self.assertEqual(payload.status, "complete")
         self.assertIsNone(payload.error)
@@ -561,7 +559,7 @@ class TestRedisStream(BaseTest):
         # Test deserialization - need to convert string keys to bytes
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
-        self.assertEqual(deserialized.event.type, "status")
+        self.assertEqual(deserialized.event.type, "STREAM_STATUS")
         payload = cast(StatusPayload, deserialized.event.payload)
         self.assertEqual(payload.status, "error")
         self.assertEqual(payload.error, "Test error message")

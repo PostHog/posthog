@@ -14,6 +14,7 @@ import { createExperimentLogic } from './createExperimentLogic'
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
+        error: jest.fn(),
     },
 }))
 
@@ -74,47 +75,12 @@ describe('createExperimentLogic', () => {
                     name: '',
                     description: 'Valid hypothesis',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
+                .toDispatchActions(['setExperiment', 'saveExperiment', 'saveExperimentFailure'])
                 .toMatchValues({
                     experimentErrors: partial({
                         name: 'Name is required',
-                    }),
-                })
-        })
-
-        it('prevents submission when description is empty and shows error', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: 'Valid name',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        description: 'Hypothesis is required',
-                    }),
-                })
-        })
-
-        it('shows both errors when both name and description are empty', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    name: '',
-                    description: '',
-                })
-                logic.actions.submitExperiment()
-            })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentFailure'])
-                .toMatchValues({
-                    experimentErrors: partial({
-                        name: 'Name is required',
-                        description: 'Hypothesis is required',
                     }),
                 })
         })
@@ -125,13 +91,14 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['setExperiment', 'submitExperiment', 'submitExperimentSuccess'])
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
     })
 
-    describe('createExperiment', () => {
+    describe('saveExperiment', () => {
         it('successfully creates experiment and triggers success action', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
@@ -139,10 +106,11 @@ describe('createExperimentLogic', () => {
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
                     type: 'product',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
+                logic.actions.saveExperiment()
             })
-                .toDispatchActions(['setExperiment', 'submitExperiment', 'createExperimentSuccess'])
+                .toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
                 .toMatchValues({
                     experimentErrors: {},
                 })
@@ -154,11 +122,12 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(refreshTreeItem).toHaveBeenCalledWith('experiment', '123')
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
@@ -170,41 +139,34 @@ describe('createExperimentLogic', () => {
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
-
-            await new Promise((resolve) => setTimeout(resolve, 10))
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
             expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
-        it('shows success toast with view button', async () => {
+        it('shows success toast', async () => {
+            routerPushSpy.mockClear()
+
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
                 })
-                logic.actions.submitExperiment()
-            }).toDispatchActions(['submitExperiment', 'createExperimentSuccess'])
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
-
-            expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment created successfully!',
-                expect.objectContaining({
-                    button: expect.objectContaining({
-                        label: 'View it',
-                    }),
-                })
-            )
-
-            const toastCall = (lemonToast.success as jest.Mock).mock.calls[0]
-            const toastButton = toastCall[1].button
-            toastButton.action()
-
-            expect(routerPushSpy).toHaveBeenCalledTimes(2)
+            expect(lemonToast.success).toHaveBeenCalledWith('Experiment created successfully!')
+            expect(routerPushSpy).toHaveBeenCalledTimes(1)
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
     })
 
@@ -239,6 +201,254 @@ describe('createExperimentLogic', () => {
                     type: 'product',
                 }),
             })
+        })
+
+        it('setExperimentValue updates a single field', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('name', 'New Name')
+            })
+                .toDispatchActions(['setExperimentValue'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'New Name',
+                    }),
+                })
+        })
+
+        it('setExperimentValue updates feature_flag_key', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('feature_flag_key', 'new-flag-key')
+            })
+                .toDispatchActions(['setExperimentValue'])
+                .toMatchValues({
+                    experiment: partial({
+                        feature_flag_key: 'new-flag-key',
+                    }),
+                })
+        })
+
+        it('setExperimentValue updates parameters object', async () => {
+            const parameters = {
+                feature_flag_variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+                ensure_experience_continuity: true,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('parameters', parameters)
+            })
+                .toDispatchActions(['setExperimentValue'])
+                .toMatchValues({
+                    experiment: partial({
+                        parameters: partial({
+                            feature_flag_variants: expect.arrayContaining([
+                                partial({ key: 'control', rollout_percentage: 50 }),
+                                partial({ key: 'test', rollout_percentage: 50 }),
+                            ]),
+                            ensure_experience_continuity: true,
+                        }),
+                    }),
+                })
+        })
+
+        it('merges parameters when updating variants', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('parameters', {
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 33 },
+                        { key: 'test', rollout_percentage: 33 },
+                        { key: 'test-2', rollout_percentage: 34 },
+                    ],
+                })
+            })
+                .toDispatchActions(['setExperimentValue'])
+                .toMatchValues({
+                    experiment: partial({
+                        parameters: partial({
+                            feature_flag_variants: expect.arrayContaining([
+                                partial({ key: 'control' }),
+                                partial({ key: 'test' }),
+                                partial({ key: 'test-2' }),
+                            ]),
+                        }),
+                    }),
+                })
+
+            // Verify we have exactly 3 variants
+            expect(logic.values.experiment.parameters?.feature_flag_variants).toHaveLength(3)
+        })
+    })
+
+    describe('experiment prop initialization', () => {
+        it('defaults to NEW_EXPERIMENT when no prop is provided', async () => {
+            const defaultLogic = createExperimentLogic()
+            defaultLogic.mount()
+
+            await expectLogic(defaultLogic).toMatchValues({
+                experiment: partial({
+                    id: 'new',
+                    name: '',
+                    description: '',
+                    type: 'product',
+                }),
+            })
+
+            defaultLogic.unmount()
+        })
+
+        it('uses provided experiment prop as default', async () => {
+            const existingExperiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Existing Experiment',
+                description: 'Existing hypothesis',
+                type: 'web',
+                feature_flag_key: 'existing-flag',
+            }
+
+            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
+            propsLogic.mount()
+
+            await expectLogic(propsLogic).toMatchValues({
+                experiment: partial({
+                    id: 123,
+                    name: 'Existing Experiment',
+                    description: 'Existing hypothesis',
+                    type: 'web',
+                    feature_flag_key: 'existing-flag',
+                }),
+            })
+
+            propsLogic.unmount()
+        })
+
+        it('resetExperiment resets to NEW_EXPERIMENT when no prop provided', async () => {
+            const defaultLogic = createExperimentLogic()
+            defaultLogic.mount()
+
+            await expectLogic(defaultLogic, () => {
+                defaultLogic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Changed Name',
+                    description: 'Changed Description',
+                })
+            })
+                .toDispatchActions(['setExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Changed Name',
+                        description: 'Changed Description',
+                    }),
+                })
+
+            await expectLogic(defaultLogic, () => {
+                defaultLogic.actions.resetExperiment()
+            })
+                .toDispatchActions(['resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 'new',
+                        name: '',
+                        description: '',
+                    }),
+                })
+
+            defaultLogic.unmount()
+        })
+
+        it('resetExperiment resets to provided experiment prop', async () => {
+            const existingExperiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 456,
+                name: 'Original Experiment',
+                description: 'Original hypothesis',
+                type: 'web',
+            }
+
+            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
+            propsLogic.mount()
+
+            await expectLogic(propsLogic, () => {
+                propsLogic.actions.setExperiment({
+                    ...existingExperiment,
+                    name: 'Modified Name',
+                    description: 'Modified Description',
+                })
+            })
+                .toDispatchActions(['setExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Modified Name',
+                        description: 'Modified Description',
+                    }),
+                })
+
+            await expectLogic(propsLogic, () => {
+                propsLogic.actions.resetExperiment()
+            })
+                .toDispatchActions(['resetExperiment'])
+                .toMatchValues({
+                    experiment: partial({
+                        id: 456,
+                        name: 'Original Experiment',
+                        description: 'Original hypothesis',
+                        type: 'web',
+                    }),
+                })
+
+            propsLogic.unmount()
+        })
+    })
+
+    describe('feature flag integration', () => {
+        it('includes feature flag key in experiment submission', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Test Experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'custom-flag-key',
+                })
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
+        })
+
+        it('includes variants in experiment submission', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Test Experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'test-flag',
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'treatment', rollout_percentage: 50 },
+                        ],
+                    },
+                })
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
+        })
+
+        it('includes experience continuity setting in submission', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Test Experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                })
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['setExperiment', 'saveExperiment', 'createExperimentSuccess'])
         })
     })
 })

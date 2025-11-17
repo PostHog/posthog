@@ -43,6 +43,11 @@ def reload_hog_flows_on_workers(team_id: int, hog_flow_ids: list[str]):
     publish_message("reload-hog-flows", {"teamId": team_id, "hogFlowIds": hog_flow_ids})
 
 
+def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
+    logger.info(f"Reloading evaluations {evaluation_ids} on workers")
+    publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
+
+
 def reload_all_hog_functions_on_workers():
     logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})

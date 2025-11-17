@@ -4,9 +4,9 @@ import json
 import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from json import JSONDecodeError
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -38,7 +38,16 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    MatchedRecordingEvent,
+    MatchingEventsResponse,
+    NodeKind,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryTiming,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,7 +72,6 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -96,11 +104,6 @@ GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
     "Time taken to generate a pre-signed URL for a session snapshot",
 )
 
-GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
-    "session_snapshots_get_realtime_snapshots_from_redis_histogram",
-    "Time taken to get realtime snapshots from Redis",
-)
-
 GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
     "session_snapshots_gather_recording_sources_histogram",
     "Time taken to gather recording sources",
@@ -110,7 +113,7 @@ GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
-    labelnames=["blob_version"],
+    labelnames=["blob_version", "decompress"],
 )
 
 LOADING_V1_LTS_COUNTER = Counter(
@@ -123,6 +126,9 @@ LOADING_V2_LTS_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Type alias to avoid shadowing by SessionRecordingViewSet.list method
+BlockList = list[Any]
 
 
 def _get_session_ids_from_comment_search(
@@ -236,7 +242,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     def get_viewers(self, obj: SessionRecording) -> list[str]:
         return getattr(obj, "viewers", [])
 
-    def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
+    def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
 
     class Meta:
@@ -261,6 +267,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "person",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -284,6 +292,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "start_url",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -343,6 +353,10 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         required=False, default=False, help_text="Whether to enable v2 blob functionality for LTS recordings"
     )
     blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Single blob key to fetch")
+    decompress = serializers.BooleanField(
+        default=True,
+        help_text="Whether to decompress blocks server-side (default: True for backward compatibility)",
+    )
 
     # v2
     start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
@@ -405,16 +419,18 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, str], context: dict[str, Any]
+    listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
 ) -> Response:
-    (recordings, more_recordings_available, timings_header) = listing_result
+    (recordings, more_recordings_available, timings_header, next_cursor) = listing_result
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response = Response(
-        {"results": results, "has_next": more_recordings_available, "version": 4},
-    )
+    response_data = {"results": results, "has_next": more_recordings_available, "version": 4}
+    if next_cursor is not None:
+        response_data["next_cursor"] = next_cursor
+
+    response = Response(response_data)
     response.headers["Server-Timing"] = timings_header
 
     return response
@@ -636,9 +652,13 @@ class SessionRecordingViewSet(
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
+        results, _, timings, _ = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
-        response = JsonResponse(data={"results": results})
+        response = JsonResponse(
+            data=MatchingEventsResponse(
+                results=[MatchedRecordingEvent(uuid=str(row[0]), timestamp=row[1].isoformat()) for row in results]
+            ).model_dump()
+        )
 
         response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
@@ -775,7 +795,7 @@ class SessionRecordingViewSet(
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
 
         # Filter recordings based on access control - only allow deletion of recordings user has editor access to
         user_access_control = self.user_access_control
@@ -963,8 +983,8 @@ class SessionRecordingViewSet(
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
 
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
         serializer = SessionRecordingSnapshotsRequestSerializer(
@@ -979,6 +999,14 @@ class SessionRecordingViewSet(
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
         is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
+        decompress: bool = validated_data.get("decompress", True)
+
+        if (
+            not recording.full_recording_v2_path
+            and not recording.object_storage_path
+            and not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team)
+        ):
+            raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
@@ -1009,13 +1037,6 @@ class SessionRecordingViewSet(
             response: Response | HttpResponse
             if not source:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
-            elif source == "realtime":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "Realtime snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
-                with timer("send_realtime_snapshots_to_client"):
-                    response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
                 is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
                 if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
@@ -1031,9 +1052,12 @@ class SessionRecordingViewSet(
                         timer,
                         min_blob_key=validated_data["min_blob_key"],
                         max_blob_key=validated_data["max_blob_key"],
+                        decompress=decompress,
                     )
                 elif "blob_key" in validated_data:
-                    response = self._stream_lts_blob_v2_to_client(blob_key=validated_data["blob_key"])
+                    response = self._stream_lts_blob_v2_to_client(
+                        blob_key=validated_data["blob_key"], decompress=decompress
+                    )
                 else:
                     response = self._gather_session_recording_sources(
                         recording, timer, is_v2_enabled, is_v2_lts_enabled
@@ -1114,8 +1138,6 @@ class SessionRecordingViewSet(
         is_v2_enabled: bool = False,
         is_v2_lts_enabled: bool = False,
     ) -> Response:
-        might_have_realtime = True
-        newest_timestamp = None
         response_data = {}
         sources: list[dict] = []
         blob_keys: list[str] | None = None
@@ -1163,7 +1185,6 @@ class SessionRecordingViewSet(
                         # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
                         blob_prefix = recording.object_storage_path
                         blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                        might_have_realtime = False
                     else:
                         blob_prefix = recording.build_blob_ingestion_storage_path()
                         blob_keys = object_storage.list_objects(blob_prefix)
@@ -1186,28 +1207,6 @@ class SessionRecordingViewSet(
                         )
                 if sources:
                     sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
-
-                    if might_have_realtime and not is_v2_enabled:
-                        oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                        newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-                        # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
-                        # so set this to False even if though it was True before
-                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-
-                        if might_have_realtime:
-                            sources.append(
-                                {
-                                    "source": "realtime",
-                                    "start_timestamp": newest_timestamp,
-                                    "end_timestamp": None,
-                                }
-                            )
-
-                            # the UI will use this to try to load realtime snapshots
-                            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                            # it takes a short while for the subscription to be sync'd into redis
-                            # let's use the network round trip time to get started
-                            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 
@@ -1298,7 +1297,7 @@ class SessionRecordingViewSet(
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
 
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1").time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v1", decompress=True).time():
             # streams the file from S3 to the client
             # will not decompress the possibly large file because of `stream=True`
             #
@@ -1338,22 +1337,162 @@ class SessionRecordingViewSet(
     async def _stream_lts_blob_v2_to_client_async(
         self,
         blob_key: str,
+        decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
             with (
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
                 posthoganalytics.tag("lts_v2_blob_key", blob_key)
-                content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
+                storage_client = session_recording_v2_object_storage.client()
+                content: str | bytes
+                if decompress:
+                    content = await asyncio.to_thread(storage_client.fetch_file, blob_key)
+                else:
+                    content = await asyncio.to_thread(storage_client.fetch_file_bytes, blob_key)
 
             twenty_four_hours_in_seconds = 60 * 60 * 24
             response = HttpResponse(
                 content=content,
-                content_type="application/jsonl",
+                content_type="application/jsonl" if decompress else "application/octet-stream",
             )
             response["Cache-Control"] = f"max-age={twenty_four_hours_in_seconds}"
             response["Content-Disposition"] = "inline"
             return response
+
+    async def _fetch_and_validate_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> BlockList:
+        with (
+            timer("list_blocks__stream_blob_v2_to_client"),
+            tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
+        ):
+            blocks = list_blocks(recording)
+            if not blocks:
+                raise exceptions.NotFound("Session recording not found")
+
+        if max_blob_key >= len(blocks):
+            raise exceptions.NotFound("Block index out of range")
+
+        return blocks
+
+    async def _fetch_blocks_parallel(
+        self,
+        blocks: BlockList,
+        min_blob_key: int,
+        max_blob_key: int,
+        recording: SessionRecording,
+        async_storage_client,
+        decompress: bool,
+    ) -> BlockList:
+        async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
+            try:
+                block = blocks[block_index]
+                if decompress:
+                    content = await async_storage_client.fetch_block(block.url)
+                else:
+                    content = await async_storage_client.fetch_block_bytes(block.url)
+                return block_index, content
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
+                    recording_id=recording.session_id,
+                    team_id=self.team.id,
+                    block_index=block_index,
+                )
+                return block_index, None
+
+        tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+        results = await asyncio.gather(*tasks)
+
+        blocks_data: list[str | bytes] = []
+        block_errors = []
+
+        for block_index, content in results:
+            if content is None:
+                block_errors.append(block_index)
+            else:
+                blocks_data.append(content)
+
+        if block_errors:
+            raise exceptions.APIException("Failed to load recording block")
+
+        return blocks_data
+
+    @tracer.start_as_current_span("_stream_decompressed_blocks")
+    async def _stream_decompressed_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+
+        async with session_recording_v2_object_storage.async_client() as async_storage:
+            with (
+                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+            ):
+                blocks_data = await self._fetch_blocks_parallel(
+                    blocks,
+                    min_blob_key,
+                    max_blob_key,
+                    recording,
+                    async_storage,
+                    decompress=True,
+                )
+
+        response = HttpResponse(
+            content="\n".join(blocks_data),
+            content_type="application/jsonl",
+        )
+        response["Cache-Control"] = "max-age=3600"
+        response["Content-Disposition"] = "inline"
+        return response
+
+    @tracer.start_as_current_span("_stream_compressed_blocks")
+    async def _stream_compressed_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        import struct
+
+        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+
+        async with session_recording_v2_object_storage.async_client() as async_storage:
+            with (
+                timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+            ):
+                blocks_data = await self._fetch_blocks_parallel(
+                    blocks,
+                    min_blob_key,
+                    max_blob_key,
+                    recording,
+                    async_storage,
+                    decompress=False,
+                )
+
+        payload_chunks = []
+        for block in blocks_data:
+            payload_chunks.append(struct.pack(">I", len(block)))
+            payload_chunks.append(block)
+
+        response = HttpResponse(
+            content=b"".join(payload_chunks),
+            content_type="application/octet-stream",
+        )
+        response["Cache-Control"] = "max-age=3600"
+        response["Content-Disposition"] = "inline"
+        return response
 
     async def _stream_blob_v2_to_client_async(
         self,
@@ -1361,63 +1500,13 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
+        decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
-            with (
-                timer("list_blocks__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
-            ):
-                blocks = list_blocks(recording)
-                if not blocks:
-                    raise exceptions.NotFound("Session recording not found")
-
-            if max_blob_key >= len(blocks):
-                raise exceptions.NotFound("Block index out of range")
-
-            async def fetch_single_block_async(block_index: int) -> tuple[int, str | None]:
-                try:
-                    block = blocks[block_index]
-                    content = await asyncio.to_thread(
-                        session_recording_v2_object_storage.client().fetch_block, block.url
-                    )
-                    return block_index, content
-                except BlockFetchError:
-                    logger.exception(
-                        "Failed to fetch block",
-                        recording_id=recording.session_id,
-                        team_id=self.team.id,
-                        block_index=block_index,
-                    )
-                    return block_index, None
-
-            with (
-                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
-            ):
-                tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
-
-                results = await asyncio.gather(*tasks)
-
-                decompressed_blocks: list[str | None] = [None] * len(results)
-                block_errors: list[int] = []
-
-                for block_index, content in results:
-                    if content is None:
-                        block_errors.append(block_index)
-                    else:
-                        decompressed_blocks[block_index - min_blob_key] = content
-
-            if block_errors:
-                raise exceptions.APIException("Failed to load recording block")
-
-            # After error check, all values are guaranteed to be strings
-            response = HttpResponse(
-                content="\n".join(cast(list[str], decompressed_blocks)),
-                content_type="application/jsonl",
-            )
-            response["Cache-Control"] = "max-age=3600"
-            response["Content-Disposition"] = "inline"
-            return response
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+            if decompress:
+                return await self._stream_decompressed_blocks(recording, timer, min_blob_key, max_blob_key)
+            else:
+                return await self._stream_compressed_blocks(recording, timer, min_blob_key, max_blob_key)
 
     def _stream_blob_v2_to_client(
         self,
@@ -1425,33 +1514,18 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
+        decompress: bool = True,
     ) -> HttpResponse:
-        return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+        return asyncio.run(
+            self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key, decompress)
+        )
 
     def _stream_lts_blob_v2_to_client(
         self,
         blob_key: str,
+        decompress: bool = True,
     ) -> HttpResponse:
-        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key))
-
-    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
-        with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-            snapshot_lines = (
-                get_realtime_snapshots(
-                    team_id=str(self.team.pk),
-                    session_id=str(recording.session_id),
-                )
-                or []
-            )
-
-        response = HttpResponse(
-            # convert list to a jsonl response
-            content=("\n".join(snapshot_lines)),
-            content_type="application/json",
-        )
-        # the browser is not allowed to cache this at all
-        response["Cache-Control"] = "no-store"
-        return response
+        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress))
 
     @extend_schema(
         exclude=True,
@@ -1499,7 +1573,7 @@ class SessionRecordingViewSet(
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
-) -> tuple[list[SessionRecording], bool, str]:
+) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -1512,12 +1586,54 @@ def list_recordings_from_query(
       In the context of an API call we'll always have user, but from Celery we might be processing arbitrary filters for a team and there won't be a user
     """
     all_session_ids = query.session_ids
+    session_recording_id_to_prepend = query.session_recording_id
 
     recordings: list[SessionRecording] = []
     more_recordings_available = False
     hogql_timings: list[QueryTiming] | None = None
+    next_cursor: str | None = None
 
     timer = ServerTimingsGathered()
+
+    # If session_recording_id is provided, add it to session_ids to fetch it along with the rest
+    if session_recording_id_to_prepend:
+        if all_session_ids:
+            all_session_ids = [session_recording_id_to_prepend] + [
+                sid for sid in all_session_ids if sid != session_recording_id_to_prepend
+            ]
+        else:
+            # We need to fetch this specific recording alongside the filtered results
+            # Create a separate query to fetch just this recording
+            with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
+                s3_persisted_recording = (
+                    SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
+                    .exclude(object_storage_path=None)
+                    .first()
+                )
+
+                if s3_persisted_recording:
+                    recordings.append(s3_persisted_recording)
+                else:
+                    # Try to load from ClickHouse
+                    # Optimize query by searching only within the team's retention period
+                    retention_period = team.session_recording_retention_period or "90d"
+                    ch_query_result = SessionRecordingListFromQuery(
+                        query=RecordingsQuery(
+                            kind=NodeKind.RECORDINGS_QUERY,
+                            session_ids=[session_recording_id_to_prepend],
+                            date_from=f"-{retention_period}",
+                            date_to=None,
+                        ),
+                        team=team,
+                        hogql_query_modifiers=None,
+                        allow_event_property_expansion=allow_event_property_expansion,
+                    ).run()
+                    if ch_query_result.results:
+                        prepend_recordings = SessionRecording.get_or_build_from_clickhouse(
+                            team, ch_query_result.results
+                        )
+                        if prepend_recordings and not prepend_recordings[0].deleted:
+                            recordings.append(prepend_recordings[0])
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
@@ -1533,20 +1649,35 @@ def list_recordings_from_query(
             recordings = recordings + list(persisted_recordings)
 
             remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-            query.session_ids = remaining_session_ids
+    else:
+        remaining_session_ids = None
 
-    if (all_session_ids and query.session_ids) or not all_session_ids:
+    # Determine if we need to query ClickHouse
+    should_query_clickhouse = (all_session_ids and remaining_session_ids) or not all_session_ids
+
+    if should_query_clickhouse:
         with (
             timer("load_recordings_from_hogql"),
             posthoganalytics.new_context(),
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
-            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
-                query=query,
+            # Create a copy of the query without session_recording_id for the main query
+            # We've already handled session_recording_id separately above
+            query_updates: dict[str, Any] = {"session_recording_id": None}
+            if remaining_session_ids is not None:
+                query_updates["session_ids"] = remaining_session_ids
+
+            query_for_list = query.model_copy(update=query_updates)
+            query_result = SessionRecordingListFromQuery(
+                query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
             ).run()
+            ch_session_recordings = query_result.results
+            more_recordings_available = query_result.has_more_recording
+            hogql_timings = query_result.timings
+            next_cursor = query_result.next_cursor
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
@@ -1560,6 +1691,16 @@ def list_recordings_from_query(
                     recordings,
                     key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
                 )
+
+    # Deduplicate recordings by session_id (if session_recording_id was fetched separately and also in results)
+    if session_recording_id_to_prepend:
+        seen_ids: set[str] = set()
+        deduped_recordings = []
+        for rec in recordings:
+            if rec.session_id not in seen_ids:
+                seen_ids.add(rec.session_id)
+                deduped_recordings.append(rec)
+        recordings = deduped_recordings
 
     if user and not user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
@@ -1596,7 +1737,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, timer.to_header_string(hogql_timings)
+    return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:

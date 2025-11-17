@@ -3,14 +3,24 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -133,6 +143,68 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
+
+    valid_loopback_uris = [
+        ("localhost", "http://localhost:3000/callback"),
+        ("127.0.0.1", "http://127.0.0.1:3000/callback"),
+        ("127.0.0.2", "http://127.0.0.2:8000/callback"),
+        ("127.0.1.1", "http://127.0.1.1:8000/callback"),
+        ("127.255.255.255", "http://127.255.255.255:8000/callback"),
+        ("localhost with https", "https://localhost:3000/callback"),
+    ]
+
+    @parameterized.expand(valid_loopback_uris)
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_loopback_address_in_production(self, _name, redirect_uri):
+        app = OAuthApplication.objects.create(
+            name=f"Loopback App {_name}",
+            client_id=f"loopback_client_id_{_name}",
+            client_secret=f"loopback_client_secret_{_name}",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=redirect_uri,
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertEqual(app.redirect_uris, redirect_uri)
+
+    malicious_localhost_domains = [
+        ("subdomain of evil.com", "http://localhost.evil.com/callback"),
+        ("127.0.0.1 subdomain of evil.com", "http://127.0.0.1.evil.com/callback"),
+        ("fake localhost domain", "http://fake-localhost.com/callback"),
+        ("127.0.0.1 subdomain of attacker.com", "http://127.0.0.1.attacker.com/callback"),
+        ("mylocalhost domain", "http://mylocalhost.com/callback"),
+    ]
+
+    @parameterized.expand(malicious_localhost_domains)
+    @override_settings(DEBUG=False)
+    def test_cannot_create_application_with_malicious_localhost_domain_in_production(self, _name, malicious_uri):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="Malicious App",
+                client_id=f"malicious_client_id_{_name}",
+                client_secret="malicious_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris=malicious_uri,
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    @override_settings(DEBUG=False)
+    def test_multiple_redirect_uris_with_mixed_localhost_and_production(self):
+        app = OAuthApplication.objects.create(
+            name="Mixed App",
+            client_id="mixed_client_id",
+            client_secret="mixed_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback http://localhost:3000/callback http://127.0.0.1:3000/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertIn("localhost", app.redirect_uris)
+        self.assertIn("example.com", app.redirect_uris)
 
     def test_unique_client_id_constraint(self):
         OAuthApplication.objects.create(

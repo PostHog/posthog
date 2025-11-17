@@ -4,11 +4,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -71,9 +71,30 @@ function ErrorCount({
     }
 
     return (
-        <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 gap-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
+        </div>
+    )
+}
+
+function RecordingExpiry({
+    iconClassNames,
+    recordingTtl,
+}: {
+    iconClassNames: string
+    recordingTtl: number | undefined
+}): JSX.Element {
+    if (recordingTtl === undefined) {
+        return <div className="flex text-secondary text-xs">-</div>
+    }
+
+    const ttlColor = recordingTtl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
+
+    return (
+        <div className="flex items-center gap-x-1 text-xs">
+            <IconHourglass fill={ttlColor} className={iconClassNames} />
+            <span style={{ color: ttlColor }}>{recordingTtl}d</span>
         </div>
     )
 }
@@ -119,7 +140,7 @@ export interface PropertyIconsProps {
 
 export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex deprecated-space-x-1 ph-no-capture">
+        <div className="flex gap-x-1 ph-no-capture">
             {loading ? (
                 <LemonSkeleton className="w-16 h-3" />
             ) : (
@@ -253,7 +274,7 @@ export const SessionRecordingPreview = memo(
                     )}
                 >
                     {selectable && <ItemCheckbox recording={recording} />}
-                    <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
+                    <div className="grow overflow-hidden flex flex-col gap-y-2 ml-1">
                         <div className="flex items-center justify-between gap-x-0.5">
                             <div className="flex overflow-hidden font-medium ph-no-capture">
                                 <span className="truncate">{asDisplay(recording.person)}</span>
@@ -274,7 +295,7 @@ export const SessionRecordingPreview = memo(
                         </div>
 
                         <div className="flex justify-between items-center gap-x-0.5">
-                            <div className="flex deprecated-space-x-2 text-secondary text-sm">
+                            <div className="flex gap-x-4 text-secondary text-sm">
                                 <PropertyIcons
                                     recordingProperties={iconProperties}
                                     iconClassNames={iconClassNames}
@@ -301,6 +322,11 @@ export const SessionRecordingPreview = memo(
                                 <ErrorCount
                                     iconClassNames={iconClassNames}
                                     errorCount={recording.console_error_count}
+                                />
+                            ) : filters.order === 'recording_ttl' ? (
+                                <RecordingExpiry
+                                    iconClassNames={iconClassNames}
+                                    recordingTtl={recording.recording_ttl}
                                 />
                             ) : (
                                 <RecordingDuration
@@ -339,7 +365,7 @@ export const SessionRecordingPreview = memo(
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 deprecated-space-y-2">
+        <div className="p-4 flex flex-col gap-y-2">
             <LemonSkeleton className="w-1/2 h-4" />
             <LemonSkeleton className="w-1/3 h-4" />
         </div>

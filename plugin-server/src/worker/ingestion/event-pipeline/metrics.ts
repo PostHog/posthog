@@ -46,6 +46,7 @@ export const invalidTimestampCounter = new Counter({
 export const droppedEventCounter = new Counter({
     name: 'event_pipeline_dropped_events_total',
     help: 'Count of events dropped by plugin server',
+    labelNames: ['reason'],
 })
 
 export const tokenOrTeamPresentCounter = new Counter({

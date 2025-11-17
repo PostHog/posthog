@@ -21,6 +21,7 @@ export enum RichContentNodeType {
 }
 
 export interface RichContentEditorType {
+    isEmpty: () => boolean
     getJSON: () => JSONContent
     getEndPosition: () => number
     getSelectedNode: () => RichContentNode | null

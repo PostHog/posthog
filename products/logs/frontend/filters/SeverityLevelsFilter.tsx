@@ -18,6 +18,8 @@ const options: Record<LogMessage['severity_text'], string> = {
     fatal: 'Fatal',
 }
 
+const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
+
 export const SeverityLevelsFilter = (): JSX.Element => {
     const { severityLevels } = useValues(logsLogic)
     const { setSeverityLevels } = useActions(logsLogic)
@@ -37,7 +39,9 @@ export const SeverityLevelsFilter = (): JSX.Element => {
     }
 
     const displayLevels =
-        severityLevels.length > 0 ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ') : 'All levels'
+        severityLevels.length !== ALL_LOG_LEVELS.length && severityLevels.length > 0
+            ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ')
+            : 'All levels'
 
     return (
         <span className="rounded bg-surface-primary">

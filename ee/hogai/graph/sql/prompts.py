@@ -6,10 +6,17 @@ Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
 - toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
 - LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
   Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.
   The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
 - count() does not take * as an argument, it's just count().
+- cardinality() is not supported for bitmaps. Use bitmapCardinality() instead to get the cardinality of a bitmap.
+- toStartOfWeek() takes an optional second argument for week mode which must be a numeric constant (0 for Sunday start, 1 for Monday start), NOT a string like 'Mon' or 'Sun'. Example: toStartOfWeek(timestamp, 1) for Monday start.
+- There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)
+- Array functions like splitByChar() or splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable.
+  ALWAYS guard against nulls in these functions using coalesce() or ifNull().
+  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`
 - Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
   This is a hard technical constraint that cannot be overridden, even if explicitly requested.
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.
@@ -31,32 +38,63 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-There is a known issue with queries that join multiple events tables where join constraints
-reference person_id fields. The person_id fields are ExpressionFields that expand to
-expressions referencing override tables (e.g., e_all__override). However, these expressions
-are resolved during type resolution (in printer.py) BEFORE lazy table processing begins.
-This creates forward references to override tables that don't exist yet.
+CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
 
-Example problematic HogQL:
-    SELECT MAX(e_all.timestamp) AS last_seen
-    FROM events e_dl
-    JOIN persons p ON e_dl.person_id = p.id
-    JOIN events e_all ON e_dl.person_id = e_all.person_id
+TECHNICAL CAUSE:
+The person_id fields are ExpressionFields that expand to expressions referencing override tables
+(e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py)
+BEFORE lazy table processing begins. This creates forward references to override tables that don't
+exist yet, causing ClickHouse errors like:
+"Missing columns: '_--e__override.person_id' '_--e__override.distinct_id'"
 
-The join constraint "e_dl.person_id = e_all.person_id" expands to:
-    if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
-    if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+PROBLEMATIC PATTERNS:
+1. Joining persons to events using events.person_id:
+   ❌ FROM persons p ALL INNER JOIN events e ON p.id = e.person_id
 
-But e_all__override is defined later in the SQL, causing a ClickHouse error.
+2. Joining multiple events tables using person_id:
+   ❌ FROM events e_dl
+      JOIN persons p ON e_dl.person_id = p.id
+      JOIN events e_all ON e_dl.person_id = e_all.person_id
 
-WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:
-    SELECT MAX(e.timestamp) AS last_seen
-    FROM events e
-    JOIN persons p ON e.person_id = p.id
-    WHERE e.event IN (SELECT event FROM events WHERE ...)
+   The join constraint "e_dl.person_id = e_all.person_id" expands to:
+   if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
+   if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+
+   But e_all__override is defined later in the SQL, causing the error.
+
+REQUIRED WORKAROUNDS:
+1. For accessing person data, use the person virtual table from events:
+   ✅ SELECT e.person.id, e.person.properties.email, e.event
+      FROM events e
+      WHERE e.timestamp > now() - INTERVAL 7 DAY
+
+2. For filtering persons by event data, use subqueries with WHERE IN:
+   ✅ SELECT p.id, p.properties.email
+      FROM persons p
+      WHERE p.id IN (
+          SELECT DISTINCT person_id FROM events
+          WHERE event = 'purchase' AND timestamp > now() - INTERVAL 7 DAY
+      )
+
+3. For multiple events tables, use subqueries to avoid direct joins:
+   ✅ SELECT MAX(e.timestamp) AS last_seen
+      FROM events e
+      WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
+
+NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
 </person_id_join_limitation>
 
 ONLY make formatting or casing changes if explicitly requested by the user.
+
+ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
+- Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
+
+- If a filter is optional, ALWAYS implement via the variables namespace with guards:
+  - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
+  - Use coalesce() or IS NULL checks to handle optional values
+  - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
+  - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
+  - Time window must remain enforced for events; add variable guards only if explicitly asked
 
 # Expressions guide
 

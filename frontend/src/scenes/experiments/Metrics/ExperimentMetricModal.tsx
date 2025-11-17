@@ -2,26 +2,27 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
-    experimentId,
+    experiment,
+    exposureCriteria,
     onSave,
     onDelete,
 }: {
-    experimentId: Experiment['id']
+    experiment: Experiment
+    exposureCriteria: ExperimentExposureCriteria | undefined
     onSave: (metric: ExperimentMetric, context: MetricContext) => void
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
-
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { openExposureCriteriaModal } = useActions(modalsLogic)
 
     if (!isModalOpen || !metric) {
         return null
@@ -71,7 +72,6 @@ export function ExperimentMetricModal({
                             form="edit-experiment-metric-form"
                             onClick={() => onSave(metric, context)}
                             type="primary"
-                            loading={experimentLoading}
                             data-attr="save-experiment-metric"
                         >
                             {isCreateMode ? 'Create' : 'Save'}
@@ -96,6 +96,8 @@ export function ExperimentMetricModal({
                 metric={metric}
                 handleSetMetric={setModalMetric}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+                exposureCriteria={exposureCriteria}
+                openExposureCriteriaModal={openExposureCriteriaModal}
             />
         </LemonModal>
     )

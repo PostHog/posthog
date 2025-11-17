@@ -10,7 +10,7 @@ import { PersonType } from '~/types'
 
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
-import { AISessionSummary } from './AISessionSummary'
+import { AISessionSummary } from './AISessionSummary/AISessionSummary'
 import { Session } from './Session'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 

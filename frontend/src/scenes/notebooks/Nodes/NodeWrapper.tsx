@@ -30,7 +30,6 @@ import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -64,7 +63,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -173,7 +171,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
               }
             : null,
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
-        isEditable && hasDiscussions
+        isEditable
             ? sourceComment
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
@@ -403,6 +401,21 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            const nodeAttributes = Object.fromEntries(
+                Object.entries(attributes as Record<string, any>).map(([name, config]) => {
+                    return [
+                        name,
+                        {
+                            ...config,
+                            parseHTML: (element: HTMLElement) => {
+                                const attribute = element.getAttribute(name)
+                                return attribute ? JSON.parse(atob(attribute)) : null
+                            },
+                        },
+                    ]
+                })
+            )
+
             return {
                 height: {},
                 title: {},
@@ -411,7 +424,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 },
                 __init: { default: null },
                 children: {},
-                ...attributes,
+                ...nodeAttributes,
             }
         },
 

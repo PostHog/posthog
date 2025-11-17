@@ -23,7 +23,7 @@
         <code style="background: 0; color: white">×</code>
     </button>
 </div>
-<script>
+<script nonce="{{ request.csp_nonce }}">
     document.getElementById('bottom-notice').addEventListener('click', function (e) {
         if (e.target.tagName !== 'SPAN') {
             document.getElementById('bottom-notice').remove()
@@ -31,7 +31,7 @@
     })
 </script>
 {% elif not e2e_testing %}
-<script>
+<script nonce="{{ request.csp_nonce }}">
     if (location.protocol !== 'https:') {
         const element = document.createElement('div')
         element.id = 'bottom-notice'

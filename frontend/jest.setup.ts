@@ -30,3 +30,6 @@ mockIntersectionObserver.mockReturnValue({
 
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })
+
+// Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
+jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')

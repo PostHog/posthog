@@ -169,8 +169,9 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["start_temporal_worker"],
+            "args": ["start_temporal_worker", "--task-queue", "${input:temporalTaskQueue}"],
             "django": true,
+            "justMyCode": false,
             "env": {
                 "PYTHONUNBUFFERED": "1",
                 "DJANGO_SETTINGS_MODULE": "posthog.settings",
@@ -297,6 +298,13 @@
             "id": "pickVersion",
             "type": "command",
             "command": "extension.node-version"
+        },
+        {
+            "id": "temporalTaskQueue",
+            "type": "pickString",
+            "description": "Task queue name",
+            "options": ["development-task-queue"],
+            "default": "development-task-queue"
         }
     ],
     "compounds": [

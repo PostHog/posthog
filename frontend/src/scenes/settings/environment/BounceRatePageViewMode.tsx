@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 type BounceRatePageViewMode = NonNullable<HogQLQueryModifiers['bounceRatePageViewMode']>
 
@@ -71,21 +73,31 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
                 Choose how pageviews are counted, as part of the bounce rate calculation. Note that other factors are
                 taken into account, e.g. the number of autocaptures, and the session duration.
             </p>
-            <LemonRadio
-                value={bounceRatePageViewMode}
-                onChange={setBounceRatePageViewMode}
-                options={bounceRatePageViewModeOptions}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WebAnalytics}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonRadio
+                    value={bounceRatePageViewMode}
+                    onChange={setBounceRatePageViewMode}
+                    options={bounceRatePageViewModeOptions}
+                />
+            </AccessControlAction>
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    onClick={() => handleChange(bounceRatePageViewMode)}
-                    disabledReason={
-                        bounceRatePageViewMode === savedBounceRatePageViewMode ? 'No changes to save' : undefined
-                    }
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.WebAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Save
-                </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleChange(bounceRatePageViewMode)}
+                        disabledReason={
+                            bounceRatePageViewMode === savedBounceRatePageViewMode ? 'No changes to save' : undefined
+                        }
+                    >
+                        Save
+                    </LemonButton>
+                </AccessControlAction>
             </div>
         </>
     )

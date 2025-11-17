@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,6 +30,7 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.organization import Organization
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 
 
@@ -405,7 +407,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1165,6 +1167,7 @@ class TestSurvey(APIBaseTest):
                     "response_sampling_interval": None,
                     "response_sampling_limit": None,
                     "response_sampling_daily_limits": None,
+                    "user_access_level": "manager",
                 }
             ],
         }
@@ -3077,6 +3080,56 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
             assert len(surveys) == 2
 
+    def test_list_surveys_uses_hypercache(self):
+        # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not
+        # We should check this matches the api endpoint logic
+        self.team.surveys_opt_in = True
+        self.team.save()
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        self.client.logout()
+
+        with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
+            # First time builds the remote config which uses a bunch of queries
+            with self.assertNumQueries(3):
+                response = self._get_surveys(token=self.team.api_token)
+                assert response.status_code == status.HTTP_200_OK
+                surveys = response.json()["surveys"]
+                assert len(surveys) == 1
+                assert surveys[0]["id"] == str(survey.id)
+
+            # Second request should be hypercached so needs no DB queries at all!
+            with self.assertNumQueries(0):
+                response = self._get_surveys(token=self.team.api_token)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["surveys"]) == 1
+
+    def test_hypercache_surveys_match_api_endpoint(self):
+        # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not
+        # We should check this matches the api endpoint logic
+        self.team.surveys_opt_in = True
+        self.team.save()
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+        self.client.logout()
+
+        with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
+            cache_response = self._get_surveys(token=self.team.api_token).json()
+
+        non_cache_response = self._get_surveys(token=self.team.api_token).json()
+
+        assert cache_response == non_cache_response
+
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
     def setUp(self):
@@ -3952,3 +4005,264 @@ class TestExternalSurveyValidation(APIBaseTest):
 )
 def test_nh3_clean_configuration(test_input, expected):
     assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")
+
+
+class TestSurveyBulkDuplication(APIBaseTest):
+    """Test bulk survey duplication endpoint"""
+
+    def setUp(self):
+        super().setUp()
+        # Create additional teams in the same organization
+        self.team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        self.team3 = Team.objects.create(organization=self.organization, name="Team 3")
+
+        # Create a survey to duplicate
+        self.source_survey = Survey.objects.create(
+            team=self.team,
+            name="Source Survey",
+            description="A survey to be duplicated",
+            type="popover",
+            questions=[
+                {"id": str(uuid.uuid4()), "type": "open", "question": "What do you think?"},
+                {"id": str(uuid.uuid4()), "type": "rating", "question": "Rate us", "scale": 5},
+            ],
+            created_by=self.user,
+        )
+
+    def test_bulk_duplicate_to_multiple_projects(self):
+        """Test successful bulk duplication to multiple projects"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+
+        # Check response structure
+        assert "created_surveys" in response_data
+        assert "count" in response_data
+        assert response_data["count"] == 2
+        assert len(response_data["created_surveys"]) == 2
+
+        # Verify surveys were created in target teams
+        team2_survey = Survey.objects.get(team=self.team2)
+        team3_survey = Survey.objects.get(team=self.team3)
+
+        # Check that surveys have the correct names (with timestamp)
+        assert "Source Survey (duplicated at" in team2_survey.name
+        assert "Source Survey (duplicated at" in team3_survey.name
+
+        # Verify survey content was copied correctly
+        assert team2_survey.questions is not None
+        assert len(team2_survey.questions) == 2
+        assert team2_survey.questions[0]["type"] == "open"
+        assert team2_survey.questions[1]["type"] == "rating"
+        assert team2_survey.description == "A survey to be duplicated"
+        assert team2_survey.type == "popover"
+
+        # Verify surveys are created as drafts
+        assert team2_survey.start_date is None
+        assert team3_survey.start_date is None
+        assert team2_survey.archived is False
+        assert team3_survey.archived is False
+
+    def test_bulk_duplicate_to_single_project(self):
+        """Test bulk duplication works with a single target project"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+        assert response_data["count"] == 1
+        assert Survey.objects.filter(team=self.team2).count() == 1
+
+    def test_bulk_duplicate_with_empty_team_ids(self):
+        """Test that empty target_team_ids returns validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "target_team_ids must be a non-empty list" in str(response.json())
+
+    def test_bulk_duplicate_with_missing_team_ids(self):
+        """Test that missing target_team_ids returns validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_bulk_duplicate_with_nonexistent_team(self):
+        """Test that nonexistent team IDs return validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, 99999]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in str(response.json()).lower()
+
+    def test_bulk_duplicate_with_team_from_different_org(self):
+        """Test that teams from different organizations are rejected"""
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, other_team.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in str(response.json()).lower()
+
+    def test_bulk_duplicate_multiple_times_to_same_team(self):
+        """Test that multiple duplications to the same team create surveys with different timestamps"""
+        # Create first duplicate
+        response1 = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+
+        # Wait a second to ensure different timestamp
+        time.sleep(1)
+
+        # Try to create another duplicate (should succeed because timestamp is different)
+        response2 = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+        assert response2.status_code == status.HTTP_201_CREATED
+
+        # Verify two surveys exist with different names
+        team2_surveys = Survey.objects.filter(team=self.team2).order_by("created_at")
+        assert team2_surveys.count() == 2
+        assert team2_surveys[0].name != team2_surveys[1].name
+
+    def test_bulk_duplicate_does_not_copy_project_specific_fields(self):
+        """Test that project-specific fields like flags and actions are not copied"""
+        # Create a survey with linked flag, targeting, and conditions
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Flag",
+            key="test-flag",
+            created_by=self.user,
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Test Action",
+        )
+
+        survey_with_specifics = Survey.objects.create(
+            team=self.team,
+            name="Survey with Project Specifics",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            linked_flag=flag,
+            conditions={
+                "url": "https://example.com",
+                "linkedFlagVariant": "test-variant",
+                "actions": {"values": [{"id": action.id}]},
+                "events": {"values": [{"name": "test_event"}]},
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{survey_with_specifics.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Verify the duplicated survey does NOT have project-specific fields
+        duplicated = Survey.objects.get(team=self.team2)
+
+        # Linked flag should NOT be copied
+        assert duplicated.linked_flag is None
+        assert duplicated.targeting_flag is None
+
+        # Project-specific condition fields should NOT be copied
+        assert duplicated.conditions is not None
+        assert "linkedFlagVariant" not in duplicated.conditions
+        assert "actions" not in duplicated.conditions
+        assert "events" not in duplicated.conditions
+
+        # Generic condition fields SHOULD be copied
+        assert duplicated.conditions.get("url") == "https://example.com"
+
+    def test_bulk_duplicate_transaction_rollback_on_error(self):
+        """Test that all duplications are rolled back if one fails"""
+        # Create a survey with the same name in team2 to cause a conflict
+        Survey.objects.create(
+            team=self.team2,
+            name=f"{self.source_survey.name} (duplicated at 2025-01-20 12:00:00)",
+            type="popover",
+            questions=[{"type": "open", "question": "Existing"}],
+            created_by=self.user,
+        )
+
+        # This might succeed or fail depending on timestamp collision
+        # The important thing is that if it fails, it should fail atomically
+        initial_team2_count = Survey.objects.filter(team=self.team2).count()
+        initial_team3_count = Survey.objects.filter(team=self.team3).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        # Regardless of success or failure, counts should be consistent
+        if response.status_code != status.HTTP_201_CREATED:
+            # If it failed, no surveys should have been created
+            assert Survey.objects.filter(team=self.team2).count() == initial_team2_count
+            assert Survey.objects.filter(team=self.team3).count() == initial_team3_count
+
+    def test_bulk_duplicate_nonexistent_survey(self):
+        """Test that duplicating a nonexistent survey returns 404"""
+        fake_uuid = uuid.uuid4()
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{fake_uuid}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_bulk_duplicate_preserves_question_ids(self):
+        """Test that question IDs are reset (set to None) in duplicated surveys"""
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        # New questions should have new IDs, not the same as the source
+        assert self.source_survey.questions is not None
+        assert duplicated.questions is not None
+        source_question_ids = [q.get("id") for q in self.source_survey.questions]
+        duplicated_question_ids = [q.get("id") for q in duplicated.questions]
+
+        # IDs should exist but be different
+        assert all(qid is not None for qid in duplicated_question_ids)
+        assert duplicated_question_ids != source_question_ids

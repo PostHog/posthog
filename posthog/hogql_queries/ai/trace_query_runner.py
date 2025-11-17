@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -57,7 +58,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
-        with self.timings.measure("trace_query_hogql_execute"):
+        with self.timings.measure("trace_query_hogql_execute"), tags_context(product=Product.MAX_AI):
             query_result = execute_hogql_query(
                 query=self.to_query(),
                 placeholders={
@@ -86,6 +87,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             """
             SELECT
                 properties.$ai_trace_id AS id,
+                any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -198,6 +200,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
+            "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",

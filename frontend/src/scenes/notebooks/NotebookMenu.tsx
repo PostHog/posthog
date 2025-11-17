@@ -4,13 +4,13 @@ import { router } from 'kea-router'
 import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
@@ -47,7 +47,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             !accessLevelSatisfied(
                                 AccessControlResourceType.Notebook,
                                 notebook.user_access_level,
-                                'editor'
+                                AccessControlLevel.Editor
                             )
                                 ? 'You do not have permission to delete this notebook.'
                                 : undefined,

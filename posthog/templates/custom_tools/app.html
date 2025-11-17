@@ -1,0 +1,19 @@
+<div class="module">
+  <table summary="Custom admin tools">
+    <caption>
+      <a href="/admin/" class="section" title="Custom Tools">Custom Tools</a>
+    </caption>
+    <tr class="model-actionsanalysis">
+      <th scope="row">
+        <a href="{% url 'realtime-cohorts-calculation' %}">Realtime Cohorts Calculation</a>
+      </th>
+      <td>Run realtime cohorts calculation workflow</td>
+    </tr>
+    <tr class="model-resavecohorts">
+      <th scope="row">
+        <a href="{% url 'resave-cohorts' %}">Resave Cohorts (Regenerate Bytecode & Type)</a>
+      </th>
+      <td>Regenerate compiled bytecode and cohort_type for cohorts, with batch processing</td>
+    </tr>
+  </table>
+</div>

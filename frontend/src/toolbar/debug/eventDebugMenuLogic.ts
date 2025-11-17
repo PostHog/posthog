@@ -172,10 +172,12 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             },
         ],
     }),
-    afterMount(({ values, actions }) => {
-        values.posthog?.on('eventCaptured', (e) => {
-            actions.addEvent(e)
-        })
+    afterMount(({ values, actions, cache }) => {
+        cache.disposables.add(() => {
+            return values.posthog?.on('eventCaptured', (e) => {
+                actions.addEvent(e)
+            })
+        }, 'posthogEventListener')
     }),
     permanentlyMount(),
 ])

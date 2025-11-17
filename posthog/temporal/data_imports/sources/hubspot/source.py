@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -17,7 +17,8 @@ from posthog.temporal.data_imports.sources.generated_configs import HubspotSourc
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
 from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
 from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
@@ -27,7 +28,7 @@ class HubspotSourceOldConfig(config.Config):
 
 
 @SourceRegistry.register
-class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
+class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT

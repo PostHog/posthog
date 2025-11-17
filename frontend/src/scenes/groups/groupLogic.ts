@@ -191,7 +191,7 @@ export const groupLogic = kea<groupLogicType>([
                     key: Scene.DataManagement,
                     name: 'People',
                     path: urls.persons(),
-                    iconType: 'person',
+                    iconType: 'persons',
                 })
                 breadcrumbs.push({
                     key: groupTypeIndex,
@@ -212,7 +212,7 @@ export const groupLogic = kea<groupLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s, p) => [p.groupTypeIndex, p.groupKey, s.featureFlags],
             (groupTypeIndex, groupKey, featureFlags): SidePanelSceneContext | null => {
-                if (!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
                     return null
                 }
                 return {

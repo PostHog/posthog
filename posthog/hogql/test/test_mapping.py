@@ -15,7 +15,7 @@ from posthog.hogql.functions.mapping import (
     find_hogql_posthog_function,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 
@@ -86,12 +86,12 @@ class TestMappings(BaseTest):
                 ((UnknownType(),), DateType()),
             ],
         )
-        ast = print_ast(
+        sql, _ = prepare_and_print_ast(
             parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
             HogQLContext(self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        assert "overloadSuccess" in ast
+        assert "overloadSuccess" in sql
 
     @freeze_time("2023-01-01T12:00:00Z")
     def test_postgres_functions(self):

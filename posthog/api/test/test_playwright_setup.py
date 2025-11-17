@@ -2,13 +2,14 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
-from flaky import flaky
 from rest_framework import status
 
 from posthog.models import Organization, PersonalAPIKey, Team, User
 
 
 class TestPlaywrightSetup(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False  # Each test gets fresh data to prevent isolation issues
+
     def test_endpoint_blocked_in_production(self):
         """Test that the endpoint is blocked when not in test/debug/CI modes"""
         with override_settings(TEST=False, DEBUG=False, CI=False, E2E_TESTING=False):
@@ -18,10 +19,6 @@ class TestPlaywrightSetup(APIBaseTest):
     @override_settings(TEST=True)
     def test_organization_with_team_setup(self):
         """Test the organization_with_team setup function"""
-        # Clear any existing data to ensure clean test
-        User.objects.filter(email="test@posthog.com").delete()
-        Organization.objects.all().delete()
-
         payload = {"organization_name": "Test Org API"}
 
         response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
@@ -93,7 +90,6 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertIn("organization_with_team", data["available_tests"])
 
     @override_settings(TEST=True)
-    @flaky(max_runs=3, min_passes=1)
     def test_setup_with_defaults(self):
         """Test setup function with default parameters (empty payload)"""
         response = self.client.post("/api/setup_test/organization_with_team/", {}, format="json")

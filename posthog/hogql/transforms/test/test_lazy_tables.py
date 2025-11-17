@@ -9,10 +9,10 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.warehouse.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 
 
 class TestLazyJoins(BaseTest):
@@ -85,7 +85,7 @@ class TestLazyJoins(BaseTest):
 
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
-        query = print_ast(
+        query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(
                 team_id=self.team.pk,

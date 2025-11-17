@@ -10,7 +10,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -18,7 +18,10 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
 
     return (
         <>
-            <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel="editor">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Action}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
                 <LemonButton size="small" type="primary" onClick={() => setVisible(true)} data-attr="create-action">
                     New action
                 </LemonButton>

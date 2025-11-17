@@ -16,7 +16,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -42,6 +42,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -73,7 +75,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -107,6 +109,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -143,7 +147,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -177,6 +181,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -202,7 +209,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 15, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -233,7 +240,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
+     WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -283,7 +290,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -317,6 +324,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -333,21 +343,43 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter
   '''
-  /* cohort_calculation:cohort_calc:00000000 */
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
          read_rows,
          read_bytes,
          written_rows,
-         memory_usage
-  FROM system.query_log
-  WHERE query NOT LIKE '%query_log%'
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
     AND query LIKE '%cohort_calc:00000000%'
-    AND type = 'QueryFinish'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
   ORDER BY event_time DESC
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.1
+  '''
+  /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
+  SELECT query_id,
+         query_duration_ms,
+         read_rows,
+         read_bytes,
+         written_rows,
+         memory_usage,
+  exception
+  FROM query_log_archive
+  WHERE lc_cohort_id = 99999
+    AND team_id = 99999
+    AND query LIKE '%cohort_calc:00000000%'
+    AND event_date >= 'today'
+    AND event_time >= 'today 00:00:00'
+  ORDER BY event_time DESC
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
   '''
   
   SELECT count(DISTINCT person_id)
@@ -357,7 +389,7 @@
     AND version = 0
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.2
+# name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter.3
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -374,7 +406,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -410,6 +442,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -446,7 +480,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -491,6 +525,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -516,7 +553,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -558,7 +595,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -588,7 +625,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -630,7 +667,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 1), 0)
+     WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -660,7 +697,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -702,7 +739,7 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE ifNull(greaterOrEquals(step_reached, 2), 0)
+     WHERE bitTest(steps_bitfield, 2)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -738,7 +775,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -774,6 +811,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -805,7 +844,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -838,6 +877,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,
                      max_execution_time=60,
@@ -869,7 +910,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
-               arrayJoin(aggregate_funnel_array_v8(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                           and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                                           and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                                          and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -904,6 +945,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -935,7 +978,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), prop_1), notEmpty(prop_1)) AS prop,
-               arrayJoin(aggregate_funnel_array_v8(2, 1209600, 'step_1', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'step_1', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -972,6 +1015,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1003,7 +1048,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
-               arrayJoin(aggregate_funnel_array_v8(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), ['', ''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_array_v9(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), ['', ''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1038,6 +1083,8 @@
      GROUP BY breakdown
      ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1074,7 +1121,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1111,6 +1158,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1147,7 +1197,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1184,6 +1234,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1220,7 +1273,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1264,6 +1317,9 @@
      GROUP BY breakdown
      ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
+  ORDER BY step_3 DESC,
+           step_2 DESC,
+           step_1 DESC
   LIMIT 26 SETTINGS join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
@@ -1288,7 +1344,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1329,8 +1385,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1359,7 +1415,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1400,8 +1456,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('finance')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1430,7 +1486,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1471,8 +1527,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101
@@ -1501,7 +1557,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, ifNull(prop_basic, ''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
-               arrayJoin(aggregate_funnel_v8(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(3, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1542,8 +1598,8 @@
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
-                                                                   and isNull(arrayFlatten(array('technology')))))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
   LIMIT 101

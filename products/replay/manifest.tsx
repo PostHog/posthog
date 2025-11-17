@@ -41,6 +41,8 @@ export const manifest: ProductManifest = {
             type: 'session_recording_playlist',
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
+            sceneKey: 'Replay',
+            sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
         },
     ],
 }

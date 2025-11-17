@@ -69,8 +69,8 @@ class ConsoleTreeFormatter(RiskFormatter):
         # Add explanation for each level
         explanations = {
             RiskLevel.BLOCKED: "Causes locks or breaks compatibility",
-            RiskLevel.NEEDS_REVIEW: "May have performance impact",
-            RiskLevel.SAFE: "No locks, backwards compatible",
+            RiskLevel.NEEDS_REVIEW: "Requires brief lock, review for high-traffic tables",
+            RiskLevel.SAFE: "No contention risk, backwards compatible",
         }
         explanation = explanations.get(level, "")
         lines.append(f"## {icon} {level.category}\n")
@@ -89,6 +89,10 @@ class ConsoleTreeFormatter(RiskFormatter):
         # Format operations with tree structure
         for idx, op_risk in enumerate(risk.operations):
             lines.extend(self._format_operation(idx, op_risk, risk))
+
+        # Format info messages
+        if risk.info_messages:
+            lines.extend(self._format_info_messages(risk.info_messages))
 
         # Format policy violations
         if risk.policy_violations:
@@ -136,6 +140,18 @@ class ConsoleTreeFormatter(RiskFormatter):
             lines.append(f"{prefix}   {details_str}")
         else:
             lines.append(f"{prefix}└─ {op_number} {icon} {op_risk.type}: {op_risk.reason}")
+
+        return lines
+
+    def _format_info_messages(self, messages: list[str]) -> list[str]:
+        """Format informational messages."""
+        lines = []
+        lines.append("  │")
+        lines.append("  └──> ℹ️  INFO:")
+
+        for message in messages:
+            wrapped = textwrap.fill(message, width=72, initial_indent="       ", subsequent_indent="       ")
+            lines.append(wrapped)
 
         return lines
 

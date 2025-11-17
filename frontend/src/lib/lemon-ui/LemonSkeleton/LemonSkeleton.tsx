@@ -36,7 +36,7 @@ export function LemonSkeleton({ className, repeat, active = true, fade = false }
 }
 
 LemonSkeleton.Text = function LemonSkeletonText({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={cn('rounded h-6 w-full', className)} {...props} />
+    return <LemonSkeleton className={cn('flex-inline rounded h-6 w-full', className)} {...props} />
 }
 
 LemonSkeleton.Row = function LemonSkeletonRow({ className, ...props }: LemonSkeletonProps) {

@@ -976,8 +976,12 @@ class InsightViewSet(
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.annotate(dashboards_count=Count("dashboards"))
-                    queryset = queryset.filter(Q(saved=True) | Q(dashboards_count__gte=1))
+                    queryset = queryset.annotate(
+                        visible_dashboards_count=Count(
+                            "dashboards", filter=~Q(dashboard_tiles__dashboard__creation_mode="unlisted")
+                        )
+                    )
+                    queryset = queryset.filter(Q(saved=True) | Q(visible_dashboards_count__gte=1))
                 else:
                     queryset = queryset.filter(Q(saved=False))
             elif key == "feature_flag":
@@ -1116,7 +1120,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        return Response(serialized_data)
+        response = Response(serialized_data)
+
+        return response
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])

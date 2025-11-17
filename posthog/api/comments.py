@@ -12,11 +12,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
+from posthog.tasks.email import send_discussions_mentioned
 
 
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
+    mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
+    slug = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = Comment
@@ -30,18 +33,26 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
-        # TODO: Ensure created_by is set
-        # And only allow updates to own comment
 
         data["created_by"] = request.user
 
         return data
 
     def create(self, validated_data: Any) -> Any:
+        mentions: list[int] = validated_data.pop("mentions", [])
+        slug: str = validated_data.pop("slug", "")
         validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data)
+
+        comment = super().create(validated_data)
+
+        if mentions:
+            send_discussions_mentioned.delay(comment.id, mentions, slug)
+
+        return comment
 
     def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
+        mentions: list[int] = validated_data.pop("mentions", [])
+        slug: str = validated_data.pop("slug", "")
         request = self.context["request"]
 
         with transaction.atomic():
@@ -56,6 +67,9 @@ class CommentSerializer(serializers.ModelSerializer):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)
+
+        if mentions:
+            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
 
         return updated_instance
 

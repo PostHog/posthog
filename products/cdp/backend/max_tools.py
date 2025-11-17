@@ -3,7 +3,6 @@ import json
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from posthog.hogql.ai import (
@@ -30,6 +29,7 @@ from products.cdp.backend.prompts import (
 )
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 
@@ -50,11 +50,10 @@ class HogFunctionFiltersOutput(BaseModel):
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
-    name: str = "create_hog_transformation_function"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
     description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
-    thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
         + "\n\n"
         + TRANSFORMATION_LIMITATIONS_MESSAGE
@@ -101,7 +100,15 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        )
 
     def _parse_output(self, output: str) -> HogTransformationOutput:
         match = re.search(r"<hog_code>(.*?)</hog_code>", output, re.DOTALL)
@@ -129,13 +136,12 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
 
 class CreateHogFunctionFiltersTool(MaxTool):
-    name: str = "create_hog_function_filters"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_function_filters"  # Must match a value in AssistantTool enum
     description: str = (
         "Create or edit filters for hog functions to specify which events and properties trigger the function"
     )
-    thinking_message: str = "Setting up filters"
     args_schema: type[BaseModel] = CreateHogFunctionFiltersArgs
-    root_system_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
+    context_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
         current_filters = self.context.get("current_filters", "{}")
@@ -181,7 +187,9 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+        )
 
     def _parse_output(self, output: str) -> HogFunctionFiltersOutput:
         match = re.search(r"<filters>(.*?)</filters>", output, re.DOTALL)
@@ -219,9 +227,8 @@ class HogFunctionInputsOutput(BaseModel):
 class CreateHogFunctionInputsTool(MaxTool):
     name: str = "create_hog_function_inputs"
     description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
-    thinking_message: str = "Generating input variables for your hog function"
     args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
-    root_system_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
+    context_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, list]:
         current_inputs_schema = self.context.get("current_inputs_schema", [])
@@ -261,7 +268,9 @@ class CreateHogFunctionInputsTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+        )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:
         import json

@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from collections.abc import Callable
 
 from posthog.test.base import BaseTest
@@ -311,3 +312,82 @@ class TestOrgConcurrencyLimit(BaseTest):
 
             result = get_org_app_concurrency_limit(uuid.uuid4())  # Non-existent org
             self.assertIsNone(result)
+
+
+class TestDashboardQueriesRateLimiter(BaseTest):
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_celery_tasks(self):
+        """Test that rate limiter is not applicable when running in Celery context"""
+        from celery import Task
+
+        from posthog.clickhouse.client.limit import get_app_dashboard_queries_rate_limiter
+
+        rate_limiter = get_app_dashboard_queries_rate_limiter()
+
+        mock_task = Mock(spec=Task)
+        with patch("posthog.clickhouse.client.limit.current_task", mock_task):
+            is_applicable = rate_limiter.applicable(
+                org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
+            )
+            self.assertFalse(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_temporal_workflows(self):
+        """Test that rate limiter is not applicable when running in Temporal workflow context"""
+        from posthog.clickhouse.client.limit import get_app_dashboard_queries_rate_limiter
+
+        rate_limiter = get_app_dashboard_queries_rate_limiter()
+
+        with patch("posthog.clickhouse.client.limit.current_task", None):
+            with patch("temporalio.workflow.in_workflow", return_value=True):
+                is_applicable = rate_limiter.applicable(
+                    org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
+                )
+                self.assertFalse(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_temporal_activity(self):
+        """Test that rate limiter is bypassed when running in Temporal activity context"""
+        from temporalio.testing import ActivityEnvironment
+
+        from posthog.clickhouse.client.limit import get_app_dashboard_queries_rate_limiter
+
+        async def check_rate_limiter_in_activity():
+            rate_limiter = get_app_dashboard_queries_rate_limiter()
+            is_applicable = rate_limiter.applicable(
+                org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
+            )
+            return is_applicable
+
+        env = ActivityEnvironment()
+        result = asyncio.run(env.run(check_rate_limiter_in_activity))
+
+        self.assertFalse(result, "Rate limiter should not apply in Temporal activity context")
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_applies_for_regular_requests(self):
+        """Test that rate limiter is applicable for regular web requests"""
+        from posthog.clickhouse.client.limit import get_app_dashboard_queries_rate_limiter
+
+        rate_limiter = get_app_dashboard_queries_rate_limiter()
+
+        with patch("posthog.clickhouse.client.limit.current_task", None):
+            with patch("temporalio.workflow.in_workflow", return_value=False):
+                is_applicable = rate_limiter.applicable(
+                    org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id
+                )
+                self.assertTrue(is_applicable)
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_api_requests(self):
+        """Test that rate limiter skips for API requests"""
+        from posthog.clickhouse.client.limit import get_app_dashboard_queries_rate_limiter
+
+        rate_limiter = get_app_dashboard_queries_rate_limiter()
+
+        with patch("posthog.clickhouse.client.limit.current_task", None):
+            with patch("temporalio.workflow.in_workflow", return_value=False):
+                is_applicable = rate_limiter.applicable(
+                    org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id, is_api=True
+                )
+                self.assertFalse(is_applicable)

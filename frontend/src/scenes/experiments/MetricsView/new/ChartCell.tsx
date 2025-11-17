@@ -7,6 +7,7 @@ import {
     getDelta,
     getIntervalBounds,
     getNiceTickValues,
+    getValidationFailureType,
     getVariantInterval,
     isBayesianResult,
 } from '../shared/utils'
@@ -53,6 +54,7 @@ export function ChartCell({
     const [lower, upper] = getIntervalBounds(variantResult)
     const delta = getDelta(variantResult)
     const hasEnoughData = !!interval
+    const validationFailureType = getValidationFailureType(variantResult)
 
     // Position calculations
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
@@ -147,11 +149,17 @@ export function ChartCell({
                     )}
                 </svg>
 
-                {/* "Not enough data" message as HTML overlay */}
-                {!hasEnoughData && (
+                {/* Validation failure message as HTML overlay */}
+                {(!hasEnoughData || validationFailureType) && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="bg-border-light px-3 py-1 rounded text-xs text-muted whitespace-nowrap">
-                            Not enough data yet
+                        <div
+                            className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
+                                validationFailureType === 'error'
+                                    ? 'bg-danger-highlight text-danger'
+                                    : 'bg-border-light text-muted'
+                            }`}
+                        >
+                            {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}
                         </div>
                     </div>
                 )}

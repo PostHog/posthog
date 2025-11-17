@@ -340,7 +340,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
 
         # Verify the system prompt template contains the expected current query section
-        self.assertIn("The current HogQL query", tool.root_system_prompt_template)
-        self.assertIn("<current_query>", tool.root_system_prompt_template)
-        self.assertIn("{current_query}", tool.root_system_prompt_template)
-        self.assertIn("</current_query>", tool.root_system_prompt_template)
+        self.assertIn("The current HogQL query", tool.context_prompt_template)
+        self.assertIn("<current_query>", tool.context_prompt_template)
+        self.assertIn("{current_query}", tool.context_prompt_template)
+        self.assertIn("</current_query>", tool.context_prompt_template)

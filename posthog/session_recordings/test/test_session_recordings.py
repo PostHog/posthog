@@ -361,6 +361,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
+                "expiry_time": ANY,
                 "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
@@ -381,7 +382,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
-                "retention_period_days": None,
+                "retention_period_days": 90,
+                "recording_ttl": 89,
                 "viewed": False,
                 "viewers": [],
                 "ongoing": True,
@@ -601,6 +603,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "expiry_time": (base_time + relativedelta(days=30))
+            .replace(microsecond=0, second=0, minute=0, hour=0)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,
             "start_url": "https://not-provided-by-test.com",
@@ -620,6 +625,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
             "storage": "object_storage",
             "retention_period_days": 30,
+            "recording_ttl": 29,
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
@@ -934,7 +940,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"results": [event_id]}
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["uuid"] == event_id
+        assert "timestamp" in results[0]
 
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -984,8 +993,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        # TODO: right now we don't care about the order of events in the response
-        assert sorted(response.json()["results"]) == sorted([event_id_one, event_id_three, event_id_two])
+        results = response.json()["results"]
+        assert len(results) == 3
+        result_uuids = sorted([r["uuid"] for r in results])
+        expected_uuids = sorted([event_id_one, event_id_three, event_id_two])
+        assert result_uuids == expected_uuids
+        # Verify all results have timestamps
+        for result in results:
+            assert "timestamp" in result
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
@@ -1428,3 +1443,78 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Should only delete 2 viewed records
         assert response_data["not_viewed_count"] == 2
         assert response_data["total_requested"] == 3
+
+    def test_session_recording_id_includes_recording_not_matching_filters(self):
+        """Test that session_recording_id parameter includes a recording even if it's not in session_ids filter"""
+        base_time = now() - relativedelta(hours=1)
+
+        # Create three recordings
+        self.produce_replay_summary("user1", "session_a", base_time)
+        self.produce_replay_summary("user2", "session_b", base_time)
+        self.produce_replay_summary("user3", "session_c", base_time)
+
+        # Filter using session_ids to only include session_a
+        # But also specify session_b via session_recording_id (should force it to be included)
+        params_string = urlencode(
+            {
+                "session_ids": '["session_a"]',
+                "session_recording_id": "session_b",
+            }
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        session_ids = [r["id"] for r in response_data["results"]]
+
+        # session_a is in session_ids filter, should be in results
+        assert "session_a" in session_ids
+
+        # session_b is NOT in session_ids filter, but should be included via session_recording_id
+        assert "session_b" in session_ids, "session_recording_id should be included even when not in session_ids"
+
+        # session_c should NOT be in results (not in filter, not in session_recording_id)
+        assert "session_c" not in session_ids
+
+        assert len(session_ids) == 2
+
+    def test_session_recording_id_deduplicates_when_in_results(self):
+        """Test that session_recording_id is deduplicated if it also matches filters"""
+        base_time = now() - relativedelta(days=1)
+
+        # Create recordings
+        self.produce_replay_summary("user1", "session1", base_time)
+        self.produce_replay_summary("user2", "session2", base_time - relativedelta(seconds=30))
+
+        # Specify session1 explicitly via session_recording_id
+        # It should also match the filters, so we test deduplication
+        params_string = urlencode({"session_recording_id": "session1"})
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should have exactly 2 recordings (no duplicates)
+        session_ids = [r["id"] for r in response_data["results"]]
+        assert session_ids.count("session1") == 1, "session1 should appear exactly once (deduplicated)"
+        assert len(session_ids) == 2
+
+    def test_session_recording_id_nonexistent_recording(self):
+        """Test that specifying a nonexistent session_recording_id doesn't cause errors"""
+        base_time = now() - relativedelta(days=1)
+
+        # Create a recording
+        self.produce_replay_summary("user1", "existing_session", base_time)
+
+        # Specify a nonexistent recording via session_recording_id
+        params_string = urlencode({"session_recording_id": "nonexistent_session"})
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should only return existing_session (nonexistent one is silently ignored)
+        session_ids = [r["id"] for r in response_data["results"]]
+        assert "nonexistent_session" not in session_ids
+        assert "existing_session" in session_ids

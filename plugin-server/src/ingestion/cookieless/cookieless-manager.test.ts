@@ -22,6 +22,7 @@ import {
     extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,
+    isCalendarDateValid,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
@@ -110,6 +111,59 @@ describe('CookielessManager', () => {
             const date = new Date('2025-01-01T12:00:00Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'UTC')
             expect(result).toEqual('2025-01-02')
+        })
+    })
+
+    describe('isCalendarDateValid', () => {
+        const fixedTime = new Date('2025-11-13T12:00:00Z')
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('should accept today', () => {
+            // Fixed time: 2025-11-13 12:00 UTC
+            expect(isCalendarDateValid('2025-11-13')).toBe(true)
+        })
+
+        it('should accept yesterday', () => {
+            // Salt window for 2025-11-12: Nov 11 12:00 to Nov 15 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-12')).toBe(true)
+        })
+
+        it('should accept 3 days ago (within 72h + timezone buffer)', () => {
+            // Salt window for 2025-11-10: Nov 9 12:00 to Nov 13 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-10')).toBe(true)
+        })
+
+        it('should reject 4 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-09: Nov 8 12:00 to Nov 12 14:00
+            // NOW (Nov 13 12:00) is after window ended
+            expect(isCalendarDateValid('2025-11-09')).toBe(false)
+        })
+
+        it('should reject 5 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-08')).toBe(false)
+        })
+
+        it('should reject tomorrow-ish dates', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-15')).toBe(false)
+        })
+
+        it('should reject invalid date format', () => {
+            expect(isCalendarDateValid('not-a-date')).toBe(false)
+            expect(isCalendarDateValid('2025/01/01')).toBe(false)
+            expect(isCalendarDateValid('2025-13-01')).toBe(false)
         })
     })
 
@@ -280,7 +334,12 @@ describe('CookielessManager', () => {
 
         async function processEvent(
             event: PipelineEvent,
-            headers: { token?: string; distinct_id?: string; timestamp?: string } = {}
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            } = { force_disable_person_processing: false }
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -290,17 +349,29 @@ describe('CookielessManager', () => {
 
         async function processEventWithHeaders(
             event: PipelineEvent,
-            headers: { token?: string; distinct_id?: string; timestamp?: string }
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
         ): Promise<{
             event: PipelineEvent | undefined
-            headers: { token?: string; distinct_id?: string; timestamp?: string }
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
             const result = response[0]
             return {
                 event: isOkResult(result) ? result.value.event : undefined,
-                headers: isOkResult(result) ? result.value.headers || {} : {},
+                headers: isOkResult(result)
+                    ? result.value.headers || { force_disable_person_processing: false }
+                    : { force_disable_person_processing: false },
             }
         }
 
@@ -401,6 +472,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(event, testHeaders)
@@ -414,6 +486,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
@@ -427,6 +500,7 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 // Test with alias event which should be dropped
@@ -434,7 +508,7 @@ describe('CookielessManager', () => {
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
         })
 
@@ -570,19 +644,21 @@ describe('CookielessManager', () => {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
                 // Dropped events are not returned in the response array
                 expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual({})
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
                 const testHeaders = {
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
+                    force_disable_person_processing: false,
                 }
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)

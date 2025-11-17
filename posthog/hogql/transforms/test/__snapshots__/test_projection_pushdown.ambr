@@ -1,0 +1,61 @@
+# serializer version: 1
+# name: TestProjectionPushdown.test_cte_with_asterisk_pushdown
+  "SELECT event, distinct_id FROM (SELECT event, timestamp, distinct_id FROM events) AS events_cte WHERE greater(timestamp, '2024-01-01')"
+# ---
+# name: TestProjectionPushdown.test_deeply_nested_with_multiple_demands
+  "SELECT event FROM (SELECT event, distinct_id FROM (SELECT event, distinct_id, timestamp FROM (SELECT event, timestamp, distinct_id FROM events) AS l3 WHERE greater(timestamp, '2024-01-01')) AS l2 WHERE equals(distinct_id, 'user1')) AS l1"
+# ---
+# name: TestProjectionPushdown.test_group_by_and_having_demands
+  "SELECT event, count() AS cnt FROM (SELECT event, timestamp, distinct_id FROM events) AS sub GROUP BY event, distinct_id HAVING and(greater(count(), 10), greater(timestamp, '2024-01-01'))"
+# ---
+# name: TestProjectionPushdown.test_join_constraint_columns
+  'SELECT e.event, e.distinct_id FROM (SELECT event, distinct_id, $session_id FROM events) AS e LEFT JOIN sessions ON equals(sessions.id, e.$session_id)'
+# ---
+# name: TestProjectionPushdown.test_join_constraint_in_subquery
+  'SELECT event, distinct_id, id FROM (SELECT e.event, e.distinct_id, sessions.id FROM (SELECT event, distinct_id, $session_id FROM events) AS e LEFT JOIN sessions ON equals(sessions.id, e.$session_id))'
+# ---
+# name: TestProjectionPushdown.test_mixed_asterisk_and_explicit_columns
+  'SELECT event FROM (SELECT distinct_id, event, timestamp FROM events) AS sub'
+# ---
+# name: TestProjectionPushdown.test_multiple_joins_with_mixed_columns
+  "SELECT e.event, e2.event AS event2 FROM (SELECT event, timestamp, distinct_id, created_at FROM events) AS e LEFT JOIN (SELECT event, distinct_id FROM events) AS e2 ON equals(e2.distinct_id, e.distinct_id) WHERE greater(e.timestamp, '2024-01-01') ORDER BY e.created_at ASC"
+# ---
+# name: TestProjectionPushdown.test_nested_pushdown
+  'SELECT event FROM (SELECT event FROM (SELECT event FROM events) AS inner) AS outer'
+# ---
+# name: TestProjectionPushdown.test_no_pushdown_without_asterisk
+  'SELECT event FROM (SELECT event, distinct_id FROM events) AS sub'
+# ---
+# name: TestProjectionPushdown.test_order_by_clause
+  'SELECT event FROM (SELECT event, timestamp FROM events) AS sub ORDER BY timestamp DESC'
+# ---
+# name: TestProjectionPushdown.test_preserves_explicit_columns
+  'SELECT event FROM (SELECT event, distinct_id, timestamp FROM events) AS sub'
+# ---
+# name: TestProjectionPushdown.test_preserves_used_columns
+  "SELECT event, count() FROM (SELECT event, timestamp, distinct_id FROM events) AS sub WHERE equals(distinct_id, 'test') GROUP BY timestamp"
+# ---
+# name: TestProjectionPushdown.test_prewhere_clause
+  "SELECT event FROM (SELECT event, distinct_id FROM events) AS sub PREWHERE equals(distinct_id, 'test')"
+# ---
+# name: TestProjectionPushdown.test_root_union_with_nested_union_cte
+  'SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports ORDER BY timestamp DESC'
+# ---
+# name: TestProjectionPushdown.test_simple_pushdown
+  'SELECT event FROM (SELECT event FROM events) AS sub'
+# ---
+# name: TestProjectionPushdown.test_subquery_in_join_with_demands
+  "SELECT e1.event, e2.timestamp FROM (SELECT event, properties, distinct_id FROM (SELECT event, properties, distinct_id FROM events) AS inner_e1) AS e1 LEFT JOIN (SELECT timestamp, distinct_id FROM (SELECT timestamp, distinct_id FROM events) AS inner_e2) AS e2 ON equals(e2.distinct_id, e1.distinct_id) WHERE notEquals(e1.properties, '{}')"
+# ---
+# name: TestProjectionPushdown.test_union_all_multiple_branches
+  "SELECT event FROM (SELECT event FROM events WHERE equals(event, 'click') UNION ALL SELECT event FROM events WHERE equals(event, 'pageview') UNION ALL SELECT event FROM events WHERE equals(event, 'submit')) AS sub"
+# ---
+# name: TestProjectionPushdown.test_union_all_with_asterisk
+  "SELECT event, distinct_id FROM (SELECT event, distinct_id FROM events WHERE equals(event, 'click') UNION ALL SELECT event, distinct_id FROM events WHERE equals(event, 'pageview')) AS sub"
+# ---
+# name: TestProjectionPushdown.test_union_all_without_alias
+  'SELECT event FROM (SELECT event FROM events UNION ALL SELECT event FROM events)'
+# ---
+# name: TestProjectionPushdown.test_union_cte_with_select_star_and_order_by
+  'SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports ORDER BY timestamp DESC LIMIT 20'
+# ---

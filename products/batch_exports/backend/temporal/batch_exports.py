@@ -189,7 +189,7 @@ def iter_records(
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
-    TODO: this can be removed once HTTP batch exports are migrated to SPMC
+    TODO: this can be removed once HTTP batch exports are migrated to new pipeline.
 
     Args:
         client: The ClickHouse client used to query for the batch records.
@@ -269,6 +269,9 @@ def iter_records(
         query = SELECT_FROM_EVENTS_VIEW
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
+
+    if filters_str:
+        filters_str = f"AND {filters_str}"
 
     query_str = query.safe_substitute(
         fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"

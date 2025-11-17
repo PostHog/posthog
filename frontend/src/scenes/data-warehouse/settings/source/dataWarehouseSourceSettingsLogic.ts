@@ -38,6 +38,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
+        setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -116,6 +117,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
+        selectedSchemas: [
+            [] as string[],
+            {
+                setSelectedSchemas: (_, { schemaNames }) => schemaNames,
+            },
+        ],
         sourceConfigLoading: [
             false as boolean,
             {
@@ -188,13 +195,14 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         },
     })),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         loadSourceSuccess: () => {
-            clearTimeout(cache.sourceRefreshTimeout)
-
-            cache.sourceRefreshTimeout = setTimeout(() => {
-                actions.loadSource()
-            }, REFRESH_INTERVAL)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadSource()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'sourceRefreshTimeout')
 
             dataWarehouseSourceSceneLogic
                 .findMounted({
@@ -203,25 +211,28 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
         },
         loadSourceFailure: () => {
-            clearTimeout(cache.sourceRefreshTimeout)
-
-            cache.sourceRefreshTimeout = setTimeout(() => {
-                actions.loadSource()
-            }, REFRESH_INTERVAL)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadSource()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'sourceRefreshTimeout')
         },
         loadJobsSuccess: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
-
-            cache.jobsRefreshTimeout = setTimeout(() => {
-                actions.loadJobs()
-            }, REFRESH_INTERVAL)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadJobs()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'jobsRefreshTimeout')
         },
         loadJobsFailure: () => {
-            clearTimeout(cache.jobsRefreshTimeout)
-
-            cache.jobsRefreshTimeout = setTimeout(() => {
-                actions.loadJobs()
-            }, REFRESH_INTERVAL)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadJobs()
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'jobsRefreshTimeout')
         },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
@@ -297,13 +308,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         actions.loadJobs()
     }),
 
-    beforeUnmount(({ cache }) => {
-        // Clean up refresh timeouts to prevent memory leaks and continued API calls
-        if (cache.sourceRefreshTimeout) {
-            clearTimeout(cache.sourceRefreshTimeout)
-        }
-        if (cache.jobsRefreshTimeout) {
-            clearTimeout(cache.jobsRefreshTimeout)
-        }
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
 ])

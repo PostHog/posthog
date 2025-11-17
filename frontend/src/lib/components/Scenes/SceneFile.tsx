@@ -6,6 +6,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
@@ -38,39 +39,41 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" matchTriggerWidth>
-                    <DropdownMenuItem className="w-full">
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => {
-                                assureVisibility({ type: 'folder', ref: projectTreeRefEntry.path })
-                                showLayoutPanel(true)
-                                setActivePanelIdentifier('Project')
-                            }}
-                        >
-                            <IconFolderOpen />
-                            Open in project tree
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => openMoveToModal([projectTreeRefEntry])}
-                            data-attr={`${dataAttrKey}-move-to-dropdown-menu-item`}
-                        >
-                            <IconFolderMove />
-                            Move to another folder
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => addShortcutItem(projectTreeRefEntry)}
-                            data-attr={`${dataAttrKey}-add-to-shortcuts-dropdown-menu-item`}
-                        >
-                            <IconShortcut />
-                            Add to shortcuts panel
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem className="w-full">
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    assureVisibility({ type: 'folder', ref: projectTreeRefEntry.path })
+                                    showLayoutPanel(true)
+                                    setActivePanelIdentifier('Project')
+                                }}
+                            >
+                                <IconFolderOpen />
+                                Open in project tree
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => openMoveToModal([projectTreeRefEntry])}
+                                data-attr={`${dataAttrKey}-move-to-dropdown-menu-item`}
+                            >
+                                <IconFolderMove />
+                                Move to another folder
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => addShortcutItem(projectTreeRefEntry)}
+                                data-attr={`${dataAttrKey}-add-to-shortcuts-dropdown-menu-item`}
+                            >
+                                <IconShortcut />
+                                Add to shortcuts panel
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
         </ScenePanelLabel>

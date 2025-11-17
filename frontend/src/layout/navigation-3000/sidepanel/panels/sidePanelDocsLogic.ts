@@ -2,7 +2,11 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, prop
 import { router } from 'kea-router'
 import { RefObject } from 'react'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductKey } from '~/types'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
@@ -36,7 +40,12 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     props({} as SidePanelDocsLogicProps),
     connect(() => ({
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
 
@@ -132,12 +141,22 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         updatePath: ({ path }) => {
             actions.setSidePanelOptions(path)
+
+            if (path && path.includes('/docs/llm-analytics')) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_DOCS_VIEWED,
+                    metadata: {
+                        docs_path: path,
+                    },
+                })
+            }
         },
     })),
 
     afterMount(async ({ actions, values, cache }) => {
         // Set message receiver for the iframe very early on the `afterMount` hook
-        cache.onWindowMessage = (event: MessageEvent): void => {
+        const onWindowMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
                 if (event.data.type === 'internal-navigation') {
                     actions.updatePath(event.data.url)
@@ -167,7 +186,10 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             }
         }
 
-        window.addEventListener('message', cache.onWindowMessage)
+        cache.disposables.add(() => {
+            window.addEventListener('message', onWindowMessage)
+            return () => window.removeEventListener('message', onWindowMessage)
+        }, 'windowMessageListener')
 
         // After that's set up can run stuff that's slower - such as await-ing the default docs path
         //
@@ -186,8 +208,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
         }
     }),
 
-    beforeUnmount(({ actions, values, cache }) => {
+    beforeUnmount(({ actions, values }) => {
         actions.setInitialPath(values.currentPath ?? '/docs')
-        window.removeEventListener('message', cache.onWindowMessage)
     }),
 ])

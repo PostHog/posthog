@@ -7,9 +7,9 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 
 import snappy
+import aioboto3
 import structlog
 import posthoganalytics
-from aiobotocore.session import get_session
 from boto3 import client as boto3_client
 from botocore.client import Config
 
@@ -25,6 +25,14 @@ class BlockFetchError(Exception):
 
 
 class FileFetchError(Exception):
+    pass
+
+
+class FileDownloadError(Exception):
+    pass
+
+
+class FileUploadError(Exception):
     pass
 
 
@@ -51,8 +59,18 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
+        """Returns the compressed file as bytes or raises FileFetchError"""
+        pass
+
+    @abc.abstractmethod
     def fetch_block(self, block_url: str) -> str:
         """Returns the decompressed block or raises BlockFetchError"""
+        pass
+
+    @abc.abstractmethod
+    def fetch_block_bytes(self, block_url: str) -> bytes:
+        """Returns the compressed block as bytes or raises BlockFetchError"""
         pass
 
     @abc.abstractmethod
@@ -67,6 +85,14 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def is_lts_enabled(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def download_file(self, key: str, filename: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    def upload_file(self, key: str, filename: str) -> None:
         pass
 
 
@@ -86,7 +112,13 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def fetch_file(self, blob_key: str) -> str:
         raise FileFetchError("Storage not available")
 
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
+        raise FileFetchError("Storage not available")
+
     def fetch_block(self, block_url: str) -> str:
+        raise BlockFetchError("Storage not available")
+
+    def fetch_block_bytes(self, block_url: str) -> bytes:
         raise BlockFetchError("Storage not available")
 
     def delete_block(self, block_url: str) -> None:
@@ -97,6 +129,12 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def is_lts_enabled(self) -> bool:
         return False
+
+    def download_file(self, key: str, filename: str) -> None:
+        raise FileDownloadError("Storage not available")
+
+    def upload_file(self, key: str, filename: str) -> None:
+        raise FileUploadError("Storage not available")
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
@@ -186,29 +224,52 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": blob_key,
+            }
+            s3_response = self.aws_client.get_object(**kwargs)
+            return s3_response["Body"].read()
+        except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
+            logger.exception(
+                "session_recording_v2_object_storage.fetch_file_bytes_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+            )
+            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
+
+    def _fetch_compressed_block(self, block_url: str) -> bytes:
+        """Internal method to fetch and validate compressed block"""
+        # Parse URL and extract key and byte range
+        parsed_url = urlparse(block_url)
+        key = parsed_url.path.lstrip("/")
+        query_params = parse_qs(parsed_url.query)
+        byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
+        start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
+
+        if start_byte is None or end_byte is None:
+            raise BlockFetchError("Invalid byte range in block URL")
+
+        expected_length = end_byte - start_byte + 1
+        compressed_block = self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+
+        if not compressed_block:
+            raise BlockFetchError("Block content not found")
+
+        if len(compressed_block) != expected_length:
+            raise BlockFetchError(
+                f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
+            )
+
+        return compressed_block
+
     def fetch_block(self, block_url: str) -> str:
         try:
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            if start_byte is None or end_byte is None:
-                raise BlockFetchError("Invalid byte range in block URL")
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
-
-            if not compressed_block:
-                raise BlockFetchError("Block content not found")
-
-            if len(compressed_block) != expected_length:
-                raise BlockFetchError(
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
-                )
-
+            compressed_block = self._fetch_compressed_block(block_url)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
             # Strip any trailing newlines
             decompressed_block = decompressed_block.rstrip("\n")
@@ -224,6 +285,20 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 error=e,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
+
+    def fetch_block_bytes(self, block_url: str) -> bytes:
+        try:
+            return self._fetch_compressed_block(block_url)
+        except BlockFetchError:
+            raise
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.fetch_block_bytes_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
+            raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
     def delete_block(self, block_url: str) -> None:
         try:
@@ -285,6 +360,38 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
     def is_lts_enabled(self) -> bool:
         return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
+
+    def download_file(self, key: str, filename: str) -> None:
+        try:
+            self.aws_client.download_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.download_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileDownloadError(f"Failed to download file: {str(e)}")
+
+    def upload_file(self, key: str, filename: str) -> None:
+        try:
+            self.aws_client.upload_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.upload_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileUploadError(f"Failed to upload file: {str(e)}")
 
 
 class AsyncSessionRecordingV2ObjectStorage:
@@ -373,29 +480,52 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 
+    async def fetch_file_bytes(self, blob_key: str) -> bytes:
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": blob_key,
+            }
+            s3_response = await self.aws_client.get_object(**kwargs)
+            return await s3_response["Body"].read()
+        except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
+            logger.exception(
+                "async_session_recording_v2_object_storage.fetch_file_bytes_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+            )
+            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
+
+    async def _fetch_compressed_block(self, block_url: str) -> bytes:
+        """Internal method to fetch and validate compressed block"""
+        # Parse URL and extract key and byte range
+        parsed_url = urlparse(block_url)
+        key = parsed_url.path.lstrip("/")
+        query_params = parse_qs(parsed_url.query)
+        byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
+        start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
+
+        if start_byte is None or end_byte is None:
+            raise BlockFetchError("Invalid byte range in block URL")
+
+        expected_length = end_byte - start_byte + 1
+        compressed_block = await self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+
+        if not compressed_block:
+            raise BlockFetchError("Block content not found")
+
+        if len(compressed_block) != expected_length:
+            raise BlockFetchError(
+                f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
+            )
+
+        return compressed_block
+
     async def fetch_block(self, block_url: str) -> str:
         try:
-            # Parse URL and extract key and byte range
-            parsed_url = urlparse(block_url)
-            key = parsed_url.path.lstrip("/")
-            query_params = parse_qs(parsed_url.query)
-            byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-            start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-            if start_byte is None or end_byte is None:
-                raise BlockFetchError("Invalid byte range in block URL")
-
-            expected_length = end_byte - start_byte + 1
-            compressed_block = await self.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
-
-            if not compressed_block:
-                raise BlockFetchError("Block content not found")
-
-            if len(compressed_block) != expected_length:
-                raise BlockFetchError(
-                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
-                )
-
+            compressed_block = await self._fetch_compressed_block(block_url)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
             # Strip any trailing newlines
             decompressed_block = decompressed_block.rstrip("\n")
@@ -411,6 +541,20 @@ class AsyncSessionRecordingV2ObjectStorage:
                 error=e,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
+
+    async def fetch_block_bytes(self, block_url: str) -> bytes:
+        try:
+            return await self._fetch_compressed_block(block_url)
+        except BlockFetchError:
+            raise
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.fetch_block_bytes_failed",
+                bucket=self.bucket,
+                block_url=block_url,
+                error=e,
+            )
+            raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
     async def delete_block(self, block_url: str) -> None:
         try:
@@ -473,6 +617,38 @@ class AsyncSessionRecordingV2ObjectStorage:
     def is_lts_enabled(self) -> bool:
         return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
+    async def download_file(self, key: str, filename: str) -> None:
+        try:
+            await self.aws_client.download_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.download_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileDownloadError(f"Failed to download file: {str(e)}")
+
+    async def upload_file(self, key: str, filename: str) -> None:
+        try:
+            await self.aws_client.upload_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.upload_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileUploadError(f"Failed to upload file: {str(e)}")
+
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
 
@@ -519,8 +695,8 @@ async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
     if not all(required_settings):
         raise RuntimeError("Missing required settings for object storage client")
     else:
-        session = get_session()
-        async with session.create_client(  # type: ignore[call-overload]
+        session = aioboto3.Session()
+        async with session.client(  # type: ignore[call-overload]
             "s3",
             endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
             aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,

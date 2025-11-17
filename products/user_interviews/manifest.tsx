@@ -11,6 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/UserInterviews'),
             projectBased: true,
             activityScope: 'UserInterview',
+            description: 'Record and analyze user interviews with PostHog.',
+            iconType: 'user_interview',
         },
         UserInterview: {
             name: 'User interview',
@@ -47,6 +49,7 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
             iconType: 'user_interview',
             iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
+            sceneKey: 'UserInterviews',
         },
     ],
 }

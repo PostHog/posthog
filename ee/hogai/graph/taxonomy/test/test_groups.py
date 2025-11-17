@@ -10,6 +10,8 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
+    _parent_tool_call_id: str | None = None
+
     def get_tools(self):
         return self._get_default_tools()
 
@@ -74,7 +76,7 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
             sync=True,  # Force sync to ClickHouse
         )
 
-        self.toolkit = DummyToolkit(self.team)
+        self.toolkit = DummyToolkit(self.team, self.user)
 
     async def test_entity_names_with_existing_groups(self):
         # Test that the entity names include the groups we created in setUp
@@ -107,21 +109,31 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("project", property_vals)
 
     async def test_retrieve_entity_properties_group(self):
-        result = await self.toolkit.retrieve_entity_properties("organization")
+        result = await self.toolkit.retrieve_entity_properties_parallel(["organization"])
 
         assert (
             "<properties><String><prop><name>name</name></prop><prop><name>industry</name></prop><prop><name>name_group</name></prop></String></properties>"
-            == result
+            == result["organization"]
         )
 
     async def test_retrieve_entity_properties_group_not_found(self):
-        result = await self.toolkit.retrieve_entity_properties("test")
+        result = await self.toolkit.retrieve_entity_properties_parallel(["test"])
 
         assert (
-            "Entity test not found. Available entities: person, session, organization, project, no_properties" == result
+            "Entity test not found. Available entities: person, session, organization, project, no_properties"
+            == result["test"]
         )
 
     async def test_retrieve_entity_properties_group_nothing_found(self):
-        result = await self.toolkit.retrieve_entity_properties("no_properties")
+        result = await self.toolkit.retrieve_entity_properties_parallel(["no_properties"])
 
-        assert "Properties do not exist in the taxonomy for the entity no_properties." == result
+        assert "Properties do not exist in the taxonomy for the entity no_properties." == result["no_properties"]
+
+    async def test_retrieve_entity_properties_group_mixed(self):
+        result = await self.toolkit.retrieve_entity_properties_parallel(["organization", "no_properties", "project"])
+
+        assert "organization" in result
+        assert "<properties>" in result["organization"]
+        assert "Properties do not exist in the taxonomy for the entity no_properties." == result["no_properties"]
+        assert "project" in result
+        assert "<properties>" in result["project"]

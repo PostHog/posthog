@@ -15,6 +15,8 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
+            description: 'Analyze and understand your LLM usage and performance.',
+            iconType: 'llm_analytics',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
@@ -22,6 +24,13 @@ export const manifest: ProductManifest = {
             name: 'LLM analytics trace',
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/traces',
+        },
+        LLMAnalyticsSession: {
+            import: () => import('./frontend/LLMAnalyticsSessionScene'),
+            projectBased: true,
+            name: 'LLM analytics session',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/sessions',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
@@ -75,6 +84,9 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
+        '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
+        '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
@@ -115,6 +127,18 @@ export const manifest: ProductManifest = {
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
+        llmAnalyticsErrors: (): string => '/llm-analytics/errors',
+        llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
+        llmAnalyticsSession: (
+            id: string,
+            params?: {
+                timestamp?: string
+            }
+        ): string => {
+            const queryParams = new URLSearchParams(params)
+            const stringifiedParams = queryParams.toString()
+            return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        },
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
@@ -131,6 +155,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),
+            sceneKey: 'LLMAnalytics',
         },
     ],
 }

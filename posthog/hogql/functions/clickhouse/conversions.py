@@ -16,6 +16,7 @@ from posthog.hogql.base import UnknownType
 from ..core import HogQLFunctionMeta
 
 # type conversions
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "hex": HogQLFunctionMeta("hex", 1, 1),
     "unhex": HogQLFunctionMeta("unhex", 1, 1),
@@ -37,6 +38,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
     "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
     "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
@@ -89,6 +91,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # Date conversion functions (that overlap with type conversions)
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     **{
         name: HogQLFunctionMeta(
@@ -143,6 +146,7 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 NULLABILITY_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "isnull": HogQLFunctionMeta("isNull", 1, 1, case_sensitive=False),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),

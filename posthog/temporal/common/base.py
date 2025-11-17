@@ -7,7 +7,7 @@ class PostHogWorkflow(ABC):
 
     @classmethod
     def get_name(cls) -> str:
-        """Get this workflow's name."""
+        """Get workflow's name."""
         return getattr(cls, "__temporal_workflow_definition").name
 
     @classmethod

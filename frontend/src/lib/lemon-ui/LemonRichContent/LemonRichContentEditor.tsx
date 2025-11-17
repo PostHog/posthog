@@ -36,6 +36,7 @@ export type LemonRichContentEditorProps = {
     onUpdate?: (isEmpty: boolean) => void
     onPressCmdEnter?: () => void
     disabled?: boolean
+    minRows?: number
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -43,12 +44,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
     content: [
         {
             type: 'paragraph',
-            content: [
-                {
-                    type: 'text',
-                    text: '',
-                },
-            ],
+            content: [],
         },
     ],
 }
@@ -106,6 +102,7 @@ export function LemonRichContentEditor({
     onUpdate,
     onPressCmdEnter,
     disabled = false,
+    minRows,
 }: LemonRichContentEditorProps): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -152,7 +149,12 @@ export function LemonRichContentEditor({
             {isPreviewShown && ttEditor ? (
                 <RichContent editor={ttEditor} className="bg-fill-input" />
             ) : (
-                <EditorContent editor={editor} className="RichContentEditor p-2" autoFocus />
+                <EditorContent
+                    editor={editor}
+                    className="RichContentEditor p-2"
+                    autoFocus
+                    style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                />
             )}
             <div className="flex justify-between p-0.5">
                 <div className="flex">

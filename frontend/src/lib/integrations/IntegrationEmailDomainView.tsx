@@ -5,7 +5,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
-import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
+import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import { integrationsLogic } from './integrationsLogic'
 

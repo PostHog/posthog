@@ -36,6 +36,8 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
+                        path /ai
+                        path /ai/*
                     }
 
                     @flags {
@@ -83,24 +85,6 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
-    persons_db:
-        extends:
-            file: docker-compose.base.yml
-            service: db
-        ports:
-            - '5434:5432'
-        environment:
-            POSTGRES_USER: posthog
-            POSTGRES_DB: posthog_persons
-            POSTGRES_PASSWORD: posthog
-        healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U posthog -d posthog_persons']
-            interval: 5s
-            timeout: 5s
-        volumes:
-            - persons-db:/var/lib/postgresql/data
-        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
-
     redis:
         extends:
             file: docker-compose.base.yml
@@ -127,7 +111,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 4g
+        mem_limit: 6g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -217,6 +201,11 @@ services:
         depends_on:
             - redis
             - db
+        environment:
+            # Mode 2: Dual-write warming phase for developers
+            FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
+            REDIS_COMPRESSION_ENABLED: 'true'
 
     livestream:
         extends:
@@ -264,6 +253,14 @@ services:
             service: otel-collector
         depends_on:
             - jaeger
+            - capture-logs
+
+    capture-logs:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
 
     jaeger:
         extends:
@@ -275,11 +272,20 @@ services:
             file: docker-compose.base.yml
             service: localstack
 
+    seaweedfs:
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
+        command: server -s3 -s3.port=8333 -filer -dir=/data
+        ports:
+            - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
+        volumes:
+            - 'seaweedfs-data:/data'
+
 networks:
     otel_network:
         driver: bridge
 
 volumes:
     redpanda-data:
-    persons-db:
-        driver: local
+    seaweedfs-data:

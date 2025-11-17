@@ -193,8 +193,8 @@ export function InsightsTable({
                 render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string]
-                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string]
+                    const labelA = COUNTRY_CODE_TO_LONG_NAME[a.breakdown_value as string] || ''
+                    const labelB = COUNTRY_CODE_TO_LONG_NAME[b.breakdown_value as string] || ''
                     return labelA.localeCompare(labelB)
                 },
             })
@@ -237,7 +237,9 @@ export function InsightsTable({
         })
     }
 
-    if (!isMainInsightView && !embedded) {
+    // Do not show colors in the table when we display World map.
+    // It is a choropleth where colors don't represent categories
+    if (!isMainInsightView && !embedded && display !== ChartDisplayType.WorldMap) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,

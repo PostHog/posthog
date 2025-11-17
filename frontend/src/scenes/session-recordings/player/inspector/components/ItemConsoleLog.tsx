@@ -26,7 +26,7 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
                         'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                        item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
+                        item.highlightColor === 'primary' && `bg-fill-success-highlight`
                     )}
                 >
                     {item.data.count}

@@ -10,8 +10,8 @@ test.describe('Survey Settings', () => {
     async function toggleSurveysSettingsAndWaitResponse(page: Page): Promise<void> {
         await page.locator('[data-attr="opt-in-surveys-switch"]').click()
         await expect(page.getByTestId('opt-in-surveys-switch')).not.toBeDisabled()
-        await expect(page.getByText('Surveys opt in updated')).toBeVisible()
-        await page.getByTestId('toast-close-button').click()
+        await expect(page.getByText('Surveys opt in updated').first()).toBeVisible()
+        await page.getByTestId('toast-close-button').first().click()
         await expect(page.getByText('Surveys opt in updated')).not.toBeVisible()
     }
 

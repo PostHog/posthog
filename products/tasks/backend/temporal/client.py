@@ -4,31 +4,22 @@ import asyncio
 import logging
 from typing import Optional
 
+from django.conf import settings
+
 import posthoganalytics
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.constants import TASKS_TASK_QUEUE
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 
-from .inputs import TaskProcessingInputs
-
 logger = logging.getLogger(__name__)
 
 
-async def _execute_task_processing_workflow(
-    task_id: str, team_id: int, user_id: Optional[int] = None, use_sandbox: bool = False
-) -> str:
+async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> str:
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
-
-    workflow_input: str | TaskProcessingInputs
-    if use_sandbox:
-        workflow_name = "process-task"
-        workflow_input = task_id
-    else:
-        workflow_name = "process-task-workflow-agnostic"
-        workflow_input = TaskProcessingInputs(task_id=task_id, team_id=team_id, user_id=user_id)
+    workflow_name = "process-task"
+    workflow_input = task_id
 
     logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}")
 
@@ -41,7 +32,7 @@ async def _execute_task_processing_workflow(
         workflow_input,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=TASKS_TASK_QUEUE,
+        task_queue=settings.TASKS_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -94,20 +85,8 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
                     logger.exception(f"Error checking feature flag for task workflow: {e}")
                     return
 
-                # Check feature flag for sandbox-based workflow
-                use_sandbox = posthoganalytics.feature_enabled(
-                    "tasks-sandbox",
-                    user.distinct_id,
-                    groups={"organization": str(team.organization.id)},
-                    group_properties={"organization": {"id": str(team.organization.id)}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
-
-                logger.info(
-                    f"Triggering workflow for task {task_id} (sandbox: {use_sandbox}, workflow: {'process-task' if use_sandbox else 'process-task-workflow-agnostic'})"
-                )
-                asyncio.run(_execute_task_processing_workflow(task_id, team_id, user_id, use_sandbox=use_sandbox))
+                logger.info(f"Triggering workflow for task {task_id}")
+                asyncio.run(_execute_task_processing_workflow(task_id, team_id, user_id))
                 logger.info(f"Workflow completed for task {task_id}")
             except Exception as e:
                 logger.exception(f"Workflow execution failed for task {task_id}: {e}")
@@ -119,4 +98,3 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
     except Exception as e:
         # Don't let workflow execution failures break the main operation
         logger.exception(f"Failed to execute task processing workflow: {e}")
-        # Don't re-raise to avoid breaking the API call

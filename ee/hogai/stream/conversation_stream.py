@@ -3,13 +3,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
 
+from django.conf import settings
+
 import structlog
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import AssistantEventType, FailureMessage
 
-from posthog.constants import MAX_AI_TASK_QUEUE
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
@@ -19,9 +20,11 @@ from posthog.temporal.common.client import async_connect
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,
     ConversationRedisStream,
+    GenerationStatusEvent,
     MessageEvent,
     StreamError,
     StreamEvent,
+    UpdateEvent,
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types import AssistantOutput
@@ -74,7 +77,7 @@ class ConversationStreamManager:
                 AssistantConversationRunnerWorkflow.run,
                 workflow_inputs,
                 id=self._workflow_id,
-                task_queue=MAX_AI_TASK_QUEUE,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
@@ -155,6 +158,10 @@ class ConversationStreamManager:
         elif isinstance(message.event, ConversationEvent):
             conversation = await Conversation.objects.aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
+        elif isinstance(message.event, UpdateEvent):
+            return (AssistantEventType.UPDATE, message.event.payload)
+        elif isinstance(message.event, GenerationStatusEvent):
+            return (AssistantEventType.STATUS, message.event.payload)
         else:
             return None
 

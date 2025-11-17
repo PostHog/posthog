@@ -40,7 +40,6 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
@@ -63,14 +62,16 @@ from posthog.tasks.usage_report import (
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import (
+
+from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -1563,13 +1564,214 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        with freeze_time("2025-11-01T00:00:00Z"):
+            self._setup_teams()
+
+            source = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 0
+            assert org_1_report["free_historical_rows_synced_in_period"] == 100
+
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_after_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        with freeze_time("2025-10-30T00:00:00Z"):
+            source_4 = ExternalDataSource.objects.create(
+                team_id=4,
+                source_id="source_id_2",
+                connection_id="connection_id_2",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+        with freeze_time("2025-11-07T01:00:00Z"):
+            source_3 = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source_3,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source_4,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 50
+            assert org_1_report["free_historical_rows_synced_in_period"] == 50
+
+            # Team 3 has a new pipeline (< 7 days old), gets free historical rows
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+
+            # Team 4 is past free period
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 0
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_before_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        with freeze_time("2025-10-28T23:59:00Z"):
+            self._setup_teams()
+
+            source = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 100
+            assert org_1_report["free_historical_rows_synced_in_period"] == 100
+
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1628,7 +1830,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Free historical rows
         free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1647,7 +1849,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Non-free-historical rows
         non_free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1698,7 +1900,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -2663,6 +2865,197 @@ class TestSendUsageNoLicense(APIBaseTest):
         # This field is not included in the original team query, so should require an additional query
         with self.assertNumQueries(1):
             _ = team.organization.for_internal_metrics
+
+
+@freeze_time("2021-10-10T23:01:00Z")
+class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+    """Test organization_ids filtering for send_all_org_usage_reports"""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        # Create additional organizations with teams
+        self.org2 = Organization.objects.create(name="Org 2")
+        self.team2 = Team.objects.create(organization=self.org2)
+
+        self.org3 = Organization.objects.create(name="Org 3")
+        self.team3 = Team.objects.create(organization=self.org3)
+
+        # Create events for all orgs
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T12:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team2,
+            distinct_id=1,
+            timestamp="2021-10-09T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team3,
+            distinct_id=1,
+            timestamp="2021-10-09T16:01:01Z",
+        )
+        flush_persons_and_events()
+        TEST_clear_instance_license_cache()
+        materialize("events", "$exception_values")
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_filter_to_single_organization(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
+        send_all_org_usage_reports(dry_run=False, organization_ids=[str(self.organization.id)])
+
+        # Should only send one message (for org1)
+        assert mock_producer.send_message.call_count == 1
+
+        # Verify the sent org ID
+        call_args = mock_producer.send_message.call_args
+        message_body = call_args.kwargs["message_body"]
+        decompressed = gzip.decompress(base64.b64decode(message_body))
+        data = json.loads(decompressed)
+
+        assert data["organization_id"] == str(self.organization.id)
+        assert data["usage_report"]["organization_id"] == str(self.organization.id)
+
+        capture_calls = [
+            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
+        ]
+        assert len(capture_calls) == 1
+        properties = capture_calls[0][1]["properties"]
+        assert properties["filtered"] is True
+        assert properties["requested_org_count"] == 1
+        assert properties["total_orgs"] == 1
+        assert properties.get("requested_missing_org_count") is None
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_filter_to_multiple_organizations(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
+        org_ids = [str(self.organization.id), str(self.org2.id)]
+        send_all_org_usage_reports(dry_run=False, organization_ids=org_ids)
+
+        # Should send two messages
+        assert mock_producer.send_message.call_count == 2
+
+        # Verify both org IDs were sent
+        sent_org_ids = []
+        for call in mock_producer.send_message.call_args_list:
+            message_body = call.kwargs["message_body"]
+            decompressed = gzip.decompress(base64.b64decode(message_body))
+            data = json.loads(decompressed)
+            sent_org_ids.append(data["organization_id"])
+
+        assert set(sent_org_ids) == set(org_ids)
+
+        capture_calls = [
+            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
+        ]
+        properties = capture_calls[0][1]["properties"]
+        assert properties["filtered"] is True
+        assert properties["requested_org_count"] == 2
+        assert properties["total_orgs"] == 2
+        assert properties.get("requested_missing_org_count") is None
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_filter_with_missing_organization(self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
+        fake_org_id = str(uuid4())
+
+        send_all_org_usage_reports(dry_run=False, organization_ids=[fake_org_id])
+
+        # Should not send any messages
+        mock_producer.send_message.assert_not_called()
+
+        capture_calls = [
+            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
+        ]
+        assert len(capture_calls) == 1
+        properties = capture_calls[0][1]["properties"]
+        assert properties["filtered"] is True
+        assert properties["requested_org_count"] == 1
+        assert properties["requested_missing_org_count"] == 1
+        assert properties["total_orgs"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_filter_with_mix_of_found_and_missing(
+        self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock
+    ) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
+        fake_org_id1 = str(uuid4())
+        fake_org_id2 = str(uuid4())
+        org_ids = [str(self.organization.id), fake_org_id1, str(self.org2.id), fake_org_id2]
+
+        send_all_org_usage_reports(dry_run=False, organization_ids=org_ids)
+
+        # Should send two messages (for the 2 existing orgs)
+        assert mock_producer.send_message.call_count == 2
+
+        # Verify correct org IDs were sent
+        sent_org_ids = []
+        for call in mock_producer.send_message.call_args_list:
+            message_body = call.kwargs["message_body"]
+            decompressed = gzip.decompress(base64.b64decode(message_body))
+            data = json.loads(decompressed)
+            sent_org_ids.append(data["organization_id"])
+
+        assert set(sent_org_ids) == {str(self.organization.id), str(self.org2.id)}
+
+        capture_calls = [
+            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
+        ]
+        properties = capture_calls[0][1]["properties"]
+        assert properties["filtered"] is True
+        assert properties["requested_org_count"] == 4
+        assert properties["requested_missing_org_count"] == 2
+        assert properties["total_orgs"] == 2
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_no_filter_processes_all_organizations(
+        self, mock_get_sqs_producer: MagicMock, mock_client: MagicMock
+    ) -> None:
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+
+        send_all_org_usage_reports(dry_run=False)
+
+        # Should send three messages (one for each org)
+        assert mock_producer.send_message.call_count == 3
+
+        # Verify telemetry shows unfiltered
+        capture_calls = [
+            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
+        ]
+        properties = capture_calls[0][1]["properties"]
+        assert properties["filtered"] is False
+        assert properties.get("requested_org_count") is None
+        assert properties.get("requested_missing_org_count") is None
+        assert properties["total_orgs"] == 3
 
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):

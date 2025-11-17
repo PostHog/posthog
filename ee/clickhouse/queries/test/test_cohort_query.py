@@ -3749,6 +3749,8 @@ class TestCohortNegationValidation(BaseTest):
             team=other_team,
         )
 
+        assert cohort_query1.clickhouse_query
+        assert cohort_query2.clickhouse_query
         assert (
             cohort_query1.clickhouse_query.replace(f"team_id, {self.team.pk}", f"team_id, {str(other_team.pk)}")
             == cohort_query2.clickhouse_query

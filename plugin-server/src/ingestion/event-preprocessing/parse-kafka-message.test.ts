@@ -218,7 +218,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -232,7 +232,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -246,7 +246,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -265,7 +265,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -286,7 +286,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -305,7 +305,7 @@ describe('createParseKafkaMessageStep', () => {
             const input = { message: mockMessage }
             const result = await step(input)
 
-            expect(result).toEqual(drop('Failed to parse Kafka message'))
+            expect(result).toEqual(drop('failed_parse_message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })

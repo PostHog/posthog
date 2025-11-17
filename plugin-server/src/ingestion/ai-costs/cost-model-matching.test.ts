@@ -3,64 +3,102 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { CostModelSource, findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
 
 jest.mock('./providers', () => {
-    const primaryCostsList = [
-        {
-            model: 'gpt-4',
-            provider: 'openai',
-            cost: { prompt_token: 0.00003, completion_token: 0.00006 },
-        },
-        {
-            model: 'gpt-4o-mini',
-            provider: 'openai',
-            cost: { prompt_token: 0.00000015, completion_token: 0.0000006 },
-        },
-        {
-            model: 'claude-3-5-sonnet',
-            provider: 'anthropic',
+    const openRouterCostsByModel = {
+        'openai/gpt-4': {
+            model: 'openai/gpt-4',
             cost: {
-                prompt_token: 0.000003,
-                completion_token: 0.000015,
-                cache_read_token: 3e-7,
-                cache_write_token: 0.00000375,
+                default: { prompt_token: 0.00004, completion_token: 0.00008 },
+                openai: { prompt_token: 0.00003, completion_token: 0.00006 },
             },
         },
-        {
-            model: 'gemini-2.5-pro',
-            provider: 'google',
+        'openai/gpt-4o-mini': {
+            model: 'openai/gpt-4o-mini',
             cost: {
-                prompt_token: 0.00000125,
-                completion_token: 0.00001,
-                cache_read_token: 3.1e-7,
+                default: { prompt_token: 0.0000002, completion_token: 0.0000007 },
+                openai: { prompt_token: 0.00000015, completion_token: 0.0000006 },
             },
         },
-    ]
+        'anthropic/claude-3.5-sonnet': {
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: {
+                default: {
+                    prompt_token: 0.000004,
+                    completion_token: 0.000018,
+                },
+                anthropic: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                },
+            },
+        },
+        'google/gemini-2.5-pro-preview': {
+            model: 'google/gemini-2.5-pro-preview',
+            cost: {
+                default: {
+                    prompt_token: 0.0000015,
+                    completion_token: 0.000012,
+                },
+                'google-ai-studio': {
+                    prompt_token: 0.00000125,
+                    completion_token: 0.00001,
+                    cache_read_token: 3.1e-7,
+                },
+            },
+        },
+    }
 
-    const backupCostsByModel = {
+    const manualCostsByModel = {
         'gpt-3.5-turbo': {
             model: 'gpt-3.5-turbo',
-            cost: { prompt_token: 0.0000005, completion_token: 0.0000015 },
+            cost: {
+                default: { prompt_token: 0.0000005, completion_token: 0.0000015 },
+                openai: { prompt_token: 0.0000005, completion_token: 0.0000015 },
+            },
         },
         'claude-2': {
             model: 'claude-2',
-            cost: { prompt_token: 0.000008, completion_token: 0.000024 },
+            cost: {
+                default: { prompt_token: 0.000008, completion_token: 0.000024 },
+                anthropic: { prompt_token: 0.000008, completion_token: 0.000024 },
+            },
+        },
+        'claude-3-5-sonnet': {
+            model: 'claude-3-5-sonnet',
+            cost: {
+                default: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                },
+            },
         },
         'text-embedding-ada-002': {
             model: 'text-embedding-ada-002',
-            cost: { prompt_token: 0.0000001, completion_token: 0 },
+            cost: {
+                default: { prompt_token: 0.0000001, completion_token: 0 },
+            },
         },
         'mistral-7b-instruct-v0.2': {
             model: 'mistral-7b-instruct-v0.2',
-            cost: { prompt_token: 0.0000002, completion_token: 0.0000002 },
+            cost: {
+                default: { prompt_token: 0.0000002, completion_token: 0.0000002 },
+                mistral: { prompt_token: 0.0000002, completion_token: 0.0000002 },
+            },
         },
         'llama-3-70b-instruct': {
             model: 'llama-3-70b-instruct',
-            cost: { prompt_token: 0.0000006, completion_token: 0.0000006 },
+            cost: {
+                default: { prompt_token: 0.0000006, completion_token: 0.0000006 },
+            },
         },
     }
 
     return {
-        primaryCostsList,
-        backupCostsByModel,
+        openRouterCostsByModel,
+        manualCostsByModel,
     }
 })
 
@@ -70,26 +108,44 @@ describe('findCostFromModel()', () => {
             const result = findCostFromModel('gpt-4', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.cost.model).toBe('openai/gpt-4')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
             expect(result!.cost.cost.prompt_token).toBe(0.00003)
         })
 
-        it('finds exact match in backup costs without provider', () => {
+        it('finds exact match in manual costs without provider', () => {
             const result = findCostFromModel('gpt-3.5-turbo', {})
 
             expect(result).toBeDefined()
             expect(result!.cost.model).toBe('gpt-3.5-turbo')
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
             expect(result!.cost.cost.prompt_token).toBe(0.0000005)
+        })
+
+        it('finds manual cost when model has provider prefix', () => {
+            const result = findCostFromModel('openai/gpt-3.5-turbo', {})
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('gpt-3.5-turbo')
+            expect(result!.source).toBe(CostModelSource.Manual)
+            expect(result!.cost.cost.prompt_token).toBe(0.0000005)
+        })
+
+        it('finds manual cost with provider prefix and provider property', () => {
+            const result = findCostFromModel('anthropic/claude-2', { $ai_provider: 'openrouter' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('claude-2')
+            expect(result!.source).toBe(CostModelSource.Manual)
+            expect(result!.cost.cost.prompt_token).toBe(0.000008)
         })
 
         it('is case-insensitive for exact matches', () => {
             const result = findCostFromModel('GPT-4', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.cost.model).toBe('openai/gpt-4')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
         })
 
         it('matches with uppercase provider', () => {
@@ -97,7 +153,15 @@ describe('findCostFromModel()', () => {
 
             expect(result).toBeDefined()
             expect(result!.cost.model).toBe('claude-3-5-sonnet')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.source).toBe(CostModelSource.Manual)
+        })
+
+        it('prefers manual costs over primary costs when both exist', () => {
+            const result = findCostFromModel('claude-3-5-sonnet', { $ai_provider: 'anthropic' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('claude-3-5-sonnet')
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
     })
 
@@ -106,50 +170,51 @@ describe('findCostFromModel()', () => {
             const result = findCostFromModel('gpt-4-turbo-2024-04-09', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.cost.model).toBe('openai/gpt-4')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
         })
 
         it('matches longest known model when multiple match', () => {
             const result = findCostFromModel('gpt-4o-mini-2024-07-18', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4o-mini')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.cost.model).toBe('openai/gpt-4o-mini')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
         })
 
-        it('matches claude variant in backup costs', () => {
+        it('matches anthropic claude variants when punctuation differs', () => {
+            const result = findCostFromModel('claude-3-5-sonnet-20241022', { $ai_provider: 'anthropic' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('anthropic/claude-3.5-sonnet')
+            expect(result!.cost.provider).toBe('anthropic')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
+        })
+
+        it('does not match manual costs by substring', () => {
             const result = findCostFromModel('claude-2.1', {})
 
-            expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('claude-2')
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result).toBeUndefined()
         })
 
-        it('matches mistral variant', () => {
+        it('requires exact manual match when input extends known model name', () => {
             const result = findCostFromModel('mistral-7b-instruct-v0.2-custom', {})
 
-            expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('mistral-7b-instruct-v0.2')
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result).toBeUndefined()
         })
     })
 
-    describe('reverse substring matching - input model in known model', () => {
-        it('matches when input is substring of known model', () => {
+    describe('manual reverse substring matching is disabled', () => {
+        it('does not match when input is substring of manual model name', () => {
             const result = findCostFromModel('mistral-7b-instruct', {})
 
-            expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('mistral-7b-instruct-v0.2')
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result).toBeUndefined()
         })
 
-        it('matches llama variant', () => {
+        it('does not match llama variant without exact manual name', () => {
             const result = findCostFromModel('llama-3', {})
 
-            expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('llama-3-70b-instruct')
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result).toBeUndefined()
         })
     })
 
@@ -158,47 +223,59 @@ describe('findCostFromModel()', () => {
             const result = findCostFromModel('gpt-4', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
             expect(result!.cost.provider).toBe('openai')
         })
 
-        it('falls back to backup when provider does not match primary', () => {
+        it('returns manual costs when provider does not match primary', () => {
             const result = findCostFromModel('gpt-3.5-turbo', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
 
-        it('uses backup costs when no provider specified', () => {
+        it('uses manual costs when no provider specified', () => {
             const result = findCostFromModel('claude-2', {})
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
 
-        it('handles unknown provider gracefully', () => {
+        it('handles unknown provider by returning manual costs', () => {
             const result = findCostFromModel('gpt-3.5-turbo', { $ai_provider: 'custom-provider' })
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
 
         it('filters primary costs by provider correctly', () => {
             const resultOpenAI = findCostFromModel('gpt-4', { $ai_provider: 'openai' })
             const resultAnthropic = findCostFromModel('claude-3-5-sonnet', { $ai_provider: 'anthropic' })
 
-            expect(resultOpenAI!.source).toBe(CostModelSource.Primary)
-            expect(resultAnthropic!.source).toBe(CostModelSource.Primary)
+            expect(resultOpenAI!.source).toBe(CostModelSource.OpenRouter)
+            expect(resultOpenAI!.cost.model).toBe('openai/gpt-4')
+            expect(resultAnthropic!.source).toBe(CostModelSource.Manual)
+            expect(resultAnthropic!.cost.provider).toBe('default')
         })
     })
 
     describe('gateway provider scenarios', () => {
-        it('does not match models with provider prefix when using gateway', () => {
+        it('finds manual cost when model has provider prefix, even with gateway provider', () => {
             const result = findCostFromModel('anthropic/claude-3-5-sonnet', { $ai_provider: 'gateway' })
 
-            // Gateway provider will not match in primary costs, and "anthropic/claude-3-5-sonnet"
-            // won't exactly match "claude-3-5-sonnet" in backup costs
-            expect(result).toBeUndefined()
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('claude-3-5-sonnet')
+            expect(result!.cost.provider).toBe('default')
+            expect(result!.source).toBe(CostModelSource.Manual)
+        })
+
+        it('falls back to OpenRouter when no manual cost exists for prefixed model', () => {
+            const result = findCostFromModel('openai/gpt-4', { $ai_provider: 'gateway' })
+
+            expect(result).toBeDefined()
+            expect(result!.cost.model).toBe('openai/gpt-4')
+            expect(result!.cost.provider).toBe('default')
+            expect(result!.source).toBe(CostModelSource.OpenRouter)
         })
 
         it('matches model without provider prefix', () => {
@@ -206,7 +283,8 @@ describe('findCostFromModel()', () => {
 
             expect(result).toBeDefined()
             expect(result!.cost.model).toBe('claude-3-5-sonnet')
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result!.source).toBe(CostModelSource.Manual)
+            expect(result!.cost.provider).toBe('default')
         })
     })
 
@@ -220,45 +298,39 @@ describe('findCostFromModel()', () => {
         it('handles empty string model name', () => {
             const result = findCostFromModel('', { $ai_provider: 'openai' })
 
-            // Empty string is technically a substring of all models, so it matches the first one
-            // This is likely unintended behavior but is how the current implementation works
-            expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Primary)
+            expect(result).toBeUndefined()
         })
 
         it('handles model name with special characters', () => {
             const result = findCostFromModel('gpt-4@latest', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4')
+            expect(result!.cost.model).toBe('openai/gpt-4')
         })
 
         it('handles model name with slashes', () => {
             const result = findCostFromModel('models/gpt-4', { $ai_provider: 'openai' })
 
             expect(result).toBeDefined()
-            expect(result!.cost.model).toBe('gpt-4')
+            expect(result!.cost.model).toBe('openai/gpt-4')
         })
 
-        it('handles undefined properties', () => {
-            const result = findCostFromModel('gpt-3.5-turbo', undefined)
-
-            expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+        it('throws when properties object is undefined', () => {
+            expect(() => findCostFromModel('gpt-3.5-turbo', undefined as unknown as Properties)).toThrow(TypeError)
         })
 
         it('handles properties without provider field', () => {
             const result = findCostFromModel('claude-2', { $ai_model: 'claude-2' })
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
 
         it('handles null provider', () => {
             const result = findCostFromModel('gpt-3.5-turbo', { $ai_provider: null as any })
 
             expect(result).toBeDefined()
-            expect(result!.source).toBe(CostModelSource.Backup)
+            expect(result!.source).toBe(CostModelSource.Manual)
         })
     })
 
@@ -267,6 +339,7 @@ describe('findCostFromModel()', () => {
             const result = findCostFromModel('claude-3-5-sonnet', { $ai_provider: 'anthropic' })
 
             expect(result).toBeDefined()
+            expect(result!.source).toBe(CostModelSource.Manual)
             expect(result!.cost.cost.cache_read_token).toBe(3e-7)
             expect(result!.cost.cost.cache_write_token).toBe(0.00000375)
         })
@@ -318,6 +391,9 @@ describe('requireSpecialCost()', () => {
 })
 
 describe('getNewModelName()', () => {
+    const callGetNewModelName = (properties: Properties) =>
+        getNewModelName(properties.$ai_model as string, properties.$ai_input_tokens)
+
     describe('gemini-2.5-pro-preview threshold logic', () => {
         it('returns standard model name for input tokens <= 200k', () => {
             const properties: Properties = {
@@ -325,7 +401,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 200000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview')
         })
 
         it('returns large model name for input tokens > 200k', () => {
@@ -334,7 +410,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 200001,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
         })
 
         it('handles significantly large input tokens', () => {
@@ -343,7 +419,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 1000000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
         })
 
         it('returns standard model when input tokens is undefined', () => {
@@ -351,7 +427,7 @@ describe('getNewModelName()', () => {
                 $ai_model: 'gemini-2.5-pro-preview',
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview')
         })
 
         it('returns standard model when input tokens is 0', () => {
@@ -360,7 +436,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 0,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview')
         })
 
         it('is case-insensitive for model name', () => {
@@ -369,7 +445,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 250000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
         })
 
         it('works with model variants containing gemini-2.5-pro-preview', () => {
@@ -378,7 +454,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 250000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview:large')
         })
     })
 
@@ -389,7 +465,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 300000,
             }
 
-            expect(getNewModelName(properties)).toBe('gpt-4')
+            expect(callGetNewModelName(properties)).toBe('gpt-4')
         })
 
         it('returns original model name for claude models', () => {
@@ -398,7 +474,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 300000,
             }
 
-            expect(getNewModelName(properties)).toBe('claude-3-5-sonnet')
+            expect(callGetNewModelName(properties)).toBe('claude-3-5-sonnet')
         })
 
         it('returns original model name for other gemini models', () => {
@@ -407,35 +483,18 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: 300000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.0-flash')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.0-flash')
         })
     })
 
     describe('edge cases', () => {
-        it('handles undefined model', () => {
-            const properties: Properties = {
-                $ai_input_tokens: 250000,
-            }
-
-            expect(getNewModelName(properties)).toBeUndefined()
-        })
-
-        it('handles null model', () => {
-            const properties: Properties = {
-                $ai_model: null as any,
-                $ai_input_tokens: 250000,
-            }
-
-            expect(getNewModelName(properties)).toBeNull()
-        })
-
         it('handles empty string model', () => {
             const properties: Properties = {
                 $ai_model: '',
                 $ai_input_tokens: 250000,
             }
 
-            expect(getNewModelName(properties)).toBe('')
+            expect(callGetNewModelName(properties)).toBe('')
         })
 
         it('handles negative input tokens', () => {
@@ -444,7 +503,7 @@ describe('getNewModelName()', () => {
                 $ai_input_tokens: -1000,
             }
 
-            expect(getNewModelName(properties)).toBe('gemini-2.5-pro-preview')
+            expect(callGetNewModelName(properties)).toBe('gemini-2.5-pro-preview')
         })
     })
 })

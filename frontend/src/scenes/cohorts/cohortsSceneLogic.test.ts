@@ -83,7 +83,8 @@ describe('cohortsSceneLogic', () => {
                 router.actions.push(urls.cohorts())
 
                 await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
-                expect(logic.values.pollTimeout).not.toBeNull()
+                // Check that the polling timeout disposable was registered
+                expect(logic.cache.disposables.registry.has('pollTimeout')).toBe(true)
             })
         })
 

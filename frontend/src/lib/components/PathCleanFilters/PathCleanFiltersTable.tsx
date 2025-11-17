@@ -86,19 +86,26 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                     </div>
                 </td>
                 <td className="py-1 px-2 w-12 text-center text-muted font-medium text-sm">{index + 1}</td>
-                <td className="py-1 px-2">
-                    <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
+                <td className="py-1 px-2 min-w-0">
+                    <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : regex}>
                         <code
-                            className={clsx('font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent', {
-                                'text-danger border border-danger bg-danger-light': isInvalidRegex,
-                            })}
+                            className={clsx(
+                                'font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent block truncate',
+                                {
+                                    'text-danger border border-danger bg-danger-light': isInvalidRegex,
+                                }
+                            )}
                         >
                             {regex || '(Empty)'}
                         </code>
                     </Tooltip>
                 </td>
-                <td className="py-1 px-2">
-                    <div className="font-mono text-xs">{parseAliasToReadable(filter.alias || '(Empty)')}</div>
+                <td className="py-1 px-2 min-w-0">
+                    <Tooltip title={filter.alias}>
+                        <div className="font-mono text-xs truncate">
+                            {parseAliasToReadable(filter.alias || '(Empty)')}
+                        </div>
+                    </Tooltip>
                 </td>
                 <td className="py-1 px-2 w-20">
                     <div className="flex items-center gap-1">
@@ -194,17 +201,17 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToVerticalAxis]}
             >
-                <table className="w-full bg-bg-light">
+                <table className="w-full bg-bg-light table-fixed">
                     <thead className="bg-bg-3000">
                         <tr>
                             <th className="py-2 px-2 w-8" />
                             <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                 Order
                             </th>
-                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider min-w-0">
                                 Regex Pattern
                             </th>
-                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider min-w-0">
                                 Alias
                             </th>
                             <th className="py-2 px-2 w-20 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">

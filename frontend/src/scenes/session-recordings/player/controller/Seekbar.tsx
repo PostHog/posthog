@@ -1,11 +1,11 @@
 import './Seekbar.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { RecordingSegment } from '~/types'
 
@@ -27,11 +27,13 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 }): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'PlayerSeekbar__segments__item',
-                segment.isActive && 'PlayerSeekbar__segments__item--active'
+                segment.isActive && 'PlayerSeekbar__segments__item--active',
+                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer',
+                segment.isLoading && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
-            title={!segment.isActive ? 'Inactive period' : 'Active period'}
+            title={segment.kind === 'buffer' ? undefined : segment.isActive ? 'Active period' : 'Inactive period'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${(100 * segment.durationMs) / durationMs}%`,
@@ -90,7 +92,7 @@ export function Seekbar(): JSX.Element {
                 hoverRef={seekBarRef}
             />
 
-            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
+            <div className={cn('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
                     className="PlayerSeekbar__slider ph-no-rageclick"
                     ref={sliderRef}

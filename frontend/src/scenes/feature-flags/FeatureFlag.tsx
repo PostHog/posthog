@@ -25,12 +25,14 @@ import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -42,8 +44,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
@@ -96,6 +100,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -200,6 +205,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         multivariateEnabled,
         variants,
+        experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -218,6 +224,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature, user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -228,6 +235,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    useFileSystemLogView({
+        type: 'feature_flag',
+        ref: featureFlag?.id,
+        enabled: Boolean(
+            currentTeamId &&
+                !featureFlagMissing &&
+                !accessDeniedToFeatureFlag &&
+                props.id !== 'new' &&
+                props.id !== 'link' &&
+                featureFlag?.id
+        ),
+        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
+    })
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -358,7 +379,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     >
                         <SceneTitleSection
                             name={featureFlag.key}
-                            resourceType={{ type: 'feature_flag' }}
+                            resourceType={{
+                                type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
+                            }}
                             actions={
                                 <>
                                     <LemonButton
@@ -392,11 +415,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
-                                    This feature flag is linked to an experiment. Edit settings here only for advanced
-                                    functionality. If unsure, go back to{' '}
-                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        the experiment creation screen.
+                                    This feature flag is linked to{' '}
+                                    <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
                                     </Link>
+                                    . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>
                             )}
                             <div className="max-w-1/2 deprecated-space-y-4">
@@ -501,8 +524,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             />
                                             <div className="text-secondary text-sm pl-7">
                                                 When enabled, this flag evaluates according to your release conditions.
-                                                When disabled, all evaluations return <code>false</code> regardless of
-                                                conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
                                             </div>
                                         </div>
                                     )}
@@ -565,6 +588,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         id={`${featureFlag.id}`}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                     <SceneDivider />
                                 </>
@@ -725,9 +749,25 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'
                                             }
                                             onClick={() => {
-                                                featureFlag.deleted
-                                                    ? restoreFeatureFlag(featureFlag)
-                                                    : deleteFeatureFlag(featureFlag)
+                                                if (featureFlag.deleted) {
+                                                    restoreFeatureFlag(featureFlag)
+                                                } else {
+                                                    LemonDialog.open({
+                                                        title: 'Delete feature flag?',
+                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            status: 'danger',
+                                                            onClick: () => deleteFeatureFlag(featureFlag),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }
                                             }}
                                             disabledReasons={{
                                                 "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
@@ -764,7 +804,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 name={featureFlag.key}
                                 description={featureFlag.name}
                                 resourceType={{
-                                    type: 'feature_flag',
+                                    type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
                                 actions={
                                     <>
@@ -778,7 +818,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </>
                                 }
                             />
-                            <SceneDivider />
                             <LemonTabs
                                 activeKey={activeTab}
                                 onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
@@ -910,6 +949,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasEncryptedPayloadBeenSaved,
         hasExperiment,
         isDraftExperiment,
+        properties,
+        variantErrors,
+        experiment,
+        experimentLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -919,9 +962,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         removeVariant,
         setMultivariateEnabled,
         setFeatureFlag,
-        saveFeatureFlag,
         setRemoteConfigEnabled,
         resetEncryptedPayload,
+        toggleFeatureFlagActive,
     } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -987,11 +1030,15 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         <SceneContent>
             {readOnly ? (
                 <>
+                    <FeatureFlagConditionWarning
+                        properties={properties}
+                        evaluationRuntime={featureFlag.evaluation_runtime}
+                    />
                     <div className="flex flex-col">
-                        <div className="grid grid-cols-8">
-                            <div className="col-span-2 card-secondary">Status</div>
-                            <div className="col-span-6 card-secondary">Type</div>
-                            <div className="col-span-2">
+                        <div className="grid grid-cols-2">
+                            <div className="card-secondary">Status</div>
+                            <div className="card-secondary">Type</div>
+                            <div>
                                 {featureFlag.deleted ? (
                                     <LemonTag size="medium" type="danger" className="uppercase">
                                         Deleted
@@ -1005,30 +1052,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 onChange={(newValue) => {
-                                                    LemonDialog.open({
-                                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                        description: `This flag will be immediately ${
-                                                            newValue === true ? 'rolled out to' : 'rolled back from'
-                                                        } the users matching the release conditions.`,
-                                                        primaryButton: {
-                                                            children: 'Confirm',
-                                                            type: 'primary',
-                                                            onClick: () => {
-                                                                const updatedFlag = {
-                                                                    ...featureFlag,
-                                                                    active: newValue,
-                                                                }
-                                                                setFeatureFlag(updatedFlag)
-                                                                saveFeatureFlag(updatedFlag)
-                                                            },
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
                                                 disabledReason={
@@ -1046,37 +1070,66 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </div>
                                 )}
                             </div>
-                            <div className="col-span-6">
+                            <div>
                                 <span className="mt-1">{flagTypeString}</span>
                             </div>
-                        </div>
 
-                        {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                            featureFlag.tags &&
-                            featureFlag.tags.length > 0 && (
-                                <>
-                                    <span className="card-secondary mt-4">Tags</span>
-                                    <div className="mt-2">
-                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                            <FeatureFlagEvaluationTags
-                                                tags={featureFlag.tags}
-                                                evaluationTags={featureFlag.evaluation_tags || []}
-                                                staticOnly
-                                                flagId={featureFlag.id}
-                                            />
-                                        ) : (
-                                            <ObjectTags tags={featureFlag.tags} staticOnly />
-                                        )}
+                            <div className="col-span-2">
+                                {hasAvailableFeature(AvailableFeature.TAGGING) &&
+                                    featureFlag.tags &&
+                                    featureFlag.tags.length > 0 && (
+                                        <>
+                                            <span className="card-secondary mt-4">Tags</span>
+                                            <div className="mt-2">
+                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={featureFlag.tags}
+                                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                                        staticOnly
+                                                        flagId={featureFlag.id}
+                                                    />
+                                                ) : (
+                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                            </div>
+
+                            <div className="mt-4">
+                                <span className="card-secondary">Flag persistence</span>
+                                <div>
+                                    This flag{' '}
+                                    <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
+                                    across authentication events.
+                                </div>
+                            </div>
+
+                            {!experimentLoading &&
+                                experiment &&
+                                featureFlag.experiment_set &&
+                                featureFlag.experiment_set.length > 0 && (
+                                    <div className="mt-4">
+                                        <Label intent="menu">Linked experiment</Label>
+                                        <div className="flex gap-1 items-center">
+                                            <CopyToClipboardInline
+                                                iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                                className="font-normal text-sm"
+                                                description="experiment name"
+                                            >
+                                                {experiment.name}
+                                            </CopyToClipboardInline>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.experiment(featureFlag.experiment_set[0])}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
                                     </div>
-                                </>
-                            )}
-
-                        <span className="card-secondary mt-4">Flag persistence</span>
-                        <span>
-                            This flag{' '}
-                            <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
-                            across authentication events.
-                        </span>
+                                )}
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                             <>
@@ -1139,6 +1192,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>
@@ -1457,6 +1511,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>

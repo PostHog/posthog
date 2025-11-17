@@ -20,7 +20,6 @@ import {
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
-import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -29,7 +28,6 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { GroupStoreForBatch } from './groups/group-store-for-batch.interface'
-import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
 const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
@@ -257,27 +255,6 @@ export class EventsProcessor {
         }
 
         return rawEvent
-    }
-
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
-        return this.kafkaProducer
-            .produce({
-                topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                key: rawEvent.uuid,
-                value: Buffer.from(JSON.stringify(rawEvent)),
-            })
-            .catch(async (error) => {
-                // Some messages end up significantly larger than the original
-                // after plugin processing, person & group enrichment, etc.
-                if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.db.kafkaProducer, rawEvent.team_id, 'message_size_too_large', {
-                        eventUuid: rawEvent.uuid,
-                        distinctId: rawEvent.distinct_id,
-                    })
-                } else {
-                    throw error
-                }
-            })
     }
 
     private async upsertGroup(

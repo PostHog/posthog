@@ -88,7 +88,7 @@ impl CustomFrame {
 impl From<&CustomFrame> for Frame {
     fn from(value: &CustomFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: value.function.clone(),
             line: value.lineno,
             column: value.colno,
@@ -102,6 +102,10 @@ impl From<&CustomFrame> for Frame {
             context: value.get_context(),
             release: None,
             synthetic: value.meta.synthetic,
+            suspicious: false,
+            module: value.module.clone(),
+            exception_type: None,
+            code_variables: None,
         }
     }
 }

@@ -1,7 +1,7 @@
 import './Link.scss'
 
 import { router } from 'kea-router'
-import React, { useContext } from 'react'
+import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
@@ -13,7 +13,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -67,6 +67,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -121,6 +122,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltip,
             tooltipDocLink,
             tooltipPlacement,
+            tooltipCloseDelayMs,
             role,
             tabIndex,
             ...props
@@ -128,14 +130,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const externalLink = isExternalLink(to)
-        const withinSidePanel = useContext(WithinSidePanelContext)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
-
-        if (withinSidePanel && target === '_blank' && !externalLink) {
-            target = undefined // Within side panels, treat target="_blank" as "open in main scene"
-        }
 
         const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 
@@ -235,7 +232,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
         if ((tooltip && to) || tooltipDocLink) {
             element = (
-                <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
+                <Tooltip
+                    title={tooltip}
+                    docLink={tooltipDocLink}
+                    placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
+                >
                     {element}
                 </Tooltip>
             )
@@ -246,6 +248,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <Tooltip
                     title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
                     placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
                 >
                     <span>
                         <button

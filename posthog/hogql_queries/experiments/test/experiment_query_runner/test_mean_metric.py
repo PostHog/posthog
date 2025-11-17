@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
@@ -5,12 +6,15 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
+    FunnelConversionWindowTimeUnit,
 )
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -20,11 +24,13 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_sum_metric(self):
+    def test_property_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -110,11 +116,80 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @freeze_time("2020-01-10T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_conversion_window_extends_to_last_exposure(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 10, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": True}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            conversion_window=1,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        distinct_id = "user_control_window"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+
+        # First exposure happens before the conversion window, second exposure extends it.
+        for timestamp in ["2020-01-02T00:00:00Z", "2020-01-05T00:00:00Z"]:
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+        # Purchase happens outside the first window but within last exposure + window.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 25},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.sum, 25)
+        self.assertEqual(result.baseline.number_of_samples, 1)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_sum_metric(self):
+    def test_outlier_handling_for_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -202,11 +277,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_count_metric(self):
+    def test_outlier_handling_for_count_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -296,11 +373,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_unique_sessions_math_type(self):
+    def test_unique_sessions_math_type(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -388,11 +467,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_max_metric(self):
+    def test_property_max_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -466,11 +547,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_min_metric(self):
+    def test_property_min_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -544,11 +627,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_avg_metric(self):
+    def test_property_avg_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -622,22 +707,23 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_outlier_handling_with_ignore_zeros(self):
-        """Test that ignore_zeros works correctly when calculating upper bound percentile"""
+    @snapshot_clickhouse_queries
+    def test_outlier_handling_with_ignore_zeros(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
-        # Create metric with outlier handling and ignore_zeros enabled
         metric = ExperimentMeanMetric(
             source=EventsNode(
                 event="purchase",
                 math=ExperimentMetricMathType.SUM,
                 math_property="amount",
             ),
-            upper_bound_percentile=0.9,  # 90th percentile
-            ignore_zeros=True,  # This should exclude zeros from percentile calculation
+            upper_bound_percentile=0.9,
+            ignore_zeros=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -651,8 +737,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        # Create events with a mix of zeros and non-zero values
-        # Control: 5 users with 0, 3 users with 100, 2 users with 1000 (outliers)
         for i in range(10):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
@@ -666,13 +750,12 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                     "$feature_flag": feature_flag.key,
                 },
             )
-            # First 5 users have 0 amount (should be ignored in percentile calculation)
             if i < 5:
                 amount = 0
             elif i < 8:
                 amount = 100
             else:
-                amount = 1000  # Outliers that should be capped
+                amount = 1000
 
             _create_event(
                 team=self.team,
@@ -682,7 +765,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "control", "amount": amount},
             )
 
-        # Test: Similar distribution
         for i in range(10):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
             _create_event(
@@ -696,13 +778,12 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                     "$feature_flag": feature_flag.key,
                 },
             )
-            # First 5 users have 0 amount
             if i < 5:
                 amount = 0
             elif i < 8:
                 amount = 150
             else:
-                amount = 2000  # Outliers that should be capped
+                amount = 2000
 
             _create_event(
                 team=self.team,
@@ -724,21 +805,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # With ignore_zeros=True, the 90th percentile should be calculated from non-zero values only
-        # For control: [100, 100, 100, 1000, 1000] -> 90th percentile = 1000, so outliers aren't capped
-        # For test: [150, 150, 150, 2000, 2000] -> 90th percentile = 2000, so outliers aren't capped
-        # But if zeros were included, percentiles would be much lower and outliers would be capped
-
-        # All users are included in the sample count
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
-
-        # With ignore_zeros=True and 90th percentile:
-        # For control: non-zero values are [100, 100, 100, 1000, 1000] -> 90th percentile = 1000
-        # For test: non-zero values are [150, 150, 150, 2000, 2000] -> 90th percentile = 2000
-        # Since the 90th percentile equals the max outlier values, they should not be capped
-
-        # Control: 5*0 + 3*100 + 2*1000 = 2300
-        # Test: 5*0 + 3*150 + 2*2000 = 4450
         self.assertEqual(control_variant.sum, 2300)
         self.assertEqual(test_variant.sum, 4450)
