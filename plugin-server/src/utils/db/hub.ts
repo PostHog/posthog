@@ -145,6 +145,9 @@ export async function createHub(
     const personRepositoryOptions = {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         comparisonEnabled: serverConfig.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
+        tableCutoverEnabled: serverConfig.PERSON_TABLE_CUTOVER_ENABLED,
+        newTableName: serverConfig.PERSON_NEW_TABLE_NAME,
+        newTableIdOffset: serverConfig.PERSON_NEW_TABLE_ID_OFFSET,
     }
     const personRepository = serverConfig.PERSONS_DUAL_WRITE_ENABLED
         ? new PostgresDualWritePersonRepository(postgres, postgresPersonMigration, personRepositoryOptions)

@@ -454,13 +454,13 @@ export class ApiClient {
 
                 // Prepare metrics queries
                 const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }) => metadata.type === 'primary')
-                    .map(({ query }) => query)
+                    .filter(({ metadata }: any) => metadata.type === 'primary')
+                    .map(({ query }: any) => query)
                 const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
 
                 const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }) => metadata.type === 'secondary')
-                    .map(({ query }) => query)
+                    .filter(({ metadata }: any) => metadata.type === 'secondary')
+                    .map(({ query }: any) => query)
                 const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
 
                 // Execute queries for primary metrics
@@ -667,7 +667,9 @@ export class ApiClient {
                     return { success: false, error: listResult.error }
                 }
 
-                const found = listResult.data.find((f) => f.key === key)
+                const found = listResult.data.find(
+                    (f: { id: number; key: string; name: string; active: boolean }) => f.key === key
+                )
 
                 if (!found) {
                     return { success: true, data: undefined }
