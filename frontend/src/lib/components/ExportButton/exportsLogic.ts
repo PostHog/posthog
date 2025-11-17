@@ -26,6 +26,7 @@ import {
 import type { exportsLogicType } from './exportsLogicType'
 
 const POLL_DELAY_MS = 10000
+const MAX_EXPORT_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
 
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
@@ -96,13 +97,20 @@ export const exportsLogic = kea<exportsLogicType>([
         startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
-                    downloadBlob(
-                        new Blob([exportData.export_context.localData], { type: exportData.export_context.mediaType }),
-                        exportData.export_context.filename
-                    )
+                    // check size directly
+                    const blob = new Blob([exportData.export_context.localData], {
+                        type: exportData.export_context.mediaType,
+                    })
+                    if (blob.size > MAX_EXPORT_SIZE_BYTES) {
+                        lemonToast.error(
+                            `Export size (${(blob.size / (1024 * 1024)).toFixed(2)} MB) exceeds the 10 MB limit`
+                        )
+                        return
+                    }
+                    downloadBlob(blob, exportData.export_context.filename)
                     lemonToast.success('Export complete!')
-                } catch {
-                    lemonToast.error('Export failed!')
+                } catch (e: any) {
+                    lemonToast.error(`Export failed with error: ${e.message}`)
                 }
                 return
             }
