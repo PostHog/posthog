@@ -86,7 +86,7 @@ class Person(models.Model):
             self.add_distinct_id(distinct_id)
 
     def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        original_person = Person.objects.get(pk=self.pk)
+        original_person = Person.objects.get(team_id=self.team_id, pk=self.pk)
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0
         if not main_distinct_id:

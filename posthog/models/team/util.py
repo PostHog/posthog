@@ -47,6 +47,10 @@ def _raw_delete(queryset: Any):
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
     """
     Deletes records in batches to avoid statement timeout on large tables.
+
+    Note: For partitioned tables (like posthog_person_new), preserving filters
+    like team_id ensures efficient single-partition deletes instead of scanning
+    all partitions.
     """
     while True:
         batch_ids = list(queryset.values_list("id", flat=True)[:batch_size])
@@ -54,7 +58,10 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
         if not batch_ids:
             break
 
-        queryset.model.objects.filter(id__in=batch_ids)._raw_delete(queryset.db)
+        # Create a new queryset from the original to preserve filters (e.g., team_id)
+        # then add the id__in filter for the batch
+        batch_queryset = queryset.filter(id__in=batch_ids)
+        batch_queryset._raw_delete(queryset.db)
 
         # If we got fewer records than batch_size, we're done
         if len(batch_ids) < batch_size:
