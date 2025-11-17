@@ -18,7 +18,9 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
+import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 
+import { ResolvedDateRangeResponse } from '~/queries/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
@@ -43,6 +45,7 @@ export interface DateFilterProps {
     isFixedDateMode?: boolean
     placeholder?: string
     fullWidth?: boolean
+    resolvedDateRange?: ResolvedDateRangeResponse
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -84,6 +87,7 @@ export function DateFilter({
     forceGranularity,
     explicitDate,
     showExplicitDateToggle = false,
+    resolvedDateRange,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -299,6 +303,7 @@ export function DateFilter({
                 icon={<IconCalendar />}
                 onClick={isVisible ? close : open}
                 fullWidth={fullWidth}
+                tooltip={formatResolvedDateRange(resolvedDateRange)}
             >
                 <span className={clsx('text-nowrap', className)}>{label}</span>
             </LemonButton>

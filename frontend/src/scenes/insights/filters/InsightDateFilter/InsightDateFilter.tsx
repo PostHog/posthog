@@ -17,6 +17,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { insightData } = useValues(insightVizDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.DATE_PICKER_EXPLICIT_DATE_TOGGLE]
@@ -37,6 +38,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             }}
             dateOptions={dateMapping}
             allowedRollingDateOptions={isTrends ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
+            resolvedDateRange={insightData?.resolved_date_range}
             makeLabel={(key) => (
                 <>
                     <IconCalendar /> {key}
