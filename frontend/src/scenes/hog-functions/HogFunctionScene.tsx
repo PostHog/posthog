@@ -35,6 +35,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -43,7 +44,7 @@ import {
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
@@ -350,6 +351,15 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'testing',
                   content: <HogFunctionTesting />,
               },
+
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Backfills',
+                  key: 'backfills',
+                  content: <HogFunctionBackfills id={id} />,
+              },
+
         {
             label: 'History',
             key: 'history',
