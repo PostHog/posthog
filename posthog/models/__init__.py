@@ -44,6 +44,7 @@ from .group_type_mapping import GroupTypeMapping
 from .heatmap_saved import SavedHeatmap, HeatmapSnapshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
+from .hog_flow_batch_job import HogFlowBatchJob
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
 from .insight import Insight, InsightViewed
@@ -130,6 +131,7 @@ __all__ = [
     "GroupTypeMapping",
     "HeatmapSnapshot",
     "HogFlow",
+    "HogFlowBatchJob",
     "HogFunction",
     "HogFunctionTemplate",
     "Link",

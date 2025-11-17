@@ -227,6 +227,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
 
+        // Batch hogflow configuration
+        HOGFLOW_BATCH_MAX_MESSAGES: 1500,
+        HOGFLOW_BATCH_CONSUMER_RATE_LIMIT: 10, // messages per second
+
         // Heap dump configuration
         HEAP_DUMP_ENABLED: false,
         HEAP_DUMP_S3_BUCKET: '',
