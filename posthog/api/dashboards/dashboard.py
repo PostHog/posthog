@@ -657,7 +657,7 @@ class DashboardsViewSet(
                 include_deleted = not str_to_bool(deleted_value)
 
         if not include_deleted:
-            # a dashboard can be un-deleted by patching {"deleted": False}
+            # a dashboard can be restored by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")

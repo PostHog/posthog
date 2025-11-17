@@ -115,6 +115,20 @@ const DeleteFolderDialogContent = ({
     )
 }
 
+const humanizeFileSystemEntryType = (type?: string): string => {
+    if (!type) {
+        return 'item'
+    }
+
+    const humanizedType = identifierToHuman(type).toLowerCase()
+
+    if (humanizedType.startsWith('hog function ')) {
+        return humanizedType.replace('hog function ', '')
+    }
+
+    return humanizedType
+}
+
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
     connect(() => ({
@@ -338,7 +352,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                 countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
                             }
                             const summaryParts = Array.from(countsByType.entries()).map(([type, count]) =>
-                                pluralize(count, identifierToHuman(type).toLowerCase(), undefined, count !== 1)
+                                pluralize(count, humanizeFileSystemEntryType(type), undefined, count !== 1)
                             )
                             const message =
                                 summaryParts.length > 0
@@ -385,7 +399,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                       ([type, count]) =>
                                                           pluralize(
                                                               count,
-                                                              identifierToHuman(type).toLowerCase(),
+                                                              humanizeFileSystemEntryType(type),
                                                               undefined,
                                                               count !== 1
                                                           )

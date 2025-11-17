@@ -25,9 +25,11 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Action, FeatureFlag, Person, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -3096,6 +3098,61 @@ email@example.org,
         assert (
             "Special Folder/Cohorts" in fs_entry.path
         ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+
+    def test_cohort_delete_restore_logs_activity(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Activities",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        latest_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert latest_activity is not None
+        assert latest_activity.activity == "deleted"
+
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": False}, format="json"
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        restored_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert restored_activity is not None
+        assert restored_activity.activity == "restored"
+
+    def test_cohort_restore_can_target_folder(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Foldered",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+        assert FileSystem.objects.filter(team=self.team, type="cohort", ref=str(cohort.pk)).count() == 0
+
+        restore_folder = "Restored/Cohorts"
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            {"deleted": False, "_create_in_folder": restore_folder},
+            format="json",
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        fs_entry = FileSystem.objects.get(team=self.team, type="cohort", ref=str(cohort.pk))
+        assert fs_entry.path.startswith(f"{restore_folder}/"), fs_entry.path
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):
