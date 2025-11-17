@@ -2,7 +2,9 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -29,6 +31,7 @@ export const projectLogic = kea<projectLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
         ],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -114,7 +117,7 @@ export const projectLogic = kea<projectLogicType>([
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -134,7 +137,9 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.products())
+                const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+                const redirectUrl = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
+                actions.switchTeam(currentProject.id, redirectUrl)
             }
         },
 
