@@ -1,0 +1,76 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
+
+import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
+import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
+
+/**
+ *
+ * @deprecated
+ * This component is deprecated and only supports the legacy query runner.
+ * Use the MetricSourceModal component instead.
+ */
+export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+    const { experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
+    const {
+        closePrimaryMetricSourceModal,
+        closeSecondaryMetricSourceModal,
+        openPrimaryMetricModal,
+        openSecondaryMetricModal,
+        openPrimarySharedMetricModal,
+        openSecondarySharedMetricModal,
+    } = useActions(modalsLogic)
+    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(modalsLogic)
+
+    const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
+    const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen
+    const closeCurrentModal = isSecondary ? closeSecondaryMetricSourceModal : closePrimaryMetricSourceModal
+    const openMetricModal = isSecondary ? openSecondaryMetricModal : openPrimaryMetricModal
+    const openSharedMetricModal = isSecondary ? openSecondarySharedMetricModal : openPrimarySharedMetricModal
+
+    return (
+        <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
+            <div className="flex gap-4 mb-4">
+                <div
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    onClick={() => {
+                        closeCurrentModal()
+
+                        const defaultMetric = usesNewQueryRunner ? getDefaultFunnelMetric() : getDefaultFunnelsMetric()
+                        const newMetrics = [...experiment[metricsField], defaultMetric]
+                        setExperiment({
+                            [metricsField]: newMetrics,
+                        })
+                        if (defaultMetric.uuid) {
+                            openMetricModal(defaultMetric.uuid)
+                        }
+                    }}
+                >
+                    <div className="font-semibold">
+                        <span>Single-use</span>
+                    </div>
+                    <div className="text-secondary text-sm leading-relaxed">
+                        Create a new metric specific to this experiment.
+                    </div>
+                </div>
+                <div
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    onClick={() => {
+                        closeCurrentModal()
+                        openSharedMetricModal(null)
+                    }}
+                >
+                    <div className="font-semibold">
+                        <span>Shared</span>
+                    </div>
+                    <div className="text-secondary text-sm leading-relaxed">
+                        Use a pre-configured metric that can be reused across experiments.
+                    </div>
+                </div>
+            </div>
+        </LemonModal>
+    )
+}

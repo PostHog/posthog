@@ -194,7 +194,7 @@ class TestPartitionFiltering:
 
         mock_client = Mock()
         mock_client.execute.return_value = mock_partition_data
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         partitions = get_partitions(
             context=self.mock_context,
@@ -209,7 +209,7 @@ class TestPartitionFiltering:
         assert "20250818" in partitions
 
         # Verify the function was called
-        self.mock_cluster.any_host.assert_called()
+        self.mock_cluster.any_host_by_roles.assert_called()
 
     def test_get_partitions_with_filtering_returns_only_current_partition_window(self):
         # Set up partition time window for a single day: 2025-08-17
@@ -220,7 +220,7 @@ class TestPartitionFiltering:
         # Mock partition data with many partitions but only one should match
         mock_partition_data = [("20250817",)]  # Only the target date
 
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         partitions = get_partitions(
             context=self.mock_context,
@@ -234,7 +234,7 @@ class TestPartitionFiltering:
         assert partitions[0] == "20250817"
 
         # Verify the SQL query includes date filtering
-        call_args = self.mock_cluster.any_host.call_args[0][0]
+        call_args = self.mock_cluster.any_host_by_roles.call_args[0][0]
         # The lambda function should be called with the client
         mock_client = Mock()
         call_args(mock_client)
@@ -253,7 +253,7 @@ class TestPartitionFiltering:
         # Mock partition data with partitions in and out of range
         mock_partition_data = [("20250815",), ("20250816",), ("20250817",)]
 
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         partitions = get_partitions(
             context=self.mock_context,
@@ -276,7 +276,7 @@ class TestPartitionFiltering:
 
         # Mock only one partition in the time window
         mock_partition_data = [("20250817",)]
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         swap_partitions_from_staging(
             context=self.mock_context,
@@ -286,7 +286,7 @@ class TestPartitionFiltering:
         )
 
         # Verify get_partitions was called with filtering enabled
-        call_args = self.mock_cluster.any_host.call_args_list[0][0][0]
+        call_args = self.mock_cluster.any_host_by_roles.call_args_list[0][0][0]
         mock_client = Mock()
         call_args(mock_client)
         executed_query = mock_client.execute.call_args[0][0]
@@ -296,7 +296,7 @@ class TestPartitionFiltering:
         assert "partition < '20250818'" in executed_query
 
         # Verify only one partition replacement was attempted
-        replace_calls = [call for call in self.mock_cluster.any_host.call_args_list if len(call[0]) > 0]
+        replace_calls = [call for call in self.mock_cluster.any_host_by_roles.call_args_list if len(call[0]) > 0]
         # First call is for getting partitions, second call is for replacing partition
         assert len(replace_calls) == 2
 
@@ -304,7 +304,7 @@ class TestPartitionFiltering:
         self.mock_context.partition_time_window = None
 
         mock_partition_data = [("20250817",), ("20250818",)]
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         partitions = get_partitions(
             context=self.mock_context,
@@ -317,7 +317,7 @@ class TestPartitionFiltering:
         assert len(partitions) == 2
 
         # Verify no date filtering was applied
-        call_args = self.mock_cluster.any_host.call_args[0][0]
+        call_args = self.mock_cluster.any_host_by_roles.call_args[0][0]
         mock_client = Mock()
         call_args(mock_client)
         executed_query = mock_client.execute.call_args[0][0]
@@ -341,7 +341,7 @@ class TestPartitionFiltering:
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
         mock_partition_data: list[tuple[str, ...]] = []
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        self.mock_cluster.any_host_by_roles.return_value.result.return_value = mock_partition_data
 
         get_partitions(
             context=self.mock_context,
@@ -351,7 +351,7 @@ class TestPartitionFiltering:
         )
 
         # Verify the date formatting in the SQL query
-        call_args = self.mock_cluster.any_host.call_args[0][0]
+        call_args = self.mock_cluster.any_host_by_roles.call_args[0][0]
         mock_client = Mock()
         call_args(mock_client)
         executed_query = mock_client.execute.call_args[0][0]

@@ -132,7 +132,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -144,8 +144,8 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <DescribeType logItem={logItem} />{' '}
-                    {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
+                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
                 </>
             ),
         }

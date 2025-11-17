@@ -11,8 +11,17 @@ import {
 } from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
+import { TileOverridesWarning } from './TileOverridesWarning'
 
-export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRefresh?: string | null }): JSX.Element {
+export function TopHeading({
+    query,
+    lastRefresh,
+    hasTileOverrides,
+}: {
+    query: Node | null
+    lastRefresh?: string | null
+    hasTileOverrides?: boolean | null
+}): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {
@@ -51,6 +60,7 @@ export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRef
                 </>
             ) : null}
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+            {hasTileOverrides ? <TileOverridesWarning /> : null}
         </div>
     )
 }

@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+    <head>
+        <meta name="robots" content="noindex" />
+        {{ render_query_payload|json_script:"posthog-render-query" }}
+        <script nonce="{{ request.csp_nonce }}">
+            try {
+                window.POSTHOG_RENDER_QUERY_PAYLOAD = JSON.parse(
+                    document.getElementById('posthog-render-query').textContent
+                )
+            } catch (e) {
+                console.error('Failed to parse render query payload:', e)
+                window.POSTHOG_RENDER_QUERY_PAYLOAD = {}
+            }
+        </script>
+        {% include "head.html" %}
+    </head>
+    <body class="RenderQueryBody">
+        <script nonce="{{ request.csp_nonce }}">
+            if (typeof Object.entries === 'undefined') {
+                var div = document.createElement('div')
+                div.style.color = '#fef6f6'
+                div.style.background = '#920c0c'
+                div.style.padding = '5px 10px'
+                div.innerHTML = 'You are using a really old browser. Please upgrade to fully enjoy PostHog!'
+                document.body.prepend(div)
+            }
+            if (!window.process) {
+                window.process = { cwd: function () { return '' } }
+            }
+        </script>
+        <div id="root"></div>
+    </body>
+</html>

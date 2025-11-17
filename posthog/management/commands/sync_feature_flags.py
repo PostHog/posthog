@@ -15,6 +15,7 @@ INACTIVE_FLAGS = [
     "session-reset-on-load",
     "posthog-3000-nav",
     "insight-horizontal-controls",
+    "flagged-feature-indicator",
 ]
 
 

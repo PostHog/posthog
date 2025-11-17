@@ -25,6 +25,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                         rootLevel: 'rootLevelValue',
@@ -35,6 +36,7 @@ describe('incoming webhook template', () => {
                     stringBody: '',
                     headers: {},
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -69,6 +71,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },
@@ -77,6 +80,7 @@ describe('incoming webhook template', () => {
                         authorization: 'Bearer wrong-token',
                     },
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -101,6 +105,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },
@@ -109,6 +114,7 @@ describe('incoming webhook template', () => {
                         authorization: 'Bearer my-secret-token',
                     },
                     ip: '127.0.0.1',
+                    query: {},
                 },
             }
         )
@@ -117,7 +123,7 @@ describe('incoming webhook template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(true)
-        expect(response.execResult).toBeNull()
+        expect(response.execResult).toBeUndefined()
     })
 
     it('should print the request body if debug is true', async () => {
@@ -129,11 +135,13 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },
                     stringBody: '',
                     headers: {},
+                    query: {},
                 },
             }
         )

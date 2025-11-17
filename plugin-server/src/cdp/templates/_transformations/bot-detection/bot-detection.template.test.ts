@@ -7,6 +7,9 @@ const DEFAULT_INPUTS = {
     userAgent: '$raw_user_agent',
     customBotPatterns: '',
     customIpPrefixes: '',
+    filterKnownBotUserAgents: true,
+    filterKnownBotIps: true,
+    keepUndefinedUseragent: 'Yes',
 }
 
 describe('bot-detection.template', () => {
@@ -50,35 +53,29 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeFalsy()
     })
 
-    it('should treat missing user agent as bot traffic', async () => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {},
-            },
-        })
-
-        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(response.finished).toBeTruthy()
-        expect(response.error).toBeFalsy()
-        expect(response.execResult).toBeFalsy()
-    })
-
-    it('should treat empty user agent as bot traffic', async () => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $raw_user_agent: '',
+    it.each([
+        ['Yes', true, undefined],
+        ['No', false, undefined],
+        ['Yes', true, ''],
+        ['No', false, ''],
+    ])(
+        'should treat missing user agent when keepUndefinedUseragent is %s',
+        async (keepUndefinedUseragent, shouldKeepEvent, ua) => {
+            mockGlobals = tester.createGlobals({
+                event: {
+                    properties: {
+                        $raw_user_agent: ua,
+                    },
                 },
-            },
-        })
+            })
 
-        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+            const response = await tester.invoke({ ...DEFAULT_INPUTS, keepUndefinedUseragent }, mockGlobals)
 
-        expect(response.finished).toBeTruthy()
-        expect(response.error).toBeFalsy()
-        expect(response.execResult).toBeFalsy()
-    })
+            expect(response.finished).toBeTruthy()
+            expect(response.error).toBeFalsy()
+            shouldKeepEvent ? expect(response.execResult).toBeTruthy() : expect(response.execResult).toBeFalsy()
+        }
+    )
 
     it('should detect bot in case-insensitive manner', async () => {
         mockGlobals = tester.createGlobals({
@@ -198,5 +195,52 @@ describe('bot-detection.template', () => {
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
         expect(response.execResult).toBeFalsy()
+    })
+
+    it('should not filter out known bot user agents if filterKnownBotUserAgents is false', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                ...DEFAULT_INPUTS,
+                filterKnownBotUserAgents: false,
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it('should not filter out known bot ips if filterKnownBotIps is false', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $ip: '5.39.1.225',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                ...DEFAULT_INPUTS,
+                filterKnownBotIps: false,
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
     })
 })

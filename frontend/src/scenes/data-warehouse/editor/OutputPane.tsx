@@ -10,6 +10,7 @@ import {
     IconBolt,
     IconBrackets,
     IconCode,
+    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -19,7 +20,7 @@ import {
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -29,6 +30,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -48,15 +50,18 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
+import { Endpoint } from './output-pane-tabs/Endpoint'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -93,6 +98,29 @@ const CLICKHOUSE_TYPES = [
     'Decimal',
     'FixedString',
 ]
+
+const copyMap = {
+    [ExporterFormat.CSV]: {
+        label: 'CSV',
+        copyFn: copyTableToCsv,
+    },
+    [ExporterFormat.JSON]: {
+        label: 'JSON',
+        copyFn: copyTableToJson,
+    },
+    [ExporterFormat.XLSX]: {
+        label: 'Excel',
+        copyFn: copyTableToExcel,
+    },
+}
+
+const createDataTableQuery = (): DataTableNode => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: '',
+    },
+})
 
 const cleanClickhouseType = (type: string | undefined): string | undefined => {
     if (!type) {
@@ -179,7 +207,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                                 </pre>
                             ) : (
                                 <div className="overflow-x-auto max-w-full">
-                                    <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                    <JSONViewer src={jsonValue} name={null} collapsed={1} sortKeys={true} />
                                 </div>
                             )}
                         </div>
@@ -454,23 +482,31 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             label: 'Materialization',
                             icon: <IconBolt />,
                         },
-                    ].map((tab) => (
-                        <div
-                            key={tab.key}
-                            className={clsx(
-                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
-                                {
-                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                    'border-transparent': tab.key !== activeTab,
-                                    'opacity-50 cursor-not-allowed': tab.disabled,
-                                }
-                            )}
-                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
-                        >
-                            <span className="mr-1">{tab.icon}</span>
-                            {tab.label}
-                        </div>
-                    ))}
+                        {
+                            key: OutputTab.Endpoint,
+                            label: 'Endpoint',
+                            icon: <IconCode2 />,
+                            flag: FEATURE_FLAGS.ENDPOINTS,
+                        },
+                    ]
+                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
+                        .map((tab) => (
+                            <div
+                                key={tab.key}
+                                className={clsx(
+                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                    {
+                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                        'border-transparent': tab.key !== activeTab,
+                                        'opacity-50 cursor-not-allowed': tab.disabled,
+                                    }
+                                )}
+                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                            >
+                                <span className="mr-1">{tab.icon}</span>
+                                {tab.label}
+                            </div>
+                        ))}
                 </div>
                 <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
@@ -554,6 +590,28 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
+                    {activeTab === OutputTab.Results && (
+                        <LemonMenu
+                            items={Object.values(copyMap).map(({ label, copyFn }) => ({
+                                label,
+                                onClick: () => {
+                                    if (response?.columns && rows.length > 0) {
+                                        const dataTableRows = transformDataTableToDataTableRows(rows, response.columns)
+                                        const query = createDataTableQuery()
+                                        copyFn(dataTableRows, response.columns, query)
+                                    }
+                                },
+                            }))}
+                            placement="bottom-end"
+                        >
+                            <LemonButton
+                                id="sql-editor-copy-dropdown"
+                                disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
+                                type="secondary"
+                                icon={<IconCopy />}
+                            />
+                        </LemonMenu>
+                    )}
                     {activeTab === OutputTab.Results && exportContext && (
                         <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
                             <ExportButton
@@ -614,7 +672,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
+                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
                 </div>
             </div>
             <RowDetailsModal
@@ -721,6 +780,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 query={sourceQuery}
                 excludeDetail
                 title={error}
+                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
@@ -751,6 +811,8 @@ const Content = ({
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
     const { editingView } = useValues(multitabEditorLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -800,6 +862,15 @@ const Content = ({
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">
                     <QueryVariables />
+                </div>
+            </TabScroller>
+        )
+    }
+    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <Endpoint tabId={tabId} />
                 </div>
             </TabScroller>
         )

@@ -14,7 +14,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -142,6 +142,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "receive_org_level_activity_logs",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -210,6 +211,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "flags_persistence_default",
             "secret_api_token",
             "secret_api_token_backup",
+            "receive_org_level_activity_logs",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -262,6 +264,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
         return TeamSerializer.validate_session_replay_ai_summary_config(value)
+
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -450,6 +455,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         queryset = queryset.filter(id__in=visible_teams_ids)
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 
@@ -654,7 +662,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -679,7 +687,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()

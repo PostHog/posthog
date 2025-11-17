@@ -1,18 +1,16 @@
 import { IconServer } from '@posthog/icons'
-
 import {
-    IconAndroidOS,
-    IconAppleIOS,
     IconCSharp,
     IconFlutter,
-    IconGolang,
+    IconGo,
     IconJavascript,
-    IconNodeJS,
     IconPHP,
     IconPython,
     IconReact,
     IconRuby,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/icons'
+
+import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { SDKKey } from '~/types'
 
@@ -25,6 +23,7 @@ import {
     GolangSnippet,
     JSBootstrappingSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
@@ -86,7 +85,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: GolangSnippet,
         type: LibraryType.Server,
         key: SDKKey.GO,
-        Icon: IconGolang,
+        Icon: IconGo,
     },
     {
         value: 'Flutter',
@@ -160,6 +159,14 @@ export const OPTIONS: InstructionOption[] = [
         key: SDKKey.DOTNET,
         Icon: IconCSharp,
     },
+    {
+        value: 'Java',
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}`,
+        Snippet: JavaSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.JAVA,
+        Icon: IconServer,
+    },
 ]
 
 export const LOCAL_EVALUATION_LIBRARIES: string[] = [
@@ -184,6 +191,7 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.FLUTTER,
     SDKKey.DOTNET,
     SDKKey.GO,
+    SDKKey.JAVA,
 ]
 
 export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [

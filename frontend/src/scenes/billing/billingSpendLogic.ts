@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
@@ -72,10 +73,17 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     path(['scenes', 'billing', 'billingSpendLogic']),
     props({} as BillingSpendLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
-    connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
+    connect(() => ({
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            billingLogic,
+            ['billing', 'billingPeriodUTC'],
+            preflightLogic,
+            ['isHobby'],
+        ],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,
@@ -97,7 +105,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    if (!canAccessBilling(values.currentOrganization)) {
+                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -111,8 +119,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         ...(interval ? { interval } : {}),
                     }
                     try {
-                        const response = await api.get(`api/billing/spend/?${toParams(params)}`)
-                        return response
+                        return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
                         lemonToast.error('Failed to load billing spend, please try again or contact support.')
                         throw error

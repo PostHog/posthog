@@ -13,13 +13,22 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
+def get_create_clause(table_name: str, replace: bool = False) -> str:
+    use_replace = replace or settings.DEBUG
+    if use_replace:
+        return f"CREATE OR REPLACE TABLE {table_name}"
+    return f"CREATE TABLE IF NOT EXISTS {table_name}"
+
+
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     if force_unique_zk_path:
         engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -41,8 +50,10 @@ def HOURLY_TABLE_TEMPLATE(
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -183,12 +194,67 @@ WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
     mat_metadata_loggedIn Nullable(Bool)
 """
 
+# Production ORDER BY clauses extracted from production tables
+# These exclude nullable columns to avoid ClickHouse "Sorting key contains nullable columns" error
+WEB_STATS_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    pathname,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
 
 def REPLACE_WEB_STATS_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_stats_staging",
         WEB_STATS_V2_PRODUCTION_COLUMNS,
-        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
+        WEB_STATS_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
@@ -199,7 +265,7 @@ def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_bounces_staging",
         WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
-        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
         on_cluster=False,

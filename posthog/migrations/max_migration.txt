@@ -1,1 +1,1 @@
-0860_add_namedquery
+0904_alter_dashboard_creation_mode

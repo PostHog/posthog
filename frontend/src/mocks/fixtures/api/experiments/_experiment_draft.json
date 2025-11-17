@@ -86,5 +86,6 @@
     "metrics": [],
     "metrics_secondary": [],
     "primary_metrics_ordered_uuids": [],
-    "secondary_metrics_ordered_uuids": []
+    "secondary_metrics_ordered_uuids": [],
+    "user_access_level": "editor"
 }

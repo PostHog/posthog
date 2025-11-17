@@ -54,6 +54,30 @@ export function containsSearchQuery(text: string, searchQuery: string): boolean 
 }
 
 /**
+ * Recursively extract all text content from an object, ignoring structure
+ */
+export function extractAllText(obj: unknown): string {
+    if (typeof obj === 'string') {
+        return obj
+    }
+    if (typeof obj === 'number' || typeof obj === 'boolean') {
+        return String(obj)
+    }
+    if (!obj || typeof obj !== 'object') {
+        return ''
+    }
+
+    const texts: string[] = []
+    for (const value of Object.values(obj)) {
+        const extracted = extractAllText(value)
+        if (extracted) {
+            texts.push(extracted)
+        }
+    }
+    return texts.join(' ')
+}
+
+/**
  * Check if an LLM event matches a search query
  */
 export function eventMatchesSearch(event: { properties: Record<string, any>; event?: string }, query: string): boolean {
@@ -91,7 +115,8 @@ export function eventMatchesSearch(event: { properties: Record<string, any>; eve
 
     // Search in input content
     const input = JSON.stringify(event.properties.$ai_input || event.properties.$ai_input_state || '').toLowerCase()
-    if (input.includes(lowerQuery)) {
+    const inputText = extractAllText(event.properties.$ai_input || event.properties.$ai_input_state).toLowerCase()
+    if (input.includes(lowerQuery) || inputText.includes(lowerQuery)) {
         return true
     }
 
@@ -99,7 +124,10 @@ export function eventMatchesSearch(event: { properties: Record<string, any>; eve
     const output = JSON.stringify(
         event.properties.$ai_output || event.properties.$ai_output_choices || event.properties.$ai_output_state || ''
     ).toLowerCase()
-    if (output.includes(lowerQuery)) {
+    const outputText = extractAllText(
+        event.properties.$ai_output || event.properties.$ai_output_choices || event.properties.$ai_output_state
+    ).toLowerCase()
+    if (output.includes(lowerQuery) || outputText.includes(lowerQuery)) {
         return true
     }
 

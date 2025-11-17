@@ -13,6 +13,13 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import {
+    REVENUE_ANALYTICS_QUERY_TO_NAME,
+    REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
+    RevenueAnalyticsQuery,
+    revenueAnalyticsLogic,
+} from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
     InsightWithQuery,
@@ -77,8 +84,9 @@ export const maxContextLogic = kea<maxContextLogicType>([
         loadAndProcessInsight: (
             data: InsightItemInfo,
             filtersOverride?: DashboardFilter,
-            variablesOverride?: Record<string, HogQLVariable>
-        ) => ({ data, filtersOverride, variablesOverride }),
+            variablesOverride?: Record<string, HogQLVariable>,
+            revenueAnalyticsQuery?: RevenueAnalyticsQuery
+        ) => ({ data, filtersOverride, variablesOverride, revenueAnalyticsQuery }),
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
@@ -234,28 +242,43 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 actions.addOrUpdateContextDashboard(dashboard)
             }
         },
-        loadAndProcessInsight: async ({ data, filtersOverride, variablesOverride }, breakpoint) => {
+        loadAndProcessInsight: async (
+            { data, filtersOverride, variablesOverride, revenueAnalyticsQuery },
+            breakpoint
+        ) => {
             let insight = data.preloaded
 
             if (!insight || !insight.query) {
-                const insightLogicInstance = insightLogic.build({
-                    dashboardItemId: undefined,
-                    filtersOverride,
-                    variablesOverride,
-                })
-                insightLogicInstance.mount()
+                // Decide between revenue analytics query and querying the insight logic
+                if (revenueAnalyticsQuery) {
+                    const logic = revenueAnalyticsLogic.findMounted()!
+                    const query = logic.values.queries[revenueAnalyticsQuery]
+                    insight = {
+                        id: revenueAnalyticsQuery,
+                        short_id: REVENUE_ANALYTICS_QUERY_TO_SHORT_ID[revenueAnalyticsQuery],
+                        name: REVENUE_ANALYTICS_QUERY_TO_NAME[revenueAnalyticsQuery],
+                        query,
+                    } as QueryBasedInsightModel
+                } else {
+                    const insightLogicInstance = insightLogic.build({
+                        dashboardItemId: undefined,
+                        filtersOverride,
+                        variablesOverride,
+                    })
+                    insightLogicInstance.mount()
 
-                try {
-                    insightLogicInstance.actions.loadInsight(data.id)
+                    try {
+                        insightLogicInstance.actions.loadInsight(data.id)
 
-                    await breakpoint(50)
-                    while (!insightLogicInstance.values.insight.query) {
                         await breakpoint(50)
-                    }
+                        while (!insightLogicInstance.values.insight.query) {
+                            await breakpoint(50)
+                        }
 
-                    insight = insightLogicInstance.values.insight as QueryBasedInsightModel
-                } finally {
-                    insightLogicInstance.unmount()
+                        insight = insightLogicInstance.values.insight as QueryBasedInsightModel
+                    } finally {
+                        insightLogicInstance.unmount()
+                    }
                 }
             }
 
@@ -340,13 +363,25 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (itemInfo.type === MaxContextType.INSIGHT) {
                     let filtersOverride: DashboardFilter | undefined = undefined
                     let variablesOverride: Record<string, HogQLVariable> | undefined = undefined
+                    let revenueAnalyticsQuery: RevenueAnalyticsQuery | undefined = undefined
 
                     // This is an "on this page" insight selection. Look for and add possible applied filters.
                     if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
-                        const logic = insightSceneLogic.findAllMounted().find((l) => l.values.insightId === itemInfo.id)
-                        if (logic) {
-                            filtersOverride = logic.values.filtersOverride ?? undefined
-                            variablesOverride = logic.values.variablesOverride ?? undefined
+                        // The revenue analytics insights have some fixed short ids that don't overlap with the insight short ids
+                        // Let's check them first, and then fallback to looking for an insight logic
+                        const revenueAnalyticsShortIds = Object.values(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID)
+                        if (revenueAnalyticsShortIds.includes(itemInfo.id as InsightShortId)) {
+                            revenueAnalyticsQuery = Object.entries(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID).find(
+                                ([_, shortId]) => shortId === itemInfo.id
+                            )?.[0] as RevenueAnalyticsQuery | undefined
+                        } else {
+                            const logic = insightSceneLogic
+                                .findAllMounted()
+                                .find((l) => l.values.insightId === itemInfo.id)
+                            if (logic) {
+                                filtersOverride = logic.values.filtersOverride ?? undefined
+                                variablesOverride = logic.values.variablesOverride ?? undefined
+                            }
                         }
                     }
 
@@ -356,7 +391,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
                         },
                         filtersOverride,
-                        variablesOverride
+                        variablesOverride,
+                        revenueAnalyticsQuery
                     )
                 }
             } catch (error) {
@@ -416,6 +452,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (s: any) => [s.sceneContext],
             (sceneContext: MaxContextItem[]): MaxContextTaxonomicFilterOption[] => {
                 const options: MaxContextTaxonomicFilterOption[] = []
+
                 sceneContext.forEach((item) => {
                     if (item.type == MaxContextType.INSIGHT) {
                         options.push({

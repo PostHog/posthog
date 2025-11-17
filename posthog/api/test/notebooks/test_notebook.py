@@ -5,8 +5,10 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Notebook, Organization, Team
+from posthog.models import Organization, Team
 from posthog.models.user import User
+
+from products.notebooks.backend.models import Notebook
 
 
 class TestNotebooks(APIBaseTest, QueryMatchingTest):

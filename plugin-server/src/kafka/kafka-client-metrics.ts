@@ -201,18 +201,6 @@ export function trackBrokerMetrics(
             })
         }
 
-        // communication errors
-        if (stats.txerrs > 0 || stats.rxerrs > 0) {
-            logger.warn('Broker communication errors', {
-                ...labels,
-                consumer_id: consumerId,
-                txerrs: stats.txerrs,
-                rxerrs: stats.rxerrs,
-                txretries: stats.txretries,
-                req_timeouts: stats.req_timeouts,
-            })
-        }
-
         // request timeouts
         if (stats.req_timeouts > 0) {
             logger.warn('Broker request timeouts', {

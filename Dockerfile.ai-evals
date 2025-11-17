@@ -1,4 +1,5 @@
-FROM python:3.11.13-slim-bookworm AS python-base
+# Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
+FROM python:3.12.11-slim-bookworm AS python-base
 FROM cruizba/ubuntu-dind:latest
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -30,7 +31,7 @@ COPY pyproject.toml uv.lock docker-compose.base.yml docker-compose.dev.yml ./
 
 # Install python deps
 RUN rm -rf /var/lib/apt/lists/* && \
-pip install uv~=0.7.0 --no-cache-dir && \
+pip install uv==0.8.19 --no-cache-dir && \
 UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-cache --compile-bytecode \
 --no-binary-package lxml --no-binary-package xmlsec
 

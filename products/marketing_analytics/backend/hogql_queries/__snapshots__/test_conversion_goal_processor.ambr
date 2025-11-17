@@ -4,7 +4,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -64,7 +64,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -124,7 +124,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -143,7 +143,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -163,7 +163,7 @@
                   events
               
   WHERE
-                  or(and(equals(event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(31536000)))))
+                  or(and(equals(event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
               
   GROUP BY
                   events.person_id
@@ -184,7 +184,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -203,7 +203,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -223,7 +223,7 @@
                   events
               
   WHERE
-                  or(and(equals(event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-05-01')), lessOrEquals(events.timestamp, toDateTime('2023-05-03'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-05-01'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2023-05-03'))))
+                  or(and(equals(event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-05-01')), lessOrEquals(events.timestamp, toDateTime('2023-05-03'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-05-01'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2023-05-03'))))
               
   GROUP BY
                   events.person_id
@@ -244,7 +244,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -263,7 +263,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -283,7 +283,7 @@
                   events
               
   WHERE
-                  or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(31536000)))))
+                  or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
               
   GROUP BY
                   events.person_id
@@ -304,7 +304,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_1
   
   FROM
@@ -323,7 +323,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -343,7 +343,7 @@
                   events
               
   WHERE
-                  or(and(or(equals(event, 'sign_up'), equals(event, 'activate_account')), greaterOrEquals(events.timestamp, toDateTime('2023-06-01')), lessOrEquals(events.timestamp, toDateTime('2023-06-02'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-06-01'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2023-06-02'))))
+                  or(and(or(equals(event, 'sign_up'), equals(event, 'activate_account')), greaterOrEquals(events.timestamp, toDateTime('2023-06-01')), lessOrEquals(events.timestamp, toDateTime('2023-06-02'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-06-01'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2023-06-02'))))
               
   GROUP BY
                   events.person_id
@@ -364,7 +364,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       coalesce(sum(conversion_value), 0) AS conversion_0
   
   FROM
@@ -383,7 +383,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -403,7 +403,7 @@
                   events
               
   WHERE
-                  or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(31536000)))))
+                  or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
               
   GROUP BY
                   events.person_id
@@ -424,7 +424,7 @@
   
   SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-      if(notEmpty(source_name), source_name, 'organic') AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
       count() AS conversion_0
   
   FROM
@@ -443,7 +443,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayMin(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+              arrayMin(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
               if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -463,7 +463,7 @@
                   events
               
   WHERE
-                  or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-05-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-05-01'), toIntervalSecond(31536000)))))
+                  or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-05-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-05-01'), toIntervalSecond(7776000)))))
               
   GROUP BY
                   events.person_id

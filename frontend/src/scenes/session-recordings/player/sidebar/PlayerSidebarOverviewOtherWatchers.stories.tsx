@@ -3,7 +3,7 @@ import { BindLogic } from 'kea'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
 
@@ -23,7 +23,7 @@ export default meta
 function MockedPlayerSidebarOverviewOtherWatchers({ startExpanded = false }: { startExpanded?: boolean }): JSX.Element {
     return (
         <BindLogic
-            logic={sessionRecordingDataLogic}
+            logic={sessionRecordingDataCoordinatorLogic}
             props={{
                 sessionRecordingId: 'test-session-id',
                 playerKey: 'story-template',

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconMagicWand, IconWarning } from '@posthog/icons'
+import { IconSparkles, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -36,7 +36,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             return <IconWarning className="text-warning" />
         }
 
-        return <IconMagicWand />
+        return <IconSparkles />
     }, [fixHogQLErrorsLoading, fixErrorsError])
 
     const disabledReason = useMemo(() => {
@@ -60,7 +60,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             return "Can't fix"
         }
 
-        return contentOverride ?? 'Fix errors'
+        return contentOverride ?? 'Fix errors with AI'
     }, [fixErrorsError, fixHogQLErrorsLoading, contentOverride])
 
     return (
@@ -70,7 +70,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             disabledReason={disabledReason}
             icon={icon}
             onClick={() => {
-                fixHogQLErrors(queryInput, queryError)
+                fixHogQLErrors(queryInput ?? '', queryError)
                 posthog.capture(`sql-editor-fix-error-click`, { source })
             }}
         >

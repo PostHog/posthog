@@ -3594,7 +3594,7 @@ class TestCohortNegationValidation(BaseTest):
         assert has_reg is False
 
     def test_empty_property_group(self):
-        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])  # type: ignore
+        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
         assert has_pending_neg is False
@@ -3749,6 +3749,8 @@ class TestCohortNegationValidation(BaseTest):
             team=other_team,
         )
 
+        assert cohort_query1.clickhouse_query
+        assert cohort_query2.clickhouse_query
         assert (
             cohort_query1.clickhouse_query.replace(f"team_id, {self.team.pk}", f"team_id, {str(other_team.pk)}")
             == cohort_query2.clickhouse_query

@@ -8,7 +8,9 @@ import {
     LemonBanner,
     LemonButton,
     LemonDivider,
+    LemonInput,
     LemonLabel,
+    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -24,7 +26,7 @@ import { hogFunctionSourceWebhookTestLogic } from './hogFunctionSourceWebhookTes
 
 export function HogFunctionSourceWebhookTest(): JSX.Element {
     const { logicProps, configurationChanged } = useValues(hogFunctionConfigurationLogic)
-    const { isTestInvocationSubmitting, testResult, expanded, exampleCurlRequest } = useValues(
+    const { isTestInvocationSubmitting, testResult, expanded, exampleCurlRequest, testInvocation } = useValues(
         hogFunctionSourceWebhookTestLogic(logicProps)
     )
     const { submitTestInvocation, setTestResult, toggleExpanded } = useActions(
@@ -126,22 +128,19 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                         </LemonBanner>
 
                         <div className="flex flex-col gap-2">
-                            <LemonField name="headers" label="HTTP Headers">
-                                {({ value, onChange }) => (
-                                    <>
-                                        <div className="deprecated-space-y-2">
-                                            <div />
-                                        </div>
-                                        <CodeEditorResizeable
-                                            language="json"
-                                            value={value}
-                                            onChange={onChange}
-                                            maxHeight={200}
-                                        />
-                                    </>
-                                )}
+                            <LemonField name="method" label="HTTP method">
+                                <LemonSelect
+                                    options={[
+                                        { label: 'POST', value: 'POST' },
+                                        { label: 'GET', value: 'GET' },
+                                    ]}
+                                />
                             </LemonField>
-                            <LemonField name="body" label="HTTP Body">
+
+                            <LemonField name="query" label="HTTP Query Parameters">
+                                <LemonInput placeholder="e.g. ph_event=event&ph_distinct_id=my-distinct-id" />
+                            </LemonField>
+                            <LemonField name="headers" label="HTTP Headers">
                                 {({ value, onChange }) => (
                                     <CodeEditorResizeable
                                         language="json"
@@ -151,6 +150,18 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                                     />
                                 )}
                             </LemonField>
+                            {testInvocation.method !== 'GET' && (
+                                <LemonField name="body" label="HTTP Body">
+                                    {({ value, onChange }) => (
+                                        <CodeEditorResizeable
+                                            language="json"
+                                            value={value}
+                                            onChange={onChange}
+                                            maxHeight={200}
+                                        />
+                                    )}
+                                </LemonField>
+                            )}
                             <LemonDivider className="my-4" />
                             <div className="flex flex-col gap-2">
                                 <div className="flex gap-2 justify-between items-center">

@@ -9,6 +9,7 @@ import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimi
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -94,7 +95,7 @@ export function PanelLayoutPanel({
         panelWidth: computedPanelWidth,
         panelWillHide,
     } = useValues(panelLayoutLogic)
-    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { closePanel } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -138,34 +139,35 @@ export function PanelLayoutPanel({
                                         </ButtonPrimitive>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent side="bottom" align="start">
-                                        <DropdownMenuItem asChild>
-                                            <ButtonPrimitive
-                                                menuItem
-                                                active={isLayoutPanelPinned}
-                                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                                            >
-                                                <IconPin className="text-tertiary size-3" />{' '}
-                                                {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                                            </ButtonPrimitive>
-                                        </DropdownMenuItem>
-                                        {panelActionsNewSceneLayout?.map(
-                                            (action) =>
-                                                action &&
-                                                action['data-attr'] && (
-                                                    <DropdownMenuItem key={action['data-attr']} asChild>
-                                                        <ButtonPrimitive menuItem {...action} size="base">
-                                                            {action.children}
-                                                        </ButtonPrimitive>
-                                                    </DropdownMenuItem>
-                                                )
-                                        )}
+                                        <DropdownMenuGroup>
+                                            <DropdownMenuItem asChild>
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    active={isLayoutPanelPinned}
+                                                    onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                                >
+                                                    <IconPin className="text-tertiary size-3" />{' '}
+                                                    {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                                </ButtonPrimitive>
+                                            </DropdownMenuItem>
+                                            {panelActionsNewSceneLayout?.map(
+                                                (action) =>
+                                                    action &&
+                                                    action['data-attr'] && (
+                                                        <DropdownMenuItem key={action['data-attr']} asChild>
+                                                            <ButtonPrimitive menuItem {...action} size="base">
+                                                                {action.children}
+                                                            </ButtonPrimitive>
+                                                        </DropdownMenuItem>
+                                                    )
+                                            )}
+                                        </DropdownMenuGroup>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
 
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        showLayoutPanel(false)
-                                        clearActivePanelIdentifier()
+                                        closePanel()
                                     }}
                                     tooltip="Close panel"
                                     iconOnly

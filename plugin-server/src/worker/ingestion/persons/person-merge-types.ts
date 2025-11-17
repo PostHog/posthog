@@ -67,6 +67,18 @@ export class TargetPersonNotFoundError extends PersonMergePersonNotFoundError {
 }
 
 /**
+ * Error when source person cannot be deleted due to concurrent distinct ID additions.
+ * This occurs when a concurrent merge operation adds a distinct ID to the person being
+ * deleted, causing a foreign key constraint violation. The retry will refresh the person
+ * data and move all distinct IDs (including the newly added ones) before attempting deletion.
+ */
+export class SourcePersonHasDistinctIdsError extends PersonMergePersonNotFoundError {
+    constructor(message: string) {
+        super(message, 'source')
+    }
+}
+
+/**
  * Result of a person merge operation
  */
 export type PersonMergeResult =
@@ -74,6 +86,7 @@ export type PersonMergeResult =
           success: true
           person: InternalPerson | undefined
           kafkaAck: Promise<void>
+          needsPersonUpdate: boolean
       }
     | {
           success: false
@@ -101,11 +114,16 @@ export type MergeMode =
 /**
  * Helper function to create a successful merge result
  */
-export function mergeSuccess(person: InternalPerson | undefined, kafkaAck: Promise<void>): PersonMergeResult {
+export function mergeSuccess(
+    person: InternalPerson | undefined,
+    kafkaAck: Promise<void>,
+    needsPersonUpdate: boolean
+): PersonMergeResult {
     return {
         success: true,
         person,
         kafkaAck,
+        needsPersonUpdate,
     }
 }
 

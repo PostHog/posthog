@@ -1,3 +1,5 @@
+use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
+use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -10,7 +12,9 @@ use crate::fingerprinting::{
     Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
-use crate::frames::{Frame, FrameId, RawFrame};
+use crate::frames::{Frame, RawFrame};
+use crate::issue_resolution::Issue;
+use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -38,7 +42,7 @@ pub struct Exception {
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
-    #[serde(rename = "value")]
+    #[serde(rename = "value", default)]
     pub exception_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
@@ -74,6 +78,10 @@ impl ExceptionList {
             .flat_map(Stacktrace::get_frames)
     }
 
+    fn get_in_app_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.get_frames_iter().filter(|f| f.in_app)
+    }
+
     pub fn get_unique_messages(&self) -> Vec<String> {
         unique_by(self.iter(), |e| Some(e.exception_message.clone()))
     }
@@ -83,11 +91,11 @@ impl ExceptionList {
     }
 
     pub fn get_unique_sources(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.source.clone())
+        unique_by(self.get_in_app_frames(), |f| f.source.clone())
     }
 
     pub fn get_unique_functions(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+        unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
     pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
@@ -99,6 +107,28 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
+    }
+}
+
+impl From<&ExceptionList> for Vec<ExceptionData> {
+    fn from(exception_list: &ExceptionList) -> Self {
+        exception_list
+            .iter()
+            .map(|exception| ExceptionData {
+                exception_type: exception.exception_type.clone(),
+                exception_value: exception.exception_message.clone(),
+                frames: exception
+                    .stack
+                    .as_ref()
+                    .map(|stack| match stack {
+                        Stacktrace::Raw { frames: _ } => vec![], // Exception
+                        Stacktrace::Resolved { frames } => {
+                            frames.clone().into_iter().map(FrameData::from).collect()
+                        }
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect()
     }
 }
 
@@ -317,21 +347,91 @@ impl OutputErrProps {
             }
         });
     }
+
+    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
+        let mut content = String::with_capacity(2048);
+
+        for exception in &self.exception_list.0 {
+            // Add exception type and value
+            let type_and_value = &format!(
+                "{}: {}\n",
+                exception.exception_type,
+                exception
+                    .exception_message
+                    .chars()
+                    .take(300)
+                    .collect::<String>()
+            );
+
+            content.push_str(type_and_value);
+
+            let Some(stack) = &exception.stack else {
+                continue;
+            };
+
+            // Add frame information
+            for frame in stack.get_frames() {
+                // Add resolved or mangled name
+                if let Some(resolved_name) = &frame.resolved_name {
+                    content.push_str(resolved_name);
+                } else {
+                    content.push_str(&frame.mangled_name);
+                }
+
+                // Add source file if available
+                if let Some(source) = &frame.source {
+                    content.push_str(&format!(" in {source}"));
+                }
+
+                // Add line number if available
+                if let Some(line) = frame.line {
+                    content.push_str(&format!(" line {line}"));
+                }
+
+                if let Some(column) = frame.column {
+                    content.push_str(&format!(" column {column}"));
+                }
+
+                content.push('\n');
+            }
+        }
+
+        EmbeddingRequest {
+            team_id: issue.team_id,
+            product: "error_tracking".to_string(),
+            document_type: "fingerprint".to_string(),
+            rendering: "type_message_and_stack".to_string(),
+            document_id: self.fingerprint.clone(),
+            timestamp: issue.created_at,
+            content,
+            models: vec![
+                EmbeddingModel::OpenAITextEmbeddingLarge,
+                EmbeddingModel::OpenAITextEmbeddingSmall,
+            ],
+        }
+    }
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
-        let Stacktrace::Raw { frames } = self else {
+    pub fn resolve(
+        &self,
+        team_id: i32,
+        lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+    ) -> Option<Self> {
+        let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
         };
 
-        let mut resolved_frames = Vec::with_capacity(frames.len());
-        for frame in frames {
-            match lookup_table.get(&frame.frame_id(team_id)) {
-                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+        let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
+        for raw_frame in raw_frames {
+            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+                Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }
         }
+
+        metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED)
+            .increment(resolved_frames.iter().filter(|f| f.suspicious).count() as u64);
 
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
@@ -343,6 +443,29 @@ impl Stacktrace {
             Stacktrace::Resolved { frames } => frames,
             _ => &[],
         }
+    }
+
+    // These two fn's are used for java, which mangles top level exception types. When
+    // we receive an exception, we push its type into the top frame, so when that frame's
+    // resolved, we can pop it
+    pub fn push_exception_type(&mut self, exception_type: String) {
+        let Self::Raw { frames } = self else {
+            return;
+        };
+        let Some(RawFrame::Java(f)) = frames.first_mut() else {
+            return;
+        };
+        f.exception_type = Some(exception_type);
+    }
+
+    pub fn pop_exception_type(&mut self) -> Option<String> {
+        let Self::Resolved { frames } = self else {
+            return None;
+        };
+        frames
+            .iter_mut()
+            .find(|f| f.exception_type.is_some())
+            .and_then(|f| f.exception_type.take())
     }
 }
 
@@ -369,10 +492,7 @@ mod test {
             exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
-        assert_eq!(
-            exception_list[0].exception_message,
-            "Unexpected usage".to_string()
-        );
+        assert_eq!(exception_list[0].exception_message, "Unexpected usage");
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
@@ -425,12 +545,10 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `value` at line 4 column 13"
-        );
+        // We support default values
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing value");
+        assert_eq!(props.exception_list[0].exception_message, "");
 
         let raw: &'static str = r#"{
             "$exception_list": [{

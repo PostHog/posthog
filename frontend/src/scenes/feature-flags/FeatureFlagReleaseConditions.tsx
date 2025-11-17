@@ -24,7 +24,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -41,13 +42,7 @@ import {
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                to={urls.cohort(property.value)}
-                sideIcon={<IconOpenInNew />}
-                targetBlank
-            >
+            <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
                 {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
@@ -95,6 +90,7 @@ export function FeatureFlagReleaseConditions({
     nonEmptyFeatureFlagVariants,
     showTrashIconWithOneCondition = false,
     removedLastConditionCallback,
+    evaluationRuntime,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
@@ -118,6 +114,8 @@ export function FeatureFlagReleaseConditions({
         totalUsers,
         filtersTaxonomicOptions,
         aggregationTargetName,
+        properties,
+        filterGroups,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -138,7 +136,6 @@ export function FeatureFlagReleaseConditions({
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
-    const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
 
@@ -205,10 +202,7 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index + 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
+                                                    : null
                                             }
                                             onClick={() => moveConditionSetDown(index)}
                                         />
@@ -217,14 +211,7 @@ export function FeatureFlagReleaseConditions({
                                             icon={<IconArrowUp />}
                                             noPadding
                                             tooltip="Move condition set up in precedence"
-                                            disabledReason={
-                                                index === 0
-                                                    ? 'Cannot move first condition set up'
-                                                    : affectedUsers[index] === undefined ||
-                                                        affectedUsers[index - 1] === undefined
-                                                      ? 'Cannot move condition sets while calculating affected users'
-                                                      : null
-                                            }
+                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
                                             onClick={() => moveConditionSetUp(index)}
                                         />
                                     </div>
@@ -279,6 +266,13 @@ export function FeatureFlagReleaseConditions({
                                 Learn more about how to make feature flags available instantly.
                             </Link>
                         </LemonBanner>
+                    )}
+                    {!readOnly && (
+                        <FeatureFlagConditionWarning
+                            properties={properties}
+                            evaluationRuntime={evaluationRuntime}
+                            className="mt-3 mb-3"
+                        />
                     )}
                     {readOnly ? (
                         <>
@@ -431,12 +425,18 @@ export function FeatureFlagReleaseConditions({
                                     )}
                                 />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
-                                {affectedUsers[index] !== undefined ? (
+                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
-                                            computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
-                                                2
-                                            ) * 1
+                                            Math.max(
+                                                computeBlastRadiusPercentage(
+                                                    Number.isNaN(group.rollout_percentage)
+                                                        ? 0
+                                                        : group.rollout_percentage,
+                                                    group.sort_key
+                                                ).toPrecision(2) * 1,
+                                                0
+                                            )
                                             // Multiplying by 1 removes trailing zeros after the decimal
                                             // point added by toPrecision
                                         }% `}
@@ -445,14 +445,17 @@ export function FeatureFlagReleaseConditions({
                                     <Spinner className="mr-1" />
                                 )}{' '}
                                 {(() => {
-                                    const affectedUserCount = affectedUsers[index]
+                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
                                     if (
                                         affectedUserCount !== undefined &&
                                         affectedUserCount >= 0 &&
                                         totalUsers !== null
                                     ) {
+                                        const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                            ? 0
+                                            : (group.rollout_percentage ?? 100)
                                         return `(${humanFriendlyNumber(
-                                            Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                            Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
                                         )} / ${humanFriendlyNumber(totalUsers)})`
                                     }
                                     return ''
@@ -491,6 +494,7 @@ export function FeatureFlagReleaseConditions({
                                                 value: variant.key,
                                             }))}
                                             data-attr="feature-flags-variant-override-select"
+                                            truncateText={{ maxWidthClass: 'max-w-[7rem]' }}
                                         />
                                     </div>
                                 </div>

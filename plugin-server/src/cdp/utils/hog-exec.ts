@@ -1,11 +1,11 @@
 import crypto from 'crypto'
 import { Counter } from 'prom-client'
-import RE2 from 're2'
 
 import { DEFAULT_TIMEOUT_MS, ExecOptions, ExecResult, exec } from '@posthog/hogvm'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
+import { createTrackedRE2 } from '../../utils/tracked-re2'
 import { Semaphore } from './sempahore'
 
 export const MAX_THREAD_WAIT_TIME_MS = 200
@@ -92,7 +92,7 @@ function execHogImmediate(
             maxAsyncSteps: 0,
             ...options,
             external: {
-                regex: { match: (regex, str) => new RE2(regex).test(str) },
+                regex: { match: (regex, str) => createTrackedRE2(regex, undefined, 'hog-exec:regex.match').test(str) },
                 crypto,
                 ...options?.external,
             },

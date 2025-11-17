@@ -1,0 +1,21 @@
+{
+    "name": "posthog-ai-sdk-example",
+    "version": "1.0.0",
+    "description": "Example using PostHog tools with the AI SDK",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx src/index.ts"
+    },
+    "dependencies": {
+        "@ai-sdk/openai": "^2.0.28",
+        "@posthog/agent-toolkit": "^0.2.1",
+        "ai": "^5.0.40",
+        "dotenv": "^16.4.7",
+        "zod": "^3.24.4"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.34",
+        "tsx": "^4.20.3",
+        "typescript": "^5.8.3"
+    }
+}

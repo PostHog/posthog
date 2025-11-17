@@ -7,10 +7,13 @@ import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
+import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import type { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { getMetricChanges } from './metricChangeDescriptions'
 
 const ExperimentConclusionTag = ({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element => (
     <div className="font-semibold inline-flex items-center gap-2">
@@ -34,7 +37,7 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
  */
 type AllowedExperimentFields = Pick<
     Experiment,
-    'conclusion' | 'start_date' | 'end_date' | 'metrics' | 'exposure_criteria'
+    'conclusion' | 'start_date' | 'end_date' | 'metrics' | 'metrics_secondary' | 'exposure_criteria'
 > & {
     deleted: boolean
 }
@@ -97,16 +100,13 @@ export const getExperimentChangeDescription = (
 
             return null
         })
-        .with({ field: 'metrics' }, ({ action, before, after }) => {
-            /**
-             * if a metric is created, the user has added the first metric to the experiment.
-             */
-            if (action === 'created' && before === null && after !== null) {
-                return 'added the first metric to'
-            }
-
-            return null
-        })
+        .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
+        .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'metrics_secondary', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
         .with({ field: 'exposure_criteria' }, ({ before, after }) => {
             /**
              * exposure criteria is by default `{filter_test_accounts: true}`,
@@ -147,10 +147,10 @@ export const getExperimentChangeDescription = (
                         }
 
                         if (afterConfig) {
+                            const displayName = getExposureConfigDisplayName(afterConfig)
                             return (
                                 <span>
-                                    set the exposure configuration to{' '}
-                                    <LemonTag color="purple">{afterConfig.event}</LemonTag>
+                                    set the exposure configuration to <LemonTag color="purple">{displayName}</LemonTag>
                                 </span>
                             )
                         }

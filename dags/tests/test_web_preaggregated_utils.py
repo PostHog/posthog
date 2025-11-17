@@ -17,7 +17,7 @@ from dags.web_preaggregated_hourly import (
     web_pre_aggregate_current_day_hourly_job,
     web_pre_aggregate_current_day_hourly_schedule,
 )
-from dags.web_preaggregated_utils import check_for_concurrent_runs
+from dags.web_preaggregated_utils import check_for_concurrent_runs, recreate_staging_table
 
 
 class TestWebPreaggregatedUtils:
@@ -165,3 +165,40 @@ class TestWebPreaggregatedUtils:
             assert "dagster/max_runtime" in web_job.tags
             web_job_timeout = int(web_job.tags["dagster/max_runtime"])
             assert web_job_timeout >= 600
+
+    def test_recreate_staging_table_calls_sql_function_and_maps_to_hosts(self):
+        """Test that recreate_staging_table calls SQL function once and executes the same SQL on all hosts."""
+        context = Mock()
+        cluster = Mock()
+
+        # Mock SQL function that returns deterministic SQL
+        expected_sql = "REPLACE TABLE test_staging ENGINE=ReplicatedMergeTree"
+        mock_sql_func = Mock(return_value=expected_sql)
+
+        recreate_staging_table(context, cluster, "test_staging", mock_sql_func)
+
+        # Verify SQL function called exactly once with no parameters
+        mock_sql_func.assert_called_once_with()
+
+        # Verify map_hosts_by_roles called correctly
+        cluster.map_hosts_by_roles.assert_called_once()
+        call_args = cluster.map_hosts_by_roles.call_args
+
+        # Verify the lambda executes the same SQL on each client
+        lambda_func = call_args[0][0]
+        mock_client = Mock()
+        lambda_func(mock_client)
+        mock_client.execute.assert_called_once_with(expected_sql)
+
+        # Verify result() called to wait for completion
+        cluster.map_hosts_by_roles.return_value.result.assert_called_once()
+
+    def test_recreate_staging_table_logs_correct_table_name(self):
+        """Test that recreate_staging_table logs the correct staging table name."""
+        context = Mock()
+        cluster = Mock()
+        mock_sql_func = Mock(return_value="CREATE TABLE test")
+
+        recreate_staging_table(context, cluster, "my_test_staging_table", mock_sql_func)
+
+        context.log.info.assert_called_once_with("Recreating staging table my_test_staging_table")

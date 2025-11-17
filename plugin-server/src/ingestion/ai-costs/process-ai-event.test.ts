@@ -1,43 +1,155 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { logger } from '../../utils/logger'
+import { CostModelSource } from './cost-model-matching'
 import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
-import { costsByModel } from './providers'
+import type { ModelCost, ModelCostRow } from './providers/types'
+
+jest.mock('../../utils/logger', () => ({
+    logger: {
+        warn: jest.fn(),
+    },
+}))
+
+const mockWarn = logger.warn as jest.Mock
+
+type MockModelRow = { model: string; cost: ModelCost }
+
+const costsByModel: Record<string, MockModelRow> = {
+    testing_model: { model: 'testing_model', cost: { prompt_token: 0.1, completion_token: 0.1 } },
+    'openai/gpt-4': { model: 'openai/gpt-4', cost: { prompt_token: 0.2, completion_token: 0.2 } },
+    'openai/gpt-4-0125-preview': {
+        model: 'openai/gpt-4-0125-preview',
+        cost: { prompt_token: 0.3, completion_token: 0.3 },
+    },
+    'mistralai/mistral-7b-instruct-v0.1': {
+        model: 'mistralai/mistral-7b-instruct-v0.1',
+        cost: { prompt_token: 0.4, completion_token: 0.4 },
+    },
+    'openai/gpt-4o-mini': { model: 'openai/gpt-4o-mini', cost: { prompt_token: 0.5, completion_token: 0.5 } },
+    'openai/openai-primary': { model: 'openai/openai-primary', cost: { prompt_token: 0.7, completion_token: 0.7 } },
+    'anthropic/anthropic-primary': {
+        model: 'anthropic/anthropic-primary',
+        cost: { prompt_token: 0.8, completion_token: 0.8 },
+    },
+    'claude-2': { model: 'claude-2', cost: { prompt_token: 0.6, completion_token: 0.6 } },
+    'anthropic/claude-sonnet-4': {
+        model: 'anthropic/claude-sonnet-4',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+            cache_read_token: 3e-7,
+            cache_write_token: 0.00000375,
+        },
+    },
+    'google/gemini-2.5-pro-preview': {
+        model: 'google/gemini-2.5-pro-preview',
+        cost: { prompt_token: 0.00000125, completion_token: 0.00001, cache_read_token: 3.1e-7 },
+    },
+    'gemini-2.5-pro-preview:large': {
+        model: 'gemini-2.5-pro-preview:large',
+        cost: { prompt_token: 0.0000025, completion_token: 0.000015, cache_read_token: 0.000000625 },
+    },
+    'google/gemini-2.5-flash': {
+        model: 'google/gemini-2.5-flash',
+        cost: { prompt_token: 3e-7, completion_token: 0.0000025, cache_read_token: 7.5e-8 },
+    },
+    'google/gemini-2.0-flash-001': {
+        model: 'google/gemini-2.0-flash-001',
+        cost: { prompt_token: 1e-7, completion_token: 4e-7, cache_read_token: 2.5e-8 },
+    },
+    'openai/o1-mini': {
+        model: 'openai/o1-mini',
+        cost: { prompt_token: 0.0000011, completion_token: 0.0000044 },
+    },
+    'openai/gpt-4.1': { model: 'openai/gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
+    'backup-model': { model: 'backup-model', cost: { prompt_token: 0.5, completion_token: 0.5 } },
+    'fallback-model': { model: 'fallback-model', cost: { prompt_token: 0.6, completion_token: 0.6 } },
+    'perplexity/sonar-pro': {
+        model: 'perplexity/sonar-pro',
+        cost: { prompt_token: 0.000001, completion_token: 0.000001, request: 0.005, web_search: 0.005 },
+    },
+    'model-with-request-only': {
+        model: 'model-with-request-only',
+        cost: { prompt_token: 0.0000015, completion_token: 0.000006, request: 0.002 },
+    },
+}
 
 jest.mock('./providers', () => {
-    const originalProviders = jest.requireActual('./providers')
+    const excludedFromOpenRouter = new Set(['claude-2', 'backup-model', 'fallback-model'])
+
+    const providerOverrides: Record<string, string> = {
+        'openai/gpt-4': 'openai',
+        'openai/gpt-4-0125-preview': 'openai',
+        'openai/gpt-4o-mini': 'openai',
+        'openai/gpt-4.1': 'openai',
+        'openai/openai-primary': 'openai',
+        'anthropic/anthropic-primary': 'anthropic',
+        'anthropic/claude-sonnet-4': 'anthropic',
+        'google/gemini-2.5-pro-preview': 'google-ai-studio',
+        'gemini-2.5-pro-preview:large': 'google-ai-studio',
+        'google/gemini-2.5-flash': 'google-ai-studio',
+        'google/gemini-2.0-flash-001': 'google-ai-studio',
+        'openai/o1-mini': 'openai',
+        'mistralai/mistral-7b-instruct-v0.1': 'mistralai',
+        'perplexity/sonar-pro': 'perplexity',
+        'model-with-request-only': 'custom',
+    }
+
+    let cachedMocks:
+        | {
+              openRouterCostsByModel: Record<string, ModelCostRow>
+              manualCostsByModel: Record<string, ModelCostRow>
+          }
+        | undefined
+
+    const buildMocks = () => {
+        if (cachedMocks) {
+            return cachedMocks
+        }
+
+        const openRouterCostsByModel: Record<string, ModelCostRow> = {}
+
+        for (const [model, row] of Object.entries(costsByModel)) {
+            if (excludedFromOpenRouter.has(model)) {
+                continue
+            }
+
+            const normalizedKey = model.toLowerCase()
+            const providerKey = providerOverrides[model]
+
+            const costRecord = providerKey ? { default: row.cost, [providerKey]: row.cost } : { default: row.cost }
+
+            openRouterCostsByModel[normalizedKey] = {
+                model: row.model,
+                cost: costRecord,
+            }
+        }
+
+        const manualCostsByModel: Record<string, ModelCostRow> = {}
+
+        for (const model of excludedFromOpenRouter) {
+            const row = costsByModel[model]
+            manualCostsByModel[model] = {
+                model: row.model,
+                cost: { default: row.cost },
+            }
+        }
+
+        cachedMocks = {
+            openRouterCostsByModel,
+            manualCostsByModel,
+        }
+
+        return cachedMocks
+    }
+
     return {
-        ...originalProviders,
-        costsByModel: {
-            testing_model: { model: 'testing_model', cost: { prompt_token: 0.1, completion_token: 0.1 } },
-            'gpt-4': { model: 'gpt-4', cost: { prompt_token: 0.2, completion_token: 0.2 } },
-            'gpt-4-0125-preview': { model: 'gpt-4-0125-preview', cost: { prompt_token: 0.3, completion_token: 0.3 } },
-            'mistral-7b-instruct-v0.1': {
-                model: 'mistral-7b-instruct-v0.1',
-                cost: { prompt_token: 0.4, completion_token: 0.4 },
-            },
-            'gpt-4o-mini': { model: 'gpt-4o-mini', cost: { prompt_token: 0.5, completion_token: 0.5 } },
-            'claude-2': { model: 'claude-2', cost: { prompt_token: 0.6, completion_token: 0.6 } },
-            'gemini-2.5-pro-preview': {
-                model: 'gemini-2.5-pro-preview',
-                cost: { prompt_token: 0.00000125, completion_token: 0.00001, cache_read_token: 3.1e-7 },
-            },
-            'gemini-2.5-pro-preview:large': {
-                model: 'gemini-2.5-pro-preview:large',
-                cost: { prompt_token: 0.0000025, completion_token: 0.000015, cache_read_token: 0.000000625 },
-            },
-            'gemini-2.5-flash': {
-                model: 'gemini-2.5-flash',
-                cost: { prompt_token: 3e-7, completion_token: 0.0000025, cache_read_token: 7.5e-8 },
-            },
-            'gemini-2.0-flash-001': {
-                model: 'gemini-2.0-flash-001',
-                cost: { prompt_token: 1e-7, completion_token: 4e-7, cache_read_token: 2.5e-8 },
-            },
-            'o1-mini': {
-                model: 'o1-mini',
-                cost: { prompt_token: 0.0000011, completion_token: 0.0000044 },
-            },
-            'gpt-4.1': { model: 'gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
+        get openRouterCostsByModel() {
+            return buildMocks().openRouterCostsByModel
+        },
+        get manualCostsByModel() {
+            return buildMocks().manualCostsByModel
         },
     }
 })
@@ -46,6 +158,7 @@ describe('processAiEvent()', () => {
     let event: PluginEvent
 
     beforeEach(() => {
+        jest.clearAllMocks()
         event = {
             distinct_id: 'test_id',
             team_id: 1,
@@ -65,22 +178,22 @@ describe('processAiEvent()', () => {
     })
 
     describe('event matching', () => {
-        it('matches $ai_generation events', () => {
+        it.each(['$ai_generation', '$ai_embedding'])('processes cost calculation for %s events', (eventType) => {
+            event.event = eventType
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
-            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
-            expect(result.properties!.$ai_output_cost_usd).toBeTruthy()
+            // With gpt-4 model and openai provider from primaryCostsList: 0.2 per token
+            expect(result.properties!.$ai_input_cost_usd).toBe(20) // 100 * 0.2
+            expect(result.properties!.$ai_output_cost_usd).toBe(10) // 50 * 0.2
+            expect(result.properties!.$ai_total_cost_usd).toBe(30)
         })
 
-        it('matches $ai_embedding events', () => {
-            event.event = '$ai_embedding'
+        it('does not process cost for other AI events', () => {
+            event.event = '$ai_span'
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
-            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
-            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
         })
 
-        it('does not match other events', () => {
+        it('does not match non-AI events', () => {
             event.event = '$other_event'
             const result = processAiEvent(event)
             expect(result).toEqual(event)
@@ -175,6 +288,63 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_max_tokens).toBe(100)
             expect(result.properties!.$ai_stream).toBe(false)
         })
+
+        it('extracts anthropic-specific parameters', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model_parameters = {
+                temperature: 0.7,
+                max_tokens: 200,
+                stream: true,
+                some_other_param: 'ignored',
+            }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_temperature).toBe(0.7)
+            expect(result.properties!.$ai_max_tokens).toBe(200)
+            expect(result.properties!.$ai_stream).toBe(true)
+        })
+
+        it('extracts parameters for unknown providers using openai defaults', () => {
+            event.properties!.$ai_provider = 'custom-provider'
+            event.properties!.$ai_model_parameters = {
+                temperature: 0.8,
+                max_completion_tokens: 300,
+                stream: false,
+            }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_temperature).toBe(0.8)
+            expect(result.properties!.$ai_max_tokens).toBe(300)
+            expect(result.properties!.$ai_stream).toBe(false)
+        })
+
+        it('handles missing provider gracefully', () => {
+            delete event.properties!.$ai_provider
+            event.properties!.$ai_model_parameters = {
+                temperature: 0.5,
+            }
+            const result = processAiEvent(event)
+            // Extracts parameters even without provider
+            expect(result.properties!.$ai_temperature).toBe(0.5)
+        })
+
+        it('handles empty model parameters object', () => {
+            event.properties!.$ai_model_parameters = {}
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_temperature).toBeUndefined()
+            expect(result.properties!.$ai_max_tokens).toBeUndefined()
+            expect(result.properties!.$ai_stream).toBeUndefined()
+        })
+
+        it('preserves undefined parameter values', () => {
+            event.properties!.$ai_model_parameters = {
+                temperature: undefined,
+                max_completion_tokens: undefined,
+                stream: undefined,
+            }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_temperature).toBeUndefined()
+            expect(result.properties!.$ai_max_tokens).toBeUndefined()
+            expect(result.properties!.$ai_stream).toBeUndefined()
+        })
     })
 
     describe('error handling', () => {
@@ -185,17 +355,397 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
         })
+
+        it('handles null properties object', () => {
+            event.properties = null as any
+            const result = processAiEvent(event)
+            expect(result.properties).toBeNull()
+        })
+
+        it('handles events without properties', () => {
+            delete (event as any).properties
+            const result = processAiEvent(event)
+            expect(result.properties).toBeUndefined()
+        })
     })
 
-    describe('smoke test every model', () => {
-        it.each(Object.keys(costsByModel))('processes %s', (model) => {
-            event.properties!.$ai_model = model
+    describe('provider-specific cost filtering', () => {
+        it('uses primary costs when provider matches', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_model = 'openai-primary'
             const result = processAiEvent(event)
-            expect({
-                $ai_total_cost_usd: result.properties!.$ai_total_cost_usd,
-                $ai_input_cost_usd: result.properties!.$ai_input_cost_usd,
-                $ai_output_cost_usd: result.properties!.$ai_output_cost_usd,
-            }).toMatchSnapshot()
+
+            // Should use openai/openai-primary from primaryCostsList (0.7 per token)
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/openai-primary')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(70, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(35, 2)
+        })
+
+        it('falls back to manual costs when primary not found', () => {
+            event.properties!.$ai_provider = 'custom'
+            event.properties!.$ai_model = 'fallback-model'
+            const result = processAiEvent(event)
+
+            // Should use fallback-model from supplementaryCostsByModel
+            expect(result.properties!.$ai_model_cost_used).toBe('fallback-model')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(60, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(30, 2)
+        })
+
+        it('logs warning when no cost found', () => {
+            event.properties!.$ai_provider = 'unknown'
+            event.properties!.$ai_model = 'completely-unknown-model-xyz-123'
+
+            processAiEvent(event)
+
+            expect(mockWarn).toHaveBeenCalledWith(
+                expect.stringContaining('No cost found for model: completely-unknown-model-xyz-123')
+            )
+        })
+    })
+
+    describe('model cost tracking', () => {
+        it('sets $ai_model_cost_used to track which model was used for cost calculation', () => {
+            event.properties!.$ai_model = 'gpt-4-turbo-0125-preview'
+            const result = processAiEvent(event)
+
+            // Based on the matching logic, with provider=openai, it would match openai/gpt-4 first from primaryCostsList
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+        })
+
+        it('tracks exact model match', () => {
+            event.properties!.$ai_model = 'claude-2'
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('claude-2')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+        })
+
+        it('does not set model_cost_used when no match found', () => {
+            event.properties!.$ai_model = 'unknown-model-xyz'
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_source).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+        })
+
+        it('uses manual costs when model is only in supplementary', () => {
+            event.properties!.$ai_model = 'backup-model'
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('backup-model')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Manual)
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+        })
+
+        it('uses primary costs when anthropic provider matches anthropic-primary', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model = 'anthropic-primary'
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('anthropic/anthropic-primary')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('anthropic')
+        })
+    })
+
+    describe('cost optimization bypass', () => {
+        it('skips calculation when costs are pre-calculated', () => {
+            event.properties!.$ai_input_cost_usd = 10.5
+            event.properties!.$ai_output_cost_usd = 5.5
+            const result = processAiEvent(event)
+
+            // Should not recalculate, should keep existing values
+            expect(result.properties!.$ai_input_cost_usd).toBe(10.5)
+            expect(result.properties!.$ai_output_cost_usd).toBe(5.5)
+            expect(result.properties!.$ai_total_cost_usd).toBe(16)
+            // Should not set model_cost_used when bypassing
+            expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+        })
+
+        it('calculates total when input/output exist but total is missing', () => {
+            event.properties!.$ai_input_cost_usd = 3.5
+            event.properties!.$ai_output_cost_usd = 2.5
+            delete event.properties!.$ai_total_cost_usd
+
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_total_cost_usd).toBe(6)
+        })
+
+        it('preserves existing total cost when all costs are present', () => {
+            event.properties!.$ai_input_cost_usd = 3
+            event.properties!.$ai_output_cost_usd = 2
+            event.properties!.$ai_total_cost_usd = 10 // Intentionally different
+
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_total_cost_usd).toBe(10)
+        })
+    })
+
+    describe('custom token pricing', () => {
+        it('uses custom pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Custom)
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
+        })
+
+        it('uses custom pricing even when model is unknown', () => {
+            event.properties!.$ai_model = 'completely-unknown-model'
+            event.properties!.$ai_input_token_price = 0.0005
+            event.properties!.$ai_output_token_price = 0.0015
+            event.properties!.$ai_input_tokens = 200
+            event.properties!.$ai_output_tokens = 100
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.15, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.25, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
+        })
+
+        it('custom pricing takes precedence over model matching', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.1
+            event.properties!.$ai_output_token_price = 0.2
+            event.properties!.$ai_input_tokens = 10
+            event.properties!.$ai_output_tokens = 5
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(2, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
+        })
+
+        it('pre-calculated costs take precedence over custom pricing', () => {
+            event.properties!.$ai_input_cost_usd = 5.5
+            event.properties!.$ai_output_cost_usd = 3.5
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(5.5)
+            expect(result.properties!.$ai_output_cost_usd).toBe(3.5)
+            expect(result.properties!.$ai_total_cost_usd).toBe(9)
+            expect(result.properties!.$ai_model_cost_used).toBeUndefined()
+            expect(result.properties!.$ai_cost_model_provider).toBeUndefined()
+        })
+
+        it('handles custom pricing with cache read tokens for OpenAI', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = 0.0005
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        it('handles custom pricing with cache tokens for Anthropic', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_input_token_price = 0.000003
+            event.properties!.$ai_output_token_price = 0.000015
+            event.properties!.$ai_cache_read_token_price = 0.0000003
+            event.properties!.$ai_cache_write_token_price = 0.00000375
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 500
+            event.properties!.$ai_cache_creation_input_tokens = 200
+            event.properties!.$ai_output_tokens = 100
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0039, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0054, 6)
+        })
+
+        it('falls back to multipliers when cache prices not provided', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        it('handles zero custom prices', () => {
+            event.properties!.$ai_input_token_price = 0
+            event.properties!.$ai_output_token_price = 0
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(0)
+            expect(result.properties!.$ai_output_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            expect(result.properties!.$ai_cost_model_provider).toBe('custom')
+        })
+
+        it('requires both input and output prices to use custom pricing', () => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+        })
+
+        it('works without provider when using custom pricing', () => {
+            delete event.properties!.$ai_provider
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+        })
+
+        it('works without model when using custom pricing', () => {
+            delete event.properties!.$ai_model
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.2, 6)
+        })
+
+        it('handles reasoning tokens with custom pricing for gemini-2.5 models', () => {
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_token_price = 0.0000003
+            event.properties!.$ai_output_token_price = 0.0000025
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00003, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000625, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000655, 6)
+        })
+    })
+
+    describe('model name edge cases', () => {
+        it('handles empty string model names', () => {
+            event.properties!.$ai_model = ''
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+        })
+
+        it('handles case-insensitive model matching', () => {
+            event.properties!.$ai_model = 'GPT-4' // Uppercase
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+        })
+
+        it('handles model names with special characters using substring matching', () => {
+            // Test various special character scenarios in a single test
+            const specialCases = [
+                { model: 'gpt-4-日本語', expected: 'openai/gpt-4' },
+                { model: 'gpt-4@latest#v2', expected: 'openai/gpt-4' },
+                { model: 'openai/gpt-4', expected: 'openai/gpt-4' },
+            ]
+
+            for (const { model, expected } of specialCases) {
+                event.properties!.$ai_model = model
+                const result = processAiEvent(event)
+                expect(result.properties!.$ai_model_cost_used).toBe(expected)
+            }
+        })
+    })
+
+    describe('edge cases in token handling', () => {
+        it('handles very large token numbers', () => {
+            event.properties!.$ai_input_tokens = 1e10
+            event.properties!.$ai_output_tokens = 1e10
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeGreaterThan(0)
+            expect(result.properties!.$ai_output_cost_usd).toBeGreaterThan(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
+        })
+
+        it('handles scientific notation in token counts', () => {
+            event.properties!.$ai_input_tokens = 1.5e3 // 1500
+            event.properties!.$ai_output_tokens = 2e2 // 200
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(300, 2) // 1500 * 0.2
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(40, 2) // 200 * 0.2
+        })
+    })
+
+    describe('model cost calculations', () => {
+        it.each([
+            { model: 'testing_model', inputCost: 10, outputCost: 5, totalCost: 15 },
+            { model: 'gpt-4', inputCost: 20, outputCost: 10, totalCost: 30 },
+            { model: 'gpt-4o-mini', inputCost: 50, outputCost: 25, totalCost: 75 },
+            { model: 'claude-2', inputCost: 60, outputCost: 30, totalCost: 90 },
+            { model: 'o1-mini', inputCost: 0.00011, outputCost: 0.00022, totalCost: 0.00033 },
+        ])('calculates correct costs for $model', ({ model, inputCost, outputCost, totalCost }) => {
+            event.properties!.$ai_model = model
+            event.properties!.$ai_provider = undefined // Use default costs
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(inputCost, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(outputCost, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(totalCost, 2)
         })
     })
 
@@ -233,6 +783,46 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(10, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
+        })
+    })
+
+    describe('cache costs with defined values', () => {
+        it('uses actual cache costs when defined in model', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model = 'claude-sonnet-4' // Has defined cache costs
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 500
+            event.properties!.$ai_cache_creation_input_tokens = 200
+
+            const result = processAiEvent(event)
+
+            // claude-sonnet-4: prompt=0.000003, cache_read=3e-7, cache_write=0.00000375
+            // Write: 200 * 0.00000375 = 0.00075
+            // Read: 500 * 3e-7 = 0.00015
+            // Regular: 1000 * 0.000003 = 0.003
+            // Total input: 0.00075 + 0.00015 + 0.003 = 0.0039
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0039, 6)
+
+            // Output: 100 * 0.000015 = 0.0015
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0015, 6)
+        })
+
+        it('falls back to multipliers when cache costs not defined', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model = 'testing_model' // No defined cache costs
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 50
+            event.properties!.$ai_cache_creation_input_tokens = 20
+
+            const result = processAiEvent(event)
+
+            // testing_model: prompt=0.1, no cache costs defined
+            // Write: 20 * 0.1 * 1.25 = 2.5
+            // Read: 50 * 0.1 * 0.1 = 0.5
+            // Regular: 100 * 0.1 = 10
+            // Total input: 2.5 + 0.5 + 10 = 13
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(13, 2)
         })
     })
 
@@ -278,7 +868,89 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('gateway provider handling', () => {
+        it('handles Anthropic models through gateway provider with cache tokens', () => {
+            // Simulate the exact user scenario
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'anthropic/claude-sonnet-4'
+            event.properties!.$ai_input_tokens = 3815
+            event.properties!.$ai_output_tokens = 460
+            event.properties!.$ai_cache_creation_input_tokens = 84329
+
+            const result = processAiEvent(event)
+
+            // Should use anthropic/claude-sonnet-4 costs from OpenRouter
+            expect(result.properties!.$ai_model_cost_used).toBe('anthropic/claude-sonnet-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+
+            // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
+            // Regular input: 3815 * 0.000003 = 0.011445
+            // Total input: 0.31623375 + 0.011445 = 0.32767875
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.327679, 5)
+
+            // Output: 460 * 0.000015 = 0.0069
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0069, 4)
+
+            // Total: 0.327679 + 0.0069 = 0.334579
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.334579, 5)
+        })
+
+        it('handles OpenAI models through gateway provider', () => {
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'openai/gpt-4'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 40
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+            // Should calculate OpenAI cache costs correctly
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(16, 2) // (40*0.2*0.5) + (60*0.2) = 4 + 12 = 16
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 2) // 50 * 0.2 = 10
+        })
+
+        it('matches provider when provider name appears anywhere in model string', () => {
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'some-prefix-anthropic-claude-sonnet-4'
+            event.properties!.$ai_input_tokens = 3815
+            event.properties!.$ai_output_tokens = 460
+            event.properties!.$ai_cache_creation_input_tokens = 84329
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('anthropic/claude-sonnet-4')
+            expect(result.properties!.$ai_cost_model_provider).toBe('default')
+
+            // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
+            // Regular input: 3815 * 0.000003 = 0.011445
+            // Total input: 0.31623375 + 0.011445 = 0.32767875
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.327679, 5)
+
+            // Output: 460 * 0.000015 = 0.0069
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0069, 4)
+
+            // Total: 0.327679 + 0.0069 = 0.334579
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.334579, 5)
+        })
+    })
+
     describe('gemini 2.5 pro preview', () => {
+        it('handles missing model property in getNewModelName', () => {
+            const eventWithoutModel = {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    $ai_model: undefined,
+                    $ai_input_tokens: 250000,
+                },
+            }
+
+            const result = processAiEvent(eventWithoutModel)
+            expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+        })
+
         it('handles the seperate price for lage prompts', () => {
             const event1 = {
                 ...event,
@@ -340,11 +1012,12 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
         })
 
-        it('matches the longest known model name that is a substring of a specific input model (Rule 2 refinement)', () => {
+        it('matches the most specific provider model when available (Rule 2 refinement)', () => {
             event.properties!.$ai_model = 'gpt-4-0125-preview-custom-suffix'
             const result = processAiEvent(event)
 
-            const modelCost = costsByModel['gpt-4-0125-preview'].cost // p:0.3, c:0.3
+            // With provider=openai, it matches the specific gpt-4-0125-preview pricing from OpenRouter
+            const modelCost = costsByModel['openai/gpt-4-0125-preview'].cost // p:0.3, c:0.3
             const expectedInputCost = inputTokens * modelCost.prompt_token // 100 * 0.3
             const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.3
 
@@ -357,7 +1030,7 @@ describe('processAiEvent()', () => {
             event.properties!.$ai_model = 'mistral-7b-instruct'
             const result = processAiEvent(event)
 
-            const modelCost = costsByModel['mistral-7b-instruct-v0.1'].cost // p:0.4, c:0.4
+            const modelCost = costsByModel['mistralai/mistral-7b-instruct-v0.1'].cost // p:0.4, c:0.4
             const expectedInputCost = inputTokens * modelCost.prompt_token // 100 * 0.4
             const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.4
 
@@ -370,7 +1043,7 @@ describe('processAiEvent()', () => {
             event.properties!.$ai_model = 'gpt-4o'
             const result = processAiEvent(event)
 
-            const gpt4Cost = costsByModel['gpt-4'].cost // p:0.2, c:0.2
+            const gpt4Cost = costsByModel['openai/gpt-4'].cost // p:0.2, c:0.2
             const expectedInputCost = inputTokens * gpt4Cost.prompt_token // 100 * 0.2
             const expectedOutputCost = outputTokens * gpt4Cost.completion_token // 50 * 0.2
 
@@ -379,14 +1052,17 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
         })
 
-        it('correctly prioritizes 4.1 over 4 in long case', () => {
+        it('uses provider-specific gpt-4.1 pricing when available', () => {
             event.properties!.$ai_model = 'gpt-4.1-preview-0502'
             const result = processAiEvent(event)
 
-            const gpt41Cost = costsByModel['gpt-4.1'].cost // p:0.9, c:0.9
-            const expectedInputCost = inputTokens * gpt41Cost.prompt_token // 100 * 0.9
-            const expectedOutputCost = outputTokens * gpt41Cost.completion_token // 50 * 0.9
+            // OpenRouter contains openai/gpt-4.1 pricing, which should be preferred for provider-specific matches
+            const modelCost = costsByModel['openai/gpt-4.1'].cost // p:0.9, c:0.9
+            const expectedInputCost = inputTokens * modelCost.prompt_token // 100 * 0.9
+            const expectedOutputCost = outputTokens * modelCost.completion_token // 50 * 0.9
 
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4.1')
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
             expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
             expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
             expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
@@ -589,9 +1265,337 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000585, 6)
         })
     })
+
+    describe('request cost handling', () => {
+        it('calculates request cost with model-based pricing and default count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Token costs: (100 * 0.000001) + (50 * 0.000001) = 0.0001 + 0.00005 = 0.00015
+            // Request cost: 1 * 0.005 = 0.005 (defaults to 1 when model has request cost)
+            // Total: 0.00015 + 0.005 = 0.00515
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.005, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00515, 6)
+        })
+
+        it('calculates request cost with explicit request count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Request cost: 3 * 0.005 = 0.015
+            // Total: 0.00015 + 0.015 = 0.01515
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.01515, 6)
+        })
+
+        it('calculates request cost with zero count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 0
+
+            const result = processAiEvent(event)
+
+            // Request cost: 0 * 0.005 = 0
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00015, 6)
+        })
+
+        it('does not calculate request cost for models without request pricing', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 5
+
+            const result = processAiEvent(event)
+
+            // gpt-4 does not have request pricing
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBe(30) // Only token costs
+        })
+
+        it('uses custom request pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_request_price = 0.01
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: (100 * 0.000001) + (50 * 0.000001) = 0.00015
+            // Request cost: 2 * 0.01 = 0.02
+            // Total: 0.00015 + 0.02 = 0.02015
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.02, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.02015, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('handles pre-calculated request cost', () => {
+            event.properties!.$ai_input_cost_usd = 0.01
+            event.properties!.$ai_output_cost_usd = 0.02
+            event.properties!.$ai_request_cost_usd = 0.005
+
+            const result = processAiEvent(event)
+
+            // Should use pre-calculated costs
+            expect(result.properties!.$ai_input_cost_usd).toBe(0.01)
+            expect(result.properties!.$ai_output_cost_usd).toBe(0.02)
+            expect(result.properties!.$ai_request_cost_usd).toBe(0.005)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.035)
+        })
+
+        it('includes request cost in total when using custom pricing without count', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_request_price = 0.003
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Custom pricing defaults request count to 1 if request price is provided
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.003, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00315, 6)
+        })
+    })
+
+    describe('web search cost handling', () => {
+        it('calculates web search cost with model-based pricing and explicit count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Request cost: 1 * 0.005 = 0.005 (defaults to 1)
+            // Web search cost: 2 * 0.005 = 0.01
+            // Total: 0.00015 + 0.005 + 0.01 = 0.01515
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.01, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.01515, 6)
+        })
+
+        it('does not calculate web search cost without explicit count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // No web search count provided, should be 0
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('calculates web search cost with zero count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 0
+
+            const result = processAiEvent(event)
+
+            // Web search cost: 0 * 0.005 = 0
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('does not calculate web search cost for models without web search pricing', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // gpt-4 does not have web search pricing
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('uses custom web search pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_web_search_price = 0.008
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Web search cost: 3 * 0.008 = 0.024
+            // Total: 0.00015 + 0.024 = 0.02415
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.024, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.02415, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('does not calculate custom web search cost without count', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_web_search_price = 0.008
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // No web search count, should not calculate
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00015, 6)
+        })
+
+        it('handles pre-calculated web search cost', () => {
+            event.properties!.$ai_input_cost_usd = 0.01
+            event.properties!.$ai_output_cost_usd = 0.02
+            event.properties!.$ai_web_search_cost_usd = 0.015
+
+            const result = processAiEvent(event)
+
+            // Should use pre-calculated costs
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0.015)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.045)
+        })
+    })
+
+    describe('combined request and web search costs', () => {
+        it('calculates all cost components together', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 500
+            event.properties!.$ai_request_count = 2
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: (1000 * 0.000001) + (500 * 0.000001) = 0.0015
+            // Request cost: 2 * 0.005 = 0.01
+            // Web search cost: 3 * 0.005 = 0.015
+            // Total: 0.0015 + 0.01 + 0.015 = 0.0265
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.01, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0265, 6)
+        })
+
+        it('calculates all cost components with custom pricing', () => {
+            event.properties!.$ai_input_token_price = 0.000002
+            event.properties!.$ai_output_token_price = 0.000003
+            event.properties!.$ai_request_price = 0.007
+            event.properties!.$ai_web_search_price = 0.01
+            event.properties!.$ai_input_tokens = 500
+            event.properties!.$ai_output_tokens = 200
+            event.properties!.$ai_request_count = 1
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: (500 * 0.000002) + (200 * 0.000003) = 0.001 + 0.0006 = 0.0016
+            // Request cost: 1 * 0.007 = 0.007
+            // Web search cost: 2 * 0.01 = 0.02
+            // Total: 0.0016 + 0.007 + 0.02 = 0.0286
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0006, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.007, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.02, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0286, 6)
+        })
+
+        it('handles all pre-calculated costs together', () => {
+            event.properties!.$ai_input_cost_usd = 0.1
+            event.properties!.$ai_output_cost_usd = 0.2
+            event.properties!.$ai_request_cost_usd = 0.05
+            event.properties!.$ai_web_search_cost_usd = 0.03
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.38)
+        })
+
+        it('includes request cost but not web search when only request count provided', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 1
+
+            const result = processAiEvent(event)
+
+            // Token + request, no web search
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.005, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00515, 6)
+        })
+    })
 })
 
 describe('normalizeTraceProperties()', () => {
+    it('logs warning for invalid trace property types', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: { invalid: 'object' },
+                $ai_parent_id: ['invalid', 'array'],
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+
+        jest.clearAllMocks()
+        normalizeTraceProperties(event as any)
+
+        expect(mockWarn).toHaveBeenCalledWith('Unexpected type for trace property $ai_trace_id: object')
+        expect(mockWarn).toHaveBeenCalledWith('Unexpected type for trace property $ai_parent_id: object')
+    })
+
+    it('handles BigInt trace properties', () => {
+        const bigIntValue = BigInt('12345678901234567890')
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: bigIntValue as any,
+                $ai_parent_id: BigInt(123) as any,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event as any)
+        expect(result.properties!.$ai_trace_id).toBe('12345678901234567890')
+        expect(result.properties!.$ai_parent_id).toBe('123')
+    })
+
     it('converts numeric trace_id to string', () => {
         const event: PluginEvent = {
             event: '$ai_span',
@@ -607,7 +1611,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe('12345')
         expect(result.properties!.$ai_parent_id).toBe('67890')
     })
@@ -627,7 +1631,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe('abc-123')
         expect(result.properties!.$ai_parent_id).toBe('def-456')
     })
@@ -647,7 +1651,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe(null)
         expect(result.properties!.$ai_parent_id).toBe(undefined)
     })
@@ -667,7 +1671,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_span_id).toBe('111')
         expect(result.properties!.$ai_generation_id).toBe('222')
     })
@@ -687,7 +1691,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe('true')
         expect(result.properties!.$ai_parent_id).toBe('false')
     })
@@ -707,7 +1711,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe(undefined)
         expect(result.properties!.$ai_parent_id).toBe(undefined)
     })
@@ -727,7 +1731,7 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe(undefined)
         expect(result.properties!.$ai_parent_id).toBe(undefined)
     })
@@ -749,26 +1753,11 @@ describe('normalizeTraceProperties()', () => {
             uuid: '',
             timestamp: '',
         }
-        const result = normalizeTraceProperties(event)
+        const result = normalizeTraceProperties(event as any)
         expect(result.properties!.$ai_trace_id).toBe('123')
         expect(result.properties!.$ai_parent_id).toBe('string-id') // Already a string
         expect(result.properties!.$ai_span_id).toBe(undefined)
         expect(result.properties!.$ai_generation_id).toBe(undefined)
-    })
-
-    it('handles event without properties', () => {
-        const event: PluginEvent = {
-            event: '$ai_span',
-            ip: '',
-            site_url: '',
-            team_id: 0,
-            now: '',
-            distinct_id: '',
-            uuid: '',
-            timestamp: '',
-        }
-        const result = normalizeTraceProperties(event)
-        expect(result).toEqual(event)
     })
 })
 

@@ -169,8 +169,9 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["start_temporal_worker"],
+            "args": ["start_temporal_worker", "--task-queue", "${input:temporalTaskQueue}"],
             "django": true,
+            "justMyCode": false,
             "env": {
                 "PYTHONUNBUFFERED": "1",
                 "DJANGO_SETTINGS_MODULE": "posthog.settings",
@@ -186,6 +187,22 @@
             "presentation": {
                 "group": "main"
             }
+        },
+        {
+            "name": "Backend (Attach to bin/start)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "${workspaceFolder}"
+                }
+            ],
+            "justMyCode": false
         },
         {
             "name": "Pytest: Current File",
@@ -281,6 +298,13 @@
             "id": "pickVersion",
             "type": "command",
             "command": "extension.node-version"
+        },
+        {
+            "id": "temporalTaskQueue",
+            "type": "pickString",
+            "description": "Task queue name",
+            "options": ["development-task-queue"],
+            "default": "development-task-queue"
         }
     ],
     "compounds": [

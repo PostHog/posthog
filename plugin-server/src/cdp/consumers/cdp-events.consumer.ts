@@ -29,12 +29,6 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterMissingAddon = new Counter({
-    name: 'cdp_function_missing_addon',
-    help: 'A function invocation was missing an addon',
-    labelNames: ['team_id'],
-})
-
 const counterQuotaLimited = new Counter({
     name: 'cdp_function_quota_limited',
     help: 'A function invocation was quota limited',
@@ -170,7 +164,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_invocations')
+                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
+                    item.teamId,
+                    'cdp_trigger_events'
+                )
 
                 // The legacy addon was not usage based so we skip dropping if they are on it
                 const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
@@ -191,14 +188,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     //     'hog_function'
                     // )
                     // return
-                }
-
-                if (
-                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
-                    (await this.isAddonRequired(item.hogFunction))
-                ) {
-                    // NOTE: This will be removed in favour of the quota limited metric
-                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
                 }
 
                 const state = states[item.hogFunction.id].state
@@ -227,7 +216,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
-                        item.queue = 'hog_overflow'
+                        item.queue = 'hogoverflow'
                     }
                 }
 
@@ -362,9 +351,23 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             validInvocations.push(item)
         })
 
+        // Now we can filter by masking configs
+        const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            masked.map((item) => ({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'masked',
+                count: 1,
+            })),
+            'hog_flow'
+        )
+
         const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 
-        validInvocations.forEach((item) => {
+        notMaskedInvocations.forEach((item) => {
             triggeredInvocationsMetrics.push({
                 team_id: item.teamId,
                 app_source_id: item.functionId,
@@ -384,9 +387,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
         this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
-        // TODO: Add back in Masking options
-
-        return validInvocations
+        return notMaskedInvocations
     }
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
@@ -451,25 +452,5 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
-    }
-
-    private async isAddonRequired(hogFunction: HogFunctionType): Promise<boolean> {
-        // Load the template if possible
-        if (hogFunction.type !== 'destination') {
-            // Only destinations are part of the paid plan
-            return false
-        }
-
-        if (!hogFunction.template_id) {
-            return true // Assume templateless requires the addon
-        }
-
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(hogFunction.template_id)
-
-        if (!template) {
-            return true // Assume templateless requires the addon
-        }
-
-        return !template.free
     }
 }

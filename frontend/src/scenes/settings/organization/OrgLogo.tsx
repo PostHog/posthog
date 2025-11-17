@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconX } from '@posthog/icons'
+import { IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, lemonToast } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export function OrganizationLogo(): JSX.Element {
@@ -63,7 +62,7 @@ export function OrganizationLogo(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                        <IconUploadFile className="text-2xl ml-1" />
+                        <IconUpload className="text-2xl ml-1" />
                         <div>
                             Click or drag and drop to upload logo image
                             <br />

@@ -3,15 +3,19 @@ import { Message } from 'node-rdkafka'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncPreprocessingStep } from '../processing-pipeline'
+import { drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
+
+type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
+type ResolveTeamSuccess = { error: false; eventWithTeam: IncomingEventWithTeam }
+type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
     message: Message,
     headers: EventHeaders,
     event: IncomingEvent['event']
-): Promise<IncomingEventWithTeam | null> {
+): Promise<ResolveTeamResult> {
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
@@ -27,7 +31,7 @@ async function resolveTeam(
                 drop_cause: 'no_token',
             })
             .inc()
-        return null
+        return { error: true, cause: 'no_token' }
     }
 
     const team = await hub.teamManager.getTeamByToken(event.token)
@@ -38,29 +42,32 @@ async function resolveTeam(
                 drop_cause: 'invalid_token',
             })
             .inc()
-        return null
+        return { error: true, cause: 'invalid_token' }
     }
 
     return {
-        event,
-        team,
-        message,
-        headers,
+        error: false,
+        eventWithTeam: {
+            event,
+            team,
+            message,
+            headers,
+        },
     }
 }
 
 export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
-): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
-    return async (input) => {
+): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+    return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
-        const eventWithTeam = await resolveTeam(hub, message, headers, event.event)
+        const result = await resolveTeam(hub, message, headers, event.event)
 
-        if (!eventWithTeam) {
-            return drop('Failed to resolve team')
+        if (result.error) {
+            return drop(result.cause)
         }
 
-        return success({ ...input, eventWithTeam })
+        return ok({ ...input, eventWithTeam: result.eventWithTeam })
     }
 }

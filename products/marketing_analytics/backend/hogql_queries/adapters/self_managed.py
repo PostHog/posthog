@@ -18,6 +18,14 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
     and configure field mappings for marketing analytics.
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """
+        Self-managed is user-configured, so we don't normalize sources.
+        Return empty dict to indicate no source normalization needed.
+        """
+        return {}
+
     def __init__(self, config: ExternalConfig, context):
         super().__init__(config, context)
 
@@ -57,6 +65,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
     def _get_source_name_field(self) -> ast.Expr:
+        """Override to use user-configured source field or fallback to unknown"""
         if self.config.source_map.source:
             return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.source])])
         else:

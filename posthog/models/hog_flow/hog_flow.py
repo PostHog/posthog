@@ -61,6 +61,7 @@ class HogFlow(UUIDTModel):
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
     abort_action = models.CharField(max_length=400, null=True, blank=True)
+    variables = models.JSONField(default=list, null=True, blank=True)
 
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"

@@ -263,7 +263,7 @@ function onLoad() {
 
     def test_get_transpiled_function_with_complex_filters(self):
         action = Action.objects.create(team=self.team, name="Test Action")
-        action.steps = [{"event": "$pageview", "url": "https://example.com"}]  # type: ignore
+        action.steps = [{"event": "$pageview", "url": "https://example.com"}]
         action.save()
 
         self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"

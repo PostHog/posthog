@@ -3,7 +3,9 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
 
 import IconClickUp from 'public/services/clickup.svg'
+import IconDatabricks from 'public/services/databricks.png'
 import IconGitHub from 'public/services/github.png'
+import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
@@ -18,6 +20,7 @@ import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
@@ -34,10 +37,13 @@ export const ICONS: Record<IntegrationKind, any> = {
     email: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
+    gitlab: IconGitLab,
     'meta-ads': IconMetaAds,
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
+    databricks: IconDatabricks,
+    'tiktok-ads': IconTikTok,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -52,6 +58,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'LinkedIn Ads'
         case 'reddit-ads':
             return 'Reddit Ads'
+        case 'tiktok-ads':
+            return 'TikTok Ads'
         case 'email':
             return 'email'
         case 'github':

@@ -154,11 +154,11 @@ def calculate_p_value(t_statistic: float, degrees_of_freedom: float, test_type: 
         P-value
     """
     if test_type == "two_sided":
-        return 2 * (1 - stats.t.cdf(abs(t_statistic), degrees_of_freedom))
+        return float(2 * (1 - stats.t.cdf(abs(t_statistic), degrees_of_freedom)))
     elif test_type == "greater":
-        return 1 - stats.t.cdf(t_statistic, degrees_of_freedom)
+        return float(1 - stats.t.cdf(t_statistic, degrees_of_freedom))
     elif test_type == "less":
-        return stats.t.cdf(t_statistic, degrees_of_freedom)
+        return float(stats.t.cdf(t_statistic, degrees_of_freedom))
     else:
         raise StatisticError(f"Unknown test type: {test_type}")
 
@@ -191,7 +191,7 @@ def calculate_confidence_interval(
     if test_type == "two_sided":
         t_critical = stats.t.ppf(1 - alpha / 2, degrees_of_freedom)
         margin = t_critical * standard_error
-        return (point_estimate - margin, point_estimate + margin)
+        return (float(point_estimate - margin), float(point_estimate + margin))
 
     else:
         raise StatisticError(f"Unknown test type: {test_type}")

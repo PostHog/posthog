@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { Experiment, InsightType } from '~/types'
+import { InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -11,18 +11,15 @@ import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
-export function LegacyMetricModal({
-    experimentId,
-    isSecondary,
-}: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
+/**
+ * @deprecated
+ * This component is deprecated and only supports the legacy query runner.
+ * Use the MetricModal component instead.
+ */
+export function LegacyMetricModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, experimentLoading, getInsightType, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
-        useValues(experimentLogic({ experimentId }))
-    const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(
-        experimentLogic({ experimentId })
-    )
+        useValues(experimentLogic)
+    const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
     const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 

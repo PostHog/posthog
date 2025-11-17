@@ -12,7 +12,8 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
@@ -27,12 +28,8 @@ export function SessionReplayMenuItems({
     MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    )
-    const { playlists, playlistsLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    )
+    const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
+    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {

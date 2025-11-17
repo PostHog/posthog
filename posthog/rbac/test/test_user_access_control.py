@@ -1031,7 +1031,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_notebook_specific_access_control(self):
         """Test notebook-specific access controls"""
-        from posthog.models.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         notebook = Notebook.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1073,7 +1073,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # Create test notebooks for various scenarios
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
         self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
@@ -1149,7 +1149,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
     def test_filter_queryset_by_access_level_with_none_resource_and_specific_access(self):
         """Test queryset filtering when user has 'none' resource access but specific object access"""
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -1176,7 +1176,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
 
     def test_filter_queryset_by_access_level_with_resource_access(self):
         """Test queryset filtering when user has resource-level access"""
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "editor"
         self._create_access_control(resource="notebook", access_level="editor")
@@ -1226,7 +1226,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         """Test UserAccessControlSerializerMixin returns correct access levels"""
         from rest_framework import serializers
 
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")

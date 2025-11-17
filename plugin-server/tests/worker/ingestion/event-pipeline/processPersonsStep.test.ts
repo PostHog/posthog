@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PipelineStepResultType, isSuccessResult } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
+import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'
@@ -72,8 +72,8 @@ describe('processPersonsStep()', () => {
             )
         )
 
-        expect(result.type).toBe(PipelineStepResultType.OK)
-        if (isSuccessResult(result)) {
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
             const [resEvent, resPerson, kafkaAck] = result.value
             expect(resEvent).toEqual(pluginEvent)
             expect(resPerson).toEqual(
@@ -121,8 +121,8 @@ describe('processPersonsStep()', () => {
             )
         )
 
-        expect(result.type).toBe(PipelineStepResultType.OK)
-        if (isSuccessResult(result)) {
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
             const [resEvent, resPerson, kafkaAck] = result.value
             expect(resEvent).toEqual({
                 ...event,

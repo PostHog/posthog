@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from typing import Any
 
@@ -19,7 +20,8 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.offline.query_patches import (
     ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
@@ -104,8 +106,8 @@ class TestSnapshotLoader(BaseTest):
             )
             return
         if schema is DataWarehouseTableSnapshot:
-            yield DataWarehouseTableSnapshot(name="users", format="Parquet", columns={"id": "Int64"})
-            yield DataWarehouseTableSnapshot(name="orders", format="Parquet", columns={"id": "Int64"})
+            yield DataWarehouseTableSnapshot(name="users", format="Parquet", columns=json.dumps({"id": "Int64"}))
+            yield DataWarehouseTableSnapshot(name="orders", format="Parquet", columns=json.dumps({"id": "Int64"}))
             return
         if schema is TeamTaxonomyItemSnapshot:
             yield TeamTaxonomyItemSnapshot(

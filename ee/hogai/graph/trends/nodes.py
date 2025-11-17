@@ -3,7 +3,8 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantTrendsQuery
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import PartialAssistantState
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -14,12 +15,12 @@ TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
-    REASONING_MESSAGE = "Creating trends query"
     INSIGHT_NAME = "Trends"
     OUTPUT_MODEL = TrendsSchemaGeneratorOutput
     OUTPUT_SCHEMA = TRENDS_SCHEMA
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.dispatcher.update("Creating trends query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", TRENDS_SYSTEM_PROMPT),

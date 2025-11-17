@@ -19,8 +19,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
+                cdpCohortMembership: true,
                 cdpApi: true,
+                evaluationScheduler: true,
+                logsIngestion: true,
             }
 
         case PluginServerMode.local_cdp:
@@ -32,7 +36,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
                 cdpBehaviouralEvents: true,
+                cdpCohortMembership: true,
                 cdpApi: true,
             }
 
@@ -75,9 +81,17 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_delay:
+            return {
+                cdpCyclotronWorkerDelay: true,
+            }
         case PluginServerMode.cdp_behavioural_events:
             return {
                 cdpBehaviouralEvents: true,
+            }
+        case PluginServerMode.cdp_cohort_membership:
+            return {
+                cdpCohortMembership: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {
@@ -88,6 +102,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
+            }
+        case PluginServerMode.evaluation_scheduler:
+            return {
+                evaluationScheduler: true,
+            }
+        case PluginServerMode.ingestion_logs:
+            return {
+                logsIngestion: true,
             }
     }
 }

@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
 )
@@ -10,11 +11,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.models import UnknownDatabaseField
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -30,16 +33,15 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        view_names = self.database.get_views()
-        all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [
-            view
-            for view in all_views
-            if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view() and not view.union_all
-        ]
-
         queries: list[ast.SelectQuery] = []
+        views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE],
+            self.database,
+        )
         for view in views:
+            if not view.is_event_view():
+                continue
+
             queries.append(
                 ast.SelectQuery(
                     select=[
@@ -92,20 +94,19 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             )
 
         if len(queries) == 0:
-            return ast.SelectQuery.empty(
-                columns=[
-                    "event",
-                    "event_name",
-                    "original_amount",
-                    "currency_aware_amount",
-                    "original_currency",
-                    "amount",
-                    "currency",
-                    "person",
-                    "session_id",
-                    "timestamp",
-                ]
-            )
+            columns = [
+                "event",
+                "event_name",
+                "original_amount",
+                "currency_aware_amount",
+                "original_currency",
+                "amount",
+                "currency",
+                "person",
+                "session_id",
+                "timestamp",
+            ]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
         elif len(queries) == 1:
             return queries[0]
         else:

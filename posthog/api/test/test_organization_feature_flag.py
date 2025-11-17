@@ -6,18 +6,14 @@ from unittest.mock import ANY
 from rest_framework import status
 
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.experiment import Experiment
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -135,6 +131,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "created_by": ANY,
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "is_simple_flag": True,
             "experiment_set": [],
@@ -146,12 +143,14 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
+            "evaluation_tags": [],
             "user_access_level": "manager",
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
 
@@ -222,8 +221,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
+            "evaluation_tags": [],
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
             "surveys": ANY,
@@ -235,6 +236,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
 
@@ -352,8 +354,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
+            "evaluation_tags": [],
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
             "surveys": ANY,
@@ -365,6 +369,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
         flag_response = response.json()["success"][0]
@@ -432,36 +437,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_copy_feature_flag_cannot_edit(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
-        ]
-        self.organization.save()
-
-        OrganizationResourceAccess.objects.create(
-            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
-            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
-            organization=self.organization,
-        )
-        self.assertEqual(self.user.role_memberships.count(), 0)
-        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
-        untouchable_flag = FeatureFlag.objects.create(
-            created_by=user_a,
-            key="flag_a",
-            name="Flag A",
-            team=self.team,
-            filters={"groups": [{"rollout_percentage": 50}]},
-        )
-
-        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data = {
-            "feature_flag_key": untouchable_flag.key,
-            "from_project": self.team_1.id,
-            "target_project_ids": [self.team_2.id],
-        }
-        response = self.client.post(url, data)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}

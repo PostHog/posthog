@@ -85,6 +85,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.projectHomepage(),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
     },
 }
 export default meta

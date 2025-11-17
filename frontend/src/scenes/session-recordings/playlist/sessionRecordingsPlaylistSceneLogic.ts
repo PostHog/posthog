@@ -142,8 +142,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     listeners(({ actions, values }) => ({
         getPlaylistSuccess: ({ playlist }) => {
-            if (values.playlist?.derived_name !== values.derivedName) {
-                // This keeps the derived name up to date if the playlist changes
+            if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
 
@@ -184,10 +183,12 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     key: ReplayTabs.Playlists,
                     name: 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
+                    iconType: 'session_replay',
                 },
                 {
                     key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
+                    iconType: 'session_replay',
                 },
             ],
         ],

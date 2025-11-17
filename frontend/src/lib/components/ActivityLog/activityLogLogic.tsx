@@ -15,8 +15,10 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -33,11 +35,14 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
+
+import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
@@ -99,6 +104,8 @@ export const activityLogTransforms = {
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACTION:
+            return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
             return alertConfigurationActivityDescriber
         case ActivityScope.ANNOTATION:
@@ -113,6 +120,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return flagActivityDescriber
         case ActivityScope.HOG_FUNCTION:
             return hogFunctionActivityDescriber
+        case ActivityScope.HOG_FLOW:
+            return workflowActivityDescriber
         case ActivityScope.COHORT:
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
@@ -121,6 +130,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.PERSONAL_API_KEY:
+            return personalAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
@@ -142,6 +153,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
+        case ActivityScope.HEATMAP:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
         case ActivityScope.TAG:
@@ -150,6 +163,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EXTERNAL_DATA_SOURCE:
         case ActivityScope.EXTERNAL_DATA_SCHEMA:
             return externalDataSourceActivityDescriber
+        case ActivityScope.USER:
+            return userActivityDescriber
+        case ActivityScope.ENDPOINT:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

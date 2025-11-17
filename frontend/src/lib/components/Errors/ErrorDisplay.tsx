@@ -9,19 +9,22 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { EventType, RecordingEventType } from '~/types'
-
 import { ChainedStackTraces } from './StackTraces'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
-import { ErrorEventId, ErrorEventProperties } from './types'
+import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'
 
-export function idFrom(event: EventType | RecordingEventType): string {
+export function idFrom(event: ErrorEventType): string {
     if ('uuid' in event && event.uuid) {
         return event.uuid
     }
+
     // Fallback to timestamp if uuid is not available
-    return event.timestamp ? dayjs(event.timestamp).toISOString() : (event.id ?? 'error')
+    if (event.timestamp) {
+        return dayjs(event.timestamp).toISOString()
+    }
+
+    return 'error'
 }
 
 export function ErrorDisplay({
@@ -41,6 +44,8 @@ export function ErrorDisplay({
 export function ErrorDisplayContent(): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
+    const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
+    const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
@@ -68,10 +73,8 @@ export function ErrorDisplayContent(): JSX.Element {
                     title="library"
                     value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
                 />
-                <TitledSnack
-                    title="browser"
-                    value={concatValues(exceptionAttributes, 'browser', 'browserVersion') ?? 'unknown'}
-                />
+                {browserInfo && <TitledSnack title="browser" value={browserInfo} />}
+                {appInfo && <TitledSnack title="app" value={appInfo} />}
                 <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
             </div>
 

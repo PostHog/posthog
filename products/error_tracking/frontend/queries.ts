@@ -1,14 +1,28 @@
 import {
     DataTableNode,
     DateRange,
+    DocumentSimilarityQuery,
+    ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
+    ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
+    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
-import { AnyPropertyFilter, ProductKey, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    ProductKey,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
+import { LIMIT_ITEMS } from './components/Breakdowns/consts'
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -26,13 +40,26 @@ export const errorTrackingQuery = ({
     volumeResolution = ERROR_TRACKING_LISTING_RESOLUTION,
     columns,
     orderDirection,
+    personId,
+    groupKey,
+    groupTypeIndex,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
+    | 'orderBy'
+    | 'status'
+    | 'dateRange'
+    | 'assignee'
+    | 'filterTestAccounts'
+    | 'limit'
+    | 'searchQuery'
+    | 'orderDirection'
+    | 'personId'
+    | 'groupKey'
+    | 'groupTypeIndex'
 > & {
     filterGroup: UniversalFiltersGroup
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee' | 'library')[]
+    columns: string[]
     volumeResolution?: number
 }): DataTableNode => {
     return {
@@ -51,6 +78,9 @@ export const errorTrackingQuery = ({
             orderDirection,
             withAggregations: true,
             withFirstEvent: false,
+            personId,
+            groupKey,
+            groupTypeIndex,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
@@ -87,6 +117,7 @@ export const errorTrackingIssueQuery = ({
         issueId,
         dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
+        orderBy: 'last_seen',
         filterTestAccounts,
         searchQuery,
         volumeResolution,
@@ -100,28 +131,24 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    issueId,
+    fingerprints,
     filterTestAccounts,
     filterGroup,
     searchQuery,
     dateRange,
     columns,
 }: {
-    issueId: string | null
+    fingerprints: string[]
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
     dateRange: DateRange
     columns: string[]
 }): EventsQuery => {
-    if (!issueId) {
-        throw new Error('issue id is required')
-    }
-
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `'${issueId}' == issue_id`
+    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}]`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
@@ -162,6 +189,51 @@ export const errorTrackingIssueCorrelationQuery = ({
     })
 }
 
+export const errorTrackingSimilarIssuesQuery = ({
+    issueId,
+    limit,
+    maxDistance,
+}: {
+    issueId: string
+    limit: number
+    maxDistance: number
+}): ErrorTrackingSimilarIssuesQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingSimilarIssuesQuery>({
+        kind: NodeKind.ErrorTrackingSimilarIssuesQuery,
+        issueId,
+        limit,
+        maxDistance,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
+}
+
+export const errorTrackingDocumentSimilarityQuery = ({
+    documentId,
+    timestamp,
+}: {
+    documentId: string
+    timestamp: string
+}): DocumentSimilarityQuery => {
+    return setLatestVersionsOnQuery<DocumentSimilarityQuery>({
+        kind: NodeKind.DocumentSimilarityQuery,
+        origin: {
+            product: 'error_tracking',
+            document_type: 'fingerprint',
+            document_id: documentId,
+            timestamp,
+        },
+        dateRange: {},
+        order_by: 'distance',
+        order_direction: 'asc',
+        distance_func: 'cosineDistance',
+        model: 'text-embedding-3-small-1536',
+        products: ['error_tracking'],
+        document_types: ['fingerprint'],
+        renderings: [],
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
+}
+
 export const errorTrackingIssueFingerprintsQuery = (
     issue_id: string,
     first_seen: string,
@@ -171,4 +243,82 @@ export const errorTrackingIssueFingerprintsQuery = (
                 FROM events
                 WHERE event = '$exception' and issue_id = ${issue_id} and has(${fingerprints}, properties.$exception_fingerprint) and timestamp >= toDateTime(${first_seen})
                 GROUP BY properties.$exception_fingerprint`
+}
+
+export const errorTrackingIssueBreakdownQuery = ({
+    breakdownProperty,
+    dateRange,
+    filterTestAccounts,
+    filterGroup,
+    issueId,
+}: {
+    breakdownProperty: string
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    filterGroup: UniversalFiltersGroup
+    issueId: string
+}): InsightVizNode => {
+    const group = filterGroup.values[0] as UniversalFiltersGroup
+    const properties = [...group.values] as AnyPropertyFilter[]
+
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsBarValue,
+            },
+            breakdownFilter: {
+                breakdown_type: 'event',
+                breakdown: breakdownProperty,
+                breakdown_limit: LIMIT_ITEMS,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$exception',
+                    math: BaseMathType.TotalCount,
+                    properties: [
+                        {
+                            key: '$exception_issue_id',
+                            type: PropertyFilterType.Event,
+                            value: issueId,
+                            operator: PropertyOperator.Exact,
+                        },
+                        ...properties,
+                    ],
+                },
+            ],
+            dateRange: dateRange,
+            filterTestAccounts,
+        },
+    }
+
+    return query
+}
+
+export const errorTrackingBreakdownsQuery = ({
+    issueId,
+    breakdownProperties,
+    dateRange,
+    filterTestAccounts,
+    maxValuesPerProperty = LIMIT_ITEMS,
+}: {
+    issueId: string
+    breakdownProperties: string[]
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    maxValuesPerProperty?: number
+}): ErrorTrackingBreakdownsQuery => {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.ErrorTrackingBreakdownsQuery,
+        issueId,
+        breakdownProperties,
+        dateRange,
+        filterTestAccounts,
+        maxValuesPerProperty,
+        tags: {
+            productKey: ProductKey.ERROR_TRACKING,
+        },
+    })
 }

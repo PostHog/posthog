@@ -79,19 +79,19 @@ export class Logger {
     }
 
     debug(...args: any[]) {
-        this._log(LogLevel.Debug, ...args)
+        this._log('debug', ...args)
     }
 
     info(...args: any[]) {
-        this._log(LogLevel.Info, ...args)
+        this._log('info', ...args)
     }
 
     warn(...args: any[]) {
-        this._log(LogLevel.Warn, ...args)
+        this._log('warn', ...args)
     }
 
     error(...args: any[]) {
-        this._log(LogLevel.Error, ...args)
+        this._log('error', ...args)
     }
 
     async shutdown(): Promise<void> {

@@ -1,5 +1,3 @@
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -28,8 +26,6 @@ describe('extractBreakdownValues', () => {
             updated_at: '2023-01-01T00:00:00Z',
             last_modified_at: '2023-01-01T00:00:00Z',
             last_modified_by: null,
-            effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-            effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
             query: null,
             last_refresh: null,
             user_access_level: AccessControlLevel.None,

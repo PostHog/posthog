@@ -37,6 +37,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
@@ -55,6 +56,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
         ],
+        actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -257,21 +259,34 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
+                    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
+
                     const shortcutItem =
                         item.type === 'folder'
                             ? {
-                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  path: shortcutPath,
                                   type: 'folder',
                                   ref: item.path,
                               }
                             : {
-                                  path: joinPath([splitPath(item.path).pop() ?? 'Unnamed']),
+                                  path: shortcutPath,
                                   type: item.type,
                                   ref: item.ref,
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    return [...values.shortcutData, response]
+                    lemonToast.success('Shortcut created successfully', {
+                        button: {
+                            label: 'View',
+                            dataAttr: 'project-tree-view-shortcuts',
+                            action: () => {
+                                actions.setActivePanelIdentifier('Shortcuts')
+                            },
+                        },
+                    })
+                    return [...values.shortcutData, response].sort((a, b) =>
+                        a.path.toLowerCase().localeCompare(b.path.toLowerCase())
+                    )
                 },
                 deleteShortcut: async ({ id }) => {
                     await api.fileSystemShortcuts.delete(id)
@@ -736,6 +751,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         treeItemsNew: [
             (s) => [s.getStaticTreeItems],
             (getStaticTreeItems) => getStaticTreeItems('', false).find((item) => item.id === 'new://')?.children ?? [],
+        ],
+        shortcutNonFolderPaths: [
+            (s) => [s.shortcutData],
+            (shortcutData) =>
+                new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
     }),
     listeners(({ actions, values }) => ({

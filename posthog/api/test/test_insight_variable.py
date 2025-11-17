@@ -41,3 +41,16 @@ class TestInsightVariable(APIBaseTest):
 
         # Verify the variable was deleted
         assert not InsightVariable.objects.filter(id=variable.id).exists()
+
+    def test_insight_variable_limit(self):
+        # default list call should return up to 500 variables
+        response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/")
+        assert response.status_code == 200
+
+        # create 501 variables
+        for i in range(501):
+            InsightVariable.objects.create(team=self.team, name=f"Test {i}", type="String")
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/")
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 500

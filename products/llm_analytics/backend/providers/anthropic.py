@@ -19,6 +19,8 @@ class AnthropicConfig:
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-5-20250929",
         "claude-sonnet-4-0",
         "claude-opus-4-0",
         "claude-opus-4-20250514",
@@ -28,9 +30,12 @@ class AnthropicConfig:
         "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
         "claude-3-5-haiku-20241022",
+        "claude-haiku-4-5-20251001",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-5-20250929",
         "claude-opus-4-20250514",
         "claude-opus-4-1-20250805",
         "claude-sonnet-4-20250514",
@@ -42,6 +47,8 @@ class AnthropicConfig:
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-5-20250929",
         "claude-3-7-sonnet-20250219",
         "claude-sonnet-4-20250514",
         "claude-opus-4-20250514",

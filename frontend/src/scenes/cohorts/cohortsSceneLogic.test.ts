@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -44,6 +46,8 @@ const MOCK_COHORTS = {
         },
     ],
 }
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Dashboards]: blankScene }
 
 describe('cohortsSceneLogic', () => {
     let logic: ReturnType<typeof cohortsSceneLogic.build>
@@ -64,7 +68,11 @@ describe('cohortsSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = cohortsSceneLogic()
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = cohortsSceneLogic({ tabId: '1' })
         logic.mount()
     })
 
@@ -75,7 +83,8 @@ describe('cohortsSceneLogic', () => {
                 router.actions.push(urls.cohorts())
 
                 await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
-                expect(logic.values.pollTimeout).not.toBeNull()
+                // Check that the polling timeout disposable was registered
+                expect(logic.cache.disposables.registry.has('pollTimeout')).toBe(true)
             })
         })
 
@@ -103,6 +112,24 @@ describe('cohortsSceneLogic', () => {
                     .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
                     .toMatchValues({
                         cohortFilters: expect.objectContaining({ page: 2 }),
+                    })
+
+                // Test type filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ type: 'static' })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ type: 'static' }),
+                    })
+
+                // Test created_by_id filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ created_by_id: 123 })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ created_by_id: 123 }),
                     })
             })
         })
@@ -143,6 +170,22 @@ describe('cohortsSceneLogic', () => {
                         entryCount: 2,
                     }),
                 })
+            })
+
+            it('calculates shouldShowEmptyState correctly', async () => {
+                router.actions.push(urls.cohorts())
+
+                // With cohorts loaded, should not show empty state
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                expect(logic.values.shouldShowEmptyState).toBe(false)
+
+                // With no cohorts and default filters, should show empty state
+                logic.actions.loadCohortsSuccess({ count: 0, results: [] })
+                expect(logic.values.shouldShowEmptyState).toBe(true)
+
+                // With no cohorts but with search filter, should not show empty state
+                logic.actions.setCohortFilters({ search: 'test' })
+                expect(logic.values.shouldShowEmptyState).toBe(false)
             })
         })
     })

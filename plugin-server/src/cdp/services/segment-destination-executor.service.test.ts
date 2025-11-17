@@ -41,6 +41,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
+                dump: () => Promise.resolve(),
             } as any)
         )
 
@@ -77,6 +78,7 @@ describe('SegmentDestinationExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -124,6 +126,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -187,6 +190,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Too many requests' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -312,6 +316,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -391,6 +396,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
                 text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -481,6 +487,7 @@ describe('SegmentDestinationExecutorService', () => {
                     json: () => Promise.resolve({ total_count: 1 }),
                     text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
                     headers: {},
+                    dump: () => Promise.resolve(),
                 })
 
                 await service.execute(invocation)

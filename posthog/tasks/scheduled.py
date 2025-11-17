@@ -16,8 +16,8 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -50,15 +50,24 @@ from posthog.tasks.tasks import (
     start_poll_query_performance,
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
+    sync_feature_flag_last_called,
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
-from posthog.utils import get_crontab
+from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
+from posthog.utils import get_crontab, get_instance_region
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
+
+# Organizations with delayed data ingestion that need delayed usage report re-runs
+# This is a temporary solution until we switch event usage queries from timestamp to created_at
+DELAYED_ORGS_EU: list[str] = [
+    "01975ab3-7ec5-0000-9751-a89cbc971419",
+]
+DELAYED_ORGS_US: list[str] = []
 
 
 def add_periodic_task_with_expiry(
@@ -105,6 +114,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="warm team access caches",
     )
 
+    # Team metadata cache sync - hourly
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        refresh_expiring_team_metadata_cache_entries.s(),
+        name="team metadata cache sync",
+    )
+
+    # Team metadata expiry tracking cleanup - daily at 3 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="0"),
+        cleanup_stale_expiry_tracking_task.s(),
+        name="team metadata expiry tracking cleanup",
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -118,12 +141,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send instance usage report",
     )
 
-    # Send all periodic digest reports
-    sender.add_periodic_task(
-        crontab(hour="9", minute="0", day_of_week="mon"),
-        send_all_periodic_digest_reports.s(),
-        name="send all weekly digest reports",
-    )
+    # Send usage reports for specific orgs with delayed data ingestion
+    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
+    if delayed_orgs:
+        sender.add_periodic_task(
+            crontab(hour="10", minute="00"),
+            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            name="send delayed org usage reports",
+        )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
     sender.add_periodic_task(
@@ -142,6 +167,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/30"),
         calculate_decide_usage.s(),
         name="calculate decide usage",
+    )
+
+    # Sync feature flag last_called_at timestamps from ClickHouse every 30 minutes
+    sender.add_periodic_task(
+        crontab(minute="*/30"),
+        sync_feature_flag_last_called.s(),
+        name="sync feature flag last_called_at timestamps",
+        expires=1800,  # 30 minutes - prevents stale tasks from running
     )
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
@@ -353,4 +386,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_surveys_cache.s(),
+        name="sync all surveys cache",
     )

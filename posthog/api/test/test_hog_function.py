@@ -14,7 +14,6 @@ from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATION
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
@@ -68,7 +67,7 @@ EXAMPLE_FULL = {
     },
     "filters": {
         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-        "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+        "actions": [{"id": "999999", "name": "Test Action", "type": "actions", "order": 1}],
         "filter_test_accounts": True,
     },
 }
@@ -112,42 +111,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert response.json()["hog"] == template_slack.code
         assert response.json()["inputs_schema"] == template_slack.inputs_schema
 
-    def test_free_users_cannot_override_hog_or_schema(self):
-        response = self._create_slack_function(
-            {
-                "hog": "fetch(inputs.url);",
-                "inputs_schema": [
-                    {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
-                ],
-            }
-        )
-        new_response = response.json()
-        # These did not change
-        assert new_response["hog"] == template_slack.code, new_response
-        assert new_response["inputs_schema"] == template_slack.inputs_schema, new_response
-
-    def test_free_users_cannot_use_without_template(self):
-        response = self._create_slack_function({"template_id": None})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (
-            response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
-        ), response.json()
-
-    def test_free_users_cannot_create_non_free_templates(self):
-        response = self._create_slack_function(
-            {
-                "template_id": "template-webhook",
-            }
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
-
-    def test_free_users_can_update_non_free_templates(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-        ]
+    def test_sers_can_update_non_free_templates(self):
         self.organization.save()
 
         response = self._create_slack_function(
@@ -221,9 +185,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-        ]
         self.organization.save()
 
         # Create slack template in DB
@@ -232,8 +193,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         sync_template_to_db(geoip_template)
 
         # Create the action referenced in EXAMPLE_FULL
-        if not Action.objects.filter(id=9, team=self.team).exists():
-            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+        # Use a high ID to avoid conflicts with auto-incrementing sequence
+        if not Action.objects.filter(id=999999, team=self.team).exists():
+            Action.objects.create(id=999999, name="Test Action", team=self.team, created_by=self.user)
 
     def _get_function_activity(
         self,

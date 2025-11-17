@@ -12,6 +12,7 @@ from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+    WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
@@ -74,12 +75,14 @@ def convert_query_result_to_dlq_event_dicts(query_result):
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
-        sync_execute(DEAD_LETTER_QUEUE_TABLE_MV_SQL)
+        sync_execute(WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL())
+        sync_execute(DEAD_LETTER_QUEUE_TABLE_MV_SQL())
         super().setUp()
 
     def tearDown(self):
         sync_execute("DROP TABLE IF EXISTS events_dead_letter_queue_mv")
         sync_execute("DROP TABLE IF EXISTS kafka_events_dead_letter_queue")
+        sync_execute("DROP TABLE IF EXISTS writable_events_dead_letter_queue")
         super().tearDown()
 
     def test_direct_table_insert(self):

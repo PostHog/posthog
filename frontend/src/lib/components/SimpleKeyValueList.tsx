@@ -1,8 +1,10 @@
 // A React component that renders a list of key-value pairs in a simple way.
 import { ReactNode, useEffect, useState } from 'react'
 
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isObject } from 'lib/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -15,6 +17,7 @@ export interface SimpleKeyValueListProps {
      * keys are otherwise rendered in alphabetical order.
      */
     promotedKeys?: string[]
+    sortItems?: boolean
 }
 
 export function SimpleKeyValueList({
@@ -22,23 +25,26 @@ export function SimpleKeyValueList({
     emptyMessage = 'No properties to display',
     promotedKeys,
     header,
+    sortItems = true,
 }: SimpleKeyValueListProps): JSX.Element {
     const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
 
     useEffect(() => {
-        const sortedItems = Object.entries(item).sort((a, b) => {
-            // if this is a posthog property we want to sort by its label
-            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
-            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
+        const sortedItems = sortItems
+            ? Object.entries(item).sort((a, b) => {
+                  // if this is a posthog property we want to sort by its label
+                  const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
+                  const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
 
-            if (left < right) {
-                return -1
-            }
-            if (left > right) {
-                return 1
-            }
-            return 0
-        })
+                  if (left < right) {
+                      return -1
+                  }
+                  if (left > right) {
+                      return 1
+                  }
+                  return 0
+              })
+            : Object.entries(item)
 
         // promoted items are shown in the order provided
         const promotedItems = promotedKeys?.length
@@ -52,19 +58,26 @@ export function SimpleKeyValueList({
             : sortedItems
 
         setSortedItemsPromotedFirst([...promotedItems, ...nonPromotedItems])
-    }, [item, promotedKeys])
+    }, [item, promotedKeys, sortItems])
 
     return (
         <div className="text-xs deprecated-space-y-1 max-w-full">
             {header}
-            {sortedItemsPromotedFirst.map(([key, value]) => (
-                <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
-                    <span className="font-semibold">
-                        <PropertyKeyInfo value={key} />
-                    </span>
-                    <pre className="text-primary-alt break-all mb-0">{JSON.stringify(value, null, 2)}</pre>
-                </div>
-            ))}
+            {sortedItemsPromotedFirst.map(([key, value]) => {
+                const isComplexStructure = Array.isArray(value) || isObject(value)
+                return (
+                    <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
+                        <span className="font-semibold">
+                            <PropertyKeyInfo value={key} />
+                        </span>
+                        {isComplexStructure ? (
+                            <JSONViewer src={value} collapsed={1} />
+                        ) : (
+                            <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
+                        )}
+                    </div>
+                )
+            })}
             {Object.keys(item).length === 0 && emptyMessage}
         </div>
     )

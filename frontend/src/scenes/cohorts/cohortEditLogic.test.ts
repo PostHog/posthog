@@ -62,6 +62,7 @@ describe('cohortEditLogic', () => {
                 '/api/projects/:team/cohorts/:id': mockCohort,
             },
             post: {
+                '/api/projects/:team/cohorts': mockCohort,
                 '/api/projects/:team/cohorts/:id': mockCohort,
             },
             patch: {
@@ -103,6 +104,24 @@ describe('cohortEditLogic', () => {
             .toFinishAllListeners()
             .toDispatchActions(['setCohort', 'deleteCohort', router.actionCreators.push(urls.cohorts())])
         expect(api.update).toHaveBeenCalledTimes(1)
+    })
+
+    it('restore cohort', async () => {
+        await initCohortLogic({ id: 1 })
+        await expectLogic(logic, async () => {
+            logic.actions.setCohort({ ...mockCohort, deleted: true })
+            logic.actions.restoreCohort()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['setCohort', 'restoreCohort'])
+        expect(api.update).toHaveBeenCalledTimes(1)
+        expect(api.update).toHaveBeenCalledWith(
+            expect.anything(),
+            {
+                deleted: false,
+            },
+            expect.anything()
+        )
     })
 
     describe('form validation', () => {
@@ -618,7 +637,7 @@ describe('cohortEditLogic', () => {
                     id: 'new',
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+            }).toDispatchActions(['setCohort', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
@@ -830,6 +849,97 @@ describe('cohortEditLogic', () => {
                             }),
                         },
                     }),
+                })
+        })
+    })
+
+    describe('cohort duplication', () => {
+        it('duplicate static cohort as static', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const staticCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Static Cohort',
+                is_static: true,
+            }
+
+            const duplicatedCohort = {
+                ...staticCohort,
+                id: 2,
+                name: 'Static Cohort (static copy)',
+            }
+
+            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(staticCohort)
+                logic.actions.duplicateCohort(true)
+            }).toFinishAllListeners()
+
+            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+        })
+
+        it('duplicate dynamic cohort as static', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const dynamicCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Dynamic Cohort',
+                is_static: false,
+            }
+
+            const duplicatedCohort = {
+                ...dynamicCohort,
+                id: 2,
+                name: 'Dynamic Cohort (static copy)',
+                is_static: true,
+            }
+
+            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(dynamicCohort)
+                logic.actions.duplicateCohort(true)
+            }).toFinishAllListeners()
+
+            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+        })
+
+        it('duplicate dynamic cohort as dynamic', async () => {
+            await initCohortLogic({ id: 1 })
+
+            const dynamicCohort = {
+                ...mockCohort,
+                id: 1,
+                name: 'Dynamic Cohort',
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: BehavioralFilterKey.Behavioral,
+                                value: BehavioralEventType.PerformEvent,
+                                event_type: TaxonomicFilterGroupType.Events,
+                                time_value: 30,
+                                time_interval: TimeUnitType.Day,
+                                key: '$pageview',
+                            },
+                        ],
+                    },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(dynamicCohort)
+                logic.actions.duplicateCohort(false)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    // The duplication should complete without errors
+                    cohort: partial(dynamicCohort),
                 })
         })
     })

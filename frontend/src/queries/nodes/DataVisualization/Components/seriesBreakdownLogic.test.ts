@@ -56,13 +56,15 @@ const initialQuery: DataVisualizationNode = {
 // globalQuery represents the query object that is passed into the data
 // visualization logic and series breakdown logic it is modified by calls to
 // setQuery so we want to ensure this is updated correctly
-let globalQuery = { ...initialQuery }
+let globalQuery: DataVisualizationNode = { ...initialQuery }
 
 const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     key: testUniqueKey,
     query: globalQuery,
-    setQuery: (query) => {
-        globalQuery = query
+    setQuery: (setter) => {
+        globalQuery = setter(globalQuery)
+        dummyDataVisualizationLogicProps.query = globalQuery
+        dataVisualizationLogic.build(dummyDataVisualizationLogicProps)
     },
     editMode: false,
     dataNodeCollectionId: 'new-test-SQL',
@@ -112,14 +114,14 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
         })
     })
@@ -136,14 +138,14 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
             display: ChartDisplayType.ActionsLineGraph,
         })
@@ -169,20 +171,20 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
-        builtDataVizLogic.actions.setQuery({
-            ...initialQuery,
+        builtDataVizLogic.actions.setQuery((query) => ({
+            ...query,
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
             },
-        })
+        }))
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            showSeriesBreakdown: true,
             selectedSeriesBreakdownColumn: 'test_column',
+            showSeriesBreakdown: true,
         })
 
         expect(globalQuery).toEqual({
@@ -203,14 +205,14 @@ describe('seriesBreakdownLogic', () => {
         logic.actions.deleteSeriesBreakdown()
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
         })
     })
@@ -224,7 +226,7 @@ describe('seriesBreakdownLogic', () => {
         logic.actions.clearAxis()
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
@@ -235,6 +237,9 @@ describe('seriesBreakdownLogic', () => {
             },
             chartSettings: {
                 goalLines: undefined,
+                seriesBreakdownColumn: undefined,
+                xAxis: undefined,
+                yAxis: [],
             },
         })
     })

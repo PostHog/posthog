@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 class MetaAdsResource(StrEnum):
@@ -23,39 +23,12 @@ ENDPOINTS = (
 )
 
 INCREMENTAL_ENDPOINTS = (
-    MetaAdsResource.Ads,
-    MetaAdsResource.Adsets,
-    MetaAdsResource.Campaigns,
     MetaAdsResource.AdStats,
     MetaAdsResource.AdsetStats,
     MetaAdsResource.CampaignStats,
 )
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    MetaAdsResource.Ads: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Adsets: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Campaigns: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
     MetaAdsResource.AdStats: [
         {
             "label": "date_start",
@@ -117,6 +90,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "ad_id",
             "account_id",
+            "account_currency",
             "adset_id",
             "campaign_id",
             "date_start",
@@ -137,6 +111,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "conversions",
             "conversion_values",
             "cost_per_action_type",
+            "action_values",
             "video_30_sec_watched_actions",
             "video_p25_watched_actions",
             "video_p50_watched_actions",
@@ -188,6 +163,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "adset_id",
             "account_id",
+            "account_currency",
             "campaign_id",
             "date_start",
             "date_stop",
@@ -207,6 +183,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "conversions",
             "conversion_values",
             "cost_per_action_type",
+            "action_values",
         ],
         "partition_mode": "datetime",
         "partition_format": "month",
@@ -249,6 +226,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "campaign_id",
             "account_id",
+            "account_currency",
             "date_start",
             "date_stop",
             "impressions",
@@ -267,6 +245,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "conversions",
             "conversion_values",
             "cost_per_action_type",
+            "action_values",
         ],
         "partition_mode": "datetime",
         "partition_format": "month",

@@ -11,7 +11,14 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    HogQLFilters,
+    HogQLQueryModifiers,
+    QueryTiming,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -613,6 +620,60 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_groupby_unnecessary_ifnull(self):
+        # https://github.com/PostHog/posthog/issues/23077
+        query = """
+            select toDate(timestamp) as timestamp, count() as cnt
+            from events
+            where timestamp >= addDays(today(), -10)
+            group by timestamp
+            having cnt > 10
+            limit 1
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_unnecessary_ifnull(self):
+        # https://github.com/PostHog/posthog/issues/23077
+        query = """
+            select
+                toDate(timestamp) as timestamp,
+                JSONExtractInt(properties, 'field') as json_int
+            from events
+            where timestamp >= addDays(today(), -10) and json_int = 17
+            limit 1
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_proper_ifnull(self):
+        # latest_os_version is Nullable, splitByChar does not access Nullable argument
+        query = """
+            WITH latest_events AS (
+                SELECT distinct_id, argMax(properties.$os_version, timestamp) AS latest_os_version
+                FROM events
+                WHERE properties.$os = 'iOS' AND timestamp >= now() - INTERVAL 30 DAY GROUP BY distinct_id),
+            major_versions AS (
+                SELECT distinct_id, latest_os_version, splitByChar('.', ifNull(latest_os_version, ''))[1] AS major_version
+                FROM latest_events)
+            SELECT major_version, count() AS user_count, round(100 * count() / sum(count()) OVER (), 2) AS percentage
+            FROM major_versions
+            WHERE major_version IN ('17', '18', '26')
+            GROUP BY major_version
+            ORDER BY major_version
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_arrays(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             response = execute_hogql_query(
@@ -879,6 +940,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         self.assertEqual(response.results, expected)
+
+    def test_between_operators(self):
+        cases = [
+            ("5 between 1 and 10", 1),
+            ("1 between 1 and 10", 1),
+            ("10 between 1 and 10", 1),
+            ("0 between 1 and 10", 0),
+            ("11 between 1 and 10", 0),
+            ("5 not between 1 and 10", 0),
+            ("0 not between 1 and 10", 1),
+            ("11 not between 1 and 10", 1),
+            ("10 not between 1 and 10", 0),
+            ("null between 1 and 10", 0),
+            ("5 between null and 10", 0),
+            ("5 between 1 and null", 0),
+        ]
+        for expr, expected in cases:
+            q = f"select {expr}"
+            response = execute_hogql_query(q, team=self.team)
+            self.assertEqual(response.results, [(expected,)], [q, response.clickhouse])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_1_level(self):
@@ -1581,9 +1662,37 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         # In the ideal future, most queries will not need to create the DB.
         # In the present (your past), this test was added because we were creating it twice per query.
         query = "SELECT 1"
-        with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
+        with patch("posthog.hogql.database.database.Database.create_for") as create_for_mock:
             execute_hogql_query(query, team=self.team)
-            printer_create_hogql_database_mock.assert_called_once()
+            create_for_mock.assert_called_once()
+
+    def test_sortable_semver(self):
+        query = "SELECT arrayJoin(['0.0.0.0.1000', '0.9', '0.2354.2', '1.0.0', '1.1.0', '1.2.0', '1.9.233434.10', '1.10.0', '1.1000.0', '2.0.0', '2.2.0.betabac', '2.2.1']) AS semver ORDER BY sortableSemVer(semver) DESC"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                ("2.2.1",),
+                ("2.2.0.betabac",),
+                ("2.0.0",),
+                ("1.1000.0",),
+                ("1.10.0",),
+                ("1.9.233434.10",),
+                ("1.2.0",),
+                ("1.1.0",),
+                ("1.0.0",),
+                ("0.2354.2",),
+                ("0.9",),
+                ("0.0.0.0.1000",),
+            ],
+        )
+
+    def test_sortable_semver_output(self):
+        query = "SELECT sortableSemVer('1.2.3.4.15bac.16')"
+        response = execute_hogql_query(query, team=self.team)
+
+        # Ignore everything after string, return as array of ints
+        self.assertEqual(response.results, [([1, 2, 3, 4, 15],)])
 
     def test_exchange_rate_table(self):
         query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
@@ -1646,3 +1755,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
+
+    def test_metadata_handles_lazy_joins(self):
+        query = "SELECT events.session.id from events"
+        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+        assert response and response.metadata and response.metadata.ch_table_names
+        assert any("sessions" in name for name in response.metadata.ch_table_names)

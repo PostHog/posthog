@@ -335,4 +335,60 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(1)
         })
     })
+
+    describe('LRU eviction with maxSize', () => {
+        it('should evict least recently used entries when maxSize is exceeded', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 3,
+                refreshJitterMs: 0,
+            })
+
+            // Add 3 entries
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
+            await customLoader.getMany(['key1', 'key2', 'key3'])
+            expect(Object.keys(customLoader.getCache()).length).toBe(3)
+
+            // Access key1 and key2 to update their lastUsed times
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000)
+            await customLoader.get('key1')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 2000)
+            await customLoader.get('key2')
+
+            // Add a 4th entry - should evict key3 (least recently used)
+            jest.spyOn(Date, 'now').mockReturnValue(start + 3000)
+            loader.mockResolvedValueOnce({ key4: 'value4' })
+            await customLoader.get('key4')
+
+            const cache = customLoader.getCache()
+            expect(Object.keys(cache).length).toBe(3)
+            expect(cache).toEqual({ key1: 'value1', key2: 'value2', key4: 'value4' })
+        })
+
+        it('should handle bulk additions that exceed maxSize', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 2,
+                refreshJitterMs: 0,
+            })
+
+            // Add 5 entries at once - should keep only 2
+            loader.mockResolvedValueOnce({
+                key1: 'value1',
+                key2: 'value2',
+                key3: 'value3',
+                key4: 'value4',
+                key5: 'value5',
+            })
+
+            await customLoader.getMany(['key1', 'key2', 'key3', 'key4', 'key5'])
+
+            const cache = customLoader.getCache()
+            expect(Object.keys(cache).length).toBe(2)
+            // When all have the same lastUsed time, eviction order depends on iteration order
+            // Just verify we have exactly 2 entries
+        })
+    })
 })

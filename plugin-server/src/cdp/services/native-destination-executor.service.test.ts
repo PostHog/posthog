@@ -34,6 +34,7 @@ describe('NativeDestinationExecutorService', () => {
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
+                dump: () => Promise.resolve(),
             } as any)
         )
 
@@ -67,6 +68,7 @@ describe('NativeDestinationExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -111,6 +113,7 @@ describe('NativeDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -171,6 +174,7 @@ describe('NativeDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Too many requests' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)

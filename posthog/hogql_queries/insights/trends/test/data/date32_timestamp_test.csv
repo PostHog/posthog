@@ -1,0 +1,6 @@
+id,timestamp_date32,revenue_amount,currency_code
+1,2023-01-01,100.50,USD
+2,2023-01-02,75.25,EUR
+3,1970-01-01,50.00,GBP
+4,2023-01-04,200.75,JPY
+5,1970-01-01,125.30,CAD

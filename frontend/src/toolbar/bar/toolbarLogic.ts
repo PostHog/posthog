@@ -1,5 +1,6 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHog } from 'posthog-js'
 
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
@@ -10,11 +11,13 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds } from '~/toolbar/utils'
+import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 
+import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const PII_MASKING_STYLESHEET_ID = 'posthog-pii-masking-styles'
 
 export type MenuState =
     | 'none'
@@ -41,6 +44,7 @@ export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
+
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
         actions: [
@@ -90,6 +94,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
         setCurrentPathname: (pathname: string) => ({ pathname }),
         maybeSendNavigationMessage: true,
+        togglePiiMasking: (enabled?: boolean) => ({ enabled }),
+        setPiiMaskingColor: (color: string) => ({ color }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -186,6 +192,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
             '',
             {
                 setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
+        piiMaskingEnabled: [
+            false,
+            { persist: true },
+            {
+                togglePiiMasking: (state, { enabled }) => enabled ?? !state,
+            },
+        ],
+        piiMaskingColor: [
+            '#888888' as string,
+            { persist: true },
+            {
+                setPiiMaskingColor: (_, { color }) => color,
             },
         ],
     })),
@@ -296,6 +316,45 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     maxHeight: finalHeight,
                     isBelow,
                 }
+            },
+        ],
+
+        piiWarning: [
+            (s) => [s.posthog, s.piiMaskingEnabled],
+            (posthog: PostHog | null, piiMaskingEnabled: boolean) => {
+                if (!posthog || !piiMaskingEnabled) {
+                    return null
+                }
+
+                const warnings: string[] = []
+                if (posthog.sessionRecording?.status === 'active') {
+                    if (
+                        posthog.config.session_recording?.blockClass !== undefined &&
+                        typeof posthog.config.session_recording?.blockClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextClass !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextSelector !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextSelector !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                }
+
+                return warnings
             },
         ],
     }),
@@ -427,75 +486,126 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 )
             }
         },
+        togglePiiMasking: () => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (values.piiMaskingEnabled) {
+                const css = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+                if (!styleElement) {
+                    const newStyleElement = document.createElement('style')
+                    newStyleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(newStyleElement)
+                    newStyleElement.textContent = css
+                } else {
+                    styleElement.textContent = css
+                }
+            } else {
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        },
+        setPiiMaskingColor: async ({ color }) => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (styleElement && values.piiMaskingEnabled) {
+                styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
+            }
+        },
     })),
     afterMount(({ actions, values, cache }) => {
-        cache.clickListener = (e: MouseEvent): void => {
-            const target = e.target as HTMLElement
-            const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
-            if (!clickIsInToolbar && !values.isBlurred) {
-                actions.setIsBlurred(true)
+        // Add window event listeners using disposables
+        cache.disposables.add(() => {
+            const clickListener = (e: MouseEvent): void => {
+                const target = e.target as HTMLElement
+                const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
+                if (!clickIsInToolbar && !values.isBlurred) {
+                    actions.setIsBlurred(true)
+                }
             }
-        }
-        window.addEventListener('mousedown', cache.clickListener)
-        window.addEventListener('popstate', () => {
-            actions.maybeSendNavigationMessage()
-        })
+            window.addEventListener('mousedown', clickListener)
+            return () => window.removeEventListener('mousedown', clickListener)
+        }, 'clickListener')
 
-        // Use a setInterval to periodically check for URL changes
-        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
-        // And mutation observers don't seem to work :shrug:
-        setInterval(() => {
-            actions.maybeSendNavigationMessage()
-        }, 500)
+        cache.disposables.add(() => {
+            const popstateHandler = (): void => actions.maybeSendNavigationMessage()
+            window.addEventListener('popstate', popstateHandler)
+            return () => window.removeEventListener('popstate', popstateHandler)
+        }, 'popstateListener')
+
+        cache.disposables.add(
+            makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
+            'historyProxy'
+        )
+
+        // Initialize PII masking if already enabled
+        // Remove stylesheet on unmount
+        cache.disposables.add(() => {
+            if (values.piiMaskingEnabled) {
+                let styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+                if (!styleElement) {
+                    styleElement = document.createElement('style')
+                    styleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(styleElement)
+                }
+                styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+            }
+
+            return () => {
+                const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID)
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        }, 'piiMasking')
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
         const isInIframe = window !== window.parent
 
-        cache.iframeEventListener = (e: MessageEvent): void => {
-            // TODO: Probably need to have strict checks here
-            const type: PostHogAppToolbarEvent = e?.data?.type
-
-            if (!type || !type.startsWith('ph-')) {
-                return
-            }
-
-            switch (type) {
-                case PostHogAppToolbarEvent.PH_APP_INIT:
-                    actions.setIsEmbeddedInApp(true)
-                    actions.patchHeatmapFilters(e.data.payload.filters)
-                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                    actions.setCommonFilters(e.data.payload.commonFilters)
-                    actions.toggleClickmapsEnabled(false)
-                    window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
-                    return
-                case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
-                    if (e.data.payload.enabled) {
-                        actions.enableInspect()
-                    } else {
-                        actions.disableInspect()
-                        actions.hideButtonActions()
-                    }
-                    return
-                case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
-                    actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
-                    return
-                default:
-                    console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
-            }
-        }
-
         if (isInIframe) {
-            window.addEventListener('message', cache.iframeEventListener, false)
+            cache.disposables.add(() => {
+                const iframeEventListener = (e: MessageEvent): void => {
+                    // TODO: Probably need to have strict checks here
+                    const type: PostHogAppToolbarEvent = e?.data?.type
+
+                    if (!type || !type.startsWith('ph-')) {
+                        return
+                    }
+
+                    switch (type) {
+                        case PostHogAppToolbarEvent.PH_APP_INIT:
+                            actions.setIsEmbeddedInApp(true)
+                            actions.patchHeatmapFilters(e.data.payload.filters)
+                            actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                            actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                            actions.setCommonFilters(e.data.payload.commonFilters)
+                            actions.toggleClickmapsEnabled(false)
+                            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
+                            return
+                        case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
+                            if (e.data.payload.enabled) {
+                                actions.enableInspect()
+                            } else {
+                                actions.disableInspect()
+                                actions.hideButtonActions()
+                            }
+                            return
+                        case PostHogAppToolbarEvent.PH_NEW_ACTION_NAME:
+                            actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
+                            return
+                        default:
+                            console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+                    }
+                }
+                window.addEventListener('message', iframeEventListener, false)
+                return () => window.removeEventListener('message', iframeEventListener, false)
+            }, 'iframeEventListener')
+
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
-    }),
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('mousedown', cache.clickListener)
-        window.removeEventListener('message', cache.iframeEventListener, false)
     }),
 ])

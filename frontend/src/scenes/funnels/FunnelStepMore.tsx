@@ -57,25 +57,25 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
             overlay={
                 <>
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before)} targetBlank>
                             Show user paths leading to step
                         </LemonButton>
                     )}
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.between)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.between)} targetBlank>
                             Show user paths between previous step and this step
                         </LemonButton>
                     )}
-                    <LemonButton fullWidth to={getPathUrl(FunnelPathType.after)}>
+                    <LemonButton fullWidth to={getPathUrl(FunnelPathType.after)} targetBlank>
                         Show user paths after step
                     </LemonButton>
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.after, true)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.after, true)} targetBlank>
                             Show user paths after dropoff
                         </LemonButton>
                     )}
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before, true)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before, true)} targetBlank>
                             Show user paths before dropoff
                         </LemonButton>
                     )}

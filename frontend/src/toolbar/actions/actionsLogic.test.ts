@@ -3,12 +3,33 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { ActionType } from '~/types'
+import { AccessControlLevel, ActionType } from '~/types'
 
 const unsortedActions: ActionType[] = [
-    { name: 'zoo', created_at: '', created_by: null, id: 1, pinned_at: null },
-    { name: 'middle', created_at: '', created_by: null, id: 2, pinned_at: null },
-    { name: 'begin', created_at: '', created_by: null, id: 3, pinned_at: null },
+    {
+        name: 'zoo',
+        created_at: '',
+        created_by: null,
+        id: 1,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
+    {
+        name: 'middle',
+        created_at: '',
+        created_by: null,
+        id: 2,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
+    {
+        name: 'begin',
+        created_at: '',
+        created_by: null,
+        id: 3,
+        pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    },
 ]
 const apiJson = { results: unsortedActions }
 
@@ -45,9 +66,30 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
-                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
-                    { created_at: '', created_by: null, id: 1, name: 'zoo', pinned_at: null },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 3,
+                        name: 'begin',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 2,
+                        name: 'middle',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 1,
+                        name: 'zoo',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
                 ],
                 actionCount: 3,
                 allActions: apiJson.results,
@@ -62,8 +104,22 @@ describe('toolbar actionsLogic', () => {
             .delay(0)
             .toMatchValues({
                 sortedActions: [
-                    { created_at: '', created_by: null, id: 3, name: 'begin', pinned_at: null },
-                    { created_at: '', created_by: null, id: 2, name: 'middle', pinned_at: null },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 3,
+                        name: 'begin',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
+                    {
+                        created_at: '',
+                        created_by: null,
+                        id: 2,
+                        name: 'middle',
+                        pinned_at: null,
+                        user_access_level: AccessControlLevel.Editor,
+                    },
                 ],
             })
     })

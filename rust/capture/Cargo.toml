@@ -28,11 +28,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-redis = { version = "0.23.3", features = [
-    "tokio-comp",
-    "cluster",
-    "cluster-async",
-] }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -48,10 +44,9 @@ uuid = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
-jiff = "0.1"
-dateparser = "0.2"
 lz-str = { workspace = true }
-regex = { workspace = true }
+multer = "3.0"
+futures = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
@@ -61,5 +56,5 @@ futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

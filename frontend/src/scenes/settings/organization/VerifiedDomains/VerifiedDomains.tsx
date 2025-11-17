@@ -22,6 +22,7 @@ import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { SSOSelect } from './SSOSelect'
 import { VerifyDomainModal } from './VerifyDomainModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
@@ -65,8 +66,9 @@ function VerifiedDomainsTable(): JSX.Element {
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
+        isSCIMAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId } =
+    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId, setConfigureSCIMModalId } =
         useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -238,16 +240,28 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 {is_verified && (
-                                    <LemonButton
-                                        onClick={() => setConfigureSAMLModalId(id)}
-                                        fullWidth
-                                        disabledReason={
-                                            restrictionReason ||
-                                            (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
-                                        }
-                                    >
-                                        Configure SAML
-                                    </LemonButton>
+                                    <>
+                                        <LemonButton
+                                            onClick={() => setConfigureSAMLModalId(id)}
+                                            fullWidth
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
+                                            }
+                                        >
+                                            Configure SAML
+                                        </LemonButton>
+                                        {/* TODO: After SCIM is fully rolled out, show the Configure SCIM button with 'Upgrade to enable SCIM' disabledReason */}
+                                        {isSCIMAvailable && (
+                                            <LemonButton
+                                                onClick={() => setConfigureSCIMModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                Configure SCIM
+                                            </LemonButton>
+                                        )}
+                                    </>
                                 )}
                                 <LemonButton
                                     status="danger"
@@ -290,6 +304,7 @@ function VerifiedDomainsTable(): JSX.Element {
             />
             <AddDomainModal />
             <ConfigureSAMLModal />
+            <ConfigureSCIMModal />
             <VerifyDomainModal />
         </div>
     )

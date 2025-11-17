@@ -1,8 +1,16 @@
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    events_cache_tests,
+    persons_cache_tests,
+)
 
 from posthog.schema import (
+    AttributionMode,
     BaseMathType,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
@@ -19,12 +27,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Action
+from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import bulk_create_persons
 
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
-    AttributionModeOperator,
     ConversionGoalProcessor,
     add_conversion_goal_property_filters,
 )
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
 
 def _create_action(**kwargs):
@@ -35,6 +45,24 @@ def _create_action(**kwargs):
     properties = kwargs.pop("properties", {})
     action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name, "properties": properties}])
     return action
+
+
+def flush_persons_and_events_in_batches(batch_size: int = 25):
+    """
+    Custom flush function that processes events in smaller batches to avoid memory limits.
+    This helps prevent ClickHouse memory exceeded errors during bulk inserts.
+    """
+    person_mapping = {}
+    if len(persons_cache_tests) > 0:
+        person_mapping = bulk_create_persons(persons_cache_tests)
+        persons_cache_tests.clear()
+
+    if len(events_cache_tests) > 0:
+        # Process events in smaller batches to avoid memory issues
+        for i in range(0, len(events_cache_tests), batch_size):
+            batch = events_cache_tests[i : i + batch_size]
+            bulk_create_events(batch, person_mapping)
+        events_cache_tests.clear()
 
 
 class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
@@ -74,8 +102,16 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
     def setUp(self):
         super().setUp()
+        # Ensure clean state before each test to prevent memory accumulation
+        flush_persons_and_events_in_batches()
         self.date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
         # No shared test data - each test creates its own isolated data
+
+    def tearDown(self):
+        # Ensure clean state after each test to prevent memory accumulation
+        flush_persons_and_events_in_batches()
+        super().tearDown()
 
     def _create_test_data(self):
         """Create comprehensive test data covering various scenarios"""
@@ -118,7 +154,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"revenue": 1000, "utm_campaign": "premium_push", "utm_source": "email"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
     # ================================================================
     # 1. BASIC UNIT TESTS - Core functionality
@@ -135,7 +171,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test basic getters
         assert processor.get_cte_name() == "signup_goal"
@@ -157,7 +193,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Test various index values
         for index in [0, 1, 5, 10]:
-            processor = ConversionGoalProcessor(goal=goal, index=index, team=self.team)
+            processor = ConversionGoalProcessor(goal=goal, index=index, team=self.team, config=self.config)
             join_clause = processor.generate_join_clause()
             assert join_clause.alias == f"cg_{index}"
 
@@ -176,7 +212,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -195,7 +231,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -221,7 +257,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
@@ -271,7 +307,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "growth_hack", "utm_source": "twitter"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -282,7 +318,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -359,7 +395,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "test_campaign", "utm_source": "google"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -370,7 +406,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -441,7 +477,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "summer_sale", "utm_source": "facebook", "revenue": 50},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -453,7 +489,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -479,7 +515,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: SUM should add all revenue values (100 + 0 + missing=0 + 250 + 50 = 400)
         assert campaign_name == "summer_sale"
-        assert source_name == "facebook"
+        assert source_name == "meta"
         assert (
             total_revenue == 400
         ), f"Expected total revenue of 400 (100+0+missing=0+250+50), got {total_revenue}. Missing revenue should be treated as 0."
@@ -519,7 +555,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "edge_case_test", "utm_source": "test"},
             )  # No revenue property
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -531,7 +567,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -591,7 +627,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "avg_fallback_test", "utm_source": "test", "revenue": 200},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -603,7 +639,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -679,7 +715,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "filter_test", "utm_source": "test", "revenue": "050"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -691,7 +727,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -757,7 +793,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"revenue": "200", "utm_campaign": "multi_filter_test", "utm_source": "facebook"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -772,7 +808,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -845,7 +881,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"revenue": "800", "utm_campaign": "premium_launch", "utm_source": "test"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -862,7 +898,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -912,7 +948,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "utm_campaign"]
@@ -938,7 +974,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["campaign_field"]
@@ -955,7 +991,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "custom_campaign_field", "utm_source_name": "custom_source_field"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "custom_campaign_field"]
@@ -972,7 +1008,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={},  # Empty schema map
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Should handle missing schema gracefully and fallback to defaults
         utm_campaign, utm_source = processor.get_utm_expressions()
@@ -1007,13 +1043,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     "utm_source": "default_source_should_be_ignored",
                 },
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(
                 distinct_id="custom_fields_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Configure processor to use CUSTOM field mappings
         goal = ConversionGoalFilter1(
@@ -1026,7 +1062,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "my_campaign_field", "utm_source_name": "my_source_field"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1077,7 +1113,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         join_clause = processor.generate_join_clause()
         assert join_clause.join_type == "LEFT JOIN"
@@ -1096,7 +1132,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         select_columns = processor.generate_select_columns()
         assert len(select_columns) == 2
@@ -1124,7 +1160,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         with pytest.raises(Action.DoesNotExist):
             processor.get_base_where_conditions()
@@ -1141,7 +1177,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Should handle gracefully by ignoring irrelevant math_property for DAU
         select_field = processor.get_select_field()
@@ -1181,7 +1217,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "empty_test", "revenue": "300"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1192,7 +1228,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1227,7 +1263,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "long_name_test", "revenue": "100"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         long_name = "A" * 1000  # Very long goal name (1000 characters)
 
@@ -1240,7 +1276,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes successfully with very long goal name
         additional_conditions = [
@@ -1293,7 +1329,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "special_test", "revenue": "200"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1304,7 +1340,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query correctly matches only the event with special characters
         additional_conditions = [
@@ -1361,7 +1397,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "ascii_campaign", "utm_source": "google", "revenue": "200"},
             )
 
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1372,7 +1408,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "营销活动", "utm_source_name": "来源"},  # Chinese property names
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes successfully with Unicode property names
         additional_conditions = [
@@ -1408,7 +1444,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "pre_range", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-01-10"):
             _create_event(
@@ -1417,7 +1453,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # No UTM on conversion
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-01-20"):
             _create_event(
@@ -1426,7 +1462,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "post_conversion", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1437,7 +1473,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test that query executes and finds the conversion despite complex timeline
         additional_conditions = [
@@ -1482,7 +1518,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1511,7 +1547,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1539,7 +1575,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1565,7 +1601,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Test all major components can be generated without errors
         assert processor.get_select_field() is not None
@@ -1594,7 +1630,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(
@@ -1603,7 +1639,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # No UTM on conversion event
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1614,7 +1650,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         # Execute query and verify attribution
         additional_conditions = [
@@ -1653,11 +1689,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(distinct_id="validation_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create processor and execute query
         goal = ConversionGoalFilter1(
@@ -1669,7 +1705,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1720,7 +1756,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # Conversion first
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(
@@ -1729,7 +1765,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "too_late", "utm_source": "google"},  # Ad after conversion
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1740,11 +1776,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1785,7 +1817,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "newsletter", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Setup: Create Facebook touchpoint later (last touch)
         with freeze_time("2023-04-15"):
@@ -1795,12 +1827,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_promo", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Conversion with no UTM (should use last touchpoint)
         with freeze_time("2023-05-10"):
             _create_event(distinct_id="multi_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create processor and execute query
         goal = ConversionGoalFilter1(
@@ -1812,11 +1844,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1841,9 +1869,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert (
             campaign_name == "spring_promo"
         ), f"Last-touch attribution should choose Facebook campaign over Email, got {campaign_name}"
-        assert (
-            source_name == "facebook"
-        ), f"Last-touch attribution should choose Facebook source over Email, got {source_name}"
+        assert source_name == "meta", f"Last-touch attribution should choose Meta source over Email, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_direct_utm_attribution_priority_over_temporal(self):
@@ -1866,7 +1892,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "summer_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Setup: Create ad2 touchpoint later (would be last touch temporally)
         with freeze_time("2023-04-15"):
@@ -1876,7 +1902,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "flash_sale", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Note: Conversion event has ad1 UTM params directly
         # This should override temporal attribution to ad2
@@ -1891,7 +1917,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     "utm_source": "google",  # Should take priority!
                 },
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Test the attribution priority logic
         goal = ConversionGoalFilter1(
@@ -1903,7 +1929,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1953,7 +1979,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # Conversion with no UTM
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(
@@ -1962,7 +1988,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "summer_sale", "utm_source": "google"},  # Ad after conversion
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -1973,11 +1999,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2021,7 +2043,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "early_bird", "utm_source": "email"},  # First touch
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(
@@ -2030,11 +2052,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},  # Last touch
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(distinct_id="multi_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2045,7 +2067,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2090,7 +2112,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "early_bird", "utm_source": "email"},  # First touch
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(
@@ -2099,11 +2121,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},  # Last touch
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(distinct_id="first_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2114,9 +2136,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
-        # Set attribution mode to first touch
-        processor.attribution_mode = AttributionModeOperator.FIRST_TOUCH.value
+        # Create config with first-touch attribution mode
+        first_touch_config = MarketingAnalyticsConfig.from_team(self.team)
+        first_touch_config.attribution_mode = AttributionMode.FIRST_TOUCH
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=first_touch_config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2163,7 +2187,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "early_bird", "utm_source": "email"},  # Valid
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(
@@ -2172,7 +2196,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},  # Valid (last)
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-10"):
             _create_event(
@@ -2181,7 +2205,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # CONVERSION
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-06-05"):
             _create_event(
@@ -2190,7 +2214,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "summer_sale", "utm_source": "facebook"},  # Invalid
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-07-01"):
             _create_event(
@@ -2199,7 +2223,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "july_promo", "utm_source": "twitter"},  # Invalid
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2210,7 +2234,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2254,7 +2278,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "new_year", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-12-31"):
             _create_event(
@@ -2263,7 +2287,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 500},  # High-value conversion after long journey
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2274,11 +2298,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 365
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2319,7 +2340,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(
@@ -2328,7 +2349,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 100},  # Conv1 → spring_sale/google
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-20"):
             _create_event(
@@ -2337,7 +2358,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "mothers_day", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-25"):
             _create_event(
@@ -2346,7 +2367,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 150},  # Conv2 → mothers_day/facebook
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-06-10"):
             _create_event(
@@ -2355,7 +2376,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 75},  # Conv3 → mothers_day/facebook (still)
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2367,11 +2388,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test April conversion attribution (should use spring_sale)
-        processor_april = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_april = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_april = [
             ast.CompareOperation(
@@ -2405,11 +2422,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert count == 1, f"Expected 1 conversion attributed to spring_sale, got {count}"
 
         # Test May conversion attribution (should use mothers_day)
-        processor_may = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_may = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_may = [
             ast.CompareOperation(
@@ -2429,7 +2442,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         mothers_day_result = None
         for result in response_may.results:
-            if result[0] == "mothers_day" and result[1] == "facebook":
+            if result[0] == "mothers_day" and result[1] == "meta":
                 mothers_day_result = result
                 break
 
@@ -2438,15 +2451,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Expected mothers_day attribution for May conversion, got results: {response_may.results}"
         may_campaign, may_source, may_count = mothers_day_result[0], mothers_day_result[1], mothers_day_result[2]
         assert may_campaign == "mothers_day", f"Expected mothers_day for May purchase, got {may_campaign}"
-        assert may_source == "facebook", f"Expected facebook source for May, got {may_source}"
+        assert may_source == "meta", f"Expected meta source for May, got {may_source}"
         assert may_count == 2, f"Expected 2 conversions attributed to mothers_day, got {may_count}"
 
         # Test June conversion attribution (should still use mothers_day - no new ads)
-        processor_june = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_june = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_june = [
             ast.CompareOperation(
@@ -2466,7 +2475,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         june_mothers_day_result = None
         for result in response_june.results:
-            if result[0] == "mothers_day" and result[1] == "facebook":
+            if result[0] == "mothers_day" and result[1] == "meta":
                 june_mothers_day_result = result
                 break
 
@@ -2479,7 +2488,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             june_mothers_day_result[2],
         )
         assert june_campaign == "mothers_day", f"Expected mothers_day for June purchase, got {june_campaign}"
-        assert june_source == "facebook", f"Expected facebook source for June, got {june_source}"
+        assert june_source == "meta", f"Expected meta source for June, got {june_source}"
         assert june_count == 1, f"Expected 1 conversion attributed to mothers_day in June, got {june_count}"
 
     # ================================================================
@@ -2506,13 +2515,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "daily_deal", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-15 20:00:00"):
             _create_event(
                 distinct_id="same_day_morning_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2523,7 +2532,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2562,7 +2571,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_event(
                 distinct_id="same_day_evening_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-15 20:00:00"):
             _create_event(
@@ -2571,7 +2580,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "daily_deal", "utm_source": "email"},  # Too late!
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2582,7 +2591,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2629,7 +2638,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_event(
                 distinct_id="simultaneous_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2640,7 +2649,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2677,7 +2686,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         with freeze_time("2023-05-15 12:00:00"):
             _create_person(distinct_ids=["one_second_user"], team=self.team)
             _create_event(distinct_id="one_second_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-15 12:00:01"):
             _create_event(
@@ -2686,7 +2695,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "too_late", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2697,7 +2706,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2742,22 +2751,22 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # First purchase
         with freeze_time("2023-04-15"):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Second purchase
         with freeze_time("2023-05-20"):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 75})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Third purchase
         with freeze_time("2023-06-10"):
             _create_event(distinct_id="repeat_buyer", event="purchase", team=self.team, properties={"revenue": 150})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2768,7 +2777,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 120
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2810,25 +2820,25 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_person(distinct_ids=["user_a"], team=self.team)
             _create_event(distinct_id="user_a", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_a", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User B: sees ad, purchases once
         with freeze_time("2023-04-15"):
             _create_person(distinct_ids=["user_b"], team=self.team)
             _create_event(distinct_id="user_b", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_b", event="purchase", team=self.team, properties={"revenue": 150})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User C: sees ad, purchases twice
         with freeze_time("2023-04-20"):
             _create_person(distinct_ids=["user_c"], team=self.team)
             _create_event(distinct_id="user_c", event="$pageview", team=self.team, properties=campaign_props)
             _create_event(distinct_id="user_c", event="purchase", team=self.team, properties={"revenue": 200})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-21"):
             _create_event(distinct_id="user_c", event="purchase", team=self.team, properties={"revenue": 75})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2839,11 +2849,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2893,7 +2899,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "awareness", "utm_source": "youtube"},  # Awareness
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-15"):
             _create_event(
@@ -2902,7 +2908,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "nurture", "utm_source": "email"},  # Nurturing
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -2911,7 +2917,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "retarget", "utm_source": "facebook"},  # Retargeting
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-05"):
             _create_event(
@@ -2920,7 +2926,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "retarget", "utm_source": "facebook"},  # Intent
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-10"):
             _create_event(
@@ -2929,7 +2935,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 200},  # CONVERSION
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-01"):
             _create_event(
@@ -2938,7 +2944,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "upsell", "utm_source": "email"},  # Post-purchase
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -2949,11 +2955,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2973,7 +2975,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name == "retarget", f"Expected retarget (last-touch), got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook source, got {source_name}"
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "upsell", f"Should ignore post-purchase campaigns"
 
@@ -2998,7 +3000,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={},  # Organic - no UTM parameters
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -3007,13 +3009,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "paid_search", "utm_source": "google"},  # Paid
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-10"):
             _create_event(
                 distinct_id="organic_paid_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3024,11 +3026,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3072,7 +3070,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "paid_search", "utm_source": "google"},  # Paid
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -3081,13 +3079,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={},  # Organic - no UTM parameters
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-10"):
             _create_event(
                 distinct_id="paid_organic_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3098,11 +3096,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3147,7 +3141,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "brand_awareness", "utm_source": "youtube"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-08"):  # Week 2
             _create_event(
@@ -3156,7 +3150,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "newsletter", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-15"):  # Week 3
             _create_event(
@@ -3165,7 +3159,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "retarget", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-22"):  # Week 4
             _create_event(
@@ -3174,13 +3168,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "search_ad", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-24"):  # Week 4
             _create_event(
                 distinct_id="cross_channel_user", event="purchase", team=self.team, properties={"revenue": 300}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3191,11 +3185,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3251,7 +3241,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "mobile_ad", "utm_source": "instagram", "$os": "iOS"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Session 2 - Desktop (Direct visit)
         with freeze_time("2023-03-15"):
@@ -3268,7 +3258,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             _create_event(
                 distinct_id="multi_session_user", event="add_to_cart", team=self.team, properties={"$os": "Mac OS X"}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Session 3 - Mobile (Email conversion)
         with freeze_time("2023-04-01"):
@@ -3284,7 +3274,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 150, "$os": "iOS"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3295,11 +3285,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3351,14 +3337,14 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "early_bird_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Setup: Conversion WITHIN query range
         with freeze_time("2023-05-10"):
             _create_event(
                 distinct_id="filtered_utm_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3370,11 +3356,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Note: Query range EXCLUDES the March UTM touchpoint
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [  # May only!
             ast.CompareOperation(
@@ -3431,15 +3413,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "month_start", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-01-29"):  # Day 29 - within window
             _create_event(distinct_id="window_test_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-02-01"):  # Day 31 - beyond window
             _create_event(distinct_id="window_test_user", event="purchase", team=self.team, properties={"revenue": 50})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3451,12 +3433,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test conversion within 30-day attribution window (should attribute)
-        processor_within = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor_within.attribution_window_days = 30
+        processor_within = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor_within.config.attribution_window_days = 30
 
         additional_conditions_within = [
             ast.CompareOperation(
@@ -3484,11 +3462,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert within_count == 1, f"Expected 1 conversion within window, got {within_count}"
 
         # Test conversion beyond 30-day attribution window (should not attribute)
-        processor_beyond = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_beyond = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_beyond = [
             ast.CompareOperation(
@@ -3497,7 +3471,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
             ),
         ]
-        processor_beyond.attribution_window_days = 30
+        processor_beyond.config.attribution_window_days = 30
 
         cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
         response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
@@ -3535,13 +3509,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "old_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2024-01-01"):  # 2 years later
             _create_event(
                 distinct_id="old_campaign_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3552,12 +3526,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 10
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 10
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -3604,7 +3574,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "", "utm_source": "google"},  # Empty campaign
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -3613,7 +3583,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "valid_campaign"},  # Missing source
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-01"):
             _create_event(
@@ -3622,13 +3592,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_source": "facebook"},  # Missing campaign
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-06-01"):
             _create_event(
                 distinct_id="malformed_utm_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3639,11 +3609,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3696,13 +3662,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "duplicate2", "utm_source": "google"},  # Same timestamp
                 event_uuid="22222222-2222-2222-2222-222222222222",
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-15 13:00:00"):
             _create_event(
                 distinct_id="duplicate_events_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3713,7 +3679,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3767,13 +3733,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 properties={"utm_campaign": "duplicate2", "utm_source": "google"},  # Same timestamp
                 event_uuid="11111111-1111-1111-1111-111111111111",
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-15 13:00:00"):
             _create_event(
                 distinct_id="duplicate_events_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3784,7 +3750,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3833,13 +3799,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     "utm_term": "buy now + save",  # Plus sign
                 },
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
                 distinct_id="special_chars_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3850,11 +3816,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3888,8 +3850,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         Expected: Should handle long values gracefully (truncate or handle full value)
         Tests handling of abnormally long UTM parameter values
         """
-        long_campaign = "very_long_campaign_name_" + "x" * 500  # Very long campaign name
-        long_source = "extremely_long_source_name_" + "y" * 300  # Very long source
+        long_campaign = "very_long_campaign_name_" + "x" * 500
+        long_source = "extremely_long_source_name_" + "y" * 300
 
         with freeze_time("2023-03-01"):
             _create_person(distinct_ids=["long_utm_user"], team=self.team)
@@ -3899,11 +3861,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": long_campaign, "utm_source": long_source},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(distinct_id="long_utm_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3914,11 +3876,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3962,7 +3920,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "Spring Sale", "utm_source": "Google"},  # Capitalized
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-15"):
             _create_event(
@@ -3971,7 +3929,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring sale", "utm_source": "google"},  # Lowercase
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -3980,13 +3938,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "SPRING SALE", "utm_source": "GOOGLE"},  # Uppercase
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-10"):
             _create_event(
                 distinct_id="case_sensitive_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -3997,11 +3955,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4046,7 +4000,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": None, "utm_source": None},  # Null values
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-15"):
             _create_event(
@@ -4055,7 +4009,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "", "utm_source": ""},  # Empty strings
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             _create_event(
@@ -4064,11 +4018,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={},  # Missing UTM entirely
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-10"):
             _create_event(distinct_id="null_empty_user", event="purchase", team=self.team, properties={"revenue": 100})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4079,11 +4033,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4133,7 +4083,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "ignored_signup", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-05"):
             # Purchase with UTM - should be ignored
@@ -4143,7 +4093,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "ignored_purchase", "utm_source": "twitter", "revenue": 50},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-10"):
             # $pageview with UTM - should be used for attribution
@@ -4153,14 +4103,14 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "valid_pageview", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             # Final conversion
             _create_event(
                 distinct_id="non_pageview_user", event="purchase", team=self.team, properties={"revenue": 100}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4171,11 +4121,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4227,7 +4173,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "brand_awareness", "utm_source": "youtube"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 5 - Email campaign
         with freeze_time("2023-02-01"):
@@ -4237,7 +4183,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "newsletter_feb", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 6 - Organic search (no UTM)
         with freeze_time("2023-02-08"):
@@ -4247,7 +4193,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={},  # Organic - no UTM
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 7 - Facebook retargeting (last paid touchpoint)
         with freeze_time("2023-02-15"):
@@ -4257,7 +4203,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "retarget_feb", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 7 - First purchase (no UTM on conversion event - tests temporal attribution)
         with freeze_time("2023-02-17"):
@@ -4270,7 +4216,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     # No UTM on conversion event - should use temporal attribution
                 },
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 8 - Post-purchase upsell (should not affect first purchase attribution)
         with freeze_time("2023-02-22"):
@@ -4280,7 +4226,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "upsell_campaign", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Week 10 - Second purchase
         with freeze_time("2023-03-08"):
@@ -4292,7 +4238,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     "revenue": 75,  # No UTM on this purchase
                 },
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4304,11 +4250,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         # Test first purchase attribution (February 17)
-        processor_first = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_first = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_first = [
             ast.CompareOperation(
@@ -4336,15 +4278,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
 
         assert campaign_name == "retarget_feb", f"Expected retarget_feb for first purchase, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook source, got {source_name}"
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion for first purchase, got {conversion_count}"
 
         # Test both purchases together (full timeline attribution)
-        processor_full = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor_full = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions_full = [
             ast.CompareOperation(
@@ -4367,7 +4305,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         upsell_result = None
 
         for result in response_full.results:
-            if result[0] == "retarget_feb" and result[1] == "facebook":
+            if result[0] == "retarget_feb" and result[1] == "meta":
                 retarget_result = result
             elif result[0] == "upsell_campaign" and result[1] == "email":
                 upsell_result = result
@@ -4378,7 +4316,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Expected retarget_feb attribution for first purchase, got results: {response_full.results}"
         retarget_campaign, retarget_source, retarget_count = retarget_result[0], retarget_result[1], retarget_result[2]
         assert retarget_campaign == "retarget_feb", f"Expected retarget_feb for first purchase, got {retarget_campaign}"
-        assert retarget_source == "facebook", f"Expected facebook source, got {retarget_source}"
+        assert retarget_source == "meta", f"Expected meta source, got {retarget_source}"
         assert retarget_count == 1, f"Expected 1 conversion attributed to retarget_feb, got {retarget_count}"
 
         # Second purchase should be attributed to upsell_campaign (Feb 22 ad before Mar 8 purchase)
@@ -4408,22 +4346,22 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_sale", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-05"):
             # Mobile browsing (no UTM)
             _create_event(distinct_id="mobile_app", event="$pageview", team=self.team, properties={"page": "/products"})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-10"):
             # Purchase from email distinct_id (signed in)
             _create_event(distinct_id="user@email.com", event="purchase", team=self.team, properties={"revenue": 99})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-15"):
             # Purchase from original laptop session
             _create_event(distinct_id="laptop_anon", event="purchase", team=self.team, properties={"revenue": 149})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Test processor handles cross-device attribution correctly
         goal = ConversionGoalFilter1(
@@ -4435,11 +4373,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4478,7 +4412,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"$referring_domain": "google.com"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-02-01"):
             # Second session: UTM campaign
@@ -4488,7 +4422,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "winter_sale", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-02-15"):
             # Third session: different UTM campaign
@@ -4498,19 +4432,19 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "valentines_special", "utm_source": "email"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-01"):
             # Fourth session: signed up with email
             _create_event(
                 distinct_id="user@test.com", event="sign_up", team=self.team, properties={"source": "website"}
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-03-10"):
             # Purchase 1: Should attribute to valentines_special (most recent UTM)
             _create_event(distinct_id="user@test.com", event="purchase", team=self.team, properties={"revenue": 75})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-01"):
             # Fifth session: New UTM campaign
@@ -4520,7 +4454,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_launch", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             # Purchase 2: Should attribute to spring_launch (most recent UTM)
@@ -4530,7 +4464,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"revenue": 120},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Test the complex attribution
         goal = ConversionGoalFilter1(
@@ -4542,11 +4476,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4598,7 +4528,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2025-03-15"):
             _create_event(
@@ -4607,11 +4537,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2025-06-06"):
             _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4622,12 +4552,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 180  # 6 month attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 180
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4654,7 +4580,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         result = response.results[0]
         campaign_name, source_name, conversion_count = result[0], result[1], result[2]
         assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert source_name == "meta", f"Expected meta, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
@@ -4681,7 +4607,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2025-03-15"):
             _create_event(
@@ -4690,11 +4616,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2025-06-06"):
             _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4705,12 +4631,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 180  # 6 month attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 180
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4737,7 +4659,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         result = response.results[0]
         campaign_name, source_name, conversion_count = result[0], result[1], result[2]
         assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert source_name == "meta", f"Expected meta, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
@@ -4773,7 +4695,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "social_campaign", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User1: Pageview on May 30 with UTM
         with freeze_time("2024-05-30"):
@@ -4784,17 +4706,17 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "email_campaign", "utm_source": "newsletter"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User2: Converts on June 5 (7 days after pageview - within 30-day window)
         with freeze_time("2024-06-05"):
             _create_event(distinct_id="user2", event="user signed up", team=self.team, properties={"value": 1})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User1: Converts on July 1 (32 days after pageview - outside 30-day window)
         with freeze_time("2024-07-01"):
             _create_event(distinct_id="user1", event="user signed up", team=self.team, properties={"value": 1})
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         goal = ConversionGoalFilter1(
             kind=NodeKind.EVENTS_NODE,
@@ -4805,12 +4727,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-        )
-        processor.attribution_window_days = 30  # 30-day attribution window
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        processor.config.attribution_window_days = 30
 
         # Query range: June 2 to July 2 (includes both conversions)
         additional_conditions = [
@@ -4840,11 +4758,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # User2: Within 30-day window - should be attributed to UTM
         assert (
-            "social_campaign/facebook" in results_dict
-        ), f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+            "social_campaign/meta" in results_dict
+        ), f"Missing social_campaign/meta attribution. Results: {results_dict}"
         assert (
-            results_dict["social_campaign/facebook"] == 1
-        ), f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+            results_dict["social_campaign/meta"] == 1
+        ), f"Expected 1 conversion for social_campaign/meta, got {results_dict['social_campaign/meta']}"
 
         # User1: Outside 30-day window - should be organic
         assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
@@ -4881,15 +4799,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "conversion_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(distinct_id="multi_event_user", event="sign_up", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-20"):
             _create_event(distinct_id="multi_event_user", event="activate_account", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create action with multiple events
         action = Action.objects.create(
@@ -4905,7 +4823,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4951,7 +4869,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                     team=self.team,
                     properties={"utm_campaign": "multi_user_campaign", "utm_source": "facebook"},
                 )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             # User A signs up
@@ -4961,7 +4879,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"source": "ad_click"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-20"):
             # User B activates account (without signing up in our data)
@@ -4971,7 +4889,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"activation_type": "email_verification"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-25"):
             # User C signs up
@@ -4981,7 +4899,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"source": "ad_click"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-30"):
             # User A activates account (second event from same user)
@@ -4991,7 +4909,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"activation_type": "email_verification"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create action with multiple events
         action = Action.objects.create(
@@ -5010,7 +4928,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team)
+        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5039,7 +4957,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team)
+        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team, config=self.config)
         cte_query_dau = processor_dau.generate_cte_query(additional_conditions)
         response_dau = execute_hogql_query(query=cte_query_dau, team=self.team)
 
@@ -5072,7 +4990,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "property_filter_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             # Sign up with matching property
@@ -5082,7 +5000,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"source": "ad_click"},  # This should match
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-20"):
             # Activate with matching property
@@ -5092,7 +5010,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"activation_type": "email_verification"},  # This should match
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-25"):
             # Sign up with non-matching property
@@ -5102,7 +5020,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"source": "organic"},  # This should NOT match
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-30"):
             # Activate with non-matching property
@@ -5112,7 +5030,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"activation_type": "phone_verification"},  # This should NOT match
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create action with multiple events and property filters
         action = Action.objects.create(
@@ -5136,7 +5054,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5175,7 +5093,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "test_campaign", "utm_source": "google"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # User triggers ONLY the first event
         with freeze_time("2023-04-15"):
@@ -5184,7 +5102,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 event="sign_up",
                 team=self.team,
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create action with 2 events
         action_both_events = Action.objects.create(
@@ -5200,7 +5118,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -5219,7 +5137,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Now user triggers the second event too
         with freeze_time("2023-04-20"):
             _create_event(distinct_id="semantics_user", event="activate_account", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Test again with both events triggered
         response_both = execute_hogql_query(query=cte_query, team=self.team)
@@ -5244,11 +5162,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "paid_campaign", "utm_source": "google_ads"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-04-15"):
             _create_event(distinct_id="attribution_test_user", event="sign_up", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         action = Action.objects.create(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
 
@@ -5261,7 +5179,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -5302,15 +5220,15 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "summer_launch", "utm_source": "twitter_ads"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-06-01 10:05:00"):
             _create_event(distinct_id="test_user", event="sign_up", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-06-01 10:10:00"):
             _create_event(distinct_id="test_user", event="activate_account", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create multi-event action
         action = Action.objects.create(
@@ -5352,8 +5270,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ]
 
         # Execute queries
-        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team)
-        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team)
+        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team, config=self.config)
+        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team, config=self.config)
 
         events_query = events_processor.generate_cte_query(date_conditions)
         actions_query = actions_processor.generate_cte_query(date_conditions)
@@ -5400,11 +5318,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
             )
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         with freeze_time("2023-05-02"):
             _create_event(distinct_id="test_user", event="sign_up", team=self.team)
-            flush_persons_and_events()
+            flush_persons_and_events_in_batches()
 
         # Create action and processor
         action = _create_action(team=self.team, name="User Signup Action", event_name="sign_up")
@@ -5418,7 +5336,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
         date_conditions = [
             ast.CompareOperation(
@@ -5441,7 +5359,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = response.results[0]
 
         assert campaign_name == "spring_campaign"
-        assert source_name == "facebook"
+        assert source_name == "meta"
         assert conversion_count == 1
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot

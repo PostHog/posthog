@@ -1,3 +1,4 @@
+import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
@@ -6,6 +7,7 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
@@ -15,6 +17,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -34,11 +37,27 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
+    // Build default variables from hogFlow, then merge in any provided in globals.variables
+    const defaultVariables =
+        hogFlow.variables?.reduce(
+            (acc, variable) => {
+                acc[variable.key] = variable.default || null
+                return acc
+            },
+            {} as Record<string, any>
+        ) || {}
+
+    const mergedVariables = {
+        ...defaultVariables,
+        ...(globals.variables || {}),
+    }
+
     return {
         id: new UUIDT().toString(),
         state: {
             event: globals.event,
             actionStepCount: 0,
+            variables: mergedVariables,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -123,6 +142,7 @@ export class HogFlowExecutorService {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
+        const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -153,6 +173,7 @@ export class HogFlowExecutorService {
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
+            capturedPostHogEvents.push(...result.capturedPostHogEvents)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -161,6 +182,7 @@ export class HogFlowExecutorService {
 
         result.logs = logs
         result.metrics = metrics
+        result.capturedPostHogEvents = capturedPostHogEvents
 
         return result
     }
@@ -276,7 +298,10 @@ export class HogFlowExecutorService {
     }
 
     public async executeCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        options?: {
+            hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         result.finished = false // Typically we are never finished unless we error or exit
@@ -307,7 +332,16 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute(invocation, currentAction, result)
+                const handlerResult = await handler.execute({
+                    invocation,
+                    action: currentAction,
+                    result,
+                    hogExecutorOptions: options?.hogExecutorOptions,
+                })
+
+                if (handlerResult.result) {
+                    this.trackActionResult(result, currentAction, handlerResult.result)
+                }
 
                 if (handlerResult.finished) {
                     result.finished = true
@@ -378,25 +412,29 @@ export class HogFlowExecutorService {
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): void {
-        const { invocation } = result
-        // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
-        const currentAction = ensureCurrentAction(invocation)
-        if (currentAction?.on_error === 'continue') {
-            const nextAction = findContinueAction(invocation)
-            if (nextAction) {
-                this.logAction(
-                    result,
-                    currentAction,
-                    'info',
-                    `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
-                )
+        try {
+            const { invocation } = result
+            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            const currentAction = ensureCurrentAction(invocation)
+            if (currentAction?.on_error === 'continue') {
+                const nextAction = findContinueAction(invocation)
+                if (nextAction) {
+                    this.logAction(
+                        result,
+                        currentAction,
+                        'info',
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                    )
 
-                /**
-                 * TODO: Determine if we should track this as a 'succeeded' metric here or
-                 * a new metric_name e.g. 'continued_after_error'
-                 */
-                this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                    /**
+                     * TODO: Determine if we should track this as a 'succeeded' metric here or
+                     * a new metric_name e.g. 'continued_after_error'
+                     */
+                    this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                }
             }
+        } catch (err) {
+            logger.error('Error trying to continue to next action on error', { error: err })
         }
     }
 
@@ -453,5 +491,48 @@ export class HogFlowExecutorService {
             metric_name: metricName,
             count: 1,
         })
+    }
+
+    private trackActionResult(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        actionResult: unknown
+    ): void {
+        if (action.output_variable?.key) {
+            if (!actionResult) {
+                this.log(
+                    result,
+                    'warn',
+                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
+                )
+                return
+            }
+
+            if (!result.invocation.state.variables) {
+                result.invocation.state.variables = {}
+            }
+
+            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
+                ? get(actionResult, action.output_variable.result_path)
+                : actionResult
+
+            // Check that result to be stored is below 1kb
+            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+            if (resultSize > 1024) {
+                this.log(
+                    result,
+                    'warn',
+                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                )
+                delete result.invocation.state.variables[action.output_variable.key]
+                return
+            }
+
+            this.log(
+                result,
+                'debug',
+                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
+            )
+        }
     }
 }

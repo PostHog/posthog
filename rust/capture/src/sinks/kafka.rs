@@ -5,11 +5,10 @@ use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use health::HealthHandle;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -237,11 +236,12 @@ impl KafkaSink {
             CaptureError::NonRetryableSinkError
         })?;
 
-        let token = event.token.clone();
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
-        let distinct_id = event.distinct_id.clone();
+
+        // Use the event's to_headers() method for consistent header serialization
+        let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -249,30 +249,38 @@ impl KafkaSink {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
-                let is_limited = match &self.partition {
-                    None => false,
+                let overflow_result = match &self.partition {
+                    None => OverflowLimiterResult::NotLimited,
                     Some(partition) => partition.is_limited(&event_key),
                 };
 
-                if is_limited {
-                    // Analytics overflow goes to the overflow topic
-                    // we configure to retain partition key or not.
-                    // if is_limited is true, the OverflowLimiter is
-                    // configured and is safe to unwrap here.
-                    counter!(
-                        "capture_events_rerouted_overflow",
-                        &[("reason", "event_key")]
-                    )
-                    .increment(1);
-                    if self.partition.as_ref().unwrap().should_preserve_locality() {
-                        (&self.overflow_topic, Some(event_key.as_str()))
-                    } else {
+                match overflow_result {
+                    OverflowLimiterResult::ForceLimited => {
+                        headers.set_force_disable_person_processing(true);
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "force_limited")]
+                        )
+                        .increment(1);
                         (&self.overflow_topic, None)
                     }
-                } else {
-                    // event_key is "<token>:<distinct_id>" for std events or
-                    // "<token>:<ip_addr>" for cookieless events
-                    (&self.main_topic, Some(event_key.as_str()))
+                    OverflowLimiterResult::Limited => {
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "rate_limited")]
+                        )
+                        .increment(1);
+                        if self.partition.as_ref().unwrap().should_preserve_locality() {
+                            (&self.overflow_topic, Some(event_key.as_str()))
+                        } else {
+                            (&self.overflow_topic, None)
+                        }
+                    }
+                    OverflowLimiterResult::NotLimited => {
+                        // event_key is "<token>:<distinct_id>" for std events or
+                        // "<token>:<ip_addr>" for cookieless events
+                        (&self.main_topic, Some(event_key.as_str()))
+                    }
                 }
             }
             DataType::ClientIngestionWarning => (
@@ -298,30 +306,13 @@ impl KafkaSink {
             }
         };
 
-        // Use the computed event timestamp for Kafka timestamp header
-        let computed_timestamp = metadata.computed_timestamp.map(|ts| ts.timestamp_millis());
-
         match self.producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(
-                OwnedHeaders::new()
-                    .insert(Header {
-                        key: "token",
-                        value: Some(&token),
-                    })
-                    .insert(Header {
-                        key: "distinct_id",
-                        value: Some(&distinct_id),
-                    })
-                    .insert(Header {
-                        key: "timestamp",
-                        value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
-                    }),
-            ),
+            headers: Some(headers.into()),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
@@ -494,13 +485,17 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
+            historical_migration: false,
         };
 
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
             session_id: None,
             computed_timestamp: None,
+            event_name: "test_event".to_string(),
         };
 
         let event = ProcessedEvent {
@@ -537,7 +532,10 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
+            historical_migration: false,
         };
 
         let big_event = ProcessedEvent {
@@ -565,7 +563,10 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                event: "test_event".to_string(),
+                timestamp: chrono::Utc::now(),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: metadata.clone(),
         };
@@ -622,5 +623,72 @@ mod tests {
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_historical_migration_headers() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that historical_migration=true is set in headers for AnalyticsHistorical
+        let headers_historical = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2023-01-01T12:00:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: Some(true),
+        };
+
+        let owned_headers: OwnedHeaders = headers_historical.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+        assert_eq!(parsed_headers.historical_migration, Some(true));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+
+        let headers_main = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2023-01-01T12:00:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: Some(false),
+        };
+
+        let owned_headers: OwnedHeaders = headers_main.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+        assert_eq!(parsed_headers.historical_migration, Some(false));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_now_header_is_set() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that the 'now' header is correctly set and parsed
+        let test_now = "2024-01-15T10:30:45Z".to_string();
+        let headers = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some(test_now.clone()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+        };
+
+        // Convert to owned headers and back
+        let owned_headers: OwnedHeaders = headers.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        // Verify the 'now' field is preserved
+        assert_eq!(parsed_headers.now, Some(test_now));
+        assert_eq!(parsed_headers.token, Some("test_token".to_string()));
+        assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
     }
 }

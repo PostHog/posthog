@@ -5,22 +5,29 @@ import { useEffect } from 'react'
 
 import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -29,7 +36,14 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionStepType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { ActionHogFunctions } from '../components/ActionHogFunctions'
 import { ActionStep } from '../components/ActionStep'
@@ -61,6 +75,23 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
+    // Check if user can edit this action
+    const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
+    const cannotEditReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Action,
+        AccessControlLevel.Editor,
+        action.user_access_level
+    )
+
+    const actionId = typeof action?.id === 'number' ? action.id : null
+
+    useFileSystemLogView({
+        type: 'action',
+        ref: actionId,
+        enabled: Boolean(actionId && !actionLoading),
+        deps: [actionId, actionLoading],
+    })
+
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
         return <NotFound object="action" />
@@ -75,6 +106,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 router.actions.push(urls.actions())
             }}
             tooltip="Cancel and return to the list of actions"
+            size="small"
         >
             Cancel
         </LemonButton>
@@ -89,34 +121,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 enableFormOnSubmit
                 className="flex flex-col gap-y-4"
             >
-                <PageHeader
-                    buttons={
-                        <>
-                            {!id && cancelButton()}
-                            <LemonButton
-                                data-attr="save-action-button"
-                                type="primary"
-                                htmlType="submit"
-                                loading={actionLoading}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    if (id) {
-                                        submitAction()
-                                    } else {
-                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                        submitAction()
-                                    }
-                                }}
-                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
-                            >
-                                {actionChanged ? 'Save' : 'No changes'}
-                            </LemonButton>
-                        </>
-                    }
-                />
-
                 <ScenePanel>
-                    <ScenePanelMetaInfo>
+                    <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
                                 setActionValue('tags', tags)
@@ -124,15 +130,16 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                             tags={action.tags || []}
                             tagsAvailable={tags}
                             dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEdit}
                         />
 
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                         <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
-                    </ScenePanelMetaInfo>
+                    </ScenePanelInfoSection>
                     <ScenePanelDivider />
 
-                    <ScenePanelActions>
+                    <ScenePanelActionsSection>
                         {id && (
                             <>
                                 <Link
@@ -169,22 +176,32 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     <IconRewindPlay />
                                     View recordings
                                 </Link>
-                                <ScenePanelDivider />
                             </>
                         )}
-
-                        <ButtonPrimitive
-                            onClick={() => {
-                                deleteAction()
-                            }}
-                            variant="danger"
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-delete`}
+                    </ScenePanelActionsSection>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Action}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <IconTrash />
-                            Delete
-                        </ButtonPrimitive>
-                    </ScenePanelActions>
+                            {({ disabledReason }) => (
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        deleteAction()
+                                    }}
+                                    variant="danger"
+                                    menuItem
+                                    data-attr={`${RESOURCE_TYPE}-delete`}
+                                    disabled={!!disabledReason}
+                                    {...(disabledReason && { tooltip: disabledReason })}
+                                >
+                                    <IconTrash />
+                                    Delete
+                                </ButtonPrimitive>
+                            )}
+                        </AccessControlAction>
+                    </ScenePanelActionsSection>
                 </ScenePanel>
 
                 <SceneTitleSection
@@ -202,11 +219,33 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    canEdit
+                    canEdit={canEdit}
                     forceEdit={!id}
+                    actions={
+                        <>
+                            {!id && cancelButton()}
+                            <LemonButton
+                                data-attr="save-action-button"
+                                type="primary"
+                                htmlType="submit"
+                                loading={actionLoading}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    if (id) {
+                                        submitAction()
+                                    } else {
+                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                        submitAction()
+                                    }
+                                }}
+                                size="small"
+                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                            >
+                                {actionChanged ? 'Save' : 'No changes'}
+                            </LemonButton>
+                        </>
+                    }
                 />
-
-                <SceneDivider />
 
                 <SceneSection
                     title="Match groups"
@@ -239,6 +278,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                                 step={step}
                                                 actionId={action.id || 0}
                                                 isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                disabledReason={cannotEditReason ?? undefined}
                                                 onDelete={() => {
                                                     const newSteps = [...stepsValue]
                                                     newSteps.splice(index, 1)
@@ -262,6 +302,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                             }}
                                             center
                                             className="w-full h-full"
+                                            disabledReason={cannotEditReason ?? undefined}
                                         >
                                             Add match group
                                         </LemonButton>

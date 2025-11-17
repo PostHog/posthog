@@ -63,7 +63,8 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
+                                    <b className="ph-no-capture">{name}</b>{' '}
+                                    {changedContent ? 'made changes' : 'created this'}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
@@ -144,7 +145,7 @@ export function NotebookHistoryWarning(): JSX.Element | null {
     }
 
     return (
-        <LemonBanner type="info" className="my-4">
+        <LemonBanner type="info" className="mb-6">
             <span className="flex items-center gap-2 flex-wrap overflow-auto">
                 <span className="flex-1 min-w-120">
                     <b>Hello time traveller!</b>

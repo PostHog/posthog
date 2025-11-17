@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconColor, ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
+import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Replay',
@@ -32,18 +32,7 @@ export const manifest: ProductManifest = {
             filterKey: 'session_recording_playlist',
         },
     },
-    treeItemsNew: [
-        {
-            path: `Replay playlist`,
-            type: 'session_recording_playlist',
-            href: urls.replayPlaylist('new'),
-            iconType: 'session_replay',
-            iconColor: [
-                'var(--color-product-session-replay-light)',
-                'var(--color-product-session-replay-dark)',
-            ] as FileSystemIconColor,
-        },
-    ],
+    treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Session replay',
@@ -52,6 +41,8 @@ export const manifest: ProductManifest = {
             type: 'session_recording_playlist',
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
+            sceneKey: 'Replay',
+            sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
         },
     ],
 }

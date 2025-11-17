@@ -4,13 +4,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from ee.models.dashboard_privilege import DashboardPrivilege
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class WithPermissionsBase:
@@ -50,51 +49,20 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(1):
             assert permissions.team(self.team).effective_membership_level is None
 
-    def test_team_effective_membership_level_membership_isolation(self):
-        self.team.access_control = True
-        self.team.save()
-        ExplicitTeamMembership.objects.create(
-            team=self.team,
-            parent_membership=self.organization_membership,
-        )
-        forbidden_team = Team.objects.create(
-            organization=self.organization,
-            name="FORBIDDEN",
-            access_control=True,
-        )
-        permissions = UserPermissions(user=self.user)
-        with self.assertNumQueries(2):
-            assert permissions.team(forbidden_team).effective_membership_level is None
-
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
-        self.team.access_control = True
-        self.team.save()
+        from ee.models.rbac.access_control import AccessControl
+
+        # Make the team private using new access control system
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-
-        with self.assertNumQueries(2):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
-
-    def test_team_effective_membership_level_with_member(self):
-        self.team.access_control = True
-        self.team.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        with self.assertNumQueries(2):
-            assert self.permissions().current_team.effective_membership_level is None
-
-    def test_team_effective_membership_level_with_explicit_membership_returns_explicit_membership(self):
-        self.team.access_control = True
-        self.team.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        ExplicitTeamMembership.objects.create(
-            team=self.team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.ADMIN,
-        )
 
         with self.assertNumQueries(2):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
@@ -103,19 +71,42 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
-        self.team.access_control = True
-        self.team.save()
+        from ee.models.rbac.access_control import AccessControl
+
+        # Make the team private using new access control system
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
 
         assert self.team.id not in self.permissions().team_ids_visible_for_user
 
     def test_team_ids_visible_for_user_explicit_permission(self):
-        self.team.access_control = True
-        self.team.save()
+        from ee.models.rbac.access_control import AccessControl
 
-        ExplicitTeamMembership.objects.create(
+        # Make the team private using new access control system
+        AccessControl.objects.create(
             team=self.team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.ADMIN,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        # ExplicitTeamMembership deprecated - now using AccessControl for granular permissions
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
         )
 
         assert self.team.id in self.permissions().team_ids_visible_for_user
@@ -124,8 +115,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         """Test that all organization members have access to a non-private team with the new access control system"""
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
+        # Team is not private (no AccessControl objects), so organization level is used
 
         # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -140,8 +130,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
+        # Team is not private (no AccessControl objects), so organization level is used
 
         # Make the team private
         AccessControl.objects.create(
@@ -166,8 +155,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
+        # Team is not private (no AccessControl objects), so organization level is used
 
         # Make the team private
         AccessControl.objects.create(
@@ -184,7 +172,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         # Check effective membership level
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_new_access_control_private_team_with_member_access(self):
@@ -192,8 +180,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.access_control import AccessControl
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
+        # Team is not private (no AccessControl objects), so organization level is used
 
         # Make the team private
         AccessControl.objects.create(
@@ -219,7 +206,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
@@ -228,8 +215,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         from ee.models.rbac.role import Role, RoleMembership
 
         # Set up team with new access control system
-        self.team.access_control = False
-        self.team.save()
+        # Team is not private (no AccessControl objects), so organization level is used
 
         # Make the team private
         AccessControl.objects.create(
@@ -265,7 +251,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
 
@@ -491,30 +477,3 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
             for insight in insights:
                 assert user_permissions.insight(insight).effective_restriction_level is not None
                 assert user_permissions.insight(insight).effective_privilege_level is not None
-
-    def test_team_lookup_efficiency(self):
-        user = User.objects.create(email="test2@posthog.com", distinct_id="test2")
-        models = []
-        for _ in range(10):
-            organization, membership, team = Organization.objects.bootstrap(
-                user=user, team_fields={"access_control": True}
-            )
-            membership.level = OrganizationMembership.Level.ADMIN  # type: ignore
-            membership.save()  # type: ignore
-
-            organization.available_product_features = [
-                {
-                    "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                    "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                }
-            ]
-            organization.save()
-
-            models.append((organization, membership, team))
-
-        user_permissions = UserPermissions(user)
-        with self.assertNumQueries(3):
-            assert len(user_permissions.team_ids_visible_for_user) == 10
-
-            for _, _, team in models:
-                assert user_permissions.team(team).effective_membership_level == OrganizationMembership.Level.ADMIN

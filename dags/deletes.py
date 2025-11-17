@@ -69,6 +69,39 @@ class DeleteConfig(dagster.Config):
         return datetime.fromisoformat(self.timestamp)
 
 
+class MonthlyCleanupConfig(dagster.Config):
+    team_ids: list[int] = pydantic.Field(
+        default_factory=lambda: [
+            9229,
+            10761,
+            19934,
+            41817,
+            9230,
+            9390,
+            19935,
+            41818,
+            9393,
+            22115,
+            7525,
+            9231,
+            19933,
+            54013,
+            9394,
+            12679,
+            19936,
+            41819,
+            9391,
+            54008,
+            29833,
+        ],
+        description="Team IDs to clean up old events for",
+    )
+    min_age_months: int = pydantic.Field(
+        default=13,
+        description="Minimum age in months for events to be deleted",
+    )
+
+
 ShardMutations = dict[int, MutationWaiter]
 
 
@@ -771,3 +804,98 @@ def deletes_job():
 )
 def run_deletes_after_squash(context):
     return dagster.RunRequest(run_key=None)
+
+
+@dagster.op
+def find_partitions_to_cleanup(
+    context: dagster.OpExecutionContext,
+    config: MonthlyCleanupConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> list[int]:
+    """Find partitions that contain old events for the specified teams."""
+    team_ids_str = ", ".join(str(tid) for tid in config.team_ids)
+
+    query = f"""
+        SELECT toYYYYMM(timestamp) as partition, count(1) as rows
+        FROM {EVENTS_DATA_TABLE()}
+        WHERE team_id IN ({team_ids_str})
+        AND age('month', timestamp, now()) >= {config.min_age_months}
+        GROUP BY partition
+        ORDER BY partition DESC
+    """
+
+    results = cluster.any_host_by_role(Query(query), NodeRole.DATA).result()
+    partitions = [partition for partition, _rows in results]
+
+    context.add_output_metadata(
+        {
+            "partitions_found": dagster.MetadataValue.int(len(partitions)),
+            "partitions": dagster.MetadataValue.text(", ".join(str(p) for p in partitions)),
+            "team_ids": dagster.MetadataValue.text(team_ids_str),
+        }
+    )
+
+    return partitions
+
+
+@dagster.op
+def cleanup_old_events_by_partition(
+    context: dagster.OpExecutionContext,
+    config: MonthlyCleanupConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    partitions: list[int],
+) -> None:
+    """Delete old events from the specified teams in each partition."""
+    if not partitions:
+        context.log.info("No partitions found to clean up")
+        return
+
+    team_ids_str = ", ".join(str(tid) for tid in config.team_ids)
+    total_partitions = len(partitions)
+
+    for idx, partition in enumerate(partitions, 1):
+        context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
+
+        delete_mutation_runner = LightweightDeleteMutationRunner(
+            table=EVENTS_DATA_TABLE(),
+            predicate=f"""
+                team_id IN ({team_ids_str})
+                AND age('month', timestamp, now()) >= {config.min_age_months}
+            """,
+            partition=str(partition),
+            settings={"lightweight_deletes_sync": 0},
+        )
+
+        # Run on one host per shard
+        shard_mutations = cluster.map_one_host_per_shard(delete_mutation_runner).result()
+
+        # Wait for all mutations to complete
+        _ = cluster.map_all_hosts_in_shards(
+            {host.shard_num: mutation.wait for host, mutation in shard_mutations.items() if host.shard_num is not None}
+        ).result()
+
+        context.log.info(f"Completed deletion for partition {partition}")
+
+    context.add_output_metadata(
+        {
+            "partitions_processed": dagster.MetadataValue.int(total_partitions),
+            "team_ids": dagster.MetadataValue.text(team_ids_str),
+        }
+    )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def monthly_old_events_cleanup_job():
+    """Monthly job to clean up old events for specific teams."""
+    partitions = find_partitions_to_cleanup()
+    cleanup_old_events_by_partition(partitions)
+
+
+@dagster.schedule(
+    job=monthly_old_events_cleanup_job,
+    cron_schedule="0 0 1 * *",
+    execution_timezone="UTC",
+)
+def monthly_old_events_cleanup_schedule():
+    """Run monthly cleanup on the 1st of each month at midnight UTC."""
+    return dagster.RunRequest()

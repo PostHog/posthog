@@ -7,6 +7,8 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
@@ -56,15 +58,18 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines('overview'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
                         path: urls.dataPipelines('sources'),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: Scene.DataWarehouseSource,
                         name: breadcrumbName,
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -100,7 +105,7 @@ export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']>
 }
 
 export function DataWarehouseSourceScene(): JSX.Element {
-    const { currentTab, logicProps } = useValues(dataWarehouseSourceSceneLogic)
+    const { currentTab, logicProps, breadcrumbName } = useValues(dataWarehouseSourceSceneLogic)
     const { setCurrentTab } = useActions(dataWarehouseSourceSceneLogic)
     const { id } = logicProps
 
@@ -136,5 +141,14 @@ export function DataWarehouseSourceScene(): JSX.Element {
               },
           ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={breadcrumbName}
+                resourceType={{ type: 'data_pipeline' }}
+                isLoading={breadcrumbName === 'Source'}
+            />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </SceneContent>
+    )
 }

@@ -33,7 +33,38 @@ type KeaDevtoolsProps = {
     maxActions?: number
 }
 
-type ActionLogItem = { id: number; ts: number; type: string; payload: unknown }
+type WindowRect = { width: number; height: number; top: number; left: number }
+
+const MIN_WINDOW_WIDTH = 480
+const MIN_WINDOW_HEIGHT = 360
+const MAX_STATE_DIFF_ENTRIES = 200
+
+type StateDiffChange = 'added' | 'removed' | 'updated'
+
+type StateDiffEntry = {
+    path: string
+    change: StateDiffChange
+    before?: unknown
+    after?: unknown
+}
+
+type StateDiffResult = {
+    changes: StateDiffEntry[]
+    truncated: boolean
+}
+
+type ActionLogItem = {
+    id: number
+    ts: number
+    type: string
+    payload: unknown
+    payloadSummary: string
+    payloadText: string
+    stateDiff: StateDiffEntry[]
+    stateDiffSummary: string
+    stateDiffText: string
+    stateDiffTruncated: boolean
+}
 
 function useStoreTick(): number {
     const { store } = getContext() as KeaContext
@@ -45,11 +76,154 @@ function useStoreTick(): number {
     return tick
 }
 
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max)
+}
+
 function compactJSON(x: unknown) {
     try {
         return JSON.stringify(x)
     } catch {
         return String(x)
+    }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function appendPath(base: string, key: string): string {
+    if (!base) {
+        return key
+    }
+    if (/^\d+$/.test(key)) {
+        return `${base}[${key}]`
+    }
+    return `${base}.${key}`
+}
+
+function arrayPath(base: string, index: number): string {
+    return base ? `${base}[${index}]` : `[${index}]`
+}
+
+function diffStates(prev: unknown, next: unknown, limit = MAX_STATE_DIFF_ENTRIES): StateDiffResult {
+    const changes: StateDiffEntry[] = []
+    let truncated = false
+
+    const addChange = (change: StateDiffEntry): void => {
+        if (changes.length >= limit) {
+            truncated = true
+            return
+        }
+        changes.push(change)
+    }
+
+    const visit = (prevValue: unknown, nextValue: unknown, path: string): void => {
+        if (changes.length >= limit) {
+            truncated = true
+            return
+        }
+
+        if (Object.is(prevValue, nextValue)) {
+            return
+        }
+
+        const prevIsArray = Array.isArray(prevValue)
+        const nextIsArray = Array.isArray(nextValue)
+
+        if (prevIsArray && nextIsArray) {
+            const maxLength = Math.max(prevValue.length, nextValue.length)
+            for (let index = 0; index < maxLength; index += 1) {
+                if (changes.length >= limit) {
+                    truncated = true
+                    return
+                }
+                const nextPath = arrayPath(path, index)
+                if (index >= prevValue.length) {
+                    addChange({ path: nextPath, change: 'added', after: nextValue[index] })
+                } else if (index >= nextValue.length) {
+                    addChange({ path: nextPath, change: 'removed', before: prevValue[index] })
+                } else {
+                    visit(prevValue[index], nextValue[index], nextPath)
+                }
+            }
+            return
+        }
+
+        if (isPlainObject(prevValue) && isPlainObject(nextValue)) {
+            const keys = new Set([...Object.keys(prevValue), ...Object.keys(nextValue)])
+            for (const key of keys) {
+                if (changes.length >= limit) {
+                    truncated = true
+                    return
+                }
+                const prevHasKey = Object.prototype.hasOwnProperty.call(prevValue, key)
+                const nextHasKey = Object.prototype.hasOwnProperty.call(nextValue, key)
+                const nextPath = appendPath(path, key)
+                if (!prevHasKey && nextHasKey) {
+                    addChange({ path: nextPath, change: 'added', after: nextValue[key] })
+                } else if (prevHasKey && !nextHasKey) {
+                    addChange({ path: nextPath, change: 'removed', before: prevValue[key] })
+                } else if (prevHasKey && nextHasKey) {
+                    visit(prevValue[key], nextValue[key], nextPath)
+                }
+            }
+            return
+        }
+
+        if (!prevIsArray && nextIsArray) {
+            addChange({ path: path || '[root]', change: 'updated', before: prevValue, after: nextValue })
+            return
+        }
+
+        if (prevIsArray && !nextIsArray) {
+            addChange({ path: path || '[root]', change: 'updated', before: prevValue, after: nextValue })
+            return
+        }
+
+        addChange({ path: path || '[root]', change: 'updated', before: prevValue, after: nextValue })
+    }
+
+    visit(prev, next, '')
+
+    return { changes, truncated }
+}
+
+function summarizeStateDiff({ changes, truncated }: StateDiffResult): string {
+    if (!changes.length) {
+        return 'No state changes'
+    }
+
+    const recordedCount = changes.length
+    const changeWord = recordedCount === 1 ? 'change' : 'changes'
+    const prefix = truncated ? `${recordedCount}+ ${changeWord}` : `${recordedCount} ${changeWord}`
+    const summaryEntries = changes.slice(0, 3).map((change) => {
+        const label = change.change === 'updated' ? 'changed' : change.change
+        return `${change.path} (${label})`
+    })
+
+    let summary = summaryEntries.length ? `${prefix}: ${summaryEntries.join(', ')}` : prefix
+    if (!truncated && changes.length > 3) {
+        summary += ', …'
+    }
+    if (truncated) {
+        summary += ' (truncated)'
+    }
+    return summary
+}
+
+function safeJSONStringify(value: unknown, space = 0): string {
+    if (typeof value === 'undefined') {
+        return 'undefined'
+    }
+    try {
+        const result = JSON.stringify(value, null, space)
+        if (typeof result === 'undefined') {
+            return 'undefined'
+        }
+        return result
+    } catch {
+        return String(value)
     }
 }
 
@@ -1696,13 +1870,143 @@ export function KeaDevtools({
     const actionId = useRef(1)
     const [actions, setActions] = useState<ActionLogItem[]>([])
     const [paused, setPaused] = useState(false)
+    const pausedRef = useRef(paused)
+    useEffect(() => {
+        pausedRef.current = paused
+    }, [paused])
     const dispatchPatched = useRef(false)
+    const maxActionsRef = useRef(maxActions)
+    useEffect(() => {
+        maxActionsRef.current = maxActions
+    }, [maxActions])
+    const [windowed, setWindowed] = useState(false)
+    const [windowRect, setWindowRect] = useState<WindowRect>(() => {
+        if (typeof window !== 'undefined') {
+            const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - offset * 2)
+            const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - offset * 2)
+            return {
+                width: clamp(960, MIN_WINDOW_WIDTH, maxWidth),
+                height: clamp(640, MIN_WINDOW_HEIGHT, maxHeight),
+                top: offset,
+                left: offset,
+            }
+        }
+        return { width: 960, height: 640, top: offset, left: offset }
+    })
+    const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null)
+    const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null)
 
     // highlight for graph ("Show on graph")
     const [graphHighlight, setGraphHighlight] = useState<string | null>(null)
 
     const { mount, store } = getContext() as KeaContext
     const mounted = ((mount as any)?.mounted ?? {}) as MountedMap
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        const handleMove = (event: MouseEvent): void => {
+            if (!windowed) {
+                return
+            }
+            if (dragState.current) {
+                const { offsetX, offsetY } = dragState.current
+                setWindowRect((rect) => {
+                    const maxLeft = Math.max(offset, window.innerWidth - rect.width - offset)
+                    const maxTop = Math.max(offset, window.innerHeight - rect.height - offset)
+                    return {
+                        ...rect,
+                        left: clamp(event.clientX - offsetX, offset, maxLeft),
+                        top: clamp(event.clientY - offsetY, offset, maxTop),
+                    }
+                })
+            } else if (resizeState.current) {
+                const { startX, startY, width, height } = resizeState.current
+                setWindowRect((rect) => {
+                    const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - rect.left - offset)
+                    const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - rect.top - offset)
+                    return {
+                        ...rect,
+                        width: clamp(width + (event.clientX - startX), MIN_WINDOW_WIDTH, maxWidth),
+                        height: clamp(height + (event.clientY - startY), MIN_WINDOW_HEIGHT, maxHeight),
+                    }
+                })
+            }
+        }
+        const handleUp = (): void => {
+            dragState.current = null
+            resizeState.current = null
+        }
+        window.addEventListener('mousemove', handleMove)
+        window.addEventListener('mouseup', handleUp)
+        return () => {
+            window.removeEventListener('mousemove', handleMove)
+            window.removeEventListener('mouseup', handleUp)
+        }
+    }, [windowed, offset])
+
+    useEffect(() => {
+        if (!windowed || typeof window === 'undefined') {
+            return
+        }
+        const clampToViewport = (): void => {
+            setWindowRect((rect) => {
+                const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - offset * 2)
+                const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - offset * 2)
+                const width = clamp(rect.width, MIN_WINDOW_WIDTH, maxWidth)
+                const height = clamp(rect.height, MIN_WINDOW_HEIGHT, maxHeight)
+                const maxLeft = Math.max(offset, window.innerWidth - width - offset)
+                const maxTop = Math.max(offset, window.innerHeight - height - offset)
+                return {
+                    width,
+                    height,
+                    left: clamp(rect.left, offset, maxLeft),
+                    top: clamp(rect.top, offset, maxTop),
+                }
+            })
+        }
+        const handleResize = (): void => clampToViewport()
+        window.addEventListener('resize', handleResize)
+        clampToViewport()
+        return () => {
+            window.removeEventListener('resize', handleResize)
+        }
+    }, [windowed, offset])
+
+    useEffect(() => {
+        if (!windowed) {
+            dragState.current = null
+            resizeState.current = null
+        }
+    }, [windowed])
+
+    const onHeaderMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+        if (!windowed || event.button !== 0) {
+            return
+        }
+        if ((event.target as HTMLElement)?.closest('button, input, select, textarea')) {
+            return
+        }
+        event.preventDefault()
+        dragState.current = {
+            offsetX: event.clientX - windowRect.left,
+            offsetY: event.clientY - windowRect.top,
+        }
+    }
+
+    const onResizeMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+        if (!windowed || event.button !== 0) {
+            return
+        }
+        event.preventDefault()
+        resizeState.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            width: windowRect.width,
+            height: windowRect.height,
+        }
+    }
 
     // collect actions
     useEffect(() => {
@@ -1713,32 +2017,51 @@ export function KeaDevtools({
         const originalDispatch = s.dispatch
         s.__keaDevtoolsOriginalDispatch = originalDispatch
         s.dispatch = (action: any) => {
-            if (!paused) {
-                const entry: ActionLogItem = {
-                    id: actionId.current++,
-                    ts: Date.now(),
-                    type: String(action?.type ?? 'UNKNOWN'),
-                    payload: action?.payload,
-                }
-                setActions((prev) => {
-                    // Prepend new action to show newest first (avoids reversing later)
-                    const next = [entry, ...prev]
-                    if (next.length > maxActions) {
-                        // Remove oldest items from the end
-                        next.splice(maxActions)
-                    }
-                    return next
-                })
+            if (pausedRef.current) {
+                return originalDispatch(action)
             }
-            return originalDispatch(action)
+            const beforeState = s.getState()
+            const result = originalDispatch(action)
+            const afterState = s.getState()
+            const diffResult = diffStates(beforeState, afterState, MAX_STATE_DIFF_ENTRIES)
+            const payloadValue = action?.payload
+            const payloadSummary = typeof payloadValue === 'undefined' ? '—' : safeJSONStringify(payloadValue)
+            const payloadText = typeof payloadValue === 'undefined' ? '—' : safeJSONStringify(payloadValue, 2)
+            const stateDiffSummary = summarizeStateDiff(diffResult)
+            const stateDiffText = diffResult.changes.length
+                ? safeJSONStringify(diffResult.changes, 2)
+                : 'No state changes'
+
+            const entry: ActionLogItem = {
+                id: actionId.current++,
+                ts: Date.now(),
+                type: String(action?.type ?? 'UNKNOWN'),
+                payload: payloadValue,
+                payloadSummary,
+                payloadText,
+                stateDiff: diffResult.changes,
+                stateDiffSummary,
+                stateDiffText,
+                stateDiffTruncated: diffResult.truncated,
+            }
+            setActions((prev) => {
+                const next = [entry, ...prev]
+                const limit = maxActionsRef.current
+                if (typeof limit === 'number' && next.length > limit) {
+                    next.splice(limit)
+                }
+                return next
+            })
+            return result
         }
         dispatchPatched.current = true
         return () => {
             if (s.__keaDevtoolsOriginalDispatch) {
                 s.dispatch = s.__keaDevtoolsOriginalDispatch
             }
+            dispatchPatched.current = false
         }
-    }, [store, paused, maxActions])
+    }, [store])
 
     // keys + default selection
     const allKeys = useMemo(
@@ -1774,7 +2097,17 @@ export function KeaDevtools({
     const selectedLogic = selectedKey ? mounted[selectedKey] : undefined
 
     const header = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px' }}>
+        <div
+            onMouseDown={onHeaderMouseDown}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 10px',
+                cursor: windowed ? 'move' : 'default',
+                userSelect: dragState.current ? 'none' : undefined,
+            }}
+        >
             <div style={{ fontWeight: 800, fontSize: 16 }}>Kea Devtools</div>
             {activeTab === 'logics' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{allKeys.length} mounted</div>
@@ -1813,11 +2146,177 @@ export function KeaDevtools({
                 >
                     Memory
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setWindowed((value) => !value)}
+                    style={simpleBtnStyle}
+                    title={windowed ? 'Return to full-screen mode' : 'Switch to windowed mode'}
+                >
+                    {windowed ? 'Full screen' : 'Windowed'}
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setWindowed((value) => !value)}
+                    style={simpleBtnStyle}
+                    title={windowed ? 'Return to full-screen mode' : 'Switch to windowed mode'}
+                >
+                    {windowed ? 'Full screen' : 'Windowed'}
+                </button>
                 <button type="button" onClick={() => setOpen(false)} style={simpleBtnStyle}>
                     Close
                 </button>
             </div>
         </div>
+    )
+
+    const panelContent = (
+        <>
+            {header}
+
+            {activeTab === 'logics' ? (
+                <div style={{ display: 'flex', minHeight: 0, flex: 1 }}>
+                    {/* Left panel */}
+                    <div
+                        style={{
+                            width: 360,
+                            minWidth: 280,
+                            maxWidth: 480,
+                            borderRight: '1px solid rgba(0,0,0,0.08)',
+                            background: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        <div style={{ display: 'flex', gap: 6, padding: 8 }}>
+                            <input
+                                type="search"
+                                placeholder="Search logics…"
+                                value={query || ''}
+                                onChange={(e) => setQuery(e.target.value)}
+                                style={inputStyle}
+                            />
+                            <select
+                                value={sortMode}
+                                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                                style={inputStyle}
+                            >
+                                <option value="alpha">A → Z</option>
+                                <option value="recent">Recent</option>
+                            </select>
+                        </div>
+                        <div style={{ overflow: 'auto', padding: 6 }}>
+                            {visibleKeys.map((k) => {
+                                const logic = mounted[k]
+                                const active = selectedKey === k
+                                const name = displayName(logic)
+                                const size = logicSize(logic)
+                                const tint = Math.min(0.18, 0.04 + size * 0.01)
+                                return (
+                                    <button
+                                        key={k}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedKey(k)
+                                            recent.current.set(k, Date.now())
+                                        }}
+                                        title={k}
+                                        style={{
+                                            ...listItemStyle,
+                                            ...(active ? listItemActiveStyle : null),
+                                            background: active
+                                                ? `rgba(99,102,241,${tint + 0.08})`
+                                                : `rgba(99,102,241,${tint})`,
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700, textAlign: 'left' }}>{name}</div>
+                                        <div
+                                            style={{
+                                                color: 'rgba(0,0,0,0.6)',
+                                                fontSize: 12,
+                                                textAlign: 'left',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                            }}
+                                        >
+                                            {k}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Right panel */}
+                    <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                        {selectedLogic ? (
+                            <div
+                                style={{
+                                    background: '#fff',
+                                    border: '1px solid rgba(0,0,0,0.06)',
+                                    borderRadius: 12,
+                                    boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+                                    padding: 12,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        marginBottom: 6,
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 800 }}>{(selectedLogic as any).pathString}</div>
+                                    <div style={{ marginLeft: 'auto' }} />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setGraphHighlight((selectedLogic as any).pathString)
+                                            setActiveTab('graph')
+                                        }}
+                                        style={simpleBtnStyle}
+                                    >
+                                        Show on graph
+                                    </button>
+                                </div>
+
+                                {/* Key + Props */}
+                                <KeyAndProps logic={selectedLogic} />
+
+                                <Connections logic={selectedLogic} onOpen={(path) => setSelectedKey(path)} />
+                                <ReverseConnections
+                                    logic={selectedLogic}
+                                    mounted={mounted}
+                                    onOpen={(path) => setSelectedKey(path)}
+                                />
+                                <ActionsList logic={selectedLogic} />
+                                <Values logic={selectedLogic} />
+                            </div>
+                        ) : (
+                            <div style={{ color: 'rgba(0,0,0,0.6)' }}>Select a logic on the left.</div>
+                        )}
+                    </div>
+                </div>
+            ) : activeTab === 'actions' ? (
+                <ActionsTab
+                    actions={actions}
+                    paused={paused}
+                    onPauseToggle={() => setPaused((p) => !p)}
+                    onClear={() => setActions([])}
+                />
+            ) : activeTab === 'graph' ? (
+                <GraphTab
+                    mounted={mounted}
+                    onOpen={(path) => setSelectedKey(path)}
+                    highlightId={graphHighlight ?? undefined}
+                />
+            ) : activeTab === 'memory' ? (
+                <MemoryTab store={store} mounted={mounted} />
+            ) : (
+                <></>
+            )}
+        </>
     )
 
     return (
@@ -1848,181 +2347,74 @@ export function KeaDevtools({
             </button>
 
             {open ? (
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex }}
-                    onClick={() => setOpen(false)}
-                >
-                    <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            position: 'absolute',
-                            right: offset,
-                            bottom: offset + buttonSize + 12,
-                            left: offset,
-                            top: offset,
-                            background: '#f7f8fa',
-                            border: '1px solid rgba(0,0,0,0.08)',
-                            borderRadius: 14,
-                            boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-                            overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        {header}
-
-                        {activeTab === 'logics' ? (
-                            <div style={{ display: 'flex', minHeight: 0, flex: 1 }}>
-                                {/* Left panel */}
-                                <div
-                                    style={{
-                                        width: 360,
-                                        minWidth: 280,
-                                        maxWidth: 480,
-                                        borderRight: '1px solid rgba(0,0,0,0.08)',
-                                        background: '#ffffff',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', gap: 6, padding: 8 }}>
-                                        <input
-                                            type="search"
-                                            placeholder="Search logics…"
-                                            value={query || ''}
-                                            onChange={(e) => setQuery(e.target.value)}
-                                            style={inputStyle}
-                                        />
-                                        <select
-                                            value={sortMode}
-                                            onChange={(e) => setSortMode(e.target.value as SortMode)}
-                                            style={inputStyle}
-                                        >
-                                            <option value="alpha">A → Z</option>
-                                            <option value="recent">Recent</option>
-                                        </select>
-                                    </div>
-                                    <div style={{ overflow: 'auto', padding: 6 }}>
-                                        {visibleKeys.map((k) => {
-                                            const logic = mounted[k]
-                                            const active = selectedKey === k
-                                            const name = displayName(logic)
-                                            const size = logicSize(logic)
-                                            const tint = Math.min(0.18, 0.04 + size * 0.01)
-                                            return (
-                                                <button
-                                                    key={k}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedKey(k)
-                                                        recent.current.set(k, Date.now())
-                                                    }}
-                                                    title={k}
-                                                    style={{
-                                                        ...listItemStyle,
-                                                        ...(active ? listItemActiveStyle : null),
-                                                        background: active
-                                                            ? `rgba(99,102,241,${tint + 0.08})`
-                                                            : `rgba(99,102,241,${tint})`,
-                                                    }}
-                                                >
-                                                    <div style={{ fontWeight: 700, textAlign: 'left' }}>{name}</div>
-                                                    <div
-                                                        style={{
-                                                            color: 'rgba(0,0,0,0.6)',
-                                                            fontSize: 12,
-                                                            textAlign: 'left',
-                                                            whiteSpace: 'nowrap',
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                        }}
-                                                    >
-                                                        {k}
-                                                    </div>
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Right panel */}
-                                <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-                                    {selectedLogic ? (
-                                        <div
-                                            style={{
-                                                background: '#fff',
-                                                border: '1px solid rgba(0,0,0,0.06)',
-                                                borderRadius: 12,
-                                                boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
-                                                padding: 12,
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    marginBottom: 6,
-                                                }}
-                                            >
-                                                <div style={{ fontWeight: 800 }}>
-                                                    {(selectedLogic as any).pathString}
-                                                </div>
-                                                <div style={{ marginLeft: 'auto' }} />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setGraphHighlight((selectedLogic as any).pathString)
-                                                        setActiveTab('graph')
-                                                    }}
-                                                    style={simpleBtnStyle}
-                                                >
-                                                    Show on graph
-                                                </button>
-                                            </div>
-
-                                            {/* Key + Props */}
-                                            <KeyAndProps logic={selectedLogic} />
-
-                                            <Connections
-                                                logic={selectedLogic}
-                                                onOpen={(path) => setSelectedKey(path)}
-                                            />
-                                            <ReverseConnections
-                                                logic={selectedLogic}
-                                                mounted={mounted}
-                                                onOpen={(path) => setSelectedKey(path)}
-                                            />
-                                            <ActionsList logic={selectedLogic} />
-                                            <Values logic={selectedLogic} />
-                                        </div>
-                                    ) : (
-                                        <div style={{ color: 'rgba(0,0,0,0.6)' }}>Select a logic on the left.</div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : activeTab === 'actions' ? (
-                            <ActionsTab
-                                actions={actions}
-                                paused={paused}
-                                onPauseToggle={() => setPaused((p) => !p)}
-                                onClear={() => setActions([])}
+                windowed ? (
+                    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex }}>
+                        <div
+                            role="dialog"
+                            aria-modal={false}
+                            style={{
+                                position: 'fixed',
+                                top: windowRect.top,
+                                left: windowRect.left,
+                                width: windowRect.width,
+                                height: windowRect.height,
+                                background: '#f7f8fa',
+                                border: '1px solid rgba(0,0,0,0.08)',
+                                borderRadius: 14,
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                pointerEvents: 'auto',
+                                userSelect: dragState.current ? 'none' : undefined,
+                            }}
+                        >
+                            {panelContent}
+                            <div
+                                onMouseDown={onResizeMouseDown}
+                                aria-hidden={true}
+                                style={{
+                                    position: 'absolute',
+                                    right: 4,
+                                    bottom: 4,
+                                    width: 16,
+                                    height: 16,
+                                    cursor: 'nwse-resize',
+                                    borderRight: '2px solid rgba(0,0,0,0.2)',
+                                    borderBottom: '2px solid rgba(0,0,0,0.2)',
+                                }}
                             />
-                        ) : activeTab === 'graph' ? (
-                            <GraphTab
-                                mounted={mounted}
-                                onOpen={(path) => setSelectedKey(path)}
-                                highlightId={graphHighlight ?? undefined}
-                            />
-                        ) : activeTab === 'memory' ? (
-                            <MemoryTab store={store} mounted={mounted} />
-                        ) : (
-                            <></>
-                        )}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div
+                        role="dialog"
+                        aria-modal
+                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex }}
+                        onClick={() => setOpen(false)}
+                    >
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute',
+                                right: offset,
+                                bottom: offset + buttonSize + 12,
+                                left: offset,
+                                top: offset,
+                                background: '#f7f8fa',
+                                border: '1px solid rgba(0,0,0,0.08)',
+                                borderRadius: 14,
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                userSelect: dragState.current ? 'none' : undefined,
+                            }}
+                        >
+                            {panelContent}
+                        </div>
+                    </div>
+                )
             ) : null}
         </>
     )
@@ -2052,11 +2444,21 @@ function ActionsTab({
         if (!s) {
             return actions
         }
-        return actions.filter(
-            (a) =>
-                a.type.toLowerCase().includes(s) ||
-                (typeof a.payload === 'string' && a.payload.toLowerCase().includes(s))
-        )
+        return actions.filter((a) => {
+            if (a.type.toLowerCase().includes(s)) {
+                return true
+            }
+            if (a.payloadSummary.toLowerCase().includes(s)) {
+                return true
+            }
+            if (a.stateDiffSummary.toLowerCase().includes(s)) {
+                return true
+            }
+            if (a.stateDiffText.toLowerCase().includes(s)) {
+                return true
+            }
+            return false
+        })
     }, [actions, debouncedQ])
 
     const toggleExpanded = (id: number): void => {
@@ -2071,20 +2473,53 @@ function ActionsTab({
         })
     }
 
-    const oneLine = (x: unknown): string => {
-        try {
-            // compact JSON to a single line; do not add ellipsis here
-            return JSON.stringify(x)
-        } catch {
-            return String(x)
+    const handleExport = (): void => {
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+            return
         }
-    }
-
-    const pretty = (x: unknown): string => {
+        let url: string | null = null
+        const link = document.createElement('a')
+        let appended = false
         try {
-            return JSON.stringify(x, null, 2)
-        } catch {
-            return String(x)
+            const exportData = actions
+                .slice()
+                .reverse()
+                .map((item) => ({
+                    id: item.id,
+                    ts: item.ts,
+                    type: item.type,
+                    payload: item.payload,
+                    payloadSummary: item.payloadSummary,
+                    payloadText: item.payloadText,
+                    stateDiff: item.stateDiff,
+                    stateDiffSummary: item.stateDiffSummary,
+                    stateDiffText: item.stateDiffText,
+                    stateDiffTruncated: item.stateDiffTruncated,
+                }))
+
+            const json = JSON.stringify(exportData, null, 2)
+            if (!json) {
+                throw new Error('Failed to serialise actions')
+            }
+            const blob = new Blob([json], { type: 'application/json' })
+            url = URL.createObjectURL(blob)
+            link.href = url
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+            link.download = `kea-actions-${timestamp}.json`
+            link.style.display = 'none'
+            document.body.appendChild(link)
+            appended = true
+            link.click()
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error('Failed to export actions', error)
+        } finally {
+            if (appended && link.parentNode) {
+                link.parentNode.removeChild(link)
+            }
+            if (url) {
+                URL.revokeObjectURL(url)
+            }
         }
     }
 
@@ -2092,15 +2527,16 @@ function ActionsTab({
     const getRowHeight = ({ index }: { index: number }): number => {
         const action = filtered[index]
         if (!action) {
-            return 80
+            return 110
         }
         const isOpen = expanded.has(action.id)
-        if (isOpen) {
-            // Estimate height based on payload size
-            const lines = pretty(action.payload).split('\n').length
-            return Math.min(80 + lines * 20, 600) // Cap at 600px
+        if (!isOpen) {
+            return 110
         }
-        return 80 // Default height for collapsed rows
+        const payloadLines = Math.max(1, action.payloadText.split('\n').length)
+        const diffLines = Math.max(1, action.stateDiffText.split('\n').length)
+        const truncatedLines = action.stateDiffTruncated ? 1 : 0
+        return Math.min(110 + (payloadLines + diffLines + truncatedLines) * 18, 800)
     }
 
     // Row renderer for virtualized list
@@ -2111,6 +2547,8 @@ function ActionsTab({
         }
 
         const isOpen = expanded.has(action.id)
+        const payloadContent = isOpen ? action.payloadText : action.payloadSummary
+        const stateDiffContent = isOpen ? action.stateDiffText : action.stateDiffSummary
 
         return (
             <div
@@ -2122,12 +2560,14 @@ function ActionsTab({
                     background: '#fff',
                 }}
             >
-                {/* Left column: action + time */}
                 <div
                     style={{
-                        width: '40%',
+                        flex: '0 0 28%',
                         padding: '10px 12px',
                         borderRight: '1px solid rgba(0,0,0,0.06)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
                     }}
                 >
                     <div>
@@ -2143,7 +2583,6 @@ function ActionsTab({
                     </div>
                     <div
                         style={{
-                            marginTop: 4,
                             color: 'rgba(0,0,0,0.6)',
                             fontSize: 12,
                         }}
@@ -2152,23 +2591,20 @@ function ActionsTab({
                         {new Date(action.ts).toLocaleString()}
                     </div>
                 </div>
-
-                {/* Right column: payload */}
                 <div
                     style={{
-                        flex: 1,
+                        flex: '1 1 0',
+                        minWidth: 0,
                         padding: '10px 12px',
+                        borderRight: '1px solid rgba(0,0,0,0.06)',
                         display: 'flex',
-                        gap: 8,
-                        alignItems: 'flex-start',
-                        minWidth: 0, // Allow flex item to shrink below content width
+                        flexDirection: 'column',
+                        gap: 6,
                     }}
                 >
+                    <div style={{ fontWeight: 600 }}>Payload</div>
                     <div
                         style={{
-                            flex: 1,
-                            height: isOpen ? 'calc(100% - 20px)' : 'auto',
-                            maxWidth: isOpen ? '600px' : '300px',
                             whiteSpace: isOpen ? 'pre-wrap' : 'nowrap',
                             overflow: isOpen ? 'auto' : 'hidden',
                             textOverflow: isOpen ? 'clip' : 'ellipsis',
@@ -2176,13 +2612,52 @@ function ActionsTab({
                             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
                         }}
                     >
-                        {action.payload === undefined ? '—' : isOpen ? pretty(action.payload) : oneLine(action.payload)}
+                        {payloadContent}
                     </div>
+                </div>
+                <div
+                    style={{
+                        flex: '1 1 0',
+                        minWidth: 0,
+                        padding: '10px 12px',
+                        borderRight: '1px solid rgba(0,0,0,0.06)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                    }}
+                >
+                    <div style={{ fontWeight: 600 }}>State changes</div>
+                    <div
+                        style={{
+                            whiteSpace: isOpen ? 'pre-wrap' : 'nowrap',
+                            overflow: isOpen ? 'auto' : 'hidden',
+                            textOverflow: isOpen ? 'clip' : 'ellipsis',
+                            wordBreak: isOpen ? 'break-word' : 'normal',
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        }}
+                    >
+                        {stateDiffContent}
+                    </div>
+                    {isOpen && action.stateDiffTruncated ? (
+                        <div style={{ color: 'rgba(0,0,0,0.6)', fontSize: 12 }}>
+                            Showing first {action.stateDiff.length} changes (truncated).
+                        </div>
+                    ) : null}
+                </div>
+                <div
+                    style={{
+                        flex: '0 0 96px',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'center',
+                    }}
+                >
                     <button
                         type="button"
                         onClick={() => toggleExpanded(action.id)}
-                        style={{ ...simpleBtnStyle, marginLeft: 'auto', flexShrink: 0 }}
-                        title={isOpen ? 'Collapse payload' : 'Expand payload'}
+                        style={{ ...simpleBtnStyle, width: '100%' }}
+                        title={isOpen ? 'Collapse details' : 'Expand details'}
                     >
                         {isOpen ? 'Collapse' : 'Expand'}
                     </button>
@@ -2197,11 +2672,11 @@ function ActionsTab({
     // Force re-render of list when expanded state changes
     useEffect(() => {
         listRef.current?.recomputeRowHeights()
-    }, [expanded])
+    }, [expanded, filtered])
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: 8, padding: 10, flex: 1 }}>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <input
                     type="search"
                     placeholder="Filter actions…"
@@ -2214,6 +2689,18 @@ function ActionsTab({
                 </button>
                 <button type="button" onClick={onClear} style={simpleBtnStyle}>
                     Clear
+                </button>
+                <button
+                    type="button"
+                    onClick={handleExport}
+                    style={{
+                        ...exportBtnStyle,
+                        opacity: actions.length === 0 ? 0.6 : 1,
+                        cursor: actions.length === 0 ? 'not-allowed' : exportBtnStyle.cursor,
+                    }}
+                    disabled={actions.length === 0}
+                >
+                    Export JSON
                 </button>
             </div>
 
@@ -2239,7 +2726,7 @@ function ActionsTab({
                 >
                     <div
                         style={{
-                            width: '40%',
+                            flex: '0 0 28%',
                             padding: '10px 12px',
                             fontWeight: 700,
                             borderRight: '1px solid rgba(0,0,0,0.06)',
@@ -2249,12 +2736,33 @@ function ActionsTab({
                     </div>
                     <div
                         style={{
-                            flex: 1,
+                            flex: '1 1 0',
                             padding: '10px 12px',
                             fontWeight: 700,
+                            borderRight: '1px solid rgba(0,0,0,0.06)',
                         }}
                     >
                         Payload
+                    </div>
+                    <div
+                        style={{
+                            flex: '1 1 0',
+                            padding: '10px 12px',
+                            fontWeight: 700,
+                            borderRight: '1px solid rgba(0,0,0,0.06)',
+                        }}
+                    >
+                        State changes
+                    </div>
+                    <div
+                        style={{
+                            flex: '0 0 96px',
+                            padding: '10px 12px',
+                            fontWeight: 700,
+                            textAlign: 'center',
+                        }}
+                    >
+                        Details
                     </div>
                 </div>
 
@@ -2300,6 +2808,14 @@ const simpleBtnStyle: React.CSSProperties = {
     padding: '6px 10px',
     borderRadius: 8,
     cursor: 'pointer',
+}
+
+const exportBtnStyle: React.CSSProperties = {
+    ...simpleBtnStyle,
+    fontWeight: 700,
+    padding: '6px 16px',
+    background: '#eef2ff',
+    borderColor: 'rgba(99,102,241,0.4)',
 }
 
 function tabBtnStyle(active: boolean): React.CSSProperties {

@@ -6,6 +6,7 @@ import collections
 from collections.abc import Iterator
 from typing import Any, Optional
 
+import certifi
 from bson import ObjectId
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymongo import MongoClient
@@ -18,7 +19,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUN
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def _process_nested_value(value: Any) -> Any:
@@ -99,7 +101,9 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
     """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
-        client: MongoClient = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
+        client: MongoClient = MongoClient(
+            connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
+        )
         try:
             yield client
         finally:
@@ -122,8 +126,12 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
             }
         )
 
+    if connection_params["direct_connection"]:
+        connection_kwargs["directConnection"] = True
+
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
+        connection_kwargs["tlsCAFile"] = certifi.where()
 
     client = MongoClient(**connection_kwargs)
 
@@ -185,6 +193,7 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
 
     # Extract common parameters
     auth_source = query_params.get("authSource", ["admin"])[0]
+    direct_connection = query_params.get("directConnection", ["false"])[0].lower() in ["true", "1"]
     tls = query_params.get("tls", ["false"])[0].lower() in ["true", "1"]
     ssl = query_params.get("ssl", ["false"])[0].lower() in ["true", "1"]
 
@@ -198,6 +207,7 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
         "user": user,
         "password": password,
         "auth_source": auth_source,
+        "direct_connection": direct_connection,
         "tls": use_tls,
         "connection_string": connection_string,
         "is_srv": parsed.scheme == "mongodb+srv",
@@ -402,7 +412,7 @@ def mongo_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

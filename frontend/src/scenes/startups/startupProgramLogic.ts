@@ -74,9 +74,9 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
-    }),
+    })),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
     }),

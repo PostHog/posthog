@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -21,11 +21,12 @@ from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     get_schemas as get_google_ads_schemas,
     google_ads_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
+class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -103,14 +104,14 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
                         label="Using MCC account?",
-                        caption="Whether your logged in account is a Google Ads MCC account and you're accessing a clients account?",
+                        caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,
                         fields=cast(
                             list[FieldType],
                             [
                                 SourceFieldInputConfig(
                                     name="mcc_client_id",
-                                    label="Client customer ID",
+                                    label="Managers customer ID",
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",

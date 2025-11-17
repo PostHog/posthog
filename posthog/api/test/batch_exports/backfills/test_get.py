@@ -6,16 +6,8 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.fixtures import (
-    create_backfill,
-    create_batch_export,
-    create_destination,
-    create_organization,
-    create_run,
-)
+from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination, create_run
 from posthog.api.test.batch_exports.operations import get_batch_export_backfill_ok
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 
 pytestmark = [
@@ -135,15 +127,12 @@ TEST_TIME = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
     ],
 )
 def test_can_get_backfills_for_your_organizations(
-    client: HttpClient, status, start_at, end_at, completed_runs, expected_progress
+    client: HttpClient, organization, team, user, status, start_at, end_at, completed_runs, expected_progress
 ):
     """Test that we can get backfills for your own organization.
 
     We parametrize this test so we can test the behaviour of the total_runs, finished_runs and progress fields.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     finished_at = TEST_TIME if status == BatchExportBackfill.Status.COMPLETED else None
@@ -186,9 +175,10 @@ def test_can_get_backfills_for_your_organizations(
     }
 
 
-def test_cannot_get_backfills_for_other_organizations(client: HttpClient):
-    organization = create_organization("Test Org")
-    team = create_team(organization)
+def test_cannot_get_backfills_for_other_organizations(client: HttpClient, organization, team):
+    from posthog.api.test.batch_exports.fixtures import create_organization
+    from posthog.api.test.test_user import create_user
+
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     backfill = create_backfill(
@@ -208,12 +198,11 @@ def test_cannot_get_backfills_for_other_organizations(client: HttpClient):
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_backfills_are_partitioned_by_team(client: HttpClient):
+def test_backfills_are_partitioned_by_team(client: HttpClient, organization, team, user):
     """Test that backfills can only be accessed through their associated team."""
-    organization = create_organization("Test Org")
-    team = create_team(organization)
+    from posthog.api.test.test_team import create_team
+
     another_team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     destination = create_destination()
 
     batch_export = create_batch_export(team, destination)

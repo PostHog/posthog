@@ -1,4 +1,4 @@
-import { Hub, LogLevel } from '../../../src/types'
+import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
 import { Clickhouse } from '../../helpers/clickhouse'
@@ -10,7 +10,7 @@ describe('captureIngestionWarning()', () => {
     let clickhouse: Clickhouse
 
     beforeEach(async () => {
-        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
+        hub = await createHub({ LOG_LEVEL: 'info' })
         clickhouse = Clickhouse.create()
         await clickhouse.resetTestDatabase()
     })
@@ -29,7 +29,7 @@ describe('captureIngestionWarning()', () => {
 
         expect(warnings).toEqual([
             expect.objectContaining({
-                team_id: '2',
+                team_id: 2,
                 source: 'plugin-server',
                 type: 'some_type',
                 details: '{"foo":"bar"}',

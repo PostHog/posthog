@@ -79,7 +79,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             serializer_context = {
                 "team": team,
                 "get_team": (lambda t=team: t),
-                "bypass_addon_check": True,
                 "is_create": True,
             }
 

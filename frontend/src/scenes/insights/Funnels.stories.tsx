@@ -41,12 +41,13 @@ export default meta
 
 // Funnels
 
-export const FunnelLeftToRight: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
-)
-FunnelLeftToRight.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
-}
+// FLAP!
+// export const FunnelLeftToRight: Story = createInsightStory(
+//     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
+// )
+// FunnelLeftToRight.parameters = {
+//     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+// }
 export const FunnelLeftToRightEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'

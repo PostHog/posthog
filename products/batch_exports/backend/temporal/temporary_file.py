@@ -799,10 +799,7 @@ def remove_escaped_whitespace_recursive(value):
             return remove_escaped_whitespace_recursive(b.decode("utf-8"))
 
         case [*sequence]:
-            # mypy could be bugged as it's raising a Statement unreachable error.
-            # But we are definitely reaching this statement in tests; hence the ignore comment.
-            # Maybe: https://github.com/python/mypy/issues/16272.
-            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
+            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)
 
         case set(elements):
             return {remove_escaped_whitespace_recursive(element) for element in elements}

@@ -46,7 +46,9 @@ type ButtonBaseProps = {
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
-    tooltipVisible?: boolean
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+    tooltipVisible?: TooltipProps['visible']
+    tooltipInteractive?: TooltipProps['interactive']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -169,7 +171,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
+            true: 'rounded button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -219,24 +221,30 @@ export const buttonPrimitiveVariants = cva({
         {
             hasSideActionRight: true,
             menuItem: true,
-            className: 'rounded-sm',
+            className: 'rounded',
         },
     ],
 })
 
 // Renders the list of disabled reasons if value is true, otherwise returns null
 function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Element | null {
-    const reasons = Object.entries(disabledReasons).filter(([_, value]) => value)
+    const reasons = Object.entries(disabledReasons)
+        .filter(([_, value]) => value)
+        .map(([reason]) => reason)
 
     if (!reasons.length) {
         return null
+    }
+
+    if (reasons.length === 1) {
+        return <span>{reasons[0]}</span>
     }
 
     return (
         <>
             Disabled reasons:
             <ul className="pl-3 list-disc">
-                {reasons.map(([reason]) => (
+                {reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                 ))}
             </ul>
@@ -260,9 +268,11 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         hasSideActionRight,
         isSideActionRight,
         tooltip,
+        tooltipCloseDelayMs,
         tooltipPlacement,
         tooltipDocLink,
         tooltipVisible,
+        tooltipInteractive,
         autoHeight,
         inert,
         ...rest
@@ -313,8 +323,10 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                         : tooltip
                 }
                 placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
+                interactive={tooltipInteractive}
             >
                 {buttonComponent}
             </Tooltip>

@@ -29,7 +29,6 @@ from posthog.cdp.validation import (
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
-    has_data_pipelines_addon,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
@@ -156,9 +155,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def to_internal_value(self, data):
         self.initial_data = data
         team = self.context["get_team"]()
-        request = self.context.get("request", None)
-        has_addon = has_data_pipelines_addon(team, request.user if request else None)
-        bypass_addon_check = self.context.get("bypass_addon_check", False)
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
@@ -189,23 +185,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
-
-        if data["type"] != "transformation" and not has_addon:
-            if not template:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                )
-
-            if not bypass_addon_check:
-                # If they don't have the addon, they can only use free templates and can't modify them
-                if not template.free and data["type"] != "internal_destination" and not instance:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required for this template."}
-                    )
-
-            # Without the addon you can't deviate from the template
-            data["hog"] = template.code
-            data["inputs_schema"] = template.inputs_schema
 
         if is_create:
             # Set defaults for new functions
@@ -311,7 +290,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
+        inputs_schema = data.get("inputs_schema", []) or []
         inputs = data.get("inputs") or {}
 
         for schema in inputs_schema:
@@ -408,7 +387,11 @@ class HogFunctionFilterSet(FilterSet):
 
 
 class HogFunctionViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()

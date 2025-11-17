@@ -3,8 +3,9 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
-from posthog.models.notebook.util import create_task_list
 from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
+from products.notebooks.backend.util import create_task_list
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedPatternAssignedEvent,

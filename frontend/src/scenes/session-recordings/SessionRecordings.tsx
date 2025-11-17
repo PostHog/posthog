@@ -5,12 +5,6 @@ import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import {
-    AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -28,13 +22,12 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneActions } from '~/layout/scenes/SceneActions'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
+import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
-import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
@@ -54,49 +47,45 @@ function Header(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        {tab === ReplayTabs.Home && !recordingsDisabled && (
-                            <>
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Playback from PostHog JSON file',
-                                            to: urls.replayFilePlayback(),
-                                        },
-                                    ]}
-                                >
-                                    <LemonButton icon={<IconEllipsis />} />
-                                </LemonMenu>
-                                <NotebookSelectButton
-                                    resource={{
-                                        type: NotebookNodeType.RecordingPlaylist,
-                                        attrs: { filters: filters },
-                                    }}
-                                    type="secondary"
-                                />
-                            </>
-                        )}
+            {tab === ReplayTabs.Home && !recordingsDisabled && (
+                <>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Playback from PostHog JSON file',
+                                to: urls.replayFilePlayback(),
+                            },
+                        ]}
+                    >
+                        <LemonButton icon={<IconEllipsis />} size="small" />
+                    </LemonMenu>
+                    <NotebookSelectButton
+                        resource={{
+                            type: NotebookNodeType.RecordingPlaylist,
+                            attrs: { filters: filters },
+                        }}
+                        size="small"
+                        type="secondary"
+                    />
+                </>
+            )}
 
-                        {tab === ReplayTabs.Playlists && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                                    data-attr="save-recordings-playlist-button"
-                                    loading={newPlaylistHandler.loading}
-                                >
-                                    New collection
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
-                    </>
-                }
-            />
+            {tab === ReplayTabs.Playlists && (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        type="primary"
+                        onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                        data-attr="save-recordings-playlist-button"
+                        loading={newPlaylistHandler.loading}
+                        size="small"
+                    >
+                        New collection
+                    </LemonButton>
+                </AccessControlAction>
+            )}
         </>
     )
 }
@@ -105,14 +94,8 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        ...defaultAuthorizedUrlProperties,
-        type: AuthorizedUrlListType.RECORDING_DOMAINS,
-    })
-    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
@@ -184,22 +167,6 @@ function Warnings(): JSX.Element {
                     customHog={FilmCameraHog}
                 />
             )}
-
-            {!recordingsDisabled && mightBeRefusingRecordings ? (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        type: 'secondary',
-                        icon: <IconGear />,
-                        to: urls.replaySettings('replay-authorized-domains'),
-                        children: 'Configure',
-                    }}
-                    dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
-                >
-                    You have unauthorized domains trying to send recordings. To accept recordings from these domains,
-                    please check your config.
-                </LemonBanner>
-            ) : null}
         </>
     )
 }
@@ -218,7 +185,7 @@ function MainPanel(): JSX.Element {
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
-                <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
+                <SessionRecordingCollections />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
@@ -252,17 +219,16 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
-function PageTabs(): JSX.Element {
+export function SessionRecordingsPageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
     return (
         // TRICKY @adamleithp: since session replay doesn't want a scene title section, we need to add our SceneActions to the top of the page
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 relative">
             <LemonTabs
                 activeKey={tab}
                 className={cn('flex -mt-4')}
-                // TRICKY @adamleithp: we need to add a right padding to the tabs bar to account for the SceneActions
-                barClassName="mb-0 pr-48"
+                barClassName="mb-0"
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
                 sceneInset
                 tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
@@ -281,19 +247,15 @@ function PageTabs(): JSX.Element {
                         'data-attr': replayTab['data-attr'],
                     }
                 })}
+                rightSlot={<Header />}
             />
-            {/* TRICKY @adamleithp: position the actions to the right of the tabs bar absolutely */}
-            <div className="absolute right-0 top-0 pt-[6px] pr-4 bg-primary">
-                <SceneActions />
-            </div>
         </div>
     )
 }
 export function SessionsRecordings(): JSX.Element {
     return (
         <SceneContent className="h-full">
-            <Header />
-            <PageTabs />
+            <SessionRecordingsPageTabs />
             <MainPanel />
         </SceneContent>
     )

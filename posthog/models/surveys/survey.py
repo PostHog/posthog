@@ -4,9 +4,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from dateutil.rrule import DAILY, rrule
@@ -16,6 +16,7 @@ from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.storage.hypercache import HyperCache
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -95,6 +96,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
+        - `id`: The question ID
         - `type`: `open`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -104,6 +106,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Link (a question with a link)
+        - `id`: The question ID
         - `type`: `link`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -114,6 +117,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Rating (a question with a rating scale)
+        - `id`: The question ID
         - `type`: `rating`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -127,6 +131,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
+        - `id`: The question ID
         - `type`: `single_choice` or `multiple_choice`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -352,3 +357,26 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
         instance.current_iteration = 1
         instance.current_iteration_start_date = instance.start_date
+
+
+def _get_surveys_response(team: "Team") -> dict:
+    from posthog.api.survey import get_surveys_response
+
+    return get_surveys_response(team)
+
+
+surveys_hypercache = HyperCache(
+    namespace="surveys",
+    value="surveys.json",
+    load_fn=lambda key: _get_surveys_response(HyperCache.team_from_key(key)),
+    token_based=True,
+)
+
+
+@receiver(post_save, sender=Survey)
+@receiver(post_delete, sender=Survey)
+def survey_changed(sender, instance: "Survey", **kwargs):
+    from posthog.tasks.surveys import update_team_surveys_cache
+
+    # Defer task execution until after the transaction commits
+    transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))

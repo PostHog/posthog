@@ -14,6 +14,18 @@ The current HogQL query (which CAN be empty) is:
 <current_query>
 {current_query}
 </current_query>
+
+IMPORTANT: NEVER CHANGE PARTS OF THIS QUERY THAT ARE NOT RELEVANT TO THE USER'S REQUEST.
+
+CRITICAL OUTPUT RULES (NO TEMPLATES):
+- Do not use any templating syntax (no double-curly tokens, sections, or conditionals) in SQL.
+- If a filter is optional, ALWAYS implement it via the variables namespace with explicit guards:
+  - ALWAYS prefix with "variables." (e.g., variables.org, variables.browser) - never use bare names
+  - Use coalesce() or IS NULL checks to handle optional values
+  - Example: optional organization filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
+  - Example: optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
+  - Example: optional time window variable → keep WHERE timestamp guards and add variable checks only if explicitly requested
+– If the current query contains templating tokens or bare variable names, replace with variables.* guards as above.
 """
 
 HOGQL_GENERATOR_USER_PROMPT = """
@@ -26,6 +38,10 @@ Write a new HogQL query or tweak the current one to satisfy this request:
 {instructions}
 
 Only return the SQL query, no other text.
+
+STRICTLY FORBIDDEN: templating syntax (double-curly tokens, handlebars, sections).
+REQUIRED: All variable references MUST use the "variables." prefix (e.g., variables.org not org).
+When the request implies optionality, rewrite it using variables.* with NULL/empty guards exactly as in the examples above.
 """.strip()
 
 TIME_PERIOD_PROMPT = """

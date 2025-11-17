@@ -1,11 +1,17 @@
-import { embeddingCosts } from './embeddings'
-import generatedCosts from './generated-providers.json'
+import openRouterCostsRaw from './llm-costs.json'
 import { manualCosts } from './manual-providers'
-import type { ModelRow } from './types'
+import type { ModelCostRow } from './types'
 
-export const costsByModel: Record<string, ModelRow> = {}
+const openRouterCosts = openRouterCostsRaw as ModelCostRow[]
 
-for (const cost of [...generatedCosts, ...manualCosts, ...embeddingCosts]) {
-    // NOTE: This is done in a loop with overrides after ensuring that they are applied
-    costsByModel[cost.model] = cost
+export const openRouterCostsByModel: Record<string, ModelCostRow> = {}
+
+for (const cost of openRouterCosts) {
+    openRouterCostsByModel[cost.model.toLowerCase()] = cost
+}
+
+export const manualCostsByModel: Record<string, ModelCostRow | undefined> = {}
+
+for (const cost of manualCosts) {
+    manualCostsByModel[cost.model.toLowerCase()] = cost
 }

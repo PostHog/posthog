@@ -1,21 +1,23 @@
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
 
 from posthog.hogql import ast
 
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 @dataclass
 class SourceHandle:
-    type: str  # 'events', 'stripe', 'chargebee', ...
+    type: Literal["events", "stripe"]
     team: Team
     source: Optional[ExternalDataSource] = None
+    event: Optional[RevenueAnalyticsEventItem] = None
 
 
 @dataclass
@@ -26,12 +28,14 @@ class BuiltQuery:
     prefix: str
     # HogQL AST for the view
     query: ast.Expr
+    # Useful for debugging purposes, only asserted by in tests
+    test_comments: str | None = None
 
 
-# A builder is a function that takes a SourceHandle and returns an iterable of BuiltQuery objects
+# A builder is a function that takes a SourceHandle and returns a single BuiltQuery object
 # This is the type of the builder functions in the sources/**/*.py files, transforming a source into a set of views.
 # You can find all builder functions in the sources/**/*.py files, and they are registered in the sources/registry.py file.
-Builder = dict[DatabaseSchemaManagedViewTableKind, Callable[[SourceHandle], Iterable[BuiltQuery]]]
+Builder = dict[DatabaseSchemaManagedViewTableKind, Callable[[SourceHandle], BuiltQuery]]
 
 
 def view_prefix_for_event(event: str) -> str:
@@ -43,11 +47,3 @@ def view_prefix_for_source(source: ExternalDataSource) -> str:
         return source.source_type.lower()
     prefix = source.prefix.strip("_")
     return f"{source.source_type.lower()}.{prefix}"
-
-
-def view_name_for_event(event: str, suffix: str) -> str:
-    return f"{view_prefix_for_event(event)}.{suffix}"
-
-
-def view_name_for_source(source: ExternalDataSource, suffix: str) -> str:
-    return f"{view_prefix_for_source(source)}.{suffix}"

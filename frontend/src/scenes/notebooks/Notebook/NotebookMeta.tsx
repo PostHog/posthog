@@ -80,7 +80,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
 
     return shown ? (
         <Tooltip title={content.tooltip} placement="left">
-            <LemonTag className="uppercase">{content.content}</LemonTag>
+            <LemonTag className="uppercase select-none">{content.content}</LemonTag>
         </Tooltip>
     ) : null
 }

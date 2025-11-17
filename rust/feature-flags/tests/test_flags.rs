@@ -13,9 +13,8 @@ use crate::common::*;
 
 use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
-    create_group_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-    insert_new_team_in_redis, insert_person_for_team_in_pg, insert_suppression_rule_in_pg,
-    setup_pg_reader_client, setup_redis_client, update_team_autocapture_exceptions,
+    insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
+    setup_redis_client, TestContext,
 };
 
 pub mod common;
@@ -25,13 +24,11 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -75,15 +72,13 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -108,7 +103,7 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -148,15 +143,14 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -181,7 +175,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -237,15 +231,14 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -270,7 +263,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -322,15 +315,14 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -362,14 +354,13 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 async fn it_accepts_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let distinct_id = "user_distinct_id".to_string();
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let server = ServerHandle::for_config(config).await;
@@ -401,7 +392,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
@@ -486,13 +477,11 @@ async fn it_handles_base64_auto_detection_fallback() -> Result<()> {
 
     // Set up Redis and PostgreSQL clients
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -539,15 +528,13 @@ async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
 
     // Set up Redis and PostgreSQL clients
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id, None)
+    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id(), None)
         .await
         .unwrap();
 
@@ -657,14 +644,13 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -707,7 +693,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -749,13 +735,12 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let token = team.api_token.clone();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
     let flag_json = json!([{
@@ -785,7 +770,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -851,12 +836,10 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    let token = team.api_token;
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(Some(team.id)).await.unwrap();
+    let token = team.api_token.clone();
 
     let flag_json = json!([{
         "id": 1,
@@ -887,7 +870,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -962,25 +945,23 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
 
     // Insert a new team into Redis and retrieve the team details
     let team = insert_new_team_in_redis(redis_client.clone())
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({"email": "tim@posthog.com"})),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "tim@posthog.com"})),
+        )
+        .await?;
 
     let flag_json = json!([{
         "id": 1,
@@ -1014,7 +995,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1051,37 +1032,32 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
     // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
     // of the flag evaluation process
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await?;
 
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group of type "organization" (group_type_index 1) with group_key "foo" and specific properties
-    create_group_in_pg(
-        pg_client.clone(),
-        team.id,
-        "organization",
-        "foo",
-        json!({"email": "posthog@example.com"}),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "foo",
+            json!({"email": "posthog@example.com"}),
+        )
+        .await?;
 
     // Create a group of type "project" (group_type_index 0) with group_key "bar" and specific properties
-    create_group_in_pg(
-        pg_client.clone(),
-        team.id,
-        "project",
-        "bar",
-        json!({"name": "Project Bar"}),
-    )
-    .await?;
+    context
+        .create_group(team.id, "project", "bar", json!({"name": "Project Bar"}))
+        .await?;
 
     // Define feature flags
     let flags_json = json!([
@@ -1128,7 +1104,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -1227,14 +1203,13 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1265,7 +1240,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1303,13 +1278,12 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let token = team.api_token.clone();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1365,7 +1339,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1455,25 +1429,26 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
-    let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await?;
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group with matching name
-    create_group_in_pg(
-        pg_client.clone(),
-        team.id,
-        "organization",
-        "0183ccf3-5efd-0000-1541-bbd96d7d6b7f",
-        json!({
-            "name": "RaquelMSmith",
-            "created_at": "2023-10-16T16:00:00Z"
-        }),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "0183ccf3-5efd-0000-1541-bbd96d7d6b7f",
+            json!({
+                "name": "RaquelMSmith",
+                "created_at": "2023-10-16T16:00:00Z"
+            }),
+        )
+        .await?;
 
     let flag_json = json!([{
         "id": 1,
@@ -1524,7 +1499,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1557,17 +1532,17 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     );
 
     // Test with non-matching name but matching date
-    create_group_in_pg(
-        pg_client.clone(),
-        team.id,
-        "organization",
-        "other_organization",
-        json!({
-            "name": "Other Org",
-            "created_at": "2023-10-16T16:00:00Z"
-        }),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "other_organization",
+            json!({
+                "name": "Other Org",
+                "created_at": "2023-10-16T16:00:00Z"
+            }),
+        )
+        .await?;
 
     let payload = json!({
         "token": token,
@@ -1597,25 +1572,25 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(redis_client.clone()).await?;
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id)).await?;
-    let token = team.api_token;
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await?;
+    let token = team.api_token.clone();
 
     // Insert person with just their stored properties from the DB
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/artificial-hog": true,
-            "$feature_enrollment/error-tracking": true,
-            "$feature_enrollment/llm-observability": false,
-            "$feature_enrollment/messaging-product": true,
-            "email": "gtarasov.work@gmail.com"
-        })),
-    )
-    .await?;
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/artificial-hog": true,
+                "$feature_enrollment/error-tracking": true,
+                "$feature_enrollment/llm-observability": false,
+                "$feature_enrollment/messaging-product": true,
+                "email": "gtarasov.work@gmail.com"
+            })),
+        )
+        .await?;
 
     // Create the same flag as in production
     let flag_json = json!([{
@@ -1651,7 +1626,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1706,13 +1681,11 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
 async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Create a flag with two conditions:
     // 1. A property filter (which won't match since there's no person)
@@ -1746,7 +1719,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1836,14 +1809,13 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1867,7 +1839,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1908,14 +1880,13 @@ async fn test_config_basic_fields() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -1934,7 +1905,7 @@ async fn test_config_basic_fields() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -1978,14 +1949,13 @@ async fn test_config_analytics_enabled() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2018,14 +1988,13 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2057,14 +2026,13 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2093,15 +2061,14 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
 
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2131,14 +2098,13 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2168,14 +2134,13 @@ async fn test_config_optional_team_features() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2213,14 +2178,13 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2250,14 +2214,13 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2276,7 +2239,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -2341,18 +2304,18 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
     // Insert a plugin
     let mut conn = pg_client.get_connection().await.unwrap();
     let plugin_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_plugin 
+        r#"INSERT INTO posthog_plugin
            (name, description, url, config_schema, tag, source, plugin_type, is_global, is_preinstalled, is_stateless, capabilities, from_json, from_web, organization_id, updated_at, created_at)
            VALUES ($1, 'Test Site App', $2, '[]', '', '', 'source', false, false, false, '{}', false, false, $3::uuid, NOW(), NOW())
            RETURNING id"#,
@@ -2367,7 +2330,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     // Insert plugin source file (site.ts with TRANSPILED status)
     let source_uuid = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        r#"INSERT INTO posthog_pluginsourcefile 
+        r#"INSERT INTO posthog_pluginsourcefile
            (id, plugin_id, filename, source, transpiled, status, updated_at)
            VALUES ($1::uuid, $2, 'site.ts', 'function test(){}', 'function test(){}', 'TRANSPILED', NOW())"#,
     )
@@ -2379,7 +2342,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
 
     // Insert plugin config to connect the plugin to the team
     sqlx::query(
-        r#"INSERT INTO posthog_pluginconfig 
+        r#"INSERT INTO posthog_pluginconfig
            (plugin_id, team_id, enabled, "order", config, web_token, updated_at, created_at)
            VALUES ($1, $2, true, 1, '{}', 'test_site_app_token', NOW(), NOW())"#,
     )
@@ -2431,7 +2394,6 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -2453,11 +2415,11 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2502,7 +2464,6 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -2524,11 +2485,11 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
         .unwrap();
 
     // Insert team in PG
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2606,17 +2567,17 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
     // Add a site app plugin
     let mut conn = pg_client.get_connection().await.unwrap();
     let plugin_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_plugin 
+        r#"INSERT INTO posthog_plugin
            (name, description, url, config_schema, tag, source, plugin_type, is_global, is_preinstalled, is_stateless, capabilities, from_json, from_web, organization_id, updated_at, created_at)
            VALUES ($1, 'Enterprise Site App', $2, '[]', '', '', 'source', false, false, false, '{}', false, false, $3::uuid, NOW(), NOW())
            RETURNING id"#,
@@ -2630,7 +2591,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
 
     let source_uuid = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        r#"INSERT INTO posthog_pluginsourcefile 
+        r#"INSERT INTO posthog_pluginsourcefile
            (id, plugin_id, filename, source, transpiled, status, updated_at)
            VALUES ($1::uuid, $2, 'site.ts', 'function enterpriseFeature(){}', 'function enterpriseFeature(){}', 'TRANSPILED', NOW())"#,
     )
@@ -2641,7 +2602,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     .unwrap();
 
     sqlx::query(
-        r#"INSERT INTO posthog_pluginconfig 
+        r#"INSERT INTO posthog_pluginconfig
            (plugin_id, team_id, enabled, "order", config, web_token, updated_at, created_at)
            VALUES ($1, $2, true, 1, '{}', 'enterprise_site_app_token', NOW(), NOW())"#,
     )
@@ -2745,7 +2706,6 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
 
     let distinct_id = "minimal_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -2776,10 +2736,10 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2849,7 +2809,6 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
 
     let distinct_id = "mixed_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -2882,10 +2841,10 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -2958,7 +2917,6 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
 
     let distinct_id = "exclusion_test_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -2990,10 +2948,10 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3045,7 +3003,6 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     let distinct_id = "consistency_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -3068,10 +3025,10 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3136,7 +3093,6 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     let distinct_id = "error_tracking_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -3157,15 +3113,16 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
         .await
         .unwrap();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
     // Enable autocapture exceptions in the database too
-    update_team_autocapture_exceptions(pg_client.clone(), team.id, true)
+    context
+        .update_team_autocapture_exceptions(team.id, true)
         .await
         .unwrap();
 
@@ -3173,10 +3130,12 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     let filter1 = json!({"errorType": "TypeError", "message": "Cannot read property"});
     let filter2 = json!({"stackTrace": {"contains": "node_modules"}});
 
-    insert_suppression_rule_in_pg(pg_client.clone(), team.id, filter1.clone())
+    context
+        .insert_suppression_rule(team.id, filter1.clone())
         .await
         .unwrap();
-    insert_suppression_rule_in_pg(pg_client.clone(), team.id, filter2.clone())
+    context
+        .insert_suppression_rule(team.id, filter2.clone())
         .await
         .unwrap();
 
@@ -3215,19 +3174,19 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
     let distinct_id = "error_tracking_disabled_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
     // Explicitly disable autocapture exceptions for the team
-    update_team_autocapture_exceptions(pg_client.clone(), team.id, false)
+    context
+        .update_team_autocapture_exceptions(team.id, false)
         .await
         .unwrap();
 
@@ -3264,15 +3223,14 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3297,7 +3255,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3336,15 +3294,14 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3369,7 +3326,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3407,15 +3364,14 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3440,7 +3396,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3480,15 +3436,14 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3513,7 +3468,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3569,15 +3524,14 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3602,7 +3556,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3657,15 +3611,14 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -3690,7 +3643,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -3734,25 +3687,25 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None).await?;
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await?;
 
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Create a group with a numeric group_key (as a string in DB, but represents a number)
-    create_group_in_pg(
-        pg_client.clone(),
-        team.id,
-        "organization",
-        "123",
-        json!({"name": "Organization 123", "size": "large"}),
-    )
-    .await?;
+    context
+        .create_group(
+            team.id,
+            "organization",
+            "123",
+            json!({"name": "Organization 123", "size": "large"}),
+        )
+        .await?;
 
     // Define a group-based flag with simple rollout (no property filters)
     let flags_json = json!([
@@ -3778,7 +3731,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -3907,26 +3860,24 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     let distinct_id = "super_condition_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the super condition property set to true in the database
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/discussions": true,  // DB has it as true
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/discussions": true,  // DB has it as true
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create a flag with a super condition that checks the enrollment property
     let flag_json = json!([{
@@ -3958,7 +3909,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4040,17 +3991,17 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     // Test the reverse: override to true when DB has false
     // First update DB to have false
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        "another_user".to_string(),
-        Some(json!({
-            "$feature_enrollment/discussions": false,  // DB has it as false
-            "email": "another@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            "another_user".to_string(),
+            Some(json!({
+                "$feature_enrollment/discussions": false,  // DB has it as false
+                "email": "another@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let payload_reverse_override = json!({
         "token": token,
@@ -4101,27 +4052,25 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     let distinct_id = "test_real_bug".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with TWO properties in the database
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "plan": "premium",  // Flag will check this property
-            "$feature_enrollment/discussions": true,  // We'll override this property
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "plan": "premium",  // Flag will check this property
+                "$feature_enrollment/discussions": true,  // We'll override this property
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create two flags:
     // 1. Flag that checks "plan" property (should be true with DB value)
@@ -4178,7 +4127,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4240,26 +4189,24 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let distinct_id = "super_condition_cohort_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the super condition property
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "$feature_enrollment/discussions": false,  // Super condition property in DB
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "$feature_enrollment/discussions": false,  // Super condition property in DB
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     // Create a flag that matches your production example:
     // - Has a super condition that checks "$feature_enrollment/discussions"
@@ -4298,7 +4245,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4425,15 +4372,14 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -4492,7 +4438,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4566,12 +4512,10 @@ async fn test_group_key_property_matching() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
-    let token = team.api_token;
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(Some(team.id)).await.unwrap();
+    let token = team.api_token.clone();
 
     // Create a flag that filters on $group_key property
     let flag_json = json!([{
@@ -4603,7 +4547,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4696,21 +4640,20 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with the target email that should match the cohort
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({"email": "test.user@example.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "test.user@example.com"})),
+        )
+        .await
+        .unwrap();
 
     // Create the cohort with the specified filters:
     // OR condition with AND group that checks:
@@ -4744,7 +4687,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     // Create the cohort in the database
     let mut conn = pg_client.get_connection().await.unwrap();
     let cohort_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_cohort 
+        r#"INSERT INTO posthog_cohort
            (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
            VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
            RETURNING id"#,
@@ -4785,7 +4728,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -4823,14 +4766,14 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
 
     // Test with excluded.user@example.com - should NOT match cohort due to negation condition
     let excluded_distinct_id = "excluded.user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        excluded_distinct_id.clone(),
-        Some(json!({"email": "excluded.user@example.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            excluded_distinct_id.clone(),
+            Some(json!({"email": "excluded.user@example.com"})),
+        )
+        .await
+        .unwrap();
 
     let payload_excluded = json!({
         "token": token,
@@ -4861,14 +4804,14 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
 
     // Test with non-example.com email - should NOT match cohort due to regex condition
     let non_example_distinct_id = "other.user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        non_example_distinct_id.clone(),
-        Some(json!({"email": "other.user@other.com"})),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            non_example_distinct_id.clone(),
+            Some(json!({"email": "other.user@other.com"})),
+        )
+        .await
+        .unwrap();
 
     let payload_non_example = json!({
         "token": token,
@@ -4910,15 +4853,14 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5021,7 +4963,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -5143,15 +5085,14 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5210,7 +5151,7 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags.to_string()),
     )
     .await
@@ -5270,15 +5211,14 @@ async fn it_handles_empty_query_parameters() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5321,15 +5261,14 @@ async fn it_handles_boolean_query_params_as_truthy() -> Result<()> {
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
         .await
         .unwrap();
 
@@ -5405,31 +5344,30 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with production-like data - should match via days_since_paid_plan_start condition
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "name": "Test User",
-            "email": "test@example.com",
-            "org_id": "test-org-123", // Not in the allowed org list
-            "user_id": "test-user-456",
-            "days_since_paid_plan_start": 77, // < 365, should match this condition
-            "created_at_timestamp": 1747758893, // Set, would match this condition
-            "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
-            "paid_plan_start_date": "2025-06-04",
-            "trial_start_date": "2025-05-20"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "name": "Test User",
+                "email": "test@example.com",
+                "org_id": "test-org-123", // Not in the allowed org list
+                "user_id": "test-user-456",
+                "days_since_paid_plan_start": 77, // < 365, should match this condition
+                "created_at_timestamp": 1747758893, // Set, would match this condition
+                "upgraded_at_timestamp": 1749058908, // Has upgrade timestamp - fails the not_regex condition in cohort 128293
+                "paid_plan_start_date": "2025-06-04",
+                "trial_start_date": "2025-05-20"
+            })),
+        )
+        .await
+        .unwrap();
 
     let mut conn = pg_client.get_connection().await.unwrap();
 
@@ -5463,7 +5401,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     });
 
     let cohort_128293_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_cohort 
+        r#"INSERT INTO posthog_cohort
            (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
            VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
            RETURNING id"#,
@@ -5515,7 +5453,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     });
 
     let cohort_128397_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_cohort 
+        r#"INSERT INTO posthog_cohort
            (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
            VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
            RETURNING id"#,
@@ -5556,7 +5494,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -5594,19 +5532,19 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     // Test with user who SHOULD match - has low days_since_paid_plan_start and no upgraded_at_timestamp
     let matching_distinct_id = "matching_user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        matching_distinct_id.clone(),
-        Some(json!({
-            "days_since_paid_plan_start": 200, // < 365, matches this condition
-            "created_at_timestamp": 1747758893,
-            "org_id": "12345" // Not in special list, but should match via days condition
-            // No upgraded_at_timestamp - this allows them to match base cohort 128293
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            matching_distinct_id.clone(),
+            Some(json!({
+                "days_since_paid_plan_start": 200, // < 365, matches this condition
+                "created_at_timestamp": 1747758893,
+                "org_id": "12345" // Not in special list, but should match via days condition
+                // No upgraded_at_timestamp - this allows them to match base cohort 128293
+            })),
+        )
+        .await
+        .unwrap();
 
     let matching_payload = json!({
         "token": token,
@@ -5638,19 +5576,19 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     // Test with user who should NOT match the cohort - high days_since_paid_plan_start and has upgraded_at_timestamp
     let failing_distinct_id = "failing_user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        failing_distinct_id.clone(),
-        Some(json!({
-            "days_since_paid_plan_start": "500", // > 365, fails the lt condition
-            "created_at_timestamp": "2024-01-01T00:00:00Z",
-            "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
-            "org_id": "99999" // not in the specific org_id list
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            failing_distinct_id.clone(),
+            Some(json!({
+                "days_since_paid_plan_start": "500", // > 365, fails the lt condition
+                "created_at_timestamp": "2024-01-01T00:00:00Z",
+                "upgraded_at_timestamp": "2024-02-01T00:00:00Z", // has upgrade timestamp, fails the not_regex condition
+                "org_id": "99999" // not in the specific org_id list
+            })),
+        )
+        .await
+        .unwrap();
 
     let failing_payload = json!({
         "token": token,
@@ -5687,13 +5625,11 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Create multiple flags with different matching conditions
     let flags_json = json!([
@@ -5820,7 +5756,7 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -5965,21 +5901,20 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with email matching our target pattern
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "email": "engineer@posthog.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "email": "engineer@posthog.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let mut conn = pg_client.get_connection().await.unwrap();
 
@@ -6001,7 +5936,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     });
 
     let excluded_cohort_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_cohort 
+        r#"INSERT INTO posthog_cohort
            (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
            VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
            RETURNING id"#,
@@ -6039,7 +5974,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     });
 
     let main_cohort_id: i32 = sqlx::query_scalar(
-        r#"INSERT INTO posthog_cohort 
+        r#"INSERT INTO posthog_cohort
            (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
            VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
            RETURNING id"#,
@@ -6075,7 +6010,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     insert_flags_for_team_in_redis(
         client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await?;
@@ -6112,16 +6047,16 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     // Test 2: User with admin@posthog.com should NOT match
     // (matches @posthog.com regex BUT is in admin cohort)
     let admin_distinct_id = "admin_user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        admin_distinct_id.clone(),
-        Some(json!({
-            "email": "admin@posthog.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            admin_distinct_id.clone(),
+            Some(json!({
+                "email": "admin@posthog.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let admin_payload = json!({
         "token": token,
@@ -6151,16 +6086,16 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     // Test 3: User without @posthog.com should NOT match
     // (doesn't match regex, regardless of admin status)
     let external_distinct_id = "external_user".to_string();
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        external_distinct_id.clone(),
-        Some(json!({
-            "email": "user@example.com"
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            external_distinct_id.clone(),
+            Some(json!({
+                "email": "user@example.com"
+            })),
+        )
+        .await
+        .unwrap();
 
     let external_payload = json!({
         "token": token,
@@ -6200,29 +6135,27 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     let distinct_id = "test_user_123".to_string();
 
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(redis_client.clone())
         .await
         .unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
-    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
-        .await
-        .unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
 
     // Insert person with last_active_date as a string date
-    insert_person_for_team_in_pg(
-        pg_client.clone(),
-        team.id,
-        distinct_id.clone(),
-        Some(json!({
-            "user_id": "test_123",
-            "last_active_date": "2024-03-15T19:17:07.083Z",
-            "segment": null  // This ensures the segment filter won't match
-        })),
-    )
-    .await
-    .unwrap();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "user_id": "test_123",
+                "last_active_date": "2024-03-15T19:17:07.083Z",
+                "segment": null  // This ensures the segment filter won't match
+            })),
+        )
+        .await
+        .unwrap();
 
     // Insert flag with filter configuration
     let flag_json = json!([{
@@ -6281,7 +6214,7 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     insert_flags_for_team_in_redis(
         redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flag_json.to_string()),
     )
     .await

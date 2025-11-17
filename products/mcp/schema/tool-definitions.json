@@ -1,0 +1,618 @@
+{
+    "add-insight-to-dashboard": {
+        "description": "Add an existing insight to a dashboard. Requires insight ID and dashboard ID. Optionally supports layout and color customization.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Add an existing insight to a dashboard.",
+        "title": "Add insight to dashboard",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-create": {
+        "description": "Create a new dashboard in the project. Requires name and optional description, tags, and other properties.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create a new dashboard in the project.",
+        "title": "Create dashboard",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete": {
+        "description": "Delete a dashboard by ID (soft delete - marks as deleted).",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete a dashboard by ID.",
+        "title": "Delete dashboard",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-get": {
+        "description": "Get a specific dashboard by ID. The response will include insights / tiles that are on the dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get a specific dashboard by ID, including insights that are on the dashboard.",
+        "title": "Get dashboard",
+        "required_scopes": ["dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboards-get-all": {
+        "description": "Get all dashboards in the project with optional filtering. Can filter by pinned status, search term, or pagination.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get all dashboards in the project with optional filtering.",
+        "title": "Get all dashboards",
+        "required_scopes": ["dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-update": {
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status or tags.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update an existing dashboard by ID.",
+        "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "docs-search": {
+        "description": "Use this tool to search the PostHog documentation for information that can help the user with their request. Use it as a fallback when you cannot answer the user's request using other tools in this MCP. Only use this tool for PostHog related questions.",
+        "category": "Documentation",
+        "feature": "docs",
+        "summary": "Search the PostHog documentation for information.",
+        "title": "Search docs",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-details": {
+        "description": "Use this tool to get the details of an error in the project.",
+        "category": "Error tracking",
+        "feature": "error-tracking",
+        "summary": "Get the details of an error in the project.",
+        "title": "Get error details",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "list-errors": {
+        "description": "Use this tool to list errors in the project.",
+        "category": "Error tracking",
+        "feature": "error-tracking",
+        "summary": "List errors in the project.",
+        "title": "List errors",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "create-feature-flag": {
+        "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Creates a new feature flag in the project.",
+        "title": "Create feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "delete-feature-flag": {
+        "description": "Delete a feature flag in the project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete a feature flag in the project.",
+        "title": "Delete feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-get-all": {
+        "description": "Get all feature flags in the project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get all feature flags in the project.",
+        "title": "Get all feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flag-get-definition": {
+        "description": "Get the definition of a feature flag. You can provide either the flagId or the flagKey. If you provide both, the flagId will be used.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get the definition of a feature flag.",
+        "title": "Get feature flag definition",
+        "required_scopes": ["feature_flag:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "update-feature-flag": {
+        "description": "Update a new feature flag in the project. To enable a feature flag, you should make sure it is active and the rollout percentage is set to 100 for the group you want to target. To disable a feature flag, you should make sure it is inactive, you can keep the rollout percentage as it is.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update a feature flag in the project.",
+        "title": "Update feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-get-all": {
+        "description": "Get all experiments in the project.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get all experiments in the project.",
+        "title": "Get all experiments",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-create": {
+        "description": "Create a comprehensive A/B test experiment. PROCESS: 1) Understand experiment goal and hypothesis 2) Search existing feature flags with 'feature-flags-get-all' tool first and suggest reuse or new key 3) Help user define success metrics by asking what they want to optimize 4) MOST IMPORTANT: Use 'event-definitions-list' tool to find available events in their project 5) For funnel metrics, ask for specific event sequence (e.g., ['product_view', 'add_to_cart', 'purchase']) and use funnel_steps parameter 6) Configure variants (default 50/50 control/test unless they specify otherwise) 7) Set targeting criteria if needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create A/B test experiment with guided metric and feature flag setup",
+        "title": "Create experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-delete": {
+        "description": "Delete an experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete an experiment by ID.",
+        "title": "Delete experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-update": {
+        "description": "Update an existing experiment by ID. Can update name, description, lifecycle state, variants, metrics, and other properties. RESTART WORKFLOW: To restart a concluded experiment, set end_date=null, conclusion=null, conclusion_comment=null, and optionally set a new start_date. To make it draft again, also set start_date=null. COMMON PATTERNS: Launch draft (set start_date), stop running (set end_date + conclusion), archive (set archived=true), modify variants (update parameters.feature_flag_variants). NOTE: feature_flag_key cannot be changed after creation.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update an existing experiment with lifecycle management and restart capability.",
+        "title": "Update experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-get": {
+        "description": "Get details of a specific experiment by ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get details of a specific experiment.",
+        "title": "Get experiment details",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-results-get": {
+        "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get comprehensive experiment results including metrics and exposure data.",
+        "title": "Get experiment results",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-create-from-query": {
+        "description": "Create an insight from a query that you have previously tested with 'query-run'. You should check the query runs, before creating an insight. Do not create an insight before running the query, unless you know already that it is correct (e.g. you are making a minor modification to an existing query you have seen).",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Save a query as an insight.",
+        "title": "Create insight from query",
+        "required_scopes": ["insight:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-delete": {
+        "description": "Delete an insight by ID (soft delete - marks as deleted).",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Delete an insight by ID.",
+        "title": "Delete insight",
+        "required_scopes": ["insight:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-get": {
+        "description": "Get a specific insight by ID.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Get a specific insight by ID.",
+        "title": "Get insight",
+        "required_scopes": ["insight:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-query": {
+        "description": "Execute a query on an existing insight to get its results/data. Provide the insight ID to retrieve the current query results.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Execute a query on an existing insight to get its results/data.",
+        "title": "Query insight",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-get-all": {
+        "description": "Get all insights in the project with optional filtering. Can filter by saved status, favorited status, or search term.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Get all insights in the project with optional filtering.",
+        "title": "Get all insights",
+        "required_scopes": ["insight:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-update": {
+        "description": "Update an existing insight by ID. Can update name, description, filters, and other properties. You should get the insight before update it to see it's current query structure, and only modify the parts needed to answer the user's request.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Update an existing insight by ID.",
+        "title": "Update insight",
+        "required_scopes": ["insight:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "query-run": {
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel or HogQL query. Where possible, use a trend or funnel rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.).",
+        "category": "Insights & analytics",
+        "summary": "Run a trend, funnel or HogQL query.",
+        "feature": "insights",
+        "title": "Run query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-generate-hogql-from-question": {
+        "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in reasily readable format. You should also offer to save the query as an insight if the user wants to.",
+        "category": "Insights & analytics",
+        "summary": "Queries project's PostHog data based on a provided natural language question.",
+        "feature": "insights",
+        "title": "Generate SQL",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "get-llm-total-costs-for-project": {
+        "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
+        "category": "LLM analytics",
+        "feature": "llm-analytics",
+        "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
+        "title": "Get LLM costs",
+        "required_scopes": ["warehouse_table:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organization-details-get": {
+        "description": "Get the details of the active organization.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Get the details of the active organization.",
+        "title": "Get organization details",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "organizations-get": {
+        "description": "Get the organizations the user has access to.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Get the organizations the user has access to.",
+        "title": "Get organizations",
+        "required_scopes": ["user:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "switch-organization": {
+        "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Change the active organization from the default organization.",
+        "title": "Switch active organization",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "projects-get": {
+        "description": "Fetches projects that the user has access to in the current organization.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Fetches projects that the user has access to in the current organization.",
+        "title": "Get projects",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "event-definitions-list": {
+        "description": "List all event definitions in the project with optional filtering. Can filter by search term.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "List all event definitions in the project with optional filtering.",
+        "title": "List all events",
+        "required_scopes": ["event_definition:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "properties-list": {
+        "description": "List properties for events or persons. If fetching event properties, you must provide an event name.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Get properties for events or persons.",
+        "title": "Get properties",
+        "required_scopes": ["property_definition:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "property-definitions": {
+        "description": "Get event and property definitions for the project.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Get event and property definitions for the project.",
+        "title": "Get property definitions",
+        "required_scopes": ["property_definition:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "switch-project": {
+        "description": "Change the active project from the default project. You should only use this tool if the user asks you to change the project - otherwise, the default project will be used.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "Change the active project from the default project.",
+        "title": "Switch active project",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-create": {
+        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "category": "Surveys",
+        "summary": "Creates a new survey in the project.",
+        "required_scopes": ["survey:write"],
+        "feature": "surveys",
+        "title": "Create survey",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-get": {
+        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "category": "Surveys",
+        "summary": "Get a specific survey by ID.",
+        "required_scopes": ["survey:read"],
+        "feature": "surveys",
+        "title": "Get survey",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-get-all": {
+        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "category": "Surveys",
+        "summary": "Get all surveys in the project with optional filtering.",
+        "required_scopes": ["survey:read"],
+        "feature": "surveys",
+        "title": "Get all surveys",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-update": {
+        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "category": "Surveys",
+        "summary": "Update an existing survey by ID.",
+        "required_scopes": ["survey:write"],
+        "feature": "surveys",
+        "title": "Update survey",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "survey-delete": {
+        "description": "Delete a survey by ID (soft delete - marks as archived).",
+        "category": "Surveys",
+        "summary": "Delete a survey by ID.",
+        "required_scopes": ["survey:write"],
+        "feature": "surveys",
+        "title": "Delete survey",
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "surveys-global-stats": {
+        "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "summary": "Get aggregated response statistics across all surveys.",
+        "required_scopes": ["survey:read"],
+        "feature": "surveys",
+        "title": "Get all survey response stats",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "survey-stats": {
+        "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
+        "category": "Surveys",
+        "summary": "Get response statistics for a specific survey.",
+        "required_scopes": ["survey:read"],
+        "feature": "surveys",
+        "title": "Get survey response stats",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    }
+}

@@ -1,5 +1,11 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -7,6 +13,8 @@ import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_i
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { Onboarding as RevenueAnalyticsOnboarding } from './Onboarding'
+
+const MOCK_TEAM_WITHOUT_VIEWSET = { ...MOCK_DEFAULT_TEAM, managed_viewsets: { revenue_analytics: false } }
 
 const meta: Meta = {
     component: RevenueAnalyticsOnboarding,
@@ -54,3 +62,15 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const Onboarding: Story = { args: { closeOnboarding: () => {} } }
 export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', closeOnboarding: () => {} } }
+export const OnboardingWithViewsetFeatureFlag: StoryFn = () => {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
+    useOnMountEffect(() => {
+        loadCurrentTeamSuccess(MOCK_TEAM_WITHOUT_VIEWSET)
+    })
+
+    return <RevenueAnalyticsOnboarding closeOnboarding={() => {}} />
+}
+OnboardingWithViewsetFeatureFlag.parameters = {
+    featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
+}

@@ -11,6 +11,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, QueryBasedInsightModel } from '~/types'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
@@ -59,11 +60,9 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
     ]
 
     return (
-        <div className="saved-insights">
-            <h3>Insights using event</h3>
+        <SceneSection title="Insights using event" className="saved-insights">
             <LemonInput
                 type="search"
-                className="mb-2"
                 placeholder="Search..."
                 onChange={(value) => setFilters({ search: value })}
                 value={filters.search || ''}
@@ -102,6 +101,6 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 useURLForSorting={false}
                 emptyState="No insights found"
             />
-        </div>
+        </SceneSection>
     )
 }

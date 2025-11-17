@@ -1,7 +1,11 @@
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { findEventWithParents } from './llmAnalyticsTraceDataLogic'
 import type { SearchMatch } from './searchUtils'
 import {
     containsSearchQuery,
     eventMatchesSearch,
+    extractAllText,
     findMessageOccurrences,
     findSearchMatches,
     findSearchOccurrences,
@@ -60,6 +64,57 @@ describe('searchUtils', () => {
 
         test.each(testCases)('%s', (_testName, text, query, expected) => {
             expect(containsSearchQuery(text, query)).toBe(expected)
+        })
+    })
+
+    describe('extractAllText', () => {
+        it('extracts text from strings', () => {
+            expect(extractAllText('hello world')).toBe('hello world')
+        })
+
+        it('converts numbers and booleans to strings', () => {
+            expect(extractAllText(42)).toBe('42')
+            expect(extractAllText(true)).toBe('true')
+            expect(extractAllText(false)).toBe('false')
+        })
+
+        it('returns empty string for null/undefined', () => {
+            expect(extractAllText(null)).toBe('')
+            expect(extractAllText(undefined)).toBe('')
+        })
+
+        it('extracts text from flat objects', () => {
+            const obj = { name: 'John', age: 30, active: true }
+            expect(extractAllText(obj)).toBe('John 30 true')
+        })
+
+        it('extracts text from deeply nested objects', () => {
+            const deepObj = {
+                level1: {
+                    level2: {
+                        level3: {
+                            level4: {
+                                deepText: 'found it',
+                                moreNesting: {
+                                    level5: 'even deeper',
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+            const result = extractAllText(deepObj)
+            expect(result).toContain('found it')
+            expect(result).toContain('even deeper')
+        })
+
+        it('extracts text from arrays', () => {
+            const arr = ['first', { nested: 'second' }, ['third', { deep: 'fourth' }]]
+            const result = extractAllText(arr)
+            expect(result).toContain('first')
+            expect(result).toContain('second')
+            expect(result).toContain('third')
+            expect(result).toContain('fourth')
         })
     })
 
@@ -200,6 +255,48 @@ describe('searchUtils', () => {
             expect(eventMatchesSearch(event, 'typescript')).toBe(true)
             expect(eventMatchesSearch(event, 'javascript')).toBe(true)
             expect(eventMatchesSearch(event, 'python')).toBe(false)
+        })
+
+        it('searches in deeply nested content', () => {
+            const event = createEvent({
+                properties: {
+                    $ai_input: {
+                        conversation: {
+                            messages: [
+                                {
+                                    content: {
+                                        parts: [
+                                            {
+                                                text: {
+                                                    data: 'deeply nested search term',
+                                                    metadata: {
+                                                        source: 'another deep value',
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                    $ai_output: {
+                        response: {
+                            data: {
+                                nested: {
+                                    veryDeep: {
+                                        content: 'hidden response text',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            })
+            expect(eventMatchesSearch(event, 'deeply nested search term')).toBe(true)
+            expect(eventMatchesSearch(event, 'another deep value')).toBe(true)
+            expect(eventMatchesSearch(event, 'hidden response text')).toBe(true)
+            expect(eventMatchesSearch(event, 'not found anywhere')).toBe(false)
         })
     })
 
@@ -618,6 +715,78 @@ describe('searchUtils', () => {
 
             expect(inputOccurrences).toHaveLength(1)
             expect(outputOccurrences).toHaveLength(1)
+        })
+    })
+
+    describe('findEventWithParents', () => {
+        it('finds parent chain for deeply nested events', () => {
+            const traceId = 'trace-123'
+
+            // Create a chain: trace -> span1 -> span2 -> generation
+            const events: LLMTraceEvent[] = [
+                {
+                    id: 'span1',
+                    event: '$ai_span',
+                    properties: {
+                        $ai_span_id: 'span1',
+                        $ai_trace_id: traceId,
+                        $ai_span_name: 'Parent Span 1',
+                    },
+                    createdAt: '2023-01-01T00:00:00Z',
+                },
+                {
+                    id: 'span2',
+                    event: '$ai_span',
+                    properties: {
+                        $ai_span_id: 'span2',
+                        $ai_parent_id: 'span1',
+                        $ai_span_name: 'Parent Span 2',
+                    },
+                    createdAt: '2023-01-01T00:01:00Z',
+                },
+                {
+                    id: 'gen1',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_generation_id: 'gen1',
+                        $ai_parent_id: 'span2',
+                        $ai_span_name: 'Deep Generation',
+                        $ai_input: 'deeply nested search query',
+                        $ai_output: 'response from deep generation',
+                    },
+                    createdAt: '2023-01-01T00:02:00Z',
+                },
+            ]
+
+            // Test that searching for text in the deep generation includes parent chain
+            const deepEvent = events[2] // gen1
+            const parentChain = findEventWithParents(deepEvent, events, traceId)
+
+            expect(parentChain).toHaveLength(3)
+            expect(parentChain.map((e) => e.id)).toEqual(['gen1', 'span2', 'span1'])
+            expect(parentChain[0].properties.$ai_span_name).toBe('Deep Generation')
+            expect(parentChain[1].properties.$ai_span_name).toBe('Parent Span 2')
+            expect(parentChain[2].properties.$ai_span_name).toBe('Parent Span 1')
+        })
+
+        it('handles events with no parents', () => {
+            const traceId = 'trace-123'
+            const events: LLMTraceEvent[] = [
+                {
+                    id: 'span1',
+                    event: '$ai_span',
+                    properties: {
+                        $ai_span_id: 'span1',
+                        $ai_trace_id: traceId,
+                        $ai_span_name: 'Root Span',
+                    },
+                    createdAt: '2023-01-01T00:00:00Z',
+                },
+            ]
+
+            const parentChain = findEventWithParents(events[0], events, traceId)
+            expect(parentChain).toHaveLength(1)
+            expect(parentChain[0].id).toBe('span1')
         })
     })
 })

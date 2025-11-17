@@ -1,4 +1,12 @@
-import { BaseMathType, ExperimentConclusion, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
+import {
+    AccessControlLevel,
+    BaseMathType,
+    ExperimentConclusion,
+    GroupMathType,
+    HogQLMathType,
+    PropertyMathType,
+} from '~/types'
+import type { Experiment } from '~/types'
 
 export enum MetricInsightId {
     Trends = 'new-experiment-trends-metric',
@@ -54,4 +62,34 @@ export const CONCLUSION_DISPLAY_CONFIG: Record<
             'The experiment data is unreliable due to issues like tracking errors, incorrect setup, or external disruptions.',
         color: 'bg-muted-alt',
     },
+}
+
+export const NEW_EXPERIMENT: Experiment = {
+    id: 'new',
+    name: '',
+    description: '',
+    type: 'product',
+    feature_flag_key: '',
+    filters: {},
+    metrics: [] as any[],
+    metrics_secondary: [] as any[],
+    secondary_metrics: [] as any[],
+    primary_metrics_ordered_uuids: null,
+    secondary_metrics_ordered_uuids: null,
+    saved_metrics_ids: [] as any[],
+    saved_metrics: [] as any[],
+    parameters: {
+        feature_flag_variants: [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'test', rollout_percentage: 50 },
+        ] as any[],
+    },
+    created_at: null,
+    created_by: null,
+    updated_at: null,
+    holdout_id: null,
+    exposure_criteria: {
+        filterTestAccounts: true,
+    },
+    user_access_level: AccessControlLevel.Editor,
 }

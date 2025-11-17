@@ -29,5 +29,5 @@ operations = [
     # 6. Recreate the Kafka table with the updated schema
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 7. Recreate the materialized view with the updated schema
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(exclude_columns=["retention_period_days"])),
 ]

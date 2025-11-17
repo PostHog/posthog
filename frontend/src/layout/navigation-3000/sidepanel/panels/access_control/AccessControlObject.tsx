@@ -149,7 +149,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         </p>
                     </div>
                 ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="ph-no-capture flex items-center gap-2">
                         <ProfilePicture user={member(ac as AccessControlTypeMember)?.user} />
                         <div>
                             <p className="font-medium mb-0">
@@ -368,7 +368,7 @@ function SimplLevelComponent(props: {
     onChange: (newValue: AccessControlLevel) => void
     disabled?: boolean
 }): JSX.Element | null {
-    const { canEditAccessControls } = useValues(accessControlLogic)
+    const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
 
     return (
         <LemonSelect
@@ -377,10 +377,16 @@ function SimplLevelComponent(props: {
             value={props.level}
             onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
             disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
-            options={props.levels.map((level) => ({
-                value: level,
-                label: capitalizeFirstLetter(level ?? ''),
-            }))}
+            options={props.levels.map((level) => {
+                const isDisabled = minimumAccessLevel
+                    ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
+                    : false
+                return {
+                    value: level,
+                    label: capitalizeFirstLetter(level ?? ''),
+                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+                }
+            })}
         />
     )
 }

@@ -8,22 +8,18 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from posthog.schema import (
     AssistantMessage,
-    AssistantToolCall,
     AssistantToolCallMessage,
     HumanMessage,
     MultiVisualizationMessage,
-    PlanningMessage,
-    PlanningStep,
     ProsemirrorJSONContent,
-    ReasoningMessage,
     VisualizationItem,
 )
 
-from posthog.models.notebook import Notebook
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.planner.prompts import (
@@ -42,17 +38,23 @@ from ee.hogai.graph.deep_research.planner.prompts import (
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
-    DeepResearchTodo,
-    InsightArtifact,
     PartialDeepResearchState,
-    TaskExecutionItem,
+    TodoItem,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
-from ee.hogai.utils.helpers import extract_content_from_ai_message
+from ee.hogai.utils.helpers import normalize_ai_message
 from ee.hogai.utils.types import WithCommentary
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
 
 logger = logging.getLogger(__name__)
+
+
+class DeepResearchTaskExecutionItem(BaseModel):
+    id: str
+    description: str
+    prompt: str
+    artifact_ids: Optional[list[str]] = None
+    task_type: Literal["create_insight"]
 
 
 class execute_tasks(WithCommentary):
@@ -60,7 +62,7 @@ class execute_tasks(WithCommentary):
     Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
     """
 
-    tasks: list[TaskExecutionItem] = Field(description="The tasks to execute")
+    tasks: list[DeepResearchTaskExecutionItem] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):
@@ -68,7 +70,7 @@ class todo_write(WithCommentary):
     Create a new TO-DO list. Returns the most recent TO-DO list after the write.
     """
 
-    todos: list[DeepResearchTodo] = Field(description="A step-by-step list of TO-DOs for answering the user's question")
+    todos: list[TodoItem] = Field(description="A step-by-step list of TO-DOs for answering the user's question")
 
 
 class todo_read(WithCommentary):
@@ -136,7 +138,12 @@ class DeepResearchPlannerNode(DeepResearchNode):
             else:
                 raise ValueError("Unexpected message type.")
         else:
-            notebook = await Notebook.objects.aget(short_id=state.notebook_short_id)
+            # Get the planning notebook from current_run_notebooks (should be the first one)
+            if not state.current_run_notebooks:
+                raise ValueError("No notebooks found in current run.")
+
+            planning_notebook_id = state.current_run_notebooks[0].notebook_id
+            notebook = await Notebook.objects.aget(short_id=planning_notebook_id)
             if not notebook:
                 raise ValueError("Notebook not found.")
 
@@ -158,59 +165,17 @@ class DeepResearchPlannerNode(DeepResearchNode):
         )
         response = cast(LangchainAIMessage, response)
 
-        content = extract_content_from_ai_message(response)
+        message = normalize_ai_message(response)
         response_id = response.response_metadata["id"]
 
-        tool_calls = response.tool_calls
-        if len(tool_calls) > 1:
-            raise ValueError("Expected exactly one tool call.")
-        commentary = tool_calls[0]["args"].get("commentary")
-        _messages = [AssistantMessage(content=commentary, id=str(uuid4()))] if commentary else []
         return PartialDeepResearchState(
-            messages=[
-                *_messages,
-                AssistantMessage(
-                    content=content,
-                    tool_calls=[
-                        AssistantToolCall(id=cast(str, tool_call["id"]), name=tool_call["name"], args=tool_call["args"])
-                        for tool_call in response.tool_calls
-                    ],
-                    id=str(uuid4()),
-                ),
-            ],
+            messages=[message],
             previous_response_id=response_id,
         )
 
 
 class DeepResearchPlannerToolsNode(DeepResearchNode):
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        if not input.messages:
-            return None
-        assert isinstance(input.messages[-1], AssistantMessage)
-        tool_calls = input.messages[-1].tool_calls or []
-        assert len(tool_calls) <= 1
-        if len(tool_calls) == 0:
-            return None
-        tool_call = tool_calls[0]
-        if tool_call.name == "todo_write":
-            return ReasoningMessage(content="Writing todos")
-        elif tool_call.name == "todo_read":
-            return ReasoningMessage(content="Reading todos")
-        elif tool_call.name == "artifacts_read":
-            return ReasoningMessage(content="Reading artifacts")
-        elif tool_call.name == "execute_tasks":
-            return ReasoningMessage(content="Executing tasks")
-        elif tool_call.name == "result_write":
-            return ReasoningMessage(content="Writing intermediate results")
-        elif tool_call.name == "finalize_research":
-            return ReasoningMessage(content="Finalizing research")
-        return None
-
-    async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
+    async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState | None:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage):
             raise ValueError("Last message is not an assistant message.")
@@ -221,7 +186,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
                     HumanMessage(
                         content="You have to use at least one tool to continue.",
                         id=str(uuid4()),
-                    ),
+                    )
                 ],
             )
 
@@ -251,7 +216,8 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         if tool_call_name == "artifacts_read":
             return await self._handle_artifacts_read(tool_call, state)
         elif tool_call_name == "execute_tasks":
-            return await self._handle_execute_tasks(tool_call, state)
+            # Redirect to task executor
+            return None
 
         # Tools below this point require task results
         if len(state.task_results) == 0:
@@ -275,7 +241,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_todo_write(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Create or update the TODOs list for research tasks."""
         # Parse and validate todos
-        todos = [DeepResearchTodo.model_validate(todo) for todo in tool_call.args["todos"]]
+        todos = [TodoItem.model_validate(todo) for todo in tool_call.args["todos"]]
 
         if not todos:
             return PartialDeepResearchState(
@@ -289,28 +255,15 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Format todos for display
-        formatted_todos = "\n".join(
-            [f"- {todo.description}: {todo.status} (priority: {todo.priority})" for todo in todos]
-        )
+        formatted_todos = "\n".join([f"- {todo.content}: {todo.status} (priority: {todo.priority})" for todo in todos])
 
-        # Return planning message with todos
         return PartialDeepResearchState(
             messages=[
-                PlanningMessage(
-                    id=str(uuid4()),
-                    steps=[
-                        PlanningStep(
-                            description=todo.description,
-                            status=todo.status,
-                        )
-                        for todo in todos
-                    ],
-                ),
                 AssistantToolCallMessage(
                     content=TODO_WRITE_TOOL_RESULT.format(todos=formatted_todos),
                     id=str(uuid4()),
                     tool_call_id=tool_call.id,
-                ),
+                )
             ],
             todos=todos,
         )
@@ -319,7 +272,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         """Read and return the current TODO list."""
         if state.todos and len(state.todos) > 0:
             formatted_todos = "\n".join(
-                [f"- {todo.description}: {todo.status} (priority: {todo.priority})" for todo in state.todos]
+                [f"- {todo.content}: {todo.status} (priority: {todo.priority})" for todo in state.todos]
             )
         else:
             formatted_todos = TODO_READ_FAILED_TOOL_RESULT
@@ -337,13 +290,13 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_artifacts_read(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Read artifacts generated from completed tasks."""
         # Collect all artifacts from task results
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
         # Format artifacts for display
         if artifacts:
-            formatted_artifacts = "\n".join([f"- {artifact.id}: {artifact.description}" for artifact in artifacts])
+            formatted_artifacts = "\n".join([f"- {artifact.task_id}: {artifact.content}" for artifact in artifacts])
         else:
             formatted_artifacts = ARTIFACTS_READ_FAILED_TOOL_RESULT
 
@@ -355,13 +308,6 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
                     tool_call_id=tool_call.id,
                 ),
             ],
-        )
-
-    async def _handle_execute_tasks(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
-        """Execute tasks from the TODOs list."""
-        # Simply pass the tasks to be executed
-        return PartialDeepResearchState(
-            tasks=tool_call.args["tasks"],
         )
 
     async def _handle_result_write(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
@@ -381,12 +327,12 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Collect all available artifacts
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
         # Validate artifact IDs referenced in the result
-        existing_ids = {artifact.id for artifact in artifacts}
+        existing_ids = {artifact.task_id for artifact in artifacts}
         invalid_ids = set(intermediate_result.artifact_ids) - existing_ids
 
         if invalid_ids:
@@ -401,12 +347,14 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
+        selected_artifacts = [
+            artifact for artifact in artifacts if artifact.task_id in intermediate_result.artifact_ids
+        ]
 
         visualization_messages = [
-            VisualizationItem(query=artifact.description, answer=artifact.query)
+            VisualizationItem(query=artifact.content, answer=artifact.query)
             for artifact in selected_artifacts
-            if artifact.query
+            if isinstance(artifact, InsightArtifact)
         ]
 
         return PartialDeepResearchState(
@@ -438,9 +386,9 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         )
 
     def router(self, state: DeepResearchState) -> Literal["continue", "end", "task_executor"]:
-        if state.tasks and len(state.tasks) > 0:
-            return "task_executor"
         last_message = state.messages[-1]
+        if isinstance(last_message, AssistantMessage) and last_message.tool_calls:
+            return "task_executor"
         if not isinstance(last_message, AssistantToolCallMessage):
             raise ValueError("Last message is not an assistant tool message.")
         if last_message.content == FINALIZE_RESEARCH_TOOL_RESULT:

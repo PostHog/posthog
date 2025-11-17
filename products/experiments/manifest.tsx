@@ -40,6 +40,7 @@ export const manifest: ProductManifest = {
             href: urls.experiment('new'),
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            sceneKeys: ['Experiments', 'Experiment'],
         },
     ],
     treeItemsProducts: [
@@ -50,6 +51,8 @@ export const manifest: ProductManifest = {
             href: urls.experiments(),
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            sceneKey: 'Experiments',
+            sceneKeys: ['Experiments', 'Experiment'],
         },
     ],
 }

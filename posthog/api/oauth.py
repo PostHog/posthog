@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 from typing import TypedDict, cast
 
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 
@@ -381,10 +382,38 @@ class OAuthTokenView(TokenView):
     - code_verifier: The code verifier that was used to generate the code_challenge. The code_challenge is a sha256 hash
     of the code_verifier that was sent in the authorization request.
 
-    To comply with RFC 6749, the data must be sent as x-www-form-urlencoded.
+    RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
     """
 
-    pass
+    def post(self, request, *args, **kwargs):
+        if request.content_type == "application/json" and request.body:
+            try:
+                json_data = json.loads(request.body)
+                request.POST = request.POST.copy()
+                for key, value in json_data.items():
+                    request.POST[key] = value
+            except (json.JSONDecodeError, ValueError):
+                return JsonResponse(
+                    {"error": "invalid_request", "error_description": "Invalid JSON payload"},
+                    status=400,
+                )
+
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            try:
+                response_data = json.loads(response.content)
+                access_token_value = response_data.get("access_token")
+
+                if access_token_value:
+                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    response_data["scoped_teams"] = access_token.scoped_teams or []
+                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    return JsonResponse(response_data)
+            except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
+                logger.warning(f"Error adding scoped fields to token response: {e}")
+
+        return response
 
 
 class OAuthRevokeTokenView(RevokeTokenView):

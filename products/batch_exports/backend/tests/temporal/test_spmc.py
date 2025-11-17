@@ -73,6 +73,19 @@ async def test_record_batch_queue_sets_schema():
     assert schema == record_batch.schema
 
 
+async def test_record_batch_queue_str_and_repr():
+    """Test `RecordBatchQueue` returns sensible output for str and repr"""
+    records = [{"test": 1}, {"test": 2}, {"test": 3}]
+    record_batch = pa.RecordBatch.from_pylist(records)
+
+    queue = RecordBatchQueue()
+
+    await queue.put(record_batch)
+
+    assert str(queue) == "<RecordBatchQueue record_batches=1 bytes=24 schema='test: int64'>"
+    assert "record_batches=1 bytes=24 schema='test: int64'" in repr(queue)
+
+
 async def get_record_batch_from_queue(queue, produce_task):
     while not queue.empty() or not produce_task.done():
         try:

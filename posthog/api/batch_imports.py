@@ -23,7 +23,7 @@ from posthog.models.activity_logging.batch_import_utils import (
 )
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 
@@ -178,6 +178,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
+    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -199,6 +200,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "is_eu_region",
             "import_events",
             "generate_identify_events",
+            "generate_group_identify_events",
         ]
         read_only_fields = [
             "id",
@@ -265,9 +267,11 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
 
             # Only apply import_events and generate_identify_events for Amplitude
             if source_type == "amplitude":
-                config_builder = config_builder.with_import_events(
-                    validated_data.get("import_events", True)
-                ).with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                config_builder = (
+                    config_builder.with_import_events(validated_data.get("import_events", True))
+                    .with_generate_identify_events(validated_data.get("generate_identify_events", True))
+                    .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
+                )
 
             config_builder.to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,
@@ -423,7 +427,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=True)
-    def pause(self, request: Request, pk=None) -> Response:
+    def pause(self, request: Request, **kwargs) -> Response:
         """Pause a running batch import."""
         batch_import = self.get_object()
 
@@ -440,7 +444,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"status": "paused"})
 
     @action(methods=["POST"], detail=True)
-    def resume(self, request: Request, pk=None) -> Response:
+    def resume(self, request: Request, **kwargs) -> Response:
         """Resume a paused batch import."""
         batch_import = self.get_object()
 
@@ -465,7 +469,7 @@ class BatchImportContext(ActivityContextBase):
     created_by_user_name: str | None
 
 
-@receiver(model_activity_signal, sender=BatchImport)
+@mutable_receiver(model_activity_signal, sender=BatchImport)
 def handle_batch_import_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

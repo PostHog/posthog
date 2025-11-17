@@ -41,9 +41,9 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         }),
     }),
 
-    connect({
+    connect(() => ({
         actions: [issueActionsLogic, ['splitIssue']],
-    }),
+    })),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
@@ -108,6 +108,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                         key: Scene.ErrorTracking,
                         name: 'Error tracking',
                         path: urls.errorTracking(),
+                        iconType: 'error_tracking',
                     },
                 ]
 
@@ -118,10 +119,12 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                             key: [Scene.ErrorTrackingIssue, name],
                             path: urls.errorTrackingIssue(issue.id),
                             name: name,
+                            iconType: 'error_tracking',
                         },
                         {
                             key: Scene.ErrorTrackingIssueFingerprints,
                             name: 'Fingerprints',
+                            iconType: 'error_tracking',
                         }
                     )
                 } else {
@@ -129,10 +132,12 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                         {
                             key: [Scene.ErrorTrackingIssue, 'Issue'],
                             name: 'Issue',
+                            iconType: 'error_tracking',
                         },
                         {
                             key: Scene.ErrorTrackingIssueFingerprints,
                             name: 'Fingerprints',
+                            iconType: 'error_tracking',
                         }
                     )
                 }

@@ -29,43 +29,9 @@ class TestOrganizationInvite(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
-    def test_invite_use_with_legacy_access_control(self):
-        """Test using an invite with the legacy access control system"""
-        # Create a team with access_control=True (using legacy access control system)
-        team = Team.objects.create(organization=self.organization, name="Legacy Team", access_control=True)
-
-        # Create a user who will use the invite
-        user = User.objects.create_user(email="legacy_test@posthog.com", password="password", first_name="first_name")
-
-        # Create an invite with private project access
-        invite = OrganizationInvite.objects.create(
-            organization=self.organization,
-            target_email="legacy_test@posthog.com",
-            private_project_access=[{"id": team.id, "level": OrganizationMembership.Level.ADMIN}],
-        )
-
-        # Use the invite
-        invite.use(user, prevalidated=True)
-
-        # Verify the user has been added to the organization
-        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
-        self.assertIsNotNone(org_membership)
-
-        # Verify the explicit team membership has been created correctly
-        team_membership = ExplicitTeamMembership.objects.filter(team=team, parent_membership=org_membership).first()
-
-        self.assertIsNotNone(team_membership)
-        self.assertIsNotNone(team_membership)
-        if team_membership:  # Add null check before accessing attribute
-            self.assertEqual(team_membership.level, OrganizationMembership.Level.ADMIN)
-
-        # Verify the invite has been deleted
-        self.assertFalse(OrganizationInvite.objects.filter(target_email="legacy_test@posthog.com").exists())
-
     def test_invite_use_with_new_access_control_admin(self):
         """Test using an invite with the new access control system for admin level"""
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
+        team = Team.objects.create(organization=self.organization, name="New Team")
 
         # Create a user who will use the invite
         user = User.objects.create_user(email="test@posthog.com", password="password", first_name="first_name")
@@ -74,7 +40,7 @@ class TestOrganizationInvite(BaseTest):
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="test@posthog.com",
-            private_project_access=[{"id": team.id, "level": OrganizationMembership.Level.ADMIN}],
+            private_project_access=[{"id": team.id, "level": "admin"}],
         )
 
         # Use the invite
@@ -98,8 +64,7 @@ class TestOrganizationInvite(BaseTest):
 
     def test_invite_use_with_new_access_control_member(self):
         """Test using an invite with the new access control system for member level"""
-        # Create a team with access_control=False (using new access control system)
-        team = Team.objects.create(organization=self.organization, name="New Team 2", access_control=False)
+        team = Team.objects.create(organization=self.organization, name="New Team 2")
 
         # Create a user who will use the invite
         user = User.objects.create_user(email="test2@posthog.com", password="password", first_name="first_name")
@@ -108,7 +73,7 @@ class TestOrganizationInvite(BaseTest):
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="test2@posthog.com",
-            private_project_access=[{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+            private_project_access=[{"id": team.id, "level": "member"}],
         )
 
         # Use the invite
@@ -131,53 +96,6 @@ class TestOrganizationInvite(BaseTest):
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test2@posthog.com").exists())
 
-    def test_invite_use_with_multiple_teams(self):
-        """Test using an invite with access to multiple teams"""
-        # Create teams with different access control settings
-        legacy_team = Team.objects.create(organization=self.organization, name="Legacy Team", access_control=True)
-        new_team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
-
-        # Create a user who will use the invite
-        user = User.objects.create_user(email="multi@posthog.com", password="password", first_name="first_name")
-
-        # Create an invite with private project access to both teams
-        invite = OrganizationInvite.objects.create(
-            organization=self.organization,
-            target_email="multi@posthog.com",
-            private_project_access=[
-                {"id": legacy_team.id, "level": OrganizationMembership.Level.ADMIN},
-                {"id": new_team.id, "level": OrganizationMembership.Level.MEMBER},
-            ],
-        )
-
-        # Use the invite
-        invite.use(user, prevalidated=True)
-
-        # Verify the user has been added to the organization
-        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
-        self.assertIsNotNone(org_membership)
-
-        # Verify the explicit team membership has been created correctly for the legacy team
-        legacy_team_membership = ExplicitTeamMembership.objects.filter(
-            team=legacy_team, parent_membership=org_membership
-        ).first()
-
-        self.assertIsNotNone(legacy_team_membership)
-        if legacy_team_membership:  # Add null check before accessing attribute
-            self.assertEqual(legacy_team_membership.level, OrganizationMembership.Level.ADMIN)
-
-        # Verify the access control has been created correctly for the new team
-        access_control = AccessControl.objects.filter(
-            team=new_team, resource="project", resource_id=str(new_team.id), organization_member=org_membership
-        ).first()
-        if not access_control:
-            raise Exception("Access control not found")
-
-        self.assertEqual(access_control.access_level, "member")
-
-        # Verify the invite has been deleted
-        self.assertFalse(OrganizationInvite.objects.filter(target_email="multi@posthog.com").exists())
-
     def test_invite_use_with_nonexistent_team(self):
         """Test using an invite with a team that no longer exists"""
         # Create a user who will use the invite
@@ -187,7 +105,7 @@ class TestOrganizationInvite(BaseTest):
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="nonexistent@posthog.com",
-            private_project_access=[{"id": 99999, "level": OrganizationMembership.Level.ADMIN}],
+            private_project_access=[{"id": 99999, "level": "admin"}],
         )
 
         # Use the invite - this should not raise an exception

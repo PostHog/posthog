@@ -2,13 +2,57 @@ use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
+
+// Custom deserializer that can handle both string and integer values
+fn deserialize_string_or_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        String(String),
+        Int(i32),
+    }
+
+    match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::String(s) => s
+            .parse::<i32>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i32: {e}"))),
+        StringOrInt::Int(i) => Ok(i),
+    }
+}
+
+// Custom deserializer that can handle both string and integer values for i64
+fn deserialize_string_or_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        String(String),
+        Int(i64),
+    }
+
+    match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::String(s) => s
+            .parse::<i64>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i64: {e}"))),
+        StringOrInt::Int(i) => Ok(i),
+    }
+}
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
@@ -50,7 +94,7 @@ static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     ).unwrap()
 });
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
@@ -91,7 +135,7 @@ impl fmt::Display for PropertyValueType {
 }
 
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {
     Unresolved(String),
     Resolved(String, i32),
@@ -106,9 +150,11 @@ impl GroupType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct PropertyDefinition {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
@@ -120,18 +166,22 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventDefinition {
     pub name: String,
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventProperty {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub event: String,
     pub property: String,
@@ -147,7 +197,9 @@ pub enum Update {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,

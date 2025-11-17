@@ -1,6 +1,7 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
@@ -14,6 +15,7 @@ export interface FeatureFlagFiltersConfig {
     status?: boolean
     createdBy?: boolean
     runtime?: boolean
+    tags?: boolean
 }
 
 interface FeatureFlagFiltersProps {
@@ -35,9 +37,10 @@ export function FeatureFlagFiltersSection({
         status: false,
         createdBy: false,
         runtime: false,
+        tags: false,
         ...filtersConfig,
     }
-    const hasNonSearchFilters = config.type || config.status || config.createdBy || config.runtime
+    const hasNonSearchFilters = config.type || config.status || config.createdBy || config.runtime || config.tags
 
     return (
         <div className="flex justify-between gap-2 flex-wrap">
@@ -145,6 +148,21 @@ export function FeatureFlagFiltersSection({
                                     }
                                 }}
                                 data-attr="feature-flag-select-created-by"
+                            />
+                        </>
+                    )}
+                    {config.tags && enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                        <>
+                            <span className="ml-1">
+                                <b>Tags</b>
+                            </span>
+                            <TagSelect
+                                defaultLabel="Any tags"
+                                value={filters.tags || []}
+                                onChange={(tags) => {
+                                    setFeatureFlagsFilters({ tags: tags.length > 0 ? tags : undefined, page: 1 })
+                                }}
+                                data-attr="feature-flag-select-tags"
                             />
                         </>
                     )}

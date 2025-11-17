@@ -819,7 +819,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     listeners(({ actions, values, key }) => ({
         setActivePanelIdentifier: () => {
             // clear search term when changing panel
-            actions.clearSearch()
+            if (values.searchTerm !== '') {
+                actions.clearSearch()
+            }
             if (values.projectTreeMode !== 'tree') {
                 actions.setProjectTreeMode('tree')
             }

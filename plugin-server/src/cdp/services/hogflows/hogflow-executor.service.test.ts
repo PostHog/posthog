@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
+import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -16,7 +17,7 @@ import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
+import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
@@ -93,6 +94,8 @@ describe('Hogflow Executor', () => {
                 },
             ],
         })
+
+        await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
         executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
     })
@@ -936,6 +939,196 @@ describe('Hogflow Executor', () => {
                     expect(result.invocation.state.currentAction!.id).toEqual(nextActionId)
                 }
             )
+        })
+
+        describe('capturedPostHogEvents', () => {
+            it('should collect capturedPostHogEvents from hog function actions', async () => {
+                const hogFlow = createHogFlow({
+                    actions: {
+                        capture_function: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-posthog-capture',
+                                inputs: {
+                                    event: { value: 'custom_event' },
+                                    distinct_id: { value: '{event.distinct_id}' },
+                                    properties: {
+                                        value: {
+                                            user: '{event.properties.user_name}',
+                                            value: '{event.properties.value}',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'capture_function',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'capture_function',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        properties: { user_name: 'Test User', value: 'test-value-123' },
+                    },
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+
+                expect(result.capturedPostHogEvents).toBeDefined()
+                expect(result.capturedPostHogEvents).toHaveLength(1)
+                expect(result.capturedPostHogEvents[0]).toMatchObject({
+                    team_id: 1,
+                    event: 'custom_event',
+                    distinct_id: '{event.distinct_id}',
+                    properties: {
+                        user: '{event.properties.user_name}',
+                        value: '{event.properties.value}',
+                    },
+                })
+            })
+
+            it('should collect capturedPostHogEvents from multiple hog function actions', async () => {
+                const hogFlow = createHogFlow({
+                    actions: {
+                        capture_function_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-posthog-capture',
+                                inputs: {
+                                    event: { value: 'custom_event' },
+                                    distinct_id: { value: 'user1' },
+                                    properties: { value: { user: 'User1', value: 'value1' } },
+                                },
+                            },
+                        },
+                        capture_function_2: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-posthog-capture',
+                                inputs: {
+                                    event: { value: 'custom_event' },
+                                    distinct_id: { value: 'user2' },
+                                    properties: { value: { user: 'User2', value: 'value2' } },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'capture_function_1',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'capture_function_1',
+                            to: 'capture_function_2',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'capture_function_2',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+
+                expect(result.capturedPostHogEvents).toHaveLength(2)
+                expect(result.capturedPostHogEvents[0]).toMatchObject({
+                    event: 'custom_event',
+                    distinct_id: 'user1',
+                    properties: { user: 'User1', value: 'value1' },
+                })
+                expect(result.capturedPostHogEvents[1]).toMatchObject({
+                    event: 'custom_event',
+                    distinct_id: 'user2',
+                    properties: { user: 'User2', value: 'value2' },
+                })
+            })
+        })
+    })
+
+    describe('variable merging', () => {
+        it('merges default and provided variables correctly', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: {},
+                            },
+                        },
+
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            // Set variables directly with required fields
+            hogFlow.variables = [
+                { key: 'foo', default: 'bar', type: 'string', label: 'foo' },
+                { key: 'baz', default: 123, type: 'number', label: 'baz' },
+                { key: 'overrideMe', default: 'defaultValue', type: 'string', label: 'overrideMe' },
+            ]
+
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                project: { id: 1, name: 'Test Project', url: '' },
+                person: { id: 'person_id', name: '', properties: {}, url: '' },
+                variables: {
+                    overrideMe: 'customValue',
+                    extra: 'shouldBeIncluded',
+                },
+            }
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+            expect(invocation.state.variables).toEqual({
+                foo: 'bar',
+                baz: 123,
+                overrideMe: 'customValue',
+                extra: 'shouldBeIncluded',
+            })
         })
     })
 })

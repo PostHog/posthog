@@ -15,6 +15,7 @@ const HOG_FLOW_FIELDS = [
     'created_at',
     'updated_at',
     'trigger',
+    'trigger_masking',
     'conversion',
     'exit_condition',
     'edges',

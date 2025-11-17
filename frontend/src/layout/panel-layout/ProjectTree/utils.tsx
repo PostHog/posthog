@@ -346,7 +346,10 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
-export function splitPath(path: string): string[] {
+export function splitPath(path: string | undefined): string[] {
+    if (!path) {
+        return []
+    }
     const segments: string[] = []
     let current = ''
     for (let i = 0; i < path.length; i++) {

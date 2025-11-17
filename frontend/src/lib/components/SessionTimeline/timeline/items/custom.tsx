@@ -1,10 +1,10 @@
-import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 
 import { IconGraph } from '@posthog/icons'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
@@ -44,15 +44,5 @@ export class CustomItemLoader extends EventLoader<CustomItem> {
                 name: evt[1],
             },
         } as CustomItem
-    }
-}
-
-export const customItemLoader: ItemLoaderFactory<CustomItem> = (sessionId: string, timestamp: Dayjs) => {
-    const customEvtLoader = new CustomItemLoader(sessionId, timestamp)
-    return {
-        hasPrevious: customEvtLoader.hasPrevious.bind(customEvtLoader),
-        previous: customEvtLoader.previous.bind(customEvtLoader),
-        hasNext: customEvtLoader.hasNext.bind(customEvtLoader),
-        next: customEvtLoader.next.bind(customEvtLoader),
     }
 }

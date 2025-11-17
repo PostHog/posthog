@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,6 +12,8 @@ import { SessionRecordingType } from '~/types'
 import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
+
+jest.mock('../snapshot-processing/DecompressionWorkerManager')
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -38,7 +40,7 @@ describe('playerMetaLogic', () => {
     describe('core assumptions', () => {
         it('mounts other logics', () => {
             expectLogic(logic).toMount([
-                sessionRecordingDataLogic(playerProps),
+                sessionRecordingDataCoordinatorLogic(playerProps),
                 sessionRecordingPlayerLogic(playerProps),
             ])
         })
@@ -55,7 +57,7 @@ describe('playerMetaLogic', () => {
                 id: '1',
             } as SessionRecordingType
             await expectLogic(logic, () => {
-                sessionRecordingDataLogic(playerProps).actions.loadRecordingMeta()
+                sessionRecordingDataCoordinatorLogic(playerProps).actions.loadRecordingMeta()
                 logic.actions.maybeLoadPropertiesForSessions([session])
             })
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadPropertiesForSessionsSuccess'])

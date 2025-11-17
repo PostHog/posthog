@@ -60,11 +60,25 @@ export function ChartFilter(): JSX.Element {
                     ),
                 },
                 {
-                    value: ChartDisplayType.ActionsBar,
+                    value: ChartDisplayType.ActionsUnstackedBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
                     labelInMenu: (
-                        <ChartFilterOptionLabel label="Bar chart" description="Trends over time as vertical bars." />
+                        <ChartFilterOptionLabel
+                            label="Bar chart"
+                            description="Trends over time as vertical bars side-by-side."
+                        />
+                    ),
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconGraph />,
+                    label: 'Stacked bar chart',
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Stacked bar chart"
+                            description="Trends over time as vertical bars."
+                        />
                     ),
                 },
             ],

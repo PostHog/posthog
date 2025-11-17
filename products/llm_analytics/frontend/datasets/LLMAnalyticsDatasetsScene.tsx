@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Link } from 'lib/lemon-ui/Link'
@@ -8,6 +7,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
@@ -94,50 +95,53 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
     ]
 
     return (
-        <>
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name="Datasets"
+                resourceType={{ type: 'llm_analytics' }}
+                actions={
                     <LemonButton
                         type="primary"
                         to={urls.llmAnalyticsDataset('new')}
                         data-testid="create-dataset-button"
+                        data-attr="create-dataset-button"
+                        size="small"
                     >
                         New dataset
                     </LemonButton>
                 }
             />
-            <div className="space-y-4">
-                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search datasets..."
-                        value={filters.search}
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                        data-testid="search-datasets-input"
-                    />
-                    <div className="text-muted-alt">{datasetCountLabel}</div>
-                </div>
-
-                <LemonTable
-                    loading={datasetsLoading}
-                    columns={columns}
-                    dataSource={datasets.results}
-                    pagination={pagination}
-                    noSortingCancellation
-                    sorting={sorting}
-                    onSort={(newSorting) =>
-                        setFilters({
-                            order_by: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                        })
-                    }
-                    rowKey="id"
-                    loadingSkeletonRows={DATASETS_PER_PAGE}
-                    nouns={['dataset', 'datasets']}
+            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
+                <LemonInput
+                    type="search"
+                    placeholder="Search datasets..."
+                    value={filters.search}
+                    data-attr="datasets-search-input"
+                    onChange={(value) => setFilters({ search: value })}
+                    className="max-w-md"
+                    data-testid="search-datasets-input"
                 />
+                <div className="text-muted-alt">{datasetCountLabel}</div>
             </div>
-        </>
+
+            <LemonTable
+                loading={datasetsLoading}
+                columns={columns}
+                dataSource={datasets.results}
+                pagination={pagination}
+                noSortingCancellation
+                sorting={sorting}
+                onSort={(newSorting) =>
+                    setFilters({
+                        order_by: newSorting
+                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                            : undefined,
+                    })
+                }
+                rowKey="id"
+                loadingSkeletonRows={DATASETS_PER_PAGE}
+                nouns={['dataset', 'datasets']}
+            />
+        </SceneContent>
     )
 }

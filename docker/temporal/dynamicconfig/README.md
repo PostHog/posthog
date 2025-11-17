@@ -12,28 +12,28 @@ constraints. There are only three types of constraint:
 
 Please use the following format:
 
-```
+```yaml
 testGetBoolPropertyKey:
   - value: false
   - value: true
     constraints:
-      namespace: "global-samples-namespace"
+      namespace: 'global-samples-namespace'
   - value: false
     constraints:
-      namespace: "samples-namespace"
+      namespace: 'samples-namespace'
 testGetDurationPropertyKey:
-  - value: "1m"
+  - value: '1m'
     constraints:
-      namespace: "samples-namespace"
-      taskQueueName: "longIdleTimeTaskqueue"
+      namespace: 'samples-namespace'
+      taskQueueName: 'longIdleTimeTaskqueue'
 testGetFloat64PropertyKey:
   - value: 12.0
     constraints:
-      namespace: "samples-namespace"
+      namespace: 'samples-namespace'
 testGetMapPropertyKey:
   - value:
       key1: 1
-      key2: "value 2"
+      key2: 'value 2'
       key3:
         - false
         - key4: true

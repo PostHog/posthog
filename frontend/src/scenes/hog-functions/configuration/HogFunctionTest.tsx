@@ -40,7 +40,7 @@ export function HogFunctionTestPlaceholder({
     )
 }
 
-const HogFunctionTestEditor = ({
+export const HogFunctionTestEditor = ({
     value,
     onChange,
     readOnly = false,

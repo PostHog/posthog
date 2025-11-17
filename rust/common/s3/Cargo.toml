@@ -1,0 +1,20 @@
+[package]
+name = "common-s3"
+version = "0.1.0"
+edition = "2021"
+
+
+[features]
+default = []
+mock-client = ["dep:mockall"]
+
+[dependencies]
+aws-sdk-s3 = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+mockall = { workspace = true, optional = true }
+
+[dev-dependencies]
+aws-config = { workspace = true }
+common-s3 = { path = ".", features = ["mock-client"] }

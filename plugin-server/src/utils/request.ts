@@ -43,6 +43,7 @@ export type FetchResponse = {
     headers: Record<string, string>
     json: () => Promise<any>
     text: () => Promise<string>
+    dump: () => Promise<void>
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -161,8 +162,8 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: 10_000,
-            connections: 500,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
@@ -175,8 +176,8 @@ class SecureAgent extends Agent {
 class InsecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: 10_000,
-            connections: 500,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
@@ -218,12 +219,28 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         }
     }
 
-    return {
+    let consumed = false
+
+    const returnValue = {
         status: result.statusCode,
         headers,
-        json: async () => parseJSON(await result.body.text()),
-        text: async () => await result.body.text(),
+        json: async () => {
+            consumed = true
+            return parseJSON(await result.body.text())
+        },
+        text: async () => {
+            consumed = true
+            return await result.body.text()
+        },
+        dump: async () => {
+            if (consumed) {
+                return
+            }
+            consumed = true
+            await result.body.dump()
+        },
     }
+    return returnValue
 }
 
 export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {

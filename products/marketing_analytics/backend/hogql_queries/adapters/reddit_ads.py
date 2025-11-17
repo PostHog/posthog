@@ -13,7 +13,13 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """Reddit Ads campaigns typically use 'reddit' as the UTM source"""
+        return {"reddit": ["reddit"]}
+
     def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
         return "RedditAds"
 
     def validate(self) -> ValidationResult:
@@ -41,9 +47,6 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
 
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="reddit")])
-
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "impressions"])])
@@ -56,9 +59,35 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "spend"])])
-        div = ast.ArithmeticOperation(left=sum, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000))
-        return ast.Call(name="toFloat", args=[div])
+        base_currency = self.context.base_currency
+
+        # Get cost in micros and convert to standard units
+        spend_field = ast.Field(chain=[stats_table_name, "spend"])
+        cost_standard = ast.ArithmeticOperation(
+            left=spend_field, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        )
+        cost_float = ast.Call(name="toFloat", args=[cost_standard])
+
+        # Check if currency column exists in campaign_report table
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "currency" in columns:
+                # Convert each row's cost, then sum
+                # Use coalesce to handle NULL currency values - fallback to base_currency
+                currency_field = ast.Field(chain=[stats_table_name, "currency"])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                )
+                convert_currency = ast.Call(
+                    name="convertCurrency", args=[currency_with_fallback, ast.Constant(value=base_currency), cost_float]
+                )
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        # Currency column doesn't exist, return cost without conversion
+        return ast.Call(name="SUM", args=[cost_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name

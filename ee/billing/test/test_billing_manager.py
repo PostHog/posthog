@@ -155,9 +155,9 @@ class TestBillingManager(BaseTest):
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
-            "cdp_invocations": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
-            "surveys": {
+            "survey_responses": {
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,
@@ -183,8 +183,8 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
-                    "surveys": {"usage": 10, "limit": 100},
-                    "cdp_invocations": {"usage": 10, "limit": 100},
+                    "survey_responses": {"usage": 10, "limit": 100},
+                    "cdp_trigger_events": {"usage": 10, "limit": 100},
                 },
                 "billing_period": {
                     "current_period_start": "2024-01-01T00:00:00Z",
@@ -221,8 +221,8 @@ class TestBillingManager(BaseTest):
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
-            "cdp_invocations": {"usage": 10, "limit": 100, "todays_usage": 5},
-            "surveys": {
+            "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "survey_responses": {
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,

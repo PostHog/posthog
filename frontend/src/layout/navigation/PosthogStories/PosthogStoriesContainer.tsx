@@ -30,7 +30,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="flex items-center gap-2 px-1">
                 <button
                     onClick={toggleStoriesCollapsed}
                     className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"

@@ -1,5 +1,4 @@
 .LemonTabs {
-    --lemon-tabs-gap: 2rem;
     --lemon-tabs-margin-bottom: 1rem;
     --lemon-tabs-content-padding: 0.75rem 0;
 
@@ -9,7 +8,6 @@
     align-self: stretch;
 
     &--small {
-        --lemon-tabs-gap: 1rem;
         --lemon-tabs-margin-bottom: 0.5rem;
         --lemon-tabs-content-padding: 0.375rem 0;
     }
@@ -25,8 +23,8 @@
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
-    gap: var(--lemon-tabs-gap);
     align-items: stretch;
+    justify-content: space-between;
     margin-bottom: var(--lemon-tabs-margin-bottom);
     overflow-x: auto;
     list-style: none;

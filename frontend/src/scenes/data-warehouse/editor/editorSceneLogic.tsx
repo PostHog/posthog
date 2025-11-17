@@ -1,58 +1,13 @@
-import Fuse from 'fuse.js'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { IconDatabase, IconDocument } from '@posthog/icons'
-import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
-import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import {
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaTable,
-} from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, ProductKey } from '~/types'
 
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DataWarehouseSourceIcon, mapUrlToProvider } from '../settings/DataWarehouseSourceIcon'
-import { viewLinkLogic } from '../viewLinkLogic'
 import type { editorSceneLogicType } from './editorSceneLogicType'
-import { multitabEditorLogic } from './multitabEditorLogic'
-import { queryDatabaseLogic } from './sidebar/queryDatabaseLogic'
-
-const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
-    keys: [{ name: 'name', weight: 2 }],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-}
-
-const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], FUSE_OPTIONS)
-const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
-const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
-
-const checkIsSavedQuery = (
-    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
-): view is DataWarehouseSavedQuery => 'last_run_at' in view
-const checkIsManagedView = (
-    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
-): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
 
 export const renderTableCount = (count: undefined | number): null | JSX.Element => {
     if (!count) {
@@ -79,36 +34,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
     tabAwareScene(),
-    connect(() => ({
-        values: [
-            sceneLogic,
-            ['activeSceneId', 'sceneParams'],
-            dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'initialDataWarehouseSavedQueryLoading'],
-            databaseTableListLogic,
-            [
-                'posthogTables',
-                'dataWarehouseTables',
-                'allTables',
-                'databaseLoading',
-                'views',
-                'viewsMapById',
-                'managedViews',
-            ],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-        actions: [
-            queryDatabaseLogic,
-            ['selectSchema'],
-            dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery'],
-            viewLinkLogic,
-            ['selectSourceTable', 'toggleJoinTableModal'],
-            teamLogic,
-            ['addProductIntent'],
-        ],
-    })),
     actions({
         reportAIQueryPrompted: true,
         reportAIQueryAccepted: true,
@@ -116,14 +41,20 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryPromptOpen: true,
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
-    reducers({
+    reducers(() => ({
         wasPanelActive: [
             false,
             {
                 setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
-    }),
+        panelExplicitlyClosed: [
+            false,
+            {
+                [panelLayoutLogic.actionTypes.closePanel]: () => true,
+            },
+        ],
+    })),
     listeners(() => ({
         reportAIQueryPrompted: () => {
             posthog.capture('ai_query_prompted')
@@ -138,387 +69,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             posthog.capture('ai_query_prompt_open')
         },
     })),
-    selectors(({ actions, props }) => ({
-        contents: [
-            (s) => [
-                s.relevantViews,
-                s.initialDataWarehouseSavedQueryLoading,
-                s.relevantDataWarehouseTables,
-                s.dataWarehouseTablesBySourceType,
-                s.databaseLoading,
-                navigation3000Logic.selectors.searchTerm,
-            ],
-            (
-                relevantViews,
-                initialDataWarehouseSavedQueryLoading,
-                relevantDataWarehouseTables,
-                dataWarehouseTablesBySourceType,
-                databaseLoading,
-                searchTerm
-            ) => [
-                {
-                    key: 'data-warehouse-sources',
-                    noun: ['source', 'sources'],
-                    loading: databaseLoading,
-                    items:
-                        relevantDataWarehouseTables.length > 0
-                            ? relevantDataWarehouseTables.map(([table, matches]) => ({
-                                  key: table.id,
-                                  icon: <IconDatabase />,
-                                  name: table.name,
-                                  endElement: renderTableCount(table.row_count),
-                                  url: '',
-                                  searchMatch: matches
-                                      ? {
-                                            matchingFields: matches.map((match) => match.key),
-                                            nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                        }
-                                      : null,
-                                  onClick: () => {
-                                      multitabEditorLogic({
-                                          tabId: props.tabId,
-                                      }).actions.createTab('SELECT * FROM ' + table.name)
-                                  },
-                                  menuItems: [
-                                      {
-                                          label: 'Open schema',
-                                          onClick: () => {
-                                              actions.selectSchema(table)
-                                          },
-                                      },
-                                      {
-                                          label: 'Add join',
-                                          onClick: () => {
-                                              actions.selectSourceTable(table.name)
-                                              actions.toggleJoinTableModal()
-                                          },
-                                      },
-                                      {
-                                          label: 'Copy table name',
-                                          onClick: () => {
-                                              void copyToClipboard(table.name)
-                                          },
-                                      },
-                                  ],
-                              }))
-                            : dataWarehouseTablesBySourceType,
-                    onAdd: () => {
-                        router.actions.push(urls.dataWarehouseSourceNew())
-                    },
-                    emptyComponentLogic: (items) => {
-                        // We will always show the posthog tables, so we wanna check for length == 1 instead of 0
-                        return items.length < 2 && !databaseLoading && !searchTerm?.length
-                    },
-                    emptyComponent: (
-                        <div
-                            data-attr="sql-editor-source-empty-state"
-                            className="flex flex-col justify-center items-center p-4 text-center border-t"
-                        >
-                            <div className="flex gap-6 justify-center mb-4">
-                                <DataWarehouseSourceIcon type="Postgres" size="small" />
-                                <DataWarehouseSourceIcon type="Stripe" size="small" />
-                            </div>
-                            <h4 className="mb-2">No data warehouse sources connected</h4>
-                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <p className="px-2 mb-4 text-xs break-words text-muted w" style={{ whiteSpace: 'normal' }}>
-                                Import data from external sources like Postgres, Stripe, or other databases to enrich
-                                your analytics.
-                            </p>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    actions.addProductIntent({
-                                        product_type: ProductKey.DATA_WAREHOUSE,
-                                        intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
-                                    })
-                                    router.actions.push(urls.dataWarehouseSourceNew())
-                                }}
-                                center
-                                size="small"
-                                id="data-warehouse-sql-editor-add-data-source"
-                            >
-                                Add data source
-                            </LemonButton>
-                        </div>
-                    ),
-                } as SidebarCategory,
-                {
-                    key: 'data-warehouse-views',
-                    noun: ['view', 'views'],
-                    loading: initialDataWarehouseSavedQueryLoading,
-                    items: relevantViews.map(([view, matches]) => {
-                        const isSavedQuery = checkIsSavedQuery(view)
-                        const isManagedView = checkIsManagedView(view)
-
-                        const onClick = (): void => {
-                            isManagedView
-                                ? multitabEditorLogic({
-                                      tabId: props.tabId,
-                                  }).actions.createTab('SELECT * FROM ' + view.name)
-                                : isSavedQuery
-                                  ? multitabEditorLogic({
-                                        tabId: props.tabId,
-                                    }).actions.editView(view.query.query, view)
-                                  : null
-                        }
-
-                        const savedViewMenuItems = isSavedQuery
-                            ? [
-                                  {
-                                      label: 'Edit view definition',
-                                      onClick: () => {
-                                          multitabEditorLogic({
-                                              tabId: props.tabId,
-                                          }).actions.editView(view.query.query, view)
-                                      },
-                                  },
-                                  {
-                                      label: 'Delete',
-                                      status: 'danger',
-                                      onClick: () => {
-                                          LemonDialog.open({
-                                              title: 'Delete view',
-                                              description:
-                                                  'Are you sure you want to delete this view? The query will be lost.',
-                                              primaryButton: {
-                                                  status: 'danger',
-                                                  children: 'Delete',
-                                                  onClick: () => actions.deleteDataWarehouseSavedQuery(view.id),
-                                              },
-                                          })
-                                      },
-                                  },
-                              ]
-                            : []
-
-                        return {
-                            key: view.id,
-                            name: view.name,
-                            url: '',
-                            icon:
-                                isSavedQuery && view.last_run_at ? (
-                                    <Tooltip title="Materialized view">
-                                        <IconDatabase />
-                                    </Tooltip>
-                                ) : (
-                                    <Tooltip title="View">
-                                        <IconDocument />
-                                    </Tooltip>
-                                ),
-                            searchMatch: matches
-                                ? {
-                                      matchingFields: matches.map((match) => match.key),
-                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                  }
-                                : null,
-                            onClick,
-                            menuItems: [
-                                {
-                                    label: 'Open schema',
-                                    onClick: () => {
-                                        actions.selectSchema(view)
-                                    },
-                                },
-                                {
-                                    label: 'Add join',
-                                    onClick: () => {
-                                        actions.selectSourceTable(view.name)
-                                        actions.toggleJoinTableModal()
-                                    },
-                                },
-                                ...savedViewMenuItems,
-                                {
-                                    label: 'Copy view name',
-                                    onClick: () => {
-                                        void copyToClipboard(view.name)
-                                    },
-                                },
-                            ],
-                        }
-                    }),
-                } as SidebarCategory,
-            ],
-        ],
-        nonMaterializedViews: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => !view.is_materialized)
-            },
-        ],
-        materializedViews: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => view.is_materialized)
-            },
-        ],
-        activeListItemKey: [
-            (s) => [s.activeSceneId, s.sceneParams],
-            (activeSceneId, sceneParams): [string, number] | null => {
-                return activeSceneId === Scene.SQLEditor && sceneParams.params.id
-                    ? ['saved-queries', parseInt(sceneParams.params.id)]
-                    : null
-            },
-        ],
-        dataWarehouseTablesBySourceType: [
-            (s) => [s.dataWarehouseTables, s.posthogTables, s.databaseLoading],
-            (
-                dataWarehouseTables,
-                posthogTables,
-                databaseLoading
-            ): BasicListItem[] | ExtendedListItem[] | ListItemAccordion[] => {
-                const tablesBySourceType = dataWarehouseTables.reduce(
-                    (acc: Record<string, DatabaseSchemaDataWarehouseTable[]>, table) => {
-                        if (table.source) {
-                            if (!acc[table.source.source_type]) {
-                                acc[table.source.source_type] = []
-                            }
-                            acc[table.source.source_type].push(table)
-                        } else {
-                            if (!acc['Self-managed']) {
-                                acc['Self-managed'] = []
-                            }
-                            acc['Self-managed'].push(table)
-                        }
-                        return acc
-                    },
-                    {}
-                )
-
-                const phTables = {
-                    key: 'data-warehouse-tables',
-                    noun: ['PostHog', 'PostHog'],
-                    loading: databaseLoading,
-                    icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
-                    items: posthogTables.map((table) => ({
-                        key: table.id,
-                        name: table.name,
-                        endElement: renderTableCount(table.row_count),
-                        url: '',
-                        icon: <IconDatabase />,
-                        searchMatch: null,
-                        onClick: () => {
-                            multitabEditorLogic({
-                                tabId: props.tabId,
-                            }).actions.createTab('SELECT * FROM ' + table.name)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Open schema',
-                                onClick: () => {
-                                    actions.selectSchema(table)
-                                },
-                            },
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
-                                },
-                            },
-                            {
-                                label: 'Copy table name',
-                                onClick: () => {
-                                    void copyToClipboard(table.name)
-                                },
-                            },
-                        ],
-                    })),
-                } as ListItemAccordion
-
-                const warehouseTables = Object.entries(tablesBySourceType).map(([sourceType, tables]) => ({
-                    key: sourceType,
-                    noun: [sourceType, sourceType],
-                    icon: (
-                        <DataWarehouseSourceIcon
-                            type={
-                                sourceType === 'Self-managed' && tables.length > 0
-                                    ? mapUrlToProvider(tables[0].url_pattern)
-                                    : sourceType
-                            }
-                            sizePx={18}
-                            disableTooltip
-                        />
-                    ),
-                    items: tables.map((table) => ({
-                        key: table.id,
-                        name: table.name,
-                        endElement: renderTableCount(table.row_count),
-                        url: '',
-                        icon: <IconDatabase />,
-                        searchMatch: null,
-                        onClick: () => {
-                            multitabEditorLogic({
-                                tabId: props.tabId,
-                            }).actions.createTab('SELECT * FROM ' + table.name)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Open schema',
-                                onClick: () => {
-                                    actions.selectSchema(table)
-                                },
-                            },
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
-                                },
-                            },
-                            {
-                                label: 'Copy table name',
-                                onClick: () => {
-                                    void copyToClipboard(table.name)
-                                },
-                            },
-                        ],
-                    })),
-                })) as ListItemAccordion[]
-
-                return [phTables, ...warehouseTables]
-            },
-        ],
-        relevantDataWarehouseTables: [
-            () => [navigation3000Logic.selectors.searchTerm],
-            (searchTerm): [DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return dataWarehouseTablesfuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return []
-            },
-        ],
-        relevantViews: [
-            (s) => [s.dataWarehouseSavedQueries, s.managedViews, navigation3000Logic.selectors.searchTerm],
-            (
-                dataWarehouseSavedQueries,
-                managedViews,
-                searchTerm
-            ): [DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return [savedQueriesFuse, managedViewsFuse].flatMap((fuse) =>
-                        fuse
-                            .search(searchTerm)
-                            .map(
-                                (result) =>
-                                    [result.item, result.matches] as [
-                                        DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-                                        FuseSearchMatch[],
-                                    ]
-                            )
-                    )
-                }
-
-                return [...dataWarehouseSavedQueries, ...managedViews].map((item) => [item, null])
-            },
-        ],
-    })),
-    urlToAction(() => ({
+    urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
-            panelLayoutLogic.actions.showLayoutPanel(true)
-            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            if (!values.panelExplicitlyClosed) {
+                panelLayoutLogic.actions.showLayoutPanel(true)
+                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            }
         },
         '*': () => {
             if (router.values.location.pathname !== urls.sqlEditor()) {
@@ -528,16 +85,4 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             }
         },
     })),
-    subscriptions({
-        allTables: (allTables: DatabaseSchemaTable[]) => {
-            const tables = allTables.filter((n) => n.type === 'posthog' || n.type === 'data_warehouse')
-            dataWarehouseTablesfuse.setCollection(tables)
-        },
-        dataWarehouseSavedQueries: (dataWarehouseSavedQueries) => {
-            savedQueriesFuse.setCollection(dataWarehouseSavedQueries)
-        },
-        managedViews: (managedViews) => {
-            managedViewsFuse.setCollection(managedViews)
-        },
-    }),
 ])

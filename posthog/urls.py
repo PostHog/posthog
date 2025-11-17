@@ -9,8 +9,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
 import structlog
-from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -19,6 +19,7 @@ from posthog.api import (
     decide,
     github,
     hog_function_template,
+    playwright_setup,
     remote_config,
     report,
     router,
@@ -29,9 +30,12 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
+from posthog.api.team_sdk_versions import team_sdk_versions
+from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -50,6 +54,7 @@ from .views import (
     login_required,
     preferences_page,
     preflight_check,
+    render_query,
     robots_txt,
     security_txt,
     stats,
@@ -78,10 +83,10 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: None
+    Context: request
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render())
+    return HttpResponseServerError(template.render({"request": request}, request))
 
 
 @ensure_csrf_cookie
@@ -168,8 +173,12 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    path("api/sdk_versions/", github_sdk_versions),
+    path("api/team_sdk_versions/", team_sdk_versions),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
+    # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
+    path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
@@ -189,6 +198,8 @@ urlpatterns = [
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
+    # Test setup endpoint (only available in TEST mode)
+    path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
@@ -203,6 +214,7 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
+    path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
         "exporter/<str:access_token>",
@@ -235,10 +247,29 @@ urlpatterns = [
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
-    # that in production we expose these metrics on a separate port, to ensure
-    # external clients cannot see them. See the gunicorn setup for details on
-    # what we do.
-    urlpatterns.append(path("_metrics", ExportToDjangoView))
+    # that in production we expose these metrics on a separate port (8001), to ensure
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # for details on the production metrics setup.
+
+    # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
+    import os
+
+    def metrics_view(request):
+        """Metrics endpoint that aggregates from all processes using multiprocess mode."""
+        registry = CollectorRegistry()
+        # If prometheus_multiproc_dir is set, collect from all processes
+        if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+            multiprocess.MultiProcessCollector(registry)
+        else:
+            # Fallback to default registry if multiprocess not configured
+            from prometheus_client import REGISTRY
+
+            registry = REGISTRY
+
+        metrics_output = generate_latest(registry)
+        return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")
+
+    urlpatterns.append(path("_metrics", metrics_view))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 

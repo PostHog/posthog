@@ -7,6 +7,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -19,6 +20,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -32,6 +34,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -39,24 +42,34 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { EvalsTabContent } from './components/EvalsTabContent'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
+import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    getEventType,
     getSessionID,
-    hasSessionID,
-    isLLMTraceEvent,
+    getTraceTimestamp,
+    isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
+
+enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Evals = 'evals',
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -87,6 +100,8 @@ function TraceSceneWrapper(): JSX.Element {
         eventMetadata,
     } = useValues(llmAnalyticsTraceDataLogic)
 
+    const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
+
     return (
         <>
             {responseLoading ? (
@@ -96,26 +111,37 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col">
+                <div className="relative flex flex-col gap-3">
+                    <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
                             trace={trace}
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                            billedTotalUsd={billedTotalUsd}
+                            billedCredits={billedCredits}
+                            markupUsd={markupUsd}
+                            showBillingInfo={showBillingInfo}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
-                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                    <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
+                        <TraceSidebar
+                            trace={trace}
+                            eventId={eventId}
+                            tree={enrichedTree}
+                            showBillingInfo={showBillingInfo}
+                        />
                         <EventContent
                             trace={trace}
                             event={event}
                             tree={enrichedTree}
                             searchQuery={searchQuery}
                             eventMetadata={eventMetadata}
+                            showBillingInfo={showBillingInfo}
                         />
                     </div>
                 </div>
@@ -156,16 +182,57 @@ function TraceMetadata({
     trace,
     metricEvents,
     feedbackEvents,
+    billedTotalUsd,
+    billedCredits,
+    markupUsd,
+    showBillingInfo,
 }: {
     trace: LLMTrace
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
+    billedTotalUsd?: number
+    billedCredits?: number
+    markupUsd?: number
+    showBillingInfo?: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const getSessionUrl = (sessionId: string): string => {
+        if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+            return urls.llmAnalyticsSession(sessionId)
+        }
+        // Fallback to filtering traces by session when feature flag is off
+        const filter = [
+            {
+                key: '$ai_session_id',
+                value: [sessionId],
+                operator: 'exact',
+                type: 'event',
+            },
+        ]
+        const params = new URLSearchParams()
+        params.set('filters', JSON.stringify(filter))
+        return `${urls.llmAnalyticsTraces()}?${params.toString()}`
+    }
+
     return (
-        <header className="flex gap-2 flex-wrap">
+        <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
+                </Chip>
+            )}
+            {trace.aiSessionId && (
+                <Chip
+                    title={
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]
+                            ? 'AI Session ID - Click to view session details'
+                            : 'AI Session ID - Click to filter traces by this session'
+                    }
+                >
+                    <Link to={getSessionUrl(trace.aiSessionId)} subtle>
+                        <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
+                    </Link>
                 </Chip>
             )}
             <UsageChip event={trace} />
@@ -184,6 +251,21 @@ function TraceMetadata({
                     {formatLLMCost(trace.totalCost)}
                 </Chip>
             )}
+            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
+                <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
+                    billed: {formatLLMCost(billedTotalUsd)}
+                </Chip>
+            )}
+            {showBillingInfo && typeof markupUsd === 'number' && markupUsd > 0 && (
+                <Chip title="Markup (20%)" icon={<span className="text-base">➕</span>}>
+                    markup: {formatLLMCost(markupUsd)}
+                </Chip>
+            )}
+            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
+                <Chip title="Credits spent" icon={<span className="text-base">💳</span>}>
+                    credits: {billedCredits}
+                </Chip>
+            )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
             ))}
@@ -198,10 +280,12 @@ function TraceSidebar({
     trace,
     eventId,
     tree,
+    showBillingInfo,
 }: {
     trace: LLMTrace
     eventId?: string | null
     tree: EnrichedTraceTreeNode[]
+    showBillingInfo?: boolean
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
@@ -252,6 +336,7 @@ function TraceSidebar({
                     value={searchValue}
                     onChange={onSearchChange}
                     size="small"
+                    data-attr="trace-search-input"
                 />
                 {searchValue.trim() && (
                     <div className="text-xs text-muted ml-1 mt-1">
@@ -265,6 +350,9 @@ function TraceSidebar({
                         )}
                     </div>
                 )}
+                <div className="mt-2">
+                    <EventTypeFilters />
+                </div>
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode
@@ -277,8 +365,15 @@ function TraceSidebar({
                     }}
                     isSelected={!eventId || eventId === trace.id}
                     searchQuery={searchQuery}
+                    showBillingInfo={showBillingInfo}
                 />
-                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} searchQuery={searchQuery} />
+                <TreeNodeChildren
+                    tree={tree}
+                    trace={trace}
+                    selectedEventId={eventId}
+                    searchQuery={searchQuery}
+                    showBillingInfo={showBillingInfo}
+                />
             </ul>
         </aside>
     )
@@ -316,6 +411,7 @@ const TreeNode = React.memo(function TraceNode({
     node,
     isSelected,
     searchQuery,
+    showBillingInfo,
 }: {
     topLevelTrace: LLMTrace
     node:
@@ -323,14 +419,24 @@ const TreeNode = React.memo(function TraceNode({
         | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
+    showBillingInfo?: boolean
 }): JSX.Element {
     const totalCost = node.displayTotalCost
     const latency = node.displayLatency
     const usage = node.displayUsage
     const item = node.event
 
+    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const eventType = getEventType(item)
+    const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
+    const isBillable =
+        showBillingInfo &&
+        isLLMEvent(item) &&
+        (item as LLMTraceEvent).event === '$ai_generation' &&
+        !!(item as LLMTraceEvent).properties?.$ai_billable
+
     const children = [
-        isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+        isLLMEvent(item) && item.properties.$ai_is_error && (
             <LemonTag key="error-tag" type="danger">
                 Error
             </LemonTag>
@@ -355,30 +461,39 @@ const TreeNode = React.memo(function TraceNode({
             <Link
                 to={urls.llmAnalyticsTrace(topLevelTrace.id, {
                     event: item.id,
-                    timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                     ...(searchQuery?.trim() && { search: searchQuery }),
                 })}
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
-                    isSelected && '!bg-accent-highlight-secondary'
+                    isSelected && '!bg-accent-highlight-secondary',
+                    isCollapsedDueToFilter && 'min-h-4 min-w-0'
                 )}
+                data-attr="trace-event-link"
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
-                    <Tooltip title={formatLLMEventTitle(item)}>
-                        {searchQuery?.trim() ? (
-                            <SearchHighlight
-                                string={formatLLMEventTitle(item)}
-                                substring={searchQuery}
-                                className="flex-1"
-                            />
-                        ) : (
-                            <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
-                        )}
-                    </Tooltip>
+                    {isBillable && (
+                        <span title="Billable" aria-label="Billable" className="text-base">
+                            💰
+                        </span>
+                    )}
+                    {!isCollapsedDueToFilter && (
+                        <Tooltip title={formatLLMEventTitle(item)}>
+                            {searchQuery?.trim() ? (
+                                <SearchHighlight
+                                    string={formatLLMEventTitle(item)}
+                                    substring={searchQuery}
+                                    className="flex-1"
+                                />
+                            ) : (
+                                <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                            )}
+                        </Tooltip>
+                    )}
                 </div>
-                {renderModelRow(item, searchQuery)}
-                {hasChildren && (
+                {!isCollapsedDueToFilter && renderModelRow(item, searchQuery)}
+                {!isCollapsedDueToFilter && hasChildren && (
                     <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
                 )}
             </Link>
@@ -387,7 +502,7 @@ const TreeNode = React.memo(function TraceNode({
 })
 
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
             // if we don't have a span name, we don't want to render the model row as its covered by the event title
             if (!event.properties.$ai_span_name) {
@@ -412,11 +527,13 @@ function TreeNodeChildren({
     trace,
     selectedEventId,
     searchQuery,
+    showBillingInfo,
 }: {
     tree: EnrichedTraceTreeNode[]
     trace: LLMTrace
     selectedEventId?: string | null
     searchQuery?: string
+    showBillingInfo?: boolean
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
 
@@ -430,6 +547,7 @@ function TreeNodeChildren({
                             node={node}
                             isSelected={!!selectedEventId && selectedEventId === node.event.id}
                             searchQuery={searchQuery}
+                            showBillingInfo={showBillingInfo}
                         />
                         {node.children && (
                             <TreeNodeChildren
@@ -437,6 +555,7 @@ function TreeNodeChildren({
                                 trace={trace}
                                 selectedEventId={selectedEventId}
                                 searchQuery={searchQuery}
+                                showBillingInfo={showBillingInfo}
                             />
                         )}
                     </React.Fragment>
@@ -462,6 +581,7 @@ function EventContentDisplay({
     output: unknown
     raisedError?: boolean
 }): JSX.Element {
+    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
     if (!input && !output) {
         // If we have no data here we should not render anything
         // In future plan to point docs to show how to add custom trace events
@@ -472,7 +592,7 @@ function EventContentDisplay({
             inputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                     {isObject(input) ? (
-                        <JSONViewer src={input} collapsed={4} />
+                        <HighlightedJSONViewer src={input} collapsed={4} searchQuery={searchQuery} />
                     ) : (
                         <span className="font-mono">{JSON.stringify(input ?? null)}</span>
                     )}
@@ -488,7 +608,7 @@ function EventContentDisplay({
                     )}
                 >
                     {isObject(output) ? (
-                        <JSONViewer src={output} collapsed={4} />
+                        <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
                     ) : (
                         <span className="font-mono">{JSON.stringify(output ?? null)}</span>
                     )}
@@ -520,27 +640,36 @@ const EventContent = React.memo(
         eventMetadata,
         tree,
         searchQuery,
+        showBillingInfo,
     }: {
         trace: LLMTrace
         event: LLMTrace | LLMTraceEvent | null
         tree: EnrichedTraceTreeNode[]
         searchQuery?: string
         eventMetadata?: Record<string, unknown>
+        showBillingInfo?: boolean
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
+        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
 
-        const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
+        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+
+        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
 
-        const showPlaygroundButton =
-            event &&
-            isLLMTraceEvent(event) &&
-            event.event === '$ai_generation' &&
-            featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
+        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
+        const hasSessionRecording = !!sessionId
+
+        const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
+
+        const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+
+        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -551,7 +680,7 @@ const EventContent = React.memo(
             let input: any = undefined
             let tools: any = undefined
 
-            if (isLLMTraceEvent(event)) {
+            if (isLLMEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
@@ -570,11 +699,19 @@ const EventContent = React.memo(
                         <header className="deprecated-space-y-2">
                             <div className="flex-row flex items-center gap-2">
                                 <EventTypeTag event={event} />
+                                {showBillingInfo &&
+                                    isLLMEvent(event) &&
+                                    event.event === '$ai_generation' &&
+                                    !!event.properties.$ai_billable && (
+                                        <span title="Billable" aria-label="Billable" className="text-base">
+                                            💰
+                                        </span>
+                                    )}
                                 <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
                                     {formatLLMEventTitle(event)}
                                 </h3>
                             </div>
-                            {isLLMTraceEvent(event) ? (
+                            {isLLMEvent(event) ? (
                                 <MetadataHeader
                                     isError={event.properties.$ai_is_error}
                                     inputTokens={event.properties.$ai_input_tokens}
@@ -595,7 +732,7 @@ const EventContent = React.memo(
                                     timestamp={event.createdAt}
                                 />
                             )}
-                            {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                            {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                             {aggregation && (
                                 <div className="flex flex-row flex-wrap items-center gap-2">
                                     {aggregation.totalCost > 0 && (
@@ -616,7 +753,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event) || showSaveToDatasetButton) && (
+                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -625,6 +762,7 @@ const EventContent = React.memo(
                                             icon={<IconChat />}
                                             onClick={handleTryInPlayground}
                                             tooltip="Try this prompt in the playground"
+                                            data-attr="try-in-playground-trace"
                                         >
                                             Try in Playground
                                         </LemonButton>
@@ -635,12 +773,12 @@ const EventContent = React.memo(
                                             timestamp={trace.createdAt}
                                             sourceId={event.id}
                                             input={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
                                                     : event.inputState
                                             }
                                             output={
-                                                isLLMTraceEvent(event)
+                                                isLLMEvent(event)
                                                     ? (event.properties.$ai_output_choices ??
                                                       event.properties.$ai_output ??
                                                       event.properties.$ai_output_state ??
@@ -650,13 +788,13 @@ const EventContent = React.memo(
                                             metadata={eventMetadata}
                                         />
                                     )}
-                                    {hasSessionID(event) && (
+                                    {hasSessionRecording && (
                                         <ViewRecordingButton
                                             inModal
                                             type="secondary"
                                             size="xsmall"
                                             data-attr="llm-analytics"
-                                            sessionId={getSessionID(event) || undefined}
+                                            sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
                                         />
                                     )}
@@ -668,57 +806,82 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'conversation',
+                                    key: TraceViewMode.Conversation,
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isLLMTraceEvent(event) ? (
-                                                event.event === '$ai_generation' ? (
-                                                    <ConversationMessagesDisplay
-                                                        inputNormalized={normalizeMessages(
-                                                            event.properties.$ai_input,
-                                                            'user',
-                                                            event.properties.$ai_tools
-                                                        )}
-                                                        outputNormalized={normalizeMessages(
-                                                            event.properties.$ai_output_choices ??
-                                                                event.properties.$ai_output,
-                                                            'assistant'
-                                                        )}
-                                                        errorData={event.properties.$ai_error}
-                                                        httpStatus={event.properties.$ai_http_status}
-                                                        raisedError={event.properties.$ai_is_error}
-                                                        searchQuery={searchQuery}
+                                            {displayOption === DisplayOption.TextView &&
+                                            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ? (
+                                                isLLMEvent(event) &&
+                                                (event.event === '$ai_generation' ||
+                                                    event.event === '$ai_span' ||
+                                                    event.event === '$ai_embedding') ? (
+                                                    <TextViewDisplay
+                                                        event={event}
+                                                        lineNumber={lineNumber}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
-                                                ) : event.event === '$ai_embedding' ? (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input}
-                                                        output="Embedding vector generated"
+                                                ) : !isLLMEvent(event) ? (
+                                                    <TextViewDisplay
+                                                        trace={event}
+                                                        tree={tree}
+                                                        lineNumber={lineNumber}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
-                                                ) : (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input_state}
-                                                        output={
-                                                            event.properties.$ai_output_state ??
-                                                            event.properties.$ai_error
-                                                        }
-                                                        raisedError={event.properties.$ai_is_error}
-                                                    />
-                                                )
+                                                ) : null
                                             ) : (
                                                 <>
-                                                    <TraceMetricsTable />
-                                                    <EventContentDisplay
-                                                        input={event.inputState}
-                                                        output={event.outputState}
-                                                    />
+                                                    {isLLMEvent(event) ? (
+                                                        event.event === '$ai_generation' ? (
+                                                            <ConversationMessagesDisplay
+                                                                inputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_input,
+                                                                    'user',
+                                                                    event.properties.$ai_tools
+                                                                )}
+                                                                outputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_output_choices ??
+                                                                        event.properties.$ai_output,
+                                                                    'assistant'
+                                                                )}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
+                                                                raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                            />
+                                                        ) : event.event === '$ai_embedding' ? (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input}
+                                                                output="Embedding vector generated"
+                                                            />
+                                                        ) : (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input_state}
+                                                                output={
+                                                                    event.properties.$ai_output_state ??
+                                                                    event.properties.$ai_error
+                                                                }
+                                                                raisedError={event.properties.$ai_is_error}
+                                                            />
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            <TraceMetricsTable />
+                                                            <EventContentDisplay
+                                                                input={event.inputState}
+                                                                output={event.outputState}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </>
                                             )}
                                         </>
                                     ),
                                 },
                                 {
-                                    key: 'raw',
+                                    key: TraceViewMode.Raw,
                                     label: 'Raw',
                                     content: (
                                         <div className="p-2">
@@ -726,6 +889,20 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
+                                ...(showEvalsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Evals,
+                                              label: 'Evaluations',
+                                              content: (
+                                                  <EvalsTabContent
+                                                      generationEventId={event.id}
+                                                      timestamp={event.createdAt}
+                                                  />
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </>
@@ -737,30 +914,55 @@ const EventContent = React.memo(
 EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
-    let eventType = 'trace'
+    const eventType = getEventType(event)
     let tagType: LemonTagProps['type'] = 'completion'
 
-    if (isLLMTraceEvent(event)) {
-        switch (event.event) {
-            case '$ai_generation':
-                eventType = 'generation'
-                tagType = 'success'
-                break
-            case '$ai_embedding':
-                eventType = 'embedding'
-                tagType = 'warning'
-                break
-            default:
-                eventType = 'span'
-                tagType = 'default'
-                break
-        }
+    switch (eventType) {
+        case 'generation':
+            tagType = 'success'
+            break
+        case 'embedding':
+            tagType = 'warning'
+            break
+        case 'span':
+            tagType = 'default'
+            break
+        case 'trace':
+            tagType = 'completion'
+            break
     }
 
     return (
         <LemonTag className="uppercase" type={tagType} size={size}>
             {eventType}
         </LemonTag>
+    )
+}
+
+function EventTypeFilters(): JSX.Element {
+    const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
+    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { toggleEventTypeExpanded } = useActions(llmAnalyticsTraceLogic)
+
+    if (availableEventTypes.length === 0) {
+        return <></>
+    }
+
+    return (
+        <fieldset className="border border-border rounded p-1.5">
+            <legend className="text-xs font-medium text-muted px-1">Expand</legend>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {availableEventTypes.map((eventType: string) => (
+                    <LemonCheckbox
+                        key={eventType}
+                        checked={eventTypeExpanded(eventType)}
+                        onChange={() => toggleEventTypeExpanded(eventType)}
+                        label={<span className="capitalize text-xs">{eventType}s</span>}
+                        size="small"
+                    />
+                ))}
+            </div>
+        </fieldset>
     )
 }
 
@@ -776,6 +978,7 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
             icon={<IconCopy />}
             onClick={handleCopyTrace}
             tooltip="Copy trace to clipboard"
+            data-attr="copy-trace-json"
         >
             Copy trace JSON
         </LemonButton>
@@ -785,16 +988,28 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 function DisplayOptionsSelect(): JSX.Element {
     const { displayOption } = useValues(llmAnalyticsTraceLogic)
     const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
         {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
+            tooltip: 'Show all messages and full conversation history',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
+            tooltip: 'Focus on the most recent input and final output',
         },
+        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
+            ? [
+                  {
+                      value: DisplayOption.TextView,
+                      label: 'Text view',
+                      tooltip: 'Simple human readable text view, for humans',
+                  },
+              ]
+            : []),
     ]
 
     return (

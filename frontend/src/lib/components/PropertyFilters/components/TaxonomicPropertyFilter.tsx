@@ -14,6 +14,7 @@ import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
+    sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -98,7 +99,8 @@ export function TaxonomicPropertyFilter({
         propertyAllowList,
         excludedProperties,
     })
-    const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
+    const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
+    const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =

@@ -33,6 +33,12 @@ depends_on = [
     "products.revenue_analytics",
     "products.user_interviews",
     "products.llm_analytics",
+    "products.marketing_analytics",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.notebooks",
+    "products.live_debugger",
+    "products.desktop_recordings",
 ]
 
 [[modules]]
@@ -49,4 +55,28 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.revenue_analytics"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.endpoints"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.marketing_analytics"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.error_tracking"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.notebooks"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.desktop_recordings"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.live_debugger"
 depends_on = ["posthog"]

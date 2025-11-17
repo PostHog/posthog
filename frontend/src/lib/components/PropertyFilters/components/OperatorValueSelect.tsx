@@ -57,13 +57,21 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     startVisible?: LemonDropdownProps['startVisible']
 }
 
-function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
     if (isOperatorRegex(operator)) {
         try {
             new RegExp(value)
         } catch (e: any) {
             return e.message
         }
+    }
+    return null
+}
+
+function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+    const regexErrorMessage = getRegexValidationError(operator, value)
+    if (regexErrorMessage != null) {
+        return regexErrorMessage
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
@@ -160,7 +168,6 @@ export function OperatorValueSelect({
             setCurrentOperator(defaultProperty)
         }
     }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
-
     return (
         <>
             <div data-attr="taxonomic-operator">
@@ -170,7 +177,7 @@ export function OperatorValueSelect({
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
                             const tentativeValidationError =
-                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
+                                newOperator && value ? getRegexValidationError(newOperator, value) : null
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
@@ -180,6 +187,9 @@ export function OperatorValueSelect({
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
+                            } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
+                                // If the new operator is range and the value is not a number, we want to set the new value to null
+                                onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
                             } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {

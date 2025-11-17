@@ -4,8 +4,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
+import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,12 +16,13 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
+    SimilarIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { errorTrackingIssueQuery } from '../../queries'
+import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
@@ -31,6 +33,8 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
+
+export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
 
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
     path((key) => [
@@ -45,9 +49,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect(() => ({
-        values: [issueFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        values: [
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+        ],
         actions: [
-            issueFiltersLogic,
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
@@ -72,6 +79,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -83,6 +91,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectedEvent: null as ErrorEventType | null,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
+        similarIssuesMaxDistance: 0.2 as number,
     }),
 
     reducers(({ values }) => ({
@@ -95,6 +104,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -172,7 +184,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return null
                 }
                 const initialEvent: ErrorEventType = {
+                    event: '$exception',
                     uuid: positionEvent.uuid,
+                    distinct_id: positionEvent.distinct_id,
                     timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
                     properties: JSON.parse(positionEvent.properties),
@@ -214,9 +228,25 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         issueFingerprints: [
-            [],
+            [] as ErrorTrackingFingerprint[],
             {
                 loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
+            },
+        ],
+        similarIssues: [
+            [] as SimilarIssue[],
+            {
+                loadSimilarIssues: async (refresh: boolean = false) => {
+                    const query = errorTrackingSimilarIssuesQuery({
+                        issueId: props.id,
+                        limit: 10,
+                        maxDistance: values.similarIssuesMaxDistance,
+                    })
+                    const response = await api.query(query, {
+                        refresh: refresh ? 'force_blocking' : 'blocking',
+                    })
+                    return response.results
+                },
             },
         ],
     })),
@@ -231,11 +261,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         key: Scene.ErrorTracking,
                         name: 'Error tracking',
                         path: urls.errorTracking(),
+                        iconType: 'error_tracking',
                     },
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
                         onRename: async (name: string) => actions.updateName(name),
+                        iconType: 'error_tracking',
                     },
                 ]
             },
@@ -258,6 +290,26 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
+
+        eventsQuery: [
+            (s) => [s.issueFingerprints, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
+            (issueFingerprints, filterTestAccounts, searchQuery, filterGroup, dateRange) =>
+                errorTrackingIssueEventsQuery({
+                    fingerprints: issueFingerprints.map((f: ErrorTrackingFingerprint) => f.fingerprint),
+                    filterTestAccounts,
+                    filterGroup,
+                    searchQuery,
+                    dateRange,
+                    columns: ['*', 'timestamp', 'person'],
+                }),
+        ],
+
+        eventsQueryKey: [
+            (s) => [s.eventsQuery],
+            () => {
+                return uuid()
+            },
+        ],
     })),
 
     subscriptions(({ actions }) => ({
@@ -303,6 +355,19 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     )
                 }
             },
+            [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
+                if (mutationName === 'mergeIssues') {
+                    actions.loadIssue()
+                    actions.loadSummary()
+                    actions.loadIssueFingerprints()
+                }
+                if (mutationName === 'createIssueCohort') {
+                    actions.loadIssue()
+                }
+            },
+            setSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
+            },
         }
     }),
 
@@ -311,6 +376,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.loadIssue()
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
+            actions.loadIssueFingerprints()
         },
     })),
 ])

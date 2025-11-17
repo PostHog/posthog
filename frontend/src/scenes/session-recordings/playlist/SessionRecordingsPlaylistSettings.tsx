@@ -3,13 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
-import { ReplayTabs } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -28,6 +27,7 @@ const SortingKeyToLabel = {
     click_count: 'Clicks',
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
+    recording_ttl: 'Expiration',
 }
 
 function getLabel(filters: RecordingUniversalFilters): string {
@@ -42,13 +42,16 @@ function getLabel(filters: RecordingUniversalFilters): string {
 function SortedBy({
     filters,
     setFilters,
+    disabledReason,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    disabledReason?: string
 }): JSX.Element {
     return (
         <SettingsMenu
             highlightWhenActive={false}
+            disabledReason={disabledReason}
             items={[
                 {
                     label: 'Start time',
@@ -68,12 +71,12 @@ function SortedBy({
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
-                    onClick: () => setFilters({ order: 'activity_score' }),
+                    onClick: () => setFilters({ order: 'activity_score', order_direction: 'DESC' }),
                     active: filters.order === 'activity_score',
                 },
                 {
                     label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => setFilters({ order: 'console_error_count' }),
+                    onClick: () => setFilters({ order: 'console_error_count', order_direction: 'DESC' }),
                     active: filters.order === 'console_error_count',
                 },
                 {
@@ -81,17 +84,17 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['duration'],
-                            onClick: () => setFilters({ order: 'duration' }),
+                            onClick: () => setFilters({ order: 'duration', order_direction: 'DESC' }),
                             active: filters.order === 'duration',
                         },
                         {
                             label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => setFilters({ order: 'active_seconds' }),
+                            onClick: () => setFilters({ order: 'active_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'active_seconds',
                         },
                         {
                             label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => setFilters({ order: 'inactive_seconds' }),
+                            onClick: () => setFilters({ order: 'inactive_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'inactive_seconds',
                         },
                     ],
@@ -101,20 +104,25 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['click_count'],
-                            onClick: () => setFilters({ order: 'click_count' }),
+                            onClick: () => setFilters({ order: 'click_count', order_direction: 'DESC' }),
                             active: filters.order === 'click_count',
                         },
                         {
                             label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => setFilters({ order: 'keypress_count' }),
+                            onClick: () => setFilters({ order: 'keypress_count', order_direction: 'DESC' }),
                             active: filters.order === 'keypress_count',
                         },
                         {
                             label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => setFilters({ order: 'mouse_activity_count' }),
+                            onClick: () => setFilters({ order: 'mouse_activity_count', order_direction: 'DESC' }),
                             active: filters.order === 'mouse_activity_count',
                         },
                     ],
+                },
+                {
+                    label: 'Expiration',
+                    onClick: () => setFilters({ order: 'recording_ttl', order_direction: 'ASC' }),
+                    active: filters.order === 'recording_ttl',
                 },
             ]}
             icon={<IconSort className="text-lg" />}
@@ -187,7 +195,7 @@ function NewCollectionModal(): JSX.Element {
         useValues(sessionRecordingsPlaylistLogic)
     const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
         useActions(sessionRecordingsPlaylistLogic)
-    const { loadPlaylists } = useActions(savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }))
+    const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
     const handleClose = (): void => {
         setIsNewCollectionDialogOpen(false)
@@ -243,9 +251,7 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
-    const { playlists, playlistsLoading } = useValues(
-        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    )
+    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
     const { selectedRecordingsIds, sessionRecordings, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const {
         handleBulkAddToPlaylist,
@@ -335,9 +341,11 @@ export function SessionRecordingsPlaylistTopSettings({
             <div className="flex items-center">
                 <LemonCheckbox
                     disabledReason={
-                        recordings.length > MAX_SELECTED_RECORDINGS
-                            ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                            : undefined
+                        recordings.length === 0
+                            ? 'No recordings'
+                            : recordings.length > MAX_SELECTED_RECORDINGS
+                              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                              : undefined
                     }
                     checked={checked}
                     onChange={(checked) => handleSelectUnselectAll(checked, type)}
@@ -348,7 +356,12 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
                 {filters && setFilters ? (
                     <span className="text-xs font-normal inline-flex items-center ml-2">
-                        Sort by: <SortedBy filters={filters} setFilters={setFilters} />
+                        Sort by:{' '}
+                        <SortedBy
+                            filters={filters}
+                            setFilters={setFilters}
+                            disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                        />
                     </span>
                 ) : null}
             </div>
@@ -384,6 +397,7 @@ export function SessionRecordingsPlaylistTopSettings({
                         },
                     ]}
                     icon={<IconEllipsis className="rotate-90" />}
+                    disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />

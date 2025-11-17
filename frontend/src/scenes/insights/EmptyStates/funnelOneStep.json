@@ -67,7 +67,5 @@
         "first_name": "Marius",
         "email": "marius@posthog.com"
     },
-    "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "is_sample": false
 }

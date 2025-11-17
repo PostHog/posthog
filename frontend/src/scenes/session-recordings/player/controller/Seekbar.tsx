@@ -1,15 +1,17 @@
 import './Seekbar.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import React from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { RecordingSegment } from '~/types'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
@@ -25,11 +27,13 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 }): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'PlayerSeekbar__segments__item',
-                segment.isActive && 'PlayerSeekbar__segments__item--active'
+                segment.isActive && 'PlayerSeekbar__segments__item--active',
+                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer',
+                segment.isLoading && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
-            title={!segment.isActive ? 'Inactive period' : 'Active period'}
+            title={segment.kind === 'buffer' ? undefined : segment.isActive ? 'Active period' : 'Inactive period'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${(100 * segment.durationMs) / durationMs}%`,
@@ -40,7 +44,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 
 function SeekbarSegments(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { segments, durationMs } = useValues(sessionRecordingDataLogic(logicProps))
+    const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     return (
         <div className="PlayerSeekbar__segments">
             {segments?.map((segment: RecordingSegment) => (
@@ -62,7 +66,7 @@ export function Seekbar(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(logicProps))
+    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
@@ -77,6 +81,8 @@ export function Seekbar(): JSX.Element {
         }
     }, [sliderRef.current, thumbRef.current, sessionRecordingId]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const allowPreviewScrubbing = useFeatureFlag('SEEKBAR_PREVIEW_SCRUBBING')
+
     return (
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
             <PlayerSeekbarTicks
@@ -86,9 +92,9 @@ export function Seekbar(): JSX.Element {
                 hoverRef={seekBarRef}
             />
 
-            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
+            <div className={cn('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
-                    className="PlayerSeekbar__slider"
+                    className="PlayerSeekbar__slider ph-no-rageclick"
                     ref={sliderRef}
                     onMouseDown={handleDown}
                     onTouchStart={handleDown}
@@ -109,7 +115,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    {hasSnapshots ? (
+                    {hasSnapshots && allowPreviewScrubbing ? (
                         <PlayerSeekbarPreview
                             minMs={0}
                             maxMs={sessionPlayerData.durationMs}

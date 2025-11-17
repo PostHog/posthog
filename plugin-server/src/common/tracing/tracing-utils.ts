@@ -58,7 +58,7 @@ export function withTracingSpan<T>(
 /**
  * Wraps a function in an OpenTelemetry tracing span and logs the execution time as a summary metric.
  */
-export function withSpan<T>(
+export async function withSpan<T>(
     tracer: Tracer | string,
     name: string,
     attrs: Attributes,
@@ -72,7 +72,7 @@ export function withSpan<T>(
         .startTimer()
 
     try {
-        return withTracingSpan(tracer, name, attrs, fn)
+        return await withTracingSpan(tracer, name, attrs, fn)
     } finally {
         stopTimer()
     }
@@ -121,7 +121,9 @@ export async function instrumentFn<T>(
         if (logExecutionTime) {
             logTime(startTime, key, error)
         }
-        captureException(error)
+        if (sendException) {
+            captureException(error)
+        }
         throw error
     } finally {
         clearTimeout(t)

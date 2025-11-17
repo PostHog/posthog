@@ -80,7 +80,7 @@ describe('preflightLogic', () => {
                         },
                         {
                             id: 'frontend',
-                            name: 'Frontend build · Webpack',
+                            name: 'Frontend build · Vite',
                             status: 'validated',
                         },
                         {
@@ -144,7 +144,7 @@ describe('preflightLogic', () => {
                         },
                         {
                             id: 'frontend',
-                            name: 'Frontend build · Webpack',
+                            name: 'Frontend build · Vite',
                             status: 'validated',
                         },
                         {

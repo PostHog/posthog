@@ -3,7 +3,7 @@ use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::collections::HashMap;
 use time::Duration;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{
     api::v1::query::Manager,
@@ -54,11 +54,12 @@ impl AppContext {
         let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let persons_pool: Option<PgPool> =
             if config.read_groups_from_persons_db && !config.database_persons_url.is_empty() {
-                Some(
-                    persons_options
-                        .connect(&config.database_persons_url)
-                        .await?,
-                )
+                info!("Creating persons DB connection pool (read_groups_from_persons_db=true)");
+                let pool = persons_options
+                    .connect(&config.database_persons_url)
+                    .await?;
+                info!("Successfully created persons DB connection pool");
+                Some(pool)
             } else {
                 None
             };

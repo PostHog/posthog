@@ -46,6 +46,7 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 
 def summarize_survey_responses(
     survey_id: str,
+    question_text: str,
     question_index: Optional[int],
     question_id: Optional[str],
     survey_start: datetime,
@@ -104,18 +105,24 @@ def summarize_survey_responses(
                 },
                 {
                     "role": "user",
+                    "content": f"""the survey question is {question_text}.""",
+                },
+                {
+                    "role": "user",
                     "content": f"""the survey responses are {prepared_data}.""",
                 },
                 {
                     "role": "user",
                     "content": """
-            generate a one or two paragraph summary of the survey response.
-            only summarize, the goal is to identify real user pain points and needs
-use bullet points to identify the themes, and highlights of quotes to bring them to life
-we're trying to identify what to work on
-            use as concise and simple language as is possible.
+            generate a one or two paragraph summary of the survey response,
+taking into consideration the survey question being asked.
+            only summarize, the goal is to identify real user pain points and needs.
+            use bullet points to identify the themes, and highlight quotes to bring them to life.
+            we're trying to identify what to work on.
+            use as concise and simple language as possible.
             generate no text other than the summary.
-            the aim is to let people see themes in the responses received. return the text in markdown format without using any paragraph formatting""",
+            the aim is to let people see themes in the responses received.
+            return the text in markdown format without using any paragraph formatting""",
                 },
             ],
             user=f"{instance_region}/{user.pk}",

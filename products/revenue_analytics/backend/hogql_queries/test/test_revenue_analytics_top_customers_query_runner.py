@@ -10,7 +10,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 from posthog.schema import (
     CurrencyCode,
@@ -30,9 +30,11 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
@@ -53,6 +55,12 @@ CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_custome
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-04-21"
+
+    def _create_managed_viewsets(self):
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -251,6 +259,16 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         # but also the query snapshot is more important than the results
         self.assertEqual(len(results), 16)
 
+    def test_with_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self._create_managed_viewsets()
+
+            results = self._run_revenue_analytics_top_customers_query().results
+
+            # Mostly interested in the number of results
+            # but also the query snapshot is more important than the results
+            self.assertEqual(len(results), 16)
+
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
@@ -270,7 +288,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             [
                 ("cus_2", "Jane Doe", Decimal("222.6060849997"), "all"),
                 ("cus_4", "Jane Smith", Decimal("170.9565"), "all"),
-                ("cus_1", "John Doe", Decimal("520.9965118432"), "all"),
+                ("cus_1", "John Doe", Decimal("517.7072798128"), "all"),
                 ("cus_5", "John Doe Jr", Decimal("1379.39181"), "all"),
                 ("cus_6", "John Doe Jr Jr", Decimal("1337.35006"), "all"),
                 ("cus_3", "John Smith", Decimal("1923.372205"), "all"),
@@ -306,6 +324,39 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
+
+    def test_with_events_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            s1 = str(uuid7("2023-12-02"))
+            s2 = str(uuid7("2024-01-03"))
+            s3 = str(uuid7("2024-02-04"))
+            self._create_purchase_events(
+                [
+                    ("p1", [("2023-12-02", s1, 42, "USD")]),
+                    ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
+                ]
+            )
+
+            self._create_managed_viewsets()
+
+            results = self._run_revenue_analytics_top_customers_query(
+                date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+                properties=[
+                    RevenueAnalyticsPropertyFilter(
+                        key="source_label",
+                        operator=PropertyOperator.EXACT,
+                        value=["revenue_analytics.events.purchase"],
+                    )
+                ],
+            ).results
+
+            self.assertEqual(
+                results,
+                [
+                    (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                    (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                ],
+            )
 
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [

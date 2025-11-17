@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconCalendar, IconFlag } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -13,7 +11,6 @@ import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
@@ -23,9 +20,7 @@ export function SavedInsightsFilters({
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-
-    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search, hideFeatureFlagInsights } = filters
+    const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -36,25 +31,6 @@ export function SavedInsightsFilters({
                 value={search || ''}
             />
             <div className="flex items-center gap-2 flex-wrap">
-                {nameSortedDashboards.length > 0 && (
-                    <div className="flex items-center gap-2">
-                        <span>On dashboard:</span>
-                        <LemonSelect
-                            size="small"
-                            options={nameSortedDashboards.map((nsd) => ({
-                                value: nsd.id,
-                                label: nsd.name,
-                            }))}
-                            value={dashboardId}
-                            onChange={(newValue) => {
-                                setFilters({ dashboardId: newValue })
-                            }}
-                            dropdownMatchSelectWidth={false}
-                            data-attr="insight-on-dashboard"
-                            allowClear={true}
-                        />
-                    </div>
-                )}
                 <div className="flex items-center gap-2">
                     <span>Type:</span>
                     <LemonSelect

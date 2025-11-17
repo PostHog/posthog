@@ -65,7 +65,7 @@
             </div>
         </div>
 
-        <script>
+        <script nonce="{{ request.csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function () {
                 const form = document.getElementById('preferences-form')
                 const toggles = document.querySelectorAll('.toggle-checkbox')

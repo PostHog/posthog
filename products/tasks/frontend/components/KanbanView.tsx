@@ -1,6 +1,7 @@
 import {
     Active,
     DndContext,
+    DragOverlay,
     KeyboardSensor,
     MeasuringStrategy,
     MouseSensor,
@@ -23,15 +24,16 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { IconGear, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
 import { tasksLogic } from '../tasksLogic'
-import { Task, TaskStatus } from './../types'
+import { Task, TaskWorkflow, WorkflowStage } from './../types'
 import { TaskCard } from './TaskCard'
-import { TaskModal } from './TaskModal'
-import { TaskSummariesMaxTool } from './TaskSummariesMaxTool'
+import { WorkflowBuilder } from './WorkflowBuilder'
+import { workflowSettingsLogic } from './workflowSettingsLogic'
 
 function DroppableContainer({
     children,
@@ -46,7 +48,11 @@ function DroppableContainer({
     return (
         <div
             ref={disabled ? undefined : setNodeRef}
-            className={cn('space-y-2 min-h-[200px] rounded-md', isOver && 'ring-2 ring-primary/40 bg-primary/5')}
+            className={cn(
+                'space-y-2 min-h-[200px] rounded-md',
+                isOver && !disabled && 'ring-2 ring-primary/40 bg-primary/5',
+                disabled && 'opacity-50 pointer-events-none'
+            )}
         >
             {children}
         </div>
@@ -56,23 +62,47 @@ function DroppableContainer({
 type Items = Record<UniqueIdentifier, Task[]>
 
 export function KanbanView(): JSX.Element {
-    const { tasks, kanbanColumns, selectedTask } = useValues(tasksLogic)
-    const { openTaskModal, closeTaskModal, moveTask } = useActions(tasksLogic)
+    const { tasks, workflowKanbanData } = useValues(tasksLogic)
+    const { openTaskDetail, moveTask } = useActions(tasksLogic)
+    const { loadWorkflows } = useActions(workflowSettingsLogic)
 
-    const [items, setItems] = useState<Items>(kanbanColumns)
     const [activeTask, setActiveTask] = useState<Task | null>(null)
-    const recentlyMovedToNewContainer = useRef(false)
-
-    const containers = Object.keys(kanbanColumns) as UniqueIdentifier[]
-
-    const handleTaskClick = (taskId: Task['id']): void => {
-        openTaskModal(taskId)
-    }
+    const [collapsedWorkflows, setCollapsedWorkflows] = useState<Set<string>>(new Set())
     const [clonedItems, setClonedItems] = useState<Items | null>(null)
     const [dropIndicator, setDropIndicator] = useState<{ container: UniqueIdentifier | null; index: number | null }>({
         container: null,
         index: null,
     })
+    const [showCreateWorkflow, setShowCreateWorkflow] = useState(false)
+    const [editingWorkflow, setEditingWorkflow] = useState<TaskWorkflow | null>(null)
+    const recentlyMovedToNewContainer = useRef(false)
+
+    const [items, setItems] = useState<Items>({})
+
+    useEffect(() => {
+        const newItems: Items = {}
+        workflowKanbanData.forEach(({ workflow, stages }) => {
+            stages.forEach(({ stage, tasks }) => {
+                newItems[`${workflow.id}-${stage.key}`] = tasks
+            })
+        })
+        setItems(newItems)
+    }, [workflowKanbanData])
+
+    const toggleWorkflow = (workflowId: string): void => {
+        const newCollapsed = new Set(collapsedWorkflows)
+        if (newCollapsed.has(workflowId)) {
+            newCollapsed.delete(workflowId)
+        } else {
+            newCollapsed.add(workflowId)
+        }
+        setCollapsedWorkflows(newCollapsed)
+    }
+
+    const handleTaskClick = (taskId: Task['id']): void => {
+        openTaskDetail(taskId)
+    }
+
     const sensors = useSensors(
         useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
         useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
@@ -82,13 +112,50 @@ export function KanbanView(): JSX.Element {
         if (isContainer(item)) {
             return item.id
         }
-        return tasks.find((t: Task) => t.id === item.id)?.status as UniqueIdentifier
+        const task = tasks.find((t: Task) => t.id === item.id)
+        if (!task) {
+            return ''
+        }
+
+        for (const { workflow, stages } of workflowKanbanData) {
+            for (const { stage } of stages) {
+                if (task.workflow === workflow.id && task.current_stage === stage.id) {
+                    return `${workflow.id}-${stage.key}`
+                }
+            }
+        }
+        return ''
+    }
+
+    const findStageByContainerId = (
+        targetContainerId: string
+    ): { workflow: TaskWorkflow; stage: WorkflowStage } | null => {
+        for (const workflowData of workflowKanbanData) {
+            for (const stageData of workflowData.stages) {
+                const expectedContainerId = `${workflowData.workflow.id}-${stageData.stage.key}`
+                if (expectedContainerId === targetContainerId) {
+                    return { workflow: workflowData.workflow, stage: stageData.stage }
+                }
+            }
+        }
+        return null
+    }
+
+    const canDropTask = (activeTask: Task, targetContainerId: string): boolean => {
+        const target = findStageByContainerId(targetContainerId)
+        if (!target) {
+            return false
+        }
+
+        if (activeTask.workflow !== target.workflow.id) {
+            return false
+        }
+
+        return true
     }
 
     const onDragCancel = (): void => {
         if (clonedItems) {
-            // Reset items to their original state in case items have been
-            // Dragged across containers
             setItems(clonedItems)
         }
 
@@ -102,16 +169,33 @@ export function KanbanView(): JSX.Element {
         })
     }, [items])
 
-    useEffect(() => {
-        if (!activeTask) {
-            setItems(kanbanColumns)
-        }
-    }, [kanbanColumns, activeTask])
+    if (showCreateWorkflow || editingWorkflow) {
+        return (
+            <WorkflowBuilder
+                workflow={editingWorkflow || undefined}
+                onSave={() => {
+                    setShowCreateWorkflow(false)
+                    setEditingWorkflow(null)
+                    loadWorkflows()
+                }}
+                onCancel={() => {
+                    setShowCreateWorkflow(false)
+                    setEditingWorkflow(null)
+                }}
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
-            <div className="relative">
-                <TaskSummariesMaxTool />
+            {/* Workflow Management Header */}
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-xl font-semibold">Workflows</h2>
+                </div>
+                <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowCreateWorkflow(true)}>
+                    New Workflow
+                </LemonButton>
             </div>
             <DndContext
                 sensors={sensors}
@@ -125,13 +209,19 @@ export function KanbanView(): JSX.Element {
                     }
                 }}
                 onDragOver={({ active, over, delta }) => {
-                    if (!over) {
+                    if (!over || !activeTask) {
                         return
                     }
 
                     const activeContainer = findContainer(active)
                     const overContainer = findContainer(over)
                     if (!activeContainer || !overContainer) {
+                        return
+                    }
+
+                    // Check if drop is allowed
+                    if (!canDropTask(activeTask, String(overContainer))) {
+                        setDropIndicator({ container: null, index: null })
                         return
                     }
 
@@ -162,7 +252,7 @@ export function KanbanView(): JSX.Element {
 
                     const overContainer = findContainer(over)
 
-                    if (overContainer) {
+                    if (overContainer && activeTask && canDropTask(activeTask, String(overContainer))) {
                         const sourceItems = items[activeContainer]
                         const targetItems = items[overContainer]
                         const sourceIndex = sourceItems.findIndex((t: Task) => t.id === active.id)
@@ -180,7 +270,11 @@ export function KanbanView(): JSX.Element {
                                     ...current,
                                     [overContainer]: arrayMove(current[overContainer], sourceIndex, finalIndex),
                                 }))
-                                moveTask(String(active.id), overContainer as TaskStatus, finalIndex)
+                                // Get the actual stage key from the target container
+                                const target = findStageByContainerId(String(overContainer))
+                                if (target) {
+                                    moveTask(String(active.id), target.stage.key, finalIndex)
+                                }
                             }
                         } else {
                             const draggedTask =
@@ -204,12 +298,21 @@ export function KanbanView(): JSX.Element {
                                 [activeContainer]: current[activeContainer].filter((t) => t.id !== active.id),
                                 [overContainer]: [
                                     ...current[overContainer].slice(0, insertIndex),
-                                    { ...draggedTask, status: overContainer as TaskStatus },
+                                    { ...draggedTask },
                                     ...current[overContainer].slice(insertIndex),
                                 ],
                             }))
 
-                            moveTask(String(active.id), overContainer as TaskStatus, insertIndex)
+                            // Get the actual stage key from the target container
+                            const target = findStageByContainerId(String(overContainer))
+                            if (target) {
+                                moveTask(String(active.id), target.stage.key, insertIndex)
+                            }
+                        }
+                    } else {
+                        // Drop not allowed - reset to original state
+                        if (clonedItems) {
+                            setItems(clonedItems)
                         }
                     }
 
@@ -218,64 +321,140 @@ export function KanbanView(): JSX.Element {
                 }}
                 onDragCancel={onDragCancel}
             >
-                <div className="grid grid-cols-5 gap-4">
-                    {containers.map((containerId) => {
-                        const isAgentOnly = ![TaskStatus.TODO, TaskStatus.BACKLOG].includes(containerId as TaskStatus)
+                <div className="space-y-6">
+                    {workflowKanbanData.map(({ workflow, stages }) => {
+                        const isCollapsed = collapsedWorkflows.has(workflow.id)
+                        const totalTasks = stages.reduce((sum, { tasks }) => sum + tasks.length, 0)
 
                         return (
-                            <div
-                                key={containerId}
-                                className={cn('bg-bg-light rounded-lg p-3 relative', isAgentOnly && 'opacity-75')}
-                            >
-                                {isAgentOnly && (
-                                    <div className="absolute inset-0 bg-border/20 rounded-lg flex items-center justify-center pointer-events-none z-10">
-                                        <div className="bg-bg-light border border-border rounded-lg px-3 py-2 shadow-lg">
-                                            <div className="flex items-center gap-2 text-xs text-muted">
-                                                <span className="w-2 h-2 bg-warning rounded-full" />
-                                                Agent Only
-                                            </div>
+                            <div key={workflow.id} className="bg-bg-light rounded-lg border border-border">
+                                {/* Workflow Header */}
+                                <div className="flex items-center justify-between p-4">
+                                    <div
+                                        className="flex items-center gap-3 cursor-pointer hover:bg-bg-3000 rounded px-2 py-1 -mx-2 -my-1 flex-1"
+                                        onClick={() => toggleWorkflow(workflow.id)}
+                                    >
+                                        <div
+                                            className="w-4 h-4 rounded-full"
+                                            style={{ backgroundColor: workflow.color }}
+                                        />
+                                        <h2 className="text-lg font-semibold">{workflow.name}</h2>
+                                        <span className="text-sm text-muted">({totalTasks} tasks)</span>
+                                        <div className="text-muted ml-auto">{isCollapsed ? '▶' : '▼'}</div>
+                                    </div>
+                                </div>
+
+                                {/* Workflow Stages */}
+                                {!isCollapsed && (
+                                    <div className="px-4 pb-4">
+                                        <div className="flex items-center justify-between py-2">
+                                            <div />
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                icon={<IconGear />}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setEditingWorkflow(workflow)
+                                                }}
+                                                tooltip="Edit workflow"
+                                            />
+                                        </div>
+                                        <div
+                                            className="grid gap-4"
+                                            style={{
+                                                gridTemplateColumns: `repeat(${stages.length}, minmax(250px, 1fr))`,
+                                            }}
+                                        >
+                                            {stages.map(({ stage, tasks: stageTasks }) => {
+                                                const containerId = `${workflow.id}-${stage.key}`
+                                                const isAgentOnly = !stage.is_manual_only
+
+                                                return (
+                                                    <div
+                                                        key={containerId}
+                                                        className={cn(
+                                                            'bg-white rounded-lg p-3 relative border border-border'
+                                                        )}
+                                                    >
+                                                        {isAgentOnly && (
+                                                            <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                                                                <div className="bg-bg-light border border-border rounded-lg px-2 py-1 shadow-sm">
+                                                                    <div className="flex items-center gap-1 text-xs text-muted">
+                                                                        <span className="w-2 h-2 bg-warning rounded-full" />
+                                                                        Agent
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <div
+                                                                    className="w-3 h-3 rounded-full"
+                                                                    style={{ backgroundColor: stage.color }}
+                                                                />
+                                                                <h3 className="font-medium text-sm">{stage.name}</h3>
+                                                            </div>
+                                                            <span className="text-xs text-muted bg-border rounded-full px-2 py-1">
+                                                                {stageTasks.length}
+                                                            </span>
+                                                        </div>
+                                                        <DroppableContainer
+                                                            id={containerId}
+                                                            disabled={
+                                                                activeTask
+                                                                    ? !canDropTask(activeTask, containerId)
+                                                                    : false
+                                                            }
+                                                        >
+                                                            <SortableContext
+                                                                items={stageTasks.map((t) => t.id)}
+                                                                strategy={verticalListSortingStrategy}
+                                                            >
+                                                                {stageTasks.map((task, idx) => (
+                                                                    <React.Fragment key={`row-${task.id}`}>
+                                                                        {dropIndicator.container === containerId &&
+                                                                            dropIndicator.index === idx && (
+                                                                                <DropIndicator />
+                                                                            )}
+                                                                        <SortableItem
+                                                                            key={task.id}
+                                                                            task={task}
+                                                                            onClick={handleTaskClick}
+                                                                        />
+                                                                    </React.Fragment>
+                                                                ))}
+                                                                {dropIndicator.container === containerId &&
+                                                                    dropIndicator.index === stageTasks.length && (
+                                                                        <DropIndicator />
+                                                                    )}
+                                                            </SortableContext>
+                                                        </DroppableContainer>
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                     </div>
                                 )}
-                                <div className="flex justify-between items-center mb-3">
-                                    <h3 className="font-medium text-sm">
-                                        {(() => {
-                                            const labels: Record<TaskStatus, string> = {
-                                                [TaskStatus.BACKLOG]: 'backlog',
-                                                [TaskStatus.TODO]: 'todo',
-                                                [TaskStatus.IN_PROGRESS]: 'doing',
-                                                [TaskStatus.TESTING]: 'testing',
-                                                [TaskStatus.DONE]: 'done',
-                                            }
-                                            return labels[containerId as TaskStatus]
-                                        })()}
-                                    </h3>
-                                    <span className="text-xs text-muted bg-border rounded-full px-2 py-1">
-                                        {items[containerId].length}
-                                    </span>
-                                </div>
-                                <DroppableContainer key={containerId} id={containerId}>
-                                    <SortableContext
-                                        items={items[containerId].map((t) => t.id)}
-                                        strategy={verticalListSortingStrategy}
-                                    >
-                                        {items[containerId].map((task, idx) => (
-                                            <React.Fragment key={`row-${task.id}`}>
-                                                {dropIndicator.container === containerId &&
-                                                    dropIndicator.index === idx && <DropIndicator />}
-                                                <SortableItem key={task.id} task={task} onClick={handleTaskClick} />
-                                            </React.Fragment>
-                                        ))}
-                                        {dropIndicator.container === containerId &&
-                                            dropIndicator.index === items[containerId].length && <DropIndicator />}
-                                    </SortableContext>
-                                </DroppableContainer>
                             </div>
                         )
                     })}
+
+                    {workflowKanbanData.length === 0 && (
+                        <div className="text-center py-12 text-muted">
+                            <p className="mb-2">No workflows configured</p>
+                            <p className="text-sm">Create a workflow in Settings to see tasks organized by stages</p>
+                        </div>
+                    )}
                 </div>
+                <DragOverlay>
+                    {activeTask ? (
+                        <div className="opacity-90">
+                            <TaskCard task={activeTask} draggable />
+                        </div>
+                    ) : null}
+                </DragOverlay>
             </DndContext>
-            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
         </div>
     )
 }
@@ -291,7 +470,7 @@ function SortableItem({
 }): JSX.Element {
     const { setNodeRef, listeners, transform, attributes, transition, isDragging } = useSortable({
         id: task.id,
-        data: { status: task.status },
+        data: { current_stage: task.current_stage },
     })
 
     return (
@@ -303,7 +482,7 @@ function SortableItem({
                 transform: CSS.Translate.toString(transform),
                 transition,
             }}
-            className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-50')}
+            className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-50 z-50 relative')}
         >
             <TaskCard task={task} draggable onClick={() => onClick(task.id)} />
         </div>

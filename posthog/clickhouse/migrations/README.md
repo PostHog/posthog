@@ -1,3 +1,11 @@
+## Creating ClickHouse schema changes
+
+**Important:** ClickHouse schema changes should be created as a separate PR from application code changes. This allows for:
+
+- Independent review and testing of schema migrations
+- Safer rollout of database changes
+- Clear separation between infrastructure and application logic changes
+
 ## About migrations
 
 Not all migrations are intended to run on all nodes every time, because of the topologies we run. Some nodes are intended to only perform compute operations and do not contain sharded tables.
@@ -10,10 +18,7 @@ Because of the above, take the following advice into consideration when manipula
 
 ### When to run a migration ONLY on a data node
 
-- When adding / updating a Kafka table
-- When adding / updating a materialized view
-- When adding / updating a sharded table
-- When adding / updating a distributed table used for the write path
+- When adding / updating a sharded data table
 
 In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
 
@@ -45,6 +50,25 @@ Following the previous section example, the sharded events table along with the 
 
 </details>
 
+## When to use NodeRole.INGESTION_SMALL or NodeRole.INGESTION_MEDIUM
+
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. These nodes don't contain any data perse, only Kafka tables and Distributed ones, along with the materialized views that connect them.
+
+Use these node roles exclusively when you need to ingest data from Kafka into ClickHouse.
+
+When you want to pull data from Kafka into ClickHouse, you should:
+
+1. Create a Kafka table.
+2. Create a writable table only on ingestion nodes. It should be a Distributed table with your data table.
+   1. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`, without using any sharding key.
+   2. If your data table is sharded, you should point it to all shards: `Distributed(..., cluster=settings.CLICKHOUSE_CLUSTER, sharding_key="...")`, using a sharding key.
+3. Create a materialized view between Kafka table and the writable table.
+
+Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+Example PR for sharded table: https://github.com/PostHog/posthog/issues/38668/files
+
+`Medium` tier contains 4 consumers, while `Small` tier contain just one. Depending on the throughput of the Kafka topic, you should choose the appropriate tier, in case of doubts choose `Small` and you can later upgrade to `Medium` if lag is too high.
+
 ## When to use NodeRole.ALL
 
 We are introducing changes to our ClickHouse topology frequently, introducing new types of nodes.
@@ -55,10 +79,31 @@ In the vast majority of cases, just follow the [previous](#when-to-run-a-migrati
 
 ### The ON CLUSTER clause
 
-The ON CLUSTER clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
+**Do not use the `ON CLUSTER` clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the `ON CLUSTER` clause makes the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+This may cause lots of troubles and block migrations.
 
-Ideally, **do not use the ON CLUSTER clause**, since the DDL statement will be run on all nodes anyway through the `run_sql_with_exceptions` function, and, by default, the ON CLUSTER clause make the DDL statement run on nodes specified for the default cluster, and that does not include the coordinator.
+The `ON CLUSTER` clause is used to specify the cluster to run the DDL statement on. By default, the `posthog` cluster is used. That cluster only includes the data nodes.
 
 ### Testing
 
 To re-run a migration, you'll need to delete the entry from the `infi_clickhouse_orm_migrations` table.
+
+## Ingestion layer
+
+We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
+
+1. Create your data table in ClickHouse main cluster.
+2. Create a writable table only on ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`. It should be Distributed table with your data table. If your data table is non-sharded, you should point it to one shard: `Distributed(..., cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`.
+3. Create a Kafka table in ingestion nodes: `node_roles=[NodeRole.INGESTION_SMALL]`.
+4. Create materialized view between Kafka table and writable table on ingestion nodes.
+
+Example PR for non-sharded table: https://github.com/PostHog/posthog/pull/38890/files
+
+**How and why?**
+
+Our main cluster (`posthog`) nodes were overwhelmed with ingestion and sometimes the query load
+was interfering with ingestion. This was causing delays and at the end incidents.
+
+We added new nodes that are not part of our regular cluster setup, we run them on Kubernetes.
+
+ClickHouse cluster as defined in it is a logical concept and one may add nodes that are running in different places, this is how we created a new cluster that has all workers, coordinator and our new ingestion nodes.

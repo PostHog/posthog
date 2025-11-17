@@ -37,6 +37,8 @@ type APIMockReturnType = {
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
     >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
+} & {
+    cohorts: typeof apiReal.cohorts
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -86,6 +88,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_masking_config: {
         maskAllInputs: true,
     },
+    session_recording_retention_period: '30d',
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -95,7 +98,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: AccessControlLevel.Admin,
-    access_control: true,
     group_types: [
         {
             group_type: 'organization',
@@ -194,6 +196,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         sources_map: {},
     },
     base_currency: CurrencyCode.USD,
+    default_evaluation_environments_enabled: false,
+    managed_viewsets: { revenue_analytics: true },
+    receive_org_level_activity_logs: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -243,6 +248,8 @@ export const MOCK_DEFAULT_USER: UserType = {
         plugin_disabled: false,
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
+        error_tracking_issue_assigned: false,
+        discussions_mentioned: false,
     },
     anonymize_data: false,
     toolbar_mode: 'toolbar',

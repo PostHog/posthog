@@ -6,13 +6,15 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import posthog from 'posthog-js'
+import posthog, { PostHog } from 'posthog-js'
 import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
+import { hashCodeForString, identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+
+import { disposablesPlugin } from '~/kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -57,6 +59,7 @@ export function initKea({
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
+        disposablesPlugin,
         localStoragePlugin(),
         windowValuesPlugin({ window: window }),
         routerPlugin({
@@ -103,9 +106,14 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
+                    const isTwoFactorError =
+                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
+                    }
+                    if (isTwoFactorError) {
+                        errorMessage = null
                     }
                     if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
@@ -121,9 +129,28 @@ export function initKea({
         waitForPlugin,
     ]
 
+    if (window.APP_STATE_LOGGING_SAMPLE_RATE) {
+        try {
+            const ph: PostHog | undefined = window.posthog
+            const session_id = ph?.get_session_id()
+            const sample_rate = parseFloat(window.APP_STATE_LOGGING_SAMPLE_RATE)
+            if (session_id) {
+                const sessionIdHash = hashCodeForString(session_id)
+                if (sessionIdHash % 100 < sample_rate * 100) {
+                    window.JS_KEA_VERBOSE_LOGGING = true
+                }
+            }
+        } catch (e) {
+            window.posthog.captureException(e)
+        }
+    }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(posthogKeaLogger)
+    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
+    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
+    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
+    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
+    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
+        plugins.push(posthogKeaLogger())
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {

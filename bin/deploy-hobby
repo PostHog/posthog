@@ -23,7 +23,7 @@ echo "Power user or aspiring power user?"
 echo "Check out our docs on deploying PostHog! https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
 
-if ! [ -z "$1" ]
+if [ -n "$1" ]
 then
 export POSTHOG_APP_TAG=$1
 else
@@ -39,7 +39,7 @@ else
 fi
 fi
 echo ""
-if ! [ -z "$2" ]
+if [ -n "$2" ]
 then
 export DOMAIN=$2
 else
@@ -85,10 +85,10 @@ cd posthog
 if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
 then
     git fetch --tags
-    latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
+    latestReleaseTag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
     echo "Checking out latest PostHog release: $latestReleaseTag"
     echo "Warning PostHog don't create tagged releases anymore. It's way better to use 'latest' than 'latest-release'"
-    git checkout $latestReleaseTag
+    git checkout "$latestReleaseTag"
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
     echo "Fetching latest changes from origin"
@@ -96,7 +96,7 @@ then
     current_branch=$(git branch --show-current)
     if [ -n "$current_branch" ]; then
         echo "Updating branch '$current_branch' to latest from origin"
-        git reset --hard origin/$current_branch
+        git reset --hard "origin/$current_branch"
     else
         echo "On detached HEAD: $(git rev-parse --short HEAD)"
     fi
@@ -104,12 +104,12 @@ then
 elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
 then
     echo "Checking out specific commit hash: $POSTHOG_APP_TAG"
-    git checkout $POSTHOG_APP_TAG
+    git checkout "$POSTHOG_APP_TAG"
 else
     releaseTag="${POSTHOG_APP_TAG/release-/""}"
     git fetch --tags
     echo "Checking out PostHog release: $releaseTag"
-    git checkout $releaseTag
+    git checkout "$releaseTag"
 fi
 
 cd ..
@@ -134,19 +134,19 @@ DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL
 CADDY_TLS_BLOCK=$TLS_BLOCK
-CADDY_HOST=$DOMAIN, http://, https://
+CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
 EOF
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
-apt-get update && 
-apt-get install -y --no-install-recommends curl ca-certificates brotli && 
-mkdir -p ./share && 
-if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
-    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
-    echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json; 
+apt-get update &&
+apt-get install -y --no-install-recommends curl ca-certificates brotli &&
+mkdir -p ./share &&
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb &&
+    echo '{\"date\": \"'"$(date +%Y-%m-%d)"'\"}' > ./share/GeoLite2-City.json;
     chmod 644 ./share/GeoLite2-City.mmdb &&
     chmod 644 ./share/GeoLite2-City.json
 fi
@@ -251,6 +251,7 @@ echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
 echo "If you have any issues at all delete everything in this directory and run the curl command again"
 echo ""
+# shellcheck disable=SC2016 # we don't want to expand this expression
 echo 'To upgrade: run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)"'
 echo ""
 echo "PostHog will be up at the location you provided!"

@@ -4,15 +4,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import type { sharePasswordsLogicType } from './sharePasswordsLogicType'
+import { SharePasswordType } from '~/types'
 
-export interface SharePassword {
-    id: string
-    created_at: string
-    note: string
-    created_by_email: string
-    is_active: boolean
-}
+import type { sharePasswordsLogicType } from './sharePasswordsLogicType'
 
 export interface SharePasswordsLogicProps {
     dashboardId?: number
@@ -34,15 +28,15 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
         createPasswordSuccess: (response: any) => ({ response }),
         createPasswordFailure: (error: any) => ({ error }),
         deletePassword: (passwordId: string) => ({ passwordId }),
-        setSharePasswords: (passwords: SharePassword[]) => ({ passwords }),
+        setSharePasswords: (passwords: SharePasswordType[]) => ({ passwords }),
         loadSharePasswords: true,
         clearCreatedPasswordResult: true,
     }),
 
     loaders(({ props }) => ({
         sharePasswords: {
-            __default: [] as SharePassword[],
-            loadSharePasswords: async (): Promise<SharePassword[]> => {
+            __default: [] as SharePasswordType[],
+            loadSharePasswords: async (): Promise<SharePasswordType[]> => {
                 const response = await api.sharing.get({
                     dashboardId: props.dashboardId,
                     insightId: props.insightId,

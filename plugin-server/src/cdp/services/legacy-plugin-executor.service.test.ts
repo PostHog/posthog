@@ -86,6 +86,7 @@ describe('LegacyPluginExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
         )
 
@@ -189,6 +190,7 @@ describe('LegacyPluginExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const res = await service.execute(invocation)
@@ -316,6 +318,7 @@ describe('LegacyPluginExecutorService', () => {
                         json: () => Promise.resolve({}),
                         text: () => Promise.resolve(JSON.stringify({})),
                         headers: {},
+                        dump: () => Promise.resolve(),
                     })
                 }
 
@@ -324,6 +327,7 @@ describe('LegacyPluginExecutorService', () => {
                     json: () => Promise.resolve({}),
                     text: () => Promise.resolve(JSON.stringify({})),
                     headers: {},
+                    dump: () => Promise.resolve(),
                 })
             })
 

@@ -16,12 +16,12 @@ A command line utility to connect to PostHog toolbox pods in a Kubernetes enviro
 The toolbox utility uses a hybrid approach with modular functions in a package but the main entry point in the top-level script:
 
 - **Main script**:
-    - `toolbox.py` - Main script with argument parsing and the core workflow
+  - `toolbox.py` - Main script with argument parsing and the core workflow
 
 - **Support modules**:
-    - `toolbox/kubernetes.py` - Functions for working with Kubernetes contexts
-    - `toolbox/user.py` - User identification and ARN parsing
-    - `toolbox/pod.py` - Pod management (finding, claiming, connecting, deleting)
+  - `toolbox/kubernetes.py` - Functions for working with Kubernetes contexts
+  - `toolbox/user.py` - User identification and ARN parsing
+  - `toolbox/pod.py` - Pod management (finding, claiming, connecting, deleting)
 
 This structure keeps the main flow in a single script for easy understanding while separating the implementation details into modular components.
 

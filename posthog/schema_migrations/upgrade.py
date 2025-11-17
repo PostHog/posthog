@@ -1,10 +1,11 @@
 from copy import deepcopy
 from typing import Any
 
-from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS
+from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, _discover_migrations
 
 
 def upgrade(query: dict) -> dict:
+    _discover_migrations()  # Lazy load migrations on first use
     return upgrade_node(query)
 
 

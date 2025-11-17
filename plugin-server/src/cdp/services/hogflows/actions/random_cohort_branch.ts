@@ -2,17 +2,17 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type Action = Extract<HogFlowAction, { type: 'random_cohort_branch' }>
 
 export class RandomCohortBranchHandler implements ActionHandler {
-    execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'random_cohort_branch' }>
-    ): ActionHandlerResult {
+    execute({
+        invocation,
+        action,
+    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>): ActionHandlerResult {
         const nextAction = getRandomCohort(invocation, action)
-        return { nextAction }
+        return { nextAction, result: { assigned_cohort: nextAction.id } }
     }
 }
 

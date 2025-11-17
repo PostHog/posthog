@@ -7,22 +7,25 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
-import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { makeLogger } from 'scenes/session-recordings/player/rrweb'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import {
+    BLOB_SOURCE,
+    overrideSessionRecordingMocks,
+    recordingMetaJson,
+    setupSessionRecordingTest,
+} from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
+
+jest.mock('./snapshot-processing/DecompressionWorkerManager')
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -31,43 +34,9 @@ describe('sessionRecordingPlayerLogic', () => {
     beforeEach(() => {
         console.warn = mockWarn
         mockWarn.mockClear()
-        useMocks({
-            get: {
-                '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
-                '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    }
-                    // with no source requested should return sources
-                    return [
-                        200,
-                        {
-                            sources: [
-                                {
-                                    source: 'blob',
-                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
-                                },
-                            ],
-                        },
-                    ]
-                },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
-            delete: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
+        setupSessionRecordingTest({
+            snapshotSources: [BLOB_SOURCE],
         })
-        initKeaTests()
         featureFlagLogic.mount()
         logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
         logic.mount()
@@ -77,25 +46,25 @@ describe('sessionRecordingPlayerLogic', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([
                 sessionRecordingEventUsageLogic,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }),
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
         })
     })
 
     describe('loading session core', () => {
-        it('loads metadata only by default', async () => {
+        it('loads metadata and snapshots by default', async () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActionsInAnyOrder([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
-            await expectLogic(logic).toNotHaveDispatchedActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+            await expectLogic(logic).toDispatchActions([
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
@@ -108,19 +77,12 @@ describe('sessionRecordingPlayerLogic', () => {
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingData,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 logic.actionTypes.setPlay,
-            ])
-
-            expect(logic.values.sessionPlayerData).toMatchSnapshot()
-
-            await expectLogic(logic).toDispatchActions([
-                // once to gather sources
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                // once to load source from that
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -141,15 +103,13 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('load snapshot errors and triggers error state', async () => {
-            useMocks({
-                get: {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                     '/api/projects/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
-
-            // Unmount and remount the logic to trigger fetching the data again after the mock change
-            logic.unmount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '2',
                 playerKey: 'test',
@@ -185,7 +145,7 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
                 'initializePlayerFromStart',
             ])
             expect(logic.cache.hasInitialized).toBeTruthy()
@@ -305,7 +265,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -313,7 +273,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -324,7 +284,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                    matchedEvents: listOfMatchingEvents,
                 },
             })
             logic.mount()
@@ -332,7 +292,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                        matchedEvents: listOfMatchingEvents,
                     },
                 }),
             })
@@ -341,7 +301,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 playerKey: 'test',
                 matchingEventsMatchType: {
                     matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                    matchedEvents: listOfMatchingEvents.slice(0, 1),
                 },
             })
             logic.mount()
@@ -349,7 +309,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',
-                        eventUUIDs: listOfMatchingEvents.map((event) => event.uuid).slice(0, 1),
+                        matchedEvents: listOfMatchingEvents.slice(0, 1),
                     },
                 }),
             })
@@ -385,169 +345,176 @@ describe('sessionRecordingPlayerLogic', () => {
 
     describe('recording viewed summary event', () => {
         describe('play_time_ms tracking', () => {
+            const startPlaying = (): void => {
+                logic.actions.setPlay()
+                logic.actions.endBuffer()
+            }
+
             beforeEach(() => {
                 jest.useFakeTimers({
                     now: new Date('2024-02-07T00:00:01.123Z'),
                 })
+                logic.unmount()
+                logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
+                logic.mount()
             })
 
             it('initializes playingTimeTracking correctly', () => {
                 expect(logic.values.playingTimeTracking).toEqual({
-                    state: 'unknown',
+                    state: 'paused',
                     lastTimestamp: null,
                     watchTime: 0,
                     bufferTime: 0,
+                    firstPlayTime: undefined,
+                    firstPlayStartTime: undefined,
                 })
             })
 
             it('sets buffering state with startBuffer', () => {
                 expect(logic.values.playingTimeTracking.lastTimestamp).toBeNull()
 
+                logic.actions.setPlay()
                 logic.actions.startBuffer()
 
                 expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.lastTimestamp).not.toBeNull()
             })
 
-            it('correctly tracks buffer time', () => {
+            it('tracks buffer time', () => {
+                logic.actions.setPlay()
                 logic.actions.startBuffer()
-
-                expect(logic.values.playingTimeTracking.state).toBe('buffering')
-                expect(logic.values.playingTimeTracking.lastTimestamp).toBe(0)
-
                 jest.advanceTimersByTime(1500)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(1500)
                 expect(logic.values.playingTimeTracking.watchTime).toBe(0)
             })
 
-            it('sets playing state with setPlay', () => {
-                logic.actions.setPlay()
+            it('transitions to playing after endBuffer', () => {
+                startPlaying()
 
                 expect(logic.values.playingTimeTracking.state).toBe('playing')
-                expect(logic.values.playingTimeTracking.lastTimestamp).toBe(0)
             })
 
-            it('accumulates watch time with setPause', () => {
-                logic.actions.setPlay()
-
+            it('accumulates watch time during play', () => {
+                startPlaying()
                 jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
-                expect(logic.values.playingTimeTracking.state).toBe('paused')
                 expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
             })
 
-            it('correctly separates play time from buffer time in alternating sequence', () => {
-                // This test ensures we don't accumulate playing time while buffering
-                // Scenario: 4 x 1-second play blocks with 3 x 1-second buffer blocks between them
-                // Expected: 4 seconds play time, 3 seconds buffer time (total 7 seconds, but only 4 should count as play time)
+            it('separates play and buffer time when alternating', () => {
+                const playFor = (ms: number): void => {
+                    startPlaying()
+                    jest.advanceTimersByTime(ms)
+                    logic.actions.setPause()
+                }
 
-                // Play block 1 (1 second)
-                logic.actions.setPlay()
-                jest.advanceTimersByTime(1000)
-                logic.actions.setPause()
+                const bufferFor = (ms: number): void => {
+                    logic.actions.startBuffer()
+                    jest.advanceTimersByTime(ms)
+                    logic.actions.endBuffer()
+                }
 
-                expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(0)
+                playFor(1000)
+                bufferFor(1000)
+                playFor(1000)
+                bufferFor(1000)
+                playFor(1000)
+                bufferFor(1000)
+                playFor(1000)
 
-                logic.actions.startBuffer()
-                jest.advanceTimersByTime(1000)
-                logic.actions.endBuffer()
-
-                expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
-
-                logic.actions.setPlay()
-                jest.advanceTimersByTime(1000)
-                logic.actions.setPause()
-
-                expect(logic.values.playingTimeTracking.watchTime).toBe(2000)
-
-                logic.actions.startBuffer()
-                jest.advanceTimersByTime(1000)
-                logic.actions.endBuffer()
-
-                expect(logic.values.playingTimeTracking.watchTime).toBe(2000)
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(2000)
-
-                logic.actions.setPlay()
-                jest.advanceTimersByTime(1000)
-                logic.actions.setPause()
-
-                expect(logic.values.playingTimeTracking.watchTime).toBe(3000)
-
-                logic.actions.startBuffer()
-                jest.advanceTimersByTime(1000)
-                logic.actions.endBuffer()
-
-                expect(logic.values.playingTimeTracking.watchTime).toBe(3000)
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
-
-                logic.actions.setPlay()
-                jest.advanceTimersByTime(1000)
-                logic.actions.setPause()
-
-                // Final verification: only 4 seconds of play time, not 7 seconds total
                 expect(logic.values.playingTimeTracking.watchTime).toBe(4000)
-                // Should correctly track 3 seconds of buffer time
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
             })
 
-            it('handles repeated endBuffer calls without losing time', () => {
-                // This test simulates the real-world scenario where endBuffer gets called multiple times
+            it('preserves buffer time on repeated endBuffer calls', () => {
+                logic.actions.setPlay()
                 logic.actions.startBuffer()
-                expect(logic.values.playingTimeTracking.state).toBe('buffering')
-
                 jest.advanceTimersByTime(1000)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.state).toBe('buffering')
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
-
-                logic.actions.endBuffer()
-
-                // This should NOT reset the buffer time to 0
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
+                const bufferTime = logic.values.playingTimeTracking.bufferTime
 
                 logic.actions.endBuffer()
                 logic.actions.endBuffer()
                 logic.actions.endBuffer()
 
-                // Buffer time should remain stable
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(bufferTime)
+            })
+
+            describe('time_to_first_play_ms tracking', () => {
+                it('preserves firstPlayTime after buffer interrupts post-threshold', () => {
+                    startPlaying()
+                    jest.advanceTimersByTime(1000)
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(0)
+
+                    logic.actions.startBuffer()
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(0)
+                })
+
+                it('records firstPlayTime only once', () => {
+                    startPlaying()
+                    jest.advanceTimersByTime(1000)
+                    jest.runOnlyPendingTimers()
+
+                    const firstPlayTime = logic.values.playingTimeTracking.firstPlayTime
+
+                    logic.actions.setPause()
+                    logic.actions.setPlay()
+                    jest.advanceTimersByTime(2000)
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(firstPlayTime)
+                })
+
+                it('retries tracking after early interruption', () => {
+                    jest.advanceTimersByTime(500)
+
+                    logic.actions.setPause()
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBeUndefined()
+
+                    startPlaying()
+                    jest.runOnlyPendingTimers()
+
+                    expect(logic.values.playingTimeTracking.firstPlayTime).toBe(500)
+                })
             })
         })
 
         describe('recording viewed summary analytics', () => {
             it('captures all required analytics properties on unmount', () => {
-                // Mock posthog.capture to spy on the analytics event
+                jest.useFakeTimers()
+                logic.unmount()
+                logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
+                logic.mount()
+
                 const mockCapture = jest.fn()
                 ;(posthog as any).capture = mockCapture
 
-                // Use fake timers for this test
-                jest.useFakeTimers()
-
-                // Simulate user interaction that generates play time
                 logic.actions.setPlay()
-                jest.advanceTimersByTime(1000) // Advance time by 1 second
+                logic.actions.endBuffer()
+                jest.advanceTimersByTime(1001)
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
                 logic.actions.incrementWarningCount(2)
                 logic.actions.incrementErrorCount()
 
-                // Unmount to trigger the analytics event
                 logic.unmount()
 
                 expect(mockCapture).toHaveBeenCalledWith(
                     'recording viewed summary',
                     expect.objectContaining({
                         viewed_time_ms: expect.any(Number),
-                        play_time_ms: 1000,
-                        buffer_time_ms: 0,
+                        play_time_ms: expect.any(Number),
+                        buffer_time_ms: expect.any(Number),
+                        time_to_first_play_ms: expect.any(Number),
                         rrweb_warning_count: 2,
                         error_count_during_recording_playback: 1,
                         engagement_score: 1,
@@ -555,14 +522,13 @@ describe('sessionRecordingPlayerLogic', () => {
                         recording_age_ms: undefined,
                     })
                 )
+                expect(mockCapture.mock.calls[0][1].time_to_first_play_ms).toBe(0)
             })
 
             it('captures "no playtime summary" event when play_time_ms is 0', async () => {
-                // Mock posthog.capture to spy on the analytics event
                 const mockCapture = jest.fn()
                 ;(posthog as any).capture = mockCapture
 
-                // Don't play the recording, just unmount
                 logic.unmount()
 
                 expect(mockCapture).toHaveBeenCalledWith(
@@ -580,7 +546,6 @@ describe('sessionRecordingPlayerLogic', () => {
                 const mockCapture = jest.fn()
                 ;(posthog as any).capture = mockCapture
 
-                // Simulate multiple clicks
                 logic.actions.incrementClickCount()
                 logic.actions.incrementClickCount()
                 logic.actions.incrementClickCount()

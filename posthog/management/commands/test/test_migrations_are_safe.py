@@ -1,3 +1,5 @@
+import re
+
 from posthog.management.commands.test_migrations_are_safe import validate_migration_sql
 
 
@@ -150,3 +152,25 @@ COMMIT;
     """
     should_fail = validate_migration_sql(sql_with_random_default)
     assert should_fail is True
+
+
+def test_migration_path_regex_handles_products_structure() -> None:
+    products_match = re.findall(
+        r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py",
+        "products/tasks/backend/migrations/0006_remove_workflowstage_agent.py",
+    )
+    assert products_match == [("tasks", "0006_remove_workflowstage_agent")]
+
+    products_match = re.findall(
+        r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py",
+        "products/early_access_features/backend/migrations/0001_initial.py",
+    )
+    assert products_match == [("early_access_features", "0001_initial")]
+
+    products_match = re.findall(
+        r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", "posthog/migrations/0770_something.py"
+    )
+    assert products_match == []
+
+    posthog_match = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", "posthog/migrations/0770_something.py")
+    assert posthog_match == [("posthog", "0770_something")]

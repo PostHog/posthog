@@ -18,9 +18,10 @@ export function ViewEmptyState(): JSX.Element {
         const TOGGLE_INTERVAL = 3000
         const FADE_OUT_DURATION = 300
 
+        let fadeTimeoutId: ReturnType<typeof setTimeout> | null = null
         const interval = setInterval(() => {
             setIsMessageVisible(false)
-            setTimeout(() => {
+            fadeTimeoutId = setTimeout(() => {
                 setMessageIndex((current) => {
                     let newIndex = Math.floor(Math.random() * VIEW_EMPTY_STATE_COPY.length)
                     if (newIndex === current) {
@@ -32,7 +33,12 @@ export function ViewEmptyState(): JSX.Element {
             }, FADE_OUT_DURATION)
         }, TOGGLE_INTERVAL)
 
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (fadeTimeoutId) {
+                clearTimeout(fadeTimeoutId)
+            }
+        }
     })
 
     return (

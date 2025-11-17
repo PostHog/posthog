@@ -130,21 +130,17 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
             <div ref={ref} className="flex flex-col h-full">
                 <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                     <div className="bg-surface-primary dark:bg-transparent rounded p-1">
-                        <h4 className="mb-2">Tips for chatting with Max:</h4>
+                        <h4 className="mb-2">Tips for using PostHog AI through chat:</h4>
                         <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
-                            <li>Max can't handle files or images (yet.)</li>
-                            <li>
-                                Max can't see what page you're on, or the contents. Copy/paste error messages or queries
-                                to share with Max.
-                            </li>
+                            <li>PostHog AI can't handle files or images (yet.)</li>
                             <li>Replies can take up to 3 mins due to rate-limiting.</li>
-                            <li>Max can make mistakes. Please double-check responses.</li>
+                            <li>PostHog AI can make mistakes. Please double-check responses.</li>
                         </ul>
                     </div>
 
                     {displayMessages.length === 0 ? (
                         <div className="flex items-center gap-2 text-secondary">
-                            <span>Max is crawling out of his burrow and shaking off his quills...</span>
+                            <span>PostHog AI is thinking...</span>
                             <Spinner className="text-lg" />
                         </div>
                     ) : (
@@ -206,7 +202,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                                 key: 'analysis',
                                                                                 header: (
                                                                                     <span className="text-secondary">
-                                                                                        What was Max thinking?
+                                                                                        What was PostHog AI thinking?
                                                                                     </span>
                                                                                 ),
                                                                                 content: (

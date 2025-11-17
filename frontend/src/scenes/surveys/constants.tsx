@@ -1,7 +1,10 @@
-import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/icons'
+
+import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
+    AccessControlLevel,
     Survey,
     SurveyAppearance,
     SurveyMatchType,
@@ -179,6 +182,7 @@ export interface NewSurvey
         | 'response_sampling_limit'
         | 'schedule'
         | 'enable_partial_responses'
+        | 'user_access_level'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -213,6 +217,7 @@ export const NEW_SURVEY: NewSurvey = {
     iteration_count: null,
     iteration_frequency_days: null,
     enable_partial_responses: true,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export enum SurveyTemplateType {

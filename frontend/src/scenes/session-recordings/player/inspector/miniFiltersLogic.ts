@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
@@ -59,6 +60,11 @@ export const MiniFilters: SharedListMiniFilter[] = [
         type: 'console',
         key: 'console-error',
         name: 'Error',
+    },
+    {
+        type: 'console',
+        key: 'console-app-state',
+        name: 'App state',
     },
     {
         type: 'network',
@@ -206,6 +212,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     enabled: selectedMiniFilters.includes(x.key),
                 }))
             },
+            { resultEqualityCheck: equal },
         ],
 
         miniFiltersByKey: [
@@ -216,6 +223,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     return acc
                 }, {})
             },
+            { resultEqualityCheck: equal },
         ],
 
         miniFiltersForTypeByKey: [

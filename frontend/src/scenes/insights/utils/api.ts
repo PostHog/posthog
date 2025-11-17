@@ -1,7 +1,7 @@
 import api from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, RefreshType } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, RefreshType, TileFilters } from '~/queries/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 async function _perform(
@@ -21,14 +21,16 @@ export const insightsApi = {
         basic?: boolean,
         refresh?: RefreshType,
         filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null
+        variablesOverride?: Record<string, HogQLVariable> | null,
+        tileFiltersOverride?: TileFilters | null
     ): Promise<QueryBasedInsightModel | null> {
         const legacyInsights = await api.insights.loadInsight(
             shortId,
             basic,
             refresh,
             filtersOverride,
-            variablesOverride
+            variablesOverride,
+            tileFiltersOverride
         )
         if (legacyInsights.results.length === 0) {
             return null

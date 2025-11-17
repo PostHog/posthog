@@ -130,11 +130,13 @@ export const definitionLogic = kea<definitionLogicType>([
                         key: Scene.DataManagement,
                         name: `Data management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
+                        iconType: 'event_definition',
                     },
                     {
                         key: isEvent ? DataManagementTab.EventDefinitions : DataManagementTab.PropertyDefinitions,
                         name: isEvent ? 'Events' : 'Properties',
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
+                        iconType: isEvent ? 'event_definition' : 'property_definition',
                     },
                     {
                         key: [isEvent ? Scene.EventDefinition : Scene.PropertyDefinition, definition?.id || 'new'],
@@ -147,6 +149,7 @@ export const definitionLogic = kea<definitionLogicType>([
                                           : TaxonomicFilterGroupType.EventProperties
                                   ) || 'Untitled'
                                 : 'Untitled',
+                        iconType: isEvent ? 'event_definition' : 'property_definition',
                     },
                 ]
             },

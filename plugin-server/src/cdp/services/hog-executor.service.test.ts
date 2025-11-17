@@ -49,6 +49,11 @@ describe('Hog Executor', () => {
         executor = new HogExecutorService(hub)
     })
 
+    afterEach(() => {
+        // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
+        jest.restoreAllMocks()
+    })
+
     describe('general event processing', () => {
         let hogFunction: HogFunctionType
         beforeEach(() => {
@@ -236,6 +241,42 @@ describe('Hog Executor', () => {
                 },
                 event_url: 'http://localhost:8000/events/1-test',
             })
+        })
+
+        it('merges previousResult into execute() result', async () => {
+            const invocation = createExampleInvocation(hogFunction)
+
+            const previousResult = {
+                finished: false,
+                logs: [{ level: 'info', timestamp: DateTime.utc(), message: 'Prev log' }],
+                metrics: [
+                    {
+                        team_id: 1,
+                        app_source_id: invocation.functionId,
+                        metric_kind: 'other',
+                        metric_name: 'prev_metric',
+                        count: 1,
+                    },
+                ],
+                capturedPostHogEvents: [
+                    {
+                        team_id: 1,
+                        timestamp: DateTime.utc().toISO(),
+                        distinct_id: 'did',
+                        event: 'prev_event',
+                        properties: {},
+                    },
+                ],
+                execResult: { foo: 'bar' },
+            } as any
+
+            const result = await executor.execute(invocation, undefined, previousResult)
+
+            // No new logs are produced before async fetch, so previous logs/metrics/events should persist
+            expect(result.logs.map((l) => l.message)).toEqual(['Prev log'])
+            expect(result.metrics).toEqual(previousResult.metrics)
+            expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
+            expect(result.execResult).toEqual({ foo: 'bar' })
         })
     })
 
@@ -591,6 +632,35 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('result handling', () => {
+        it('does not set execResult when VM returns a falsy result', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: true,
+                    result: null, // falsy value
+                    state: { syncDuration: 0, maxMemUsed: 1024 * 0.17, ops: 28, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+                waitedForThreadRelief: false,
+            })
+
+            const res = await executor.execute(createExampleInvocation(fn))
+            expect(res.finished).toBe(true)
+            expect(res.execResult).toBeUndefined()
+            expect(cleanLogs(res.logs.map((x) => x.message))).toEqual([
+                "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.17kb. Ops: 28. Event: 'http://localhost:8000/events/1'",
+            ])
+        })
+    })
+
     describe('posthogCaptue', () => {
         it('captures events', async () => {
             const fn = createHogFunction({
@@ -751,6 +821,9 @@ describe('Hog Executor', () => {
                     body: 'Hello, world!',
                 },
             ])
+
+            // Now also exposed on the execResult for callers of execute()
+            expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
         })
 
         it('handles failure status and retries', async () => {
@@ -990,6 +1063,7 @@ describe('Hog Executor', () => {
                     headers: {},
                     json: () => Promise.resolve({}),
                     text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
                 })
             })
 

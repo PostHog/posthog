@@ -27,7 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -115,9 +115,13 @@ class TeamManager(models.Manager):
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
-        team.test_account_filters = self.set_test_account_filters(
-            kwargs.get("organization_id") or kwargs["organization"].id
-        )
+        # Get organization to apply defaults
+        organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
+
+        # Apply organization-level IP anonymization default
+        team.anonymize_ips = organization.default_anonymize_ips
+
+        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -223,7 +227,6 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
-    LEGACY = "legacy", "Legacy Retention"
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
     ONE_YEAR = "1y", "1 Year"
@@ -286,11 +289,7 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
-    autocapture_opt_out = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
-    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
     person_processing_opt_out = models.BooleanField(null=True, default=False)
     secret_api_token = models.CharField(
         max_length=200,
@@ -302,6 +301,8 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
     )
+
+    # Session recording
     session_recording_opt_in = field_access_control(models.BooleanField(default=False), "session_recording", "editor")
     session_recording_sample_rate = field_access_control(
         models.DecimalField(
@@ -353,23 +354,49 @@ class Team(UUIDTClassicModel):
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
-        max_length=6,
+        max_length=3,
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
-    survey_config = models.JSONField(null=True, blank=True)
+
+    # Surveys
+    survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
+    surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
+
+    # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
-    surveys_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_opt_out = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
+    autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
-    web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
+
+    # Activity logs
+    receive_org_level_activity_logs = models.BooleanField(null=True, blank=True, default=False)
+
+    # Web analytics
+    web_analytics_pre_aggregated_tables_enabled = field_access_control(
+        models.BooleanField(default=False, null=True), "web_analytics", "editor"
+    )
     web_analytics_pre_aggregated_tables_version = models.CharField(
         max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
     )
+
+    # Feature flags
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
+    default_evaluation_environments_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to automatically apply default evaluation environments to new feature flags",
+    )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -384,7 +411,9 @@ class Team(UUIDTClassicModel):
     test_account_filters = models.JSONField(default=list)
     test_account_filters_default_checked = models.BooleanField(null=True, blank=True)
 
-    path_cleaning_filters = models.JSONField(default=list, null=True, blank=True)
+    path_cleaning_filters = field_access_control(
+        models.JSONField(default=list, null=True, blank=True), "web_analytics", "editor"
+    )
     timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
@@ -468,6 +497,12 @@ class Team(UUIDTClassicModel):
         default=DEFAULT_CURRENCY,
         null=True,
         blank=True,
+    )
+
+    experiment_recalculation_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
     @cached_property
@@ -749,26 +784,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
-
-        # This path is deprecated, and will be removed soon
-        if self.access_control:
-            user_ids_queryset = (
-                OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-                )
-                .values_list("user_id", flat=True)
-                .union(
-                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
-                        "parent_membership__user_id", flat=True
-                    )
-                )
-            )
-            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
-
-        # New access control checks
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(

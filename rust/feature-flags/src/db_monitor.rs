@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use common_metrics::gauge;
 use sqlx::PgPool;
@@ -13,15 +14,21 @@ use crate::metrics::consts::{
 
 pub struct DatabasePoolMonitor {
     database_pools: Arc<DatabasePools>,
+    monitoring_interval: Duration,
+    warn_utilization_threshold: f64,
 }
 
 impl DatabasePoolMonitor {
-    pub fn new(database_pools: Arc<DatabasePools>) -> Self {
-        Self { database_pools }
+    pub fn new(database_pools: Arc<DatabasePools>, config: &Config) -> Self {
+        Self {
+            database_pools,
+            monitoring_interval: Duration::from_secs(config.db_monitor_interval_secs),
+            warn_utilization_threshold: config.db_pool_warn_utilization,
+        }
     }
 
     pub async fn start_monitoring(&self) {
-        let mut ticker = interval(Duration::from_secs(30));
+        let mut ticker = interval(self.monitoring_interval);
 
         // Check if persons DB routing is enabled by comparing pool pointers
         let persons_routing_enabled = !Arc::ptr_eq(
@@ -118,7 +125,7 @@ impl DatabasePoolMonitor {
 
         // Warn if pool utilization is high
         let pool_utilization = (pool_size as i32 - pool_idle as i32) as f64 / pool_max as f64;
-        if pool_utilization > 0.8 {
+        if pool_utilization > self.warn_utilization_threshold {
             tracing::warn!(
                 "High {} pool utilization: {:.1}% ({}/{})",
                 pool_name,

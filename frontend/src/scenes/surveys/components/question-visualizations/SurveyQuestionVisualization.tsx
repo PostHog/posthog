@@ -5,6 +5,7 @@ import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
@@ -28,6 +29,7 @@ function QuestionTitle({
     questionIndex,
     totalResponses = 0,
 }: Props & { totalResponses?: number }): JSX.Element {
+    const { isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     return (
         <div className="flex flex-col">
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
@@ -57,9 +59,10 @@ function QuestionTitle({
                 <h3 className="text-xl font-bold mb-0">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
-                {question.type === SurveyQuestionType.Open && totalResponses > 5 && (
+                {question.type === SurveyQuestionType.Open && totalResponses > 5 && !isSurveyAnalysisMaxToolEnabled && (
                     <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
                 )}
+                {isSurveyAnalysisMaxToolEnabled && <AnalyzeResponsesButton />}
             </div>
         </div>
     )

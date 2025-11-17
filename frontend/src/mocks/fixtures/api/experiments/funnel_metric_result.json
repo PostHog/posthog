@@ -7,6 +7,7 @@
         "numerator_denominator_sum_product": null,
         "sum": 859.0,
         "sum_squares": 859.0,
+        "step_counts": [859],
         "validation_failures": []
     },
     "cache_key": "cache_08a7b94252174a9400b06680a11683bd",
@@ -43,6 +44,7 @@
             "significant": true,
             "sum": 705.0,
             "sum_squares": 705.0,
+            "step_counts": [705],
             "validation_failures": []
         },
         {
@@ -57,6 +59,7 @@
             "significant": true,
             "sum": 1022.0,
             "sum_squares": 1022.0,
+            "step_counts": [1022],
             "validation_failures": []
         }
     ],

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { useCallback } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconChevronLeft, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
@@ -22,7 +22,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { alphabet, formatDate } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -220,7 +219,7 @@ export function EditAlertModal({
                                                                   } (${formula})`,
                                                                   value: index,
                                                               }))
-                                                            : alertSeries?.map(
+                                                            : (alertSeries?.map(
                                                                   ({ custom_name, name, event }, index) => ({
                                                                       label: isBreakdownValid
                                                                           ? 'any breakdown value'
@@ -229,7 +228,7 @@ export function EditAlertModal({
                                                                             }`,
                                                                       value: isBreakdownValid ? 0 : index,
                                                                   })
-                                                              )
+                                                              ) ?? [])
                                                     }
                                                     disabledReason={
                                                         isBreakdownValid &&
@@ -444,7 +443,7 @@ export function EditAlertModal({
                                                                 />
                                                             </LemonField>
                                                             <Tooltip
-                                                                title={`Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
+                                                                title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
                                                                 placement="right"
                                                                 delayMs={0}
                                                             >

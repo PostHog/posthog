@@ -125,11 +125,11 @@ Add your scenes to the access control resource mapping:
 ```typescript
 // frontend/src/scenes/sceneTypes.ts
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
-    // Existing mappings...
+  // Existing mappings...
 
-    // Your new resource scenes
-    [Scene.YourResource]: AccessControlResourceType.YourNewResource,
-    [Scene.YourResourceList]: AccessControlResourceType.YourNewResource,
+  // Your new resource scenes
+  [Scene.YourResource]: AccessControlResourceType.YourNewResource,
+  [Scene.YourResourceList]: AccessControlResourceType.YourNewResource,
 }
 ```
 
@@ -140,11 +140,11 @@ The API will now include `user_access_level` in responses:
 ```typescript
 // frontend/src/types.ts
 export interface YourResourceType {
-    id: string
-    name: string
-    content: string
-    created_at: string
-    user_access_level: AccessLevel
+  id: string
+  name: string
+  content: string
+  created_at: string
+  user_access_level: AccessLevel
 }
 ```
 
@@ -200,30 +200,30 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 function YourResourceList() {
-    return (
-        <div>
-            {/* Using AccessControlAction (preferred) */}
-            <AccessControlAction
-                resourceType={AccessControlResourceType.YourResource}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
-                    New Resource
-                </LemonButton>
-            </AccessControlAction>
+  return (
+    <div>
+      {/* Using AccessControlAction (preferred) */}
+      <AccessControlAction
+        resourceType={AccessControlResourceType.YourResource}
+        minAccessLevel={AccessControlLevel.Editor}
+      >
+        <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
+          New Resource
+        </LemonButton>
+      </AccessControlAction>
 
-            {/* Manual permission check if needed */}
-            {(() => {
-                const userLevel = getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]
-                const canCreate = userLevel && ['editor', 'manager'].includes(userLevel)
-                return canCreate ? (
-                    <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
-                        New Resource
-                    </LemonButton>
-                ) : null
-            })()}
-        </div>
-    )
+      {/* Manual permission check if needed */}
+      {(() => {
+        const userLevel = getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]
+        const canCreate = userLevel && ['editor', 'manager'].includes(userLevel)
+        return canCreate ? (
+          <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
+            New Resource
+          </LemonButton>
+        ) : null
+      })()}
+    </div>
+  )
 }
 ```
 
@@ -233,26 +233,26 @@ Use object-level `user_access_level` for edit permissions:
 
 ```tsx
 function YourResourceCard({ yourResource }: { yourResource: YourResourceType }) {
-    return (
-        <div>
-            <h3>{yourResource.name}</h3>
+  return (
+    <div>
+      <h3>{yourResource.name}</h3>
 
-            {/* Using AccessControlAction (preferred) */}
-            <AccessControlAction
-                resourceType={AccessControlResourceType.YourResource}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={yourResource.user_access_level}
-            >
-                <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton>
-            </AccessControlAction>
+      {/* Using AccessControlAction (preferred) */}
+      <AccessControlAction
+        resourceType={AccessControlResourceType.YourResource}
+        minAccessLevel={AccessControlLevel.Editor}
+        userAccessLevel={yourResource.user_access_level}
+      >
+        <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton>
+      </AccessControlAction>
 
-            {/* Manual permission check if needed */}
-            {(() => {
-                const canEdit = ['editor', 'manager'].includes(yourResource.user_access_level || 'none')
-                return canEdit ? <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton> : null
-            })()}
-        </div>
-    )
+      {/* Manual permission check if needed */}
+      {(() => {
+        const canEdit = ['editor', 'manager'].includes(yourResource.user_access_level || 'none')
+        return canEdit ? <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton> : null
+      })()}
+    </div>
+  )
 }
 ```
 
@@ -262,13 +262,13 @@ Typically requires `editor` level access:
 
 ```tsx
 <AccessControlAction
-    resourceType={AccessControlResourceType.YourResource}
-    minAccessLevel={AccessControlLevel.Editor}
-    userAccessLevel={yourResource.user_access_level}
+  resourceType={AccessControlResourceType.YourResource}
+  minAccessLevel={AccessControlLevel.Editor}
+  userAccessLevel={yourResource.user_access_level}
 >
-    <LemonButton status="danger" onClick={() => deleteYourResource(yourResource)}>
-        Delete
-    </LemonButton>
+  <LemonButton status="danger" onClick={() => deleteYourResource(yourResource)}>
+    Delete
+  </LemonButton>
 </AccessControlAction>
 ```
 
@@ -289,7 +289,47 @@ When implementing access controls, audit all places where users can interact wit
 - Export/import functionality
 - Sharing and collaboration features
 
-#### 4.7 Update Storybook mocks
+#### 4.7 Add Sidebar Panel Context
+
+For detail pages with sidebars, add access control context to the logic's `SIDE_PANEL_CONTEXT_KEY` selector:
+
+```typescript
+// products/your_resource/frontend/logics/yourResourceLogic.ts
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope } from '~/types'
+
+export const yourResourceLogic = kea<yourResourceLogicType>([
+  // ... other configuration ...
+
+  selectors({
+    // ... other selectors ...
+
+    [SIDE_PANEL_CONTEXT_KEY]: [
+      (s) => [s.yourResource],
+      (yourResource): SidePanelSceneContext | null => {
+        return yourResource?.id
+          ? {
+              activity_scope: ActivityScope.YOUR_RESOURCE,
+              activity_item_id: `${yourResource.id}`,
+              access_control_resource: 'your_resource',
+              access_control_resource_id: `${yourResource.id}`,
+            }
+          : null
+      },
+    ],
+  }),
+])
+```
+
+This enables the sidebar to:
+
+- Show access control settings for the specific object
+- Display who has access to this resource
+- Allow admins to manage object-level permissions
+
+**Note:** Make sure `ActivityScope.YOUR_RESOURCE` is defined in `~/types.ts` if it doesn't exist yet.
+
+#### 4.8 Update Storybook mocks
 
 Make sure you've added your new resource to [`common/storybook/.storybook/app-context.ts`](common/storybook/.storybook/app-context.ts) to guarantee snapshots won't flake/will assume you have access to everything.
 
@@ -349,8 +389,9 @@ RESOURCE_INHERITANCE_MAP = {
 3. Update TypeScript types to include `user_access_level: AccessLevel`
 4. Block UI elements using the `AccessControlAction` wrapper
 5. Implement CRUD permission checks (create uses resource-level access (set by default), edit/delete use object-level `user_access_level`)
-6. Audit all user interaction points (buttons, menus, forms, shortcuts, etc.)
-7. Handle access control UI (user management modals, permission settings)
+6. Add sidebar panel context (`SIDE_PANEL_CONTEXT_KEY`) with access control fields
+7. Audit all user interaction points (buttons, menus, forms, shortcuts, etc.)
+8. Update Storybook mocks in `app-context.ts`
 
 ### Testing
 
@@ -363,7 +404,7 @@ RESOURCE_INHERITANCE_MAP = {
 
 The `AccessControlViewSetMixin` automatically adds these endpoints:
 
-```
+```text
 GET    /api/projects/{project_id}/{resource}/{id}/access_controls/
 POST   /api/projects/{project_id}/{resource}/{id}/access_controls/
 DELETE /api/projects/{project_id}/{resource}/{id}/access_controls/

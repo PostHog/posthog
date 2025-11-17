@@ -18,6 +18,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,6 +29,7 @@ import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
     DatabaseSchemaViewTable,
+    FileSystemIconType,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -48,7 +50,7 @@ import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
-import { outputPaneLogic } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
@@ -105,15 +107,15 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 
 function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
-        q: values.queryInput,
+        q: values.queryInput ?? '',
     }
-    if (values.activeTab.view) {
+    if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
     }
-    if (values.activeTab.insight) {
+    if (values.activeTab?.insight) {
         hash['insight'] = values.activeTab.insight.short_id
     }
-    if (values.activeTab.draft) {
+    if (values.activeTab?.draft) {
         hash['draft'] = values.activeTab.draft.id
     }
 
@@ -157,7 +159,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     actions(() => ({
-        setQueryInput: (queryInput: string) => ({ queryInput }),
+        setQueryInput: (queryInput: string | null) => ({ queryInput }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
@@ -271,7 +273,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         queryInput: [
-            '',
+            null as string | null,
             {
                 setQueryInput: (_, { queryInput }) => queryInput,
             },
@@ -401,7 +403,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
                     const query = (currentTab.insight.query as DataVisualizationNode).source.query
                     if (values.queryInput !== query) {
-                        shareUrl.searchParams.set('open_query', values.queryInput)
+                        shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                     }
                 }
 
@@ -412,14 +414,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 shareUrl.searchParams.set('open_view', currentTab.view.id)
 
                 if (values.queryInput != currentTab.view.query.query) {
-                    shareUrl.searchParams.set('open_query', values.queryInput)
+                    shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                 }
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             } else {
                 const currentUrl = new URL(window.location.href)
                 const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_query', values.queryInput)
+                shareUrl.searchParams.set('open_query', values.queryInput ?? '')
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
@@ -431,9 +433,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            if (values.queryInput) {
+            // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
+            // Only skip diff mode if the editor is completely empty
+            if (values.queryInput && values.queryInput.trim() !== '') {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
+                    originalValue: values.queryInput, // Store the current content as original for diff mode
                     acceptText: aiSuggestionOnAcceptText,
                     rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
@@ -457,6 +462,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         'hogQL',
                         values.activeTab.uri
                     )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
 
                     initModel(
                         newModel,
@@ -466,9 +473,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             language: 'hogQL',
                         })
                     )
-                    props.editor?.setModel(newModel)
+
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
@@ -481,18 +505,41 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (props.monaco && values.activeTab) {
                 const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
                 if (!existingModel) {
-                    const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeTab.uri)
+                    const newModel = props.monaco.editor.createModel(
+                        values.queryInput ?? '',
+                        'hogQL',
+                        values.activeTab.uri
+                    )
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(newModel)
                     initModel(
                         newModel,
                         codeEditorLogic({
                             key: `hogql-editor-${props.tabId}`,
-                            query: values.queryInput,
+                            query: values.queryInput ?? '',
                             language: 'hogQL',
                         })
                     )
-                    props.editor?.setModel(newModel)
+
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(newModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(newModel)
+                    }
                 } else {
-                    props.editor?.setModel(existingModel)
+                    // Handle both diff editor and regular editor
+                    if (props.editor && 'getModifiedEditor' in props.editor) {
+                        // It's a diff editor, set model on the modified editor
+                        const modifiedEditor = (props.editor as any).getModifiedEditor()
+                        modifiedEditor.setModel(existingModel)
+                    } else {
+                        // Regular editor
+                        props.editor?.setModel(existingModel)
+                    }
                 }
             }
             posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
@@ -505,14 +552,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const currentModelCount = 1
+            // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
                 let model = props.monaco.editor.getModel(uri)
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    cache.createdModels = cache.createdModels || []
+                    cache.createdModels.push(model)
                     props.editor?.setModel(model)
                     initModel(
                         model,
@@ -560,12 +609,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         initialize: async () => {
-            if (!values.activeTab) {
-                actions.createTab()
-            }
             actions.setFinishedLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
+            // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
                 if (queryInput === values.activeTab.view?.query.query) {
@@ -596,7 +643,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateTab({ ...tabToUpdate, name: draft.name, draft: draft })
         },
         runQuery: ({ queryOverride, switchTab }) => {
-            const query = queryOverride || values.queryInput
+            const query = (queryOverride || values.queryInput) ?? ''
 
             const newSource = {
                 ...values.sourceQuery.source,
@@ -661,7 +708,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const queryToSave = {
                 ...query,
-                query: values.queryInput,
+                query: values.queryInput ?? '',
             }
 
             const logic = dataNodeLogic({
@@ -720,6 +767,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: values.sourceQuery,
                 saved: true,
             })
+            const logic = insightLogic({
+                dashboardItemId: insight.short_id,
+                doNotLoad: true,
+            })
+            const umount = logic.mount()
+            logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+            const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+            cache.timeouts = cache.timeouts || []
+            cache.timeouts.push(timeoutId)
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
@@ -744,6 +800,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...values.activeTab,
                     insight: savedInsight,
                 })
+            }
+            const loadedLogic = insightLogic.findMounted({
+                dashboardItemId: values.editingInsight.short_id,
+                dashboardId: undefined,
+            })
+            if (loadedLogic) {
+                loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
             }
 
             lemonToast.info(`You're now viewing ${savedInsight.name || savedInsight.derived_name || name}`)
@@ -781,11 +844,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+            // Only check for conflicts if there's an activity log (latest_history_id exists)
+            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+            // and we should allow the update to proceed without showing a false conflict
             if (
-                view.edited_history_id !== latestView?.latest_history_id &&
+                latestView?.latest_history_id != null &&
+                view.edited_history_id !== latestView.latest_history_id &&
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
+                    suggestedValue: values.queryInput!,
                     originalValue: latestView?.query.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
@@ -824,21 +892,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     subscriptions(({ actions, values }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: {},
-                    },
-                })
+                if (typeof values.sourceQuery.source.filters !== 'object') {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: {
+                            ...values.sourceQuery.source,
+                            filters: {},
+                        },
+                    })
+                }
             } else {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: undefined,
-                    },
-                })
+                if (values.sourceQuery.source.filters !== undefined) {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: {
+                            ...values.sourceQuery.source,
+                            filters: undefined,
+                        },
+                    })
+                }
             }
         },
         editingView: (editingView) => {
@@ -901,12 +973,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         originalQueryInput: [
             (s) => [s.suggestionPayload, s.queryInput],
             (suggestionPayload, queryInput) => {
-                if (suggestionPayload?.suggestedValue && suggestionPayload?.suggestedValue !== queryInput) {
-                    return queryInput
-                }
-
-                if (suggestionPayload?.originalValue && suggestionPayload?.originalValue !== queryInput) {
-                    return suggestionPayload?.originalValue
+                // If we have a suggestion payload, always show diff mode
+                if (suggestionPayload?.suggestedValue) {
+                    // Prefer the stored originalValue if available, otherwise use current queryInput
+                    return suggestionPayload?.originalValue || queryInput
                 }
 
                 return undefined
@@ -968,7 +1038,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         showLegacyFilters: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
+                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
             },
         ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
@@ -982,6 +1052,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     key: Scene.SQLEditor,
                     name: 'SQL query',
                     to: urls.sqlEditor(),
+                    iconType: 'sql_editor' as FileSystemIconType,
                 }
                 if (view) {
                     return [
@@ -990,6 +1061,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: view.id,
                             name: view.name,
                             path: urls.sqlEditor(undefined, view.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (insight) {
@@ -999,6 +1071,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 } else if (draft) {
@@ -1008,6 +1081,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             key: draft.id,
                             name: draft.name || 'Untitled',
                             path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                            iconType: 'sql_editor',
                         },
                     ]
                 }
@@ -1017,14 +1091,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     }),
     tabAwareActionToUrl(({ values }) => ({
         setQueryInput: () => {
-            if (values.queryInput) {
-                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
-            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
-            if (values.queryInput) {
-                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
-            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
@@ -1034,9 +1104,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
+                !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
-                !hashParams.insight
+                !hashParams.insight &&
+                values.queryInput !== null
             ) {
                 return
             }
@@ -1044,10 +1116,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_draft || (hashParams.draft && !values.queryInput)) {
+                if (searchParams.output_tab) {
+                    actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
+                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
-                        return (draft.id = draftId)
+                        return draft.id === draftId
                     })
 
                     if (!draft) {
@@ -1072,7 +1147,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && !values.queryInput)) {
+                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
@@ -1091,7 +1166,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.editView(queryToOpen, view)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && !values.queryInput)) {
+                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
                         // Add new blank tab
@@ -1116,6 +1191,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
                     actions.editInsight(queryToOpen, insight)
+                    if (insight.query) {
+                        actions.setSourceQuery(insight.query as DataVisualizationNode)
+                    }
+                    actions.setActiveTab(OutputTab.Visualization)
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (
@@ -1146,36 +1225,58 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && !values.queryInput) {
+                } else if (hashParams.q && values.queryInput === null) {
                     // only when opening the tab
                     actions.createTab(hashParams.q)
+                    tabAdded = true
+                } else if (values.queryInput === null) {
+                    actions.createTab('')
                     tabAdded = true
                 }
             }
 
-            const waitUntilMonaco = async (): Promise<void> => {
-                return await new Promise((resolve, reject) => {
-                    let intervalCount = 0
-                    const interval = setInterval(() => {
-                        intervalCount++
+            if (props.monaco) {
+                await createQueryTab()
+            } else {
+                const waitUntilMonaco = async (): Promise<void> => {
+                    return await new Promise((resolve, reject) => {
+                        let intervalCount = 0
+                        const interval = setInterval(() => {
+                            intervalCount++
 
-                        if (props.monaco && !tabAdded) {
-                            clearInterval(interval)
-                            resolve()
-                        } else if (intervalCount >= 10_000 / 300) {
-                            clearInterval(interval)
-                            reject()
-                        }
-                    }, 300)
+                            if (props.monaco && !tabAdded) {
+                                clearInterval(interval)
+                                resolve()
+                            } else if (intervalCount >= 10_000 / 300) {
+                                clearInterval(interval)
+                                reject()
+                            }
+                        }, 300)
+                    })
+                }
+
+                await waitUntilMonaco().then(async () => {
+                    await createQueryTab()
                 })
             }
-
-            await waitUntilMonaco().then(async () => {
-                await createQueryTab()
-            })
         },
     })),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
+
+        cache.createdModels?.forEach((m: editor.ITextModel) => {
+            try {
+                m.dispose()
+            } catch {}
+        })
+        cache.createdModels = []
+
+        const timeouts = cache.timeouts as Array<number> | undefined
+        timeouts?.forEach((t) => {
+            try {
+                clearTimeout(t)
+            } catch {}
+        })
+        cache.timeouts = []
     }),
 ])

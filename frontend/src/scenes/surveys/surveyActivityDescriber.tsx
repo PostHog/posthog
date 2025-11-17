@@ -276,12 +276,7 @@ const surveyActionsMapping: Record<
                 </>
             )
             if (afterFlag.filters?.groups?.length > 0) {
-                changes.push(
-                    <>
-                        set targeting conditions to:
-                        <pre>{JSON.stringify(afterFlag.filters, null, 2)}</pre>
-                    </>
-                )
+                changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {
             changes.push(
@@ -312,24 +307,12 @@ const surveyActionsMapping: Record<
         const changes: Description[] = []
 
         if (!beforeFlag && afterFlag) {
-            changes.push(
-                <>
-                    added targeting flag filter with the following conditions:
-                    <pre>{JSON.stringify(afterFlag, null, 2)}</pre>
-                </>
-            )
+            changes.push(<>added a targeting flag filter</>)
         } else if (beforeFlag && !afterFlag) {
             changes.push(<>removed targeting flag filter</>)
         } else if (beforeFlag && afterFlag) {
             if (JSON.stringify(beforeFlag) !== JSON.stringify(afterFlag)) {
-                changes.push(
-                    <>
-                        changed targeting conditions from:
-                        <pre>{JSON.stringify(beforeFlag, null, 2)}</pre>
-                        to:
-                        <pre>{JSON.stringify(afterFlag, null, 2)}</pre>
-                    </>
-                )
+                changes.push(<>changed targeting conditions</>)
             }
         }
 
@@ -347,7 +330,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong>{userNameForLogItem(logItem)}</strong>
+    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {

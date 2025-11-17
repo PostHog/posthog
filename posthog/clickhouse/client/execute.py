@@ -23,7 +23,14 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
-from posthog.clickhouse.query_tagging import AccessMethod, Feature, QueryTags, get_query_tag_value, get_query_tags
+from posthog.clickhouse.query_tagging import (
+    AccessMethod,
+    Feature,
+    Product,
+    QueryTags,
+    get_query_tag_value,
+    get_query_tags,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.errors import ch_error_type, wrap_query_error
 from posthog.exceptions import ClickHouseAtCapacity
@@ -145,7 +152,7 @@ def sync_execute(
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
 
     # Customer is paying for API
     if (
@@ -186,11 +193,13 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
+    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+        ch_user = ClickHouseUser.MAX_AI
+
     while True:
         settings = {
             **core_settings,
             "log_comment": tags.to_json(),
-            "query_id": query_id,
         }
         if workload == Workload.OFFLINE:
             # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

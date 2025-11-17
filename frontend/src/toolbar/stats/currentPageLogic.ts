@@ -1,4 +1,6 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+
+import { makeNavigateWrapper } from '~/toolbar/utils'
 
 import type { currentPageLogicType } from './currentPageLogicType'
 
@@ -45,15 +47,16 @@ export function withoutPostHogInit(href: string): string {
 
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
+
     actions(() => ({
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),
         autoWildcardHref: true,
     })),
     reducers(() => ({
-        href: [window.location.href, { setHref: (_, { href }) => withoutPostHogInit(href) }],
+        href: [withoutPostHogInit(window.location.href), { setHref: (_, { href }) => withoutPostHogInit(href) }],
         wildcardHref: [
-            window.location.href,
+            withoutPostHogInit(window.location.href),
             {
                 setHref: (_, { href }) => withoutPostHogInit(href),
                 setWildcardHref: (_, { href }) => withoutPostHogInit(href),
@@ -89,16 +92,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        actions.setHref(withoutPostHogInit(values.href))
-
-        cache.interval = window.setInterval(() => {
-            if (window.location.href !== values.href) {
-                actions.setHref(withoutPostHogInit(window.location.href))
-            }
-        }, 500)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.clearInterval(cache.interval)
+        cache.disposables.add(
+            makeNavigateWrapper((): void => {
+                if (window.location.href !== values.href) {
+                    actions.setHref(withoutPostHogInit(window.location.href))
+                }
+            }, '__ph_current_page_logic_wrapped__'),
+            'historyProxy'
+        )
     }),
 ])

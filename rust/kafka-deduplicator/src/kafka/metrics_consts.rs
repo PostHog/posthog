@@ -44,3 +44,9 @@ pub const COMPLETION_CHANNEL_FAILURES: &str = "kafka_completion_channel_failures
 
 /// Counter for messages skipped from revoked partitions
 pub const MESSAGES_SKIPPED_REVOKED: &str = "kafka_messages_skipped_revoked_total";
+
+/// Counter for messages received by the batch consumer, tagged by deserialization status
+pub const BATCH_CONSUMER_MESSAGES_RECEIVED: &str = "kafka_batch_consumer_messages_received";
+
+/// rdkafka consumption errors received
+pub const BATCH_CONSUMER_KAFKA_ERRORS: &str = "kafka_batch_consumer_kafka_errors";

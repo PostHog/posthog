@@ -1,4 +1,7 @@
 from collections import defaultdict
+from typing import cast
+
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -9,10 +12,20 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
+    SavedQuery,
     StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
+
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+
+FIELDS: dict[str, FieldOrTable] = {
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "group_key": StringDatabaseField(name="group_key"),
+    "revenue": DecimalDatabaseField(name="revenue", nullable=False),
+    "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
+}
 
 
 def join_with_groups_revenue_analytics_table(
@@ -45,28 +58,59 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
         RevenueAnalyticsRevenueItemView,
     )
 
-    columns = ["group_key", "revenue", "revenue_last_30_days"]
-
     if not context.database:
-        return ast.SelectQuery.empty(columns=columns)
+        return ast.SelectQuery.empty(columns=FIELDS)
 
     # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
     # since the `group` join is in the child view
-    all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
-    for view_name in context.database.get_views():
-        view = context.database.get_table(view_name)
+    all_views = defaultdict[str, dict[DatabaseSchemaManagedViewTableKind, RevenueAnalyticsBaseView]](defaultdict)
+    for view_name in context.database.get_view_names():
+        view = cast(SavedQuery | RevenueAnalyticsBaseView, context.database.get_table(view_name))
+        prefix = ".".join(view_name.split(".")[:-1])
 
-        if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
-            if isinstance(view, RevenueAnalyticsCustomerView):
-                all_views[view.prefix][RevenueAnalyticsCustomerView] = view
-            elif isinstance(view, RevenueAnalyticsRevenueItemView):
-                all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
+        customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
+        revenue_item_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+
+        # Might need to convert to RevenueAnalyticsBaseView from a SavedQuery if the FF is enabled
+        # Soon we'll be able to remove all of this and handle them all using the `SavedQuery` logic directly
+        if view_name.endswith(customer_schema.source_suffix) or view_name.endswith(customer_schema.events_suffix):
+            if not isinstance(view, RevenueAnalyticsBaseView):
+                view = RevenueAnalyticsCustomerView(
+                    id=view.id,
+                    query=view.query,
+                    name=view.name,
+                    fields=view.fields,
+                    metadata=view.metadata,
+                    # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+                    # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+                    prefix=".".join(view.name.split(".")[:-1]),
+                    source_id=None,  # Not used so just ignore it
+                    event_name=view.name.split(".")[2] if "revenue_analytics.events" in view.name else None,
+                )
+            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER] = view
+        elif view_name.endswith(revenue_item_schema.source_suffix) or view_name.endswith(
+            revenue_item_schema.events_suffix
+        ):
+            if not isinstance(view, RevenueAnalyticsBaseView):
+                view = RevenueAnalyticsRevenueItemView(
+                    id=view.id,
+                    query=view.query,
+                    name=view.name,
+                    fields=view.fields,
+                    metadata=view.metadata,
+                    # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+                    # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+                    prefix=".".join(view.name.split(".")[:-1]),
+                    source_id=None,  # Not used so just ignore it
+                    event_name=view.name.split(".")[2] if "revenue_analytics.events" in view.name else None,
+                )
+            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM] = view
 
     # Iterate over all possible view pairs and figure out which queries we can add to the set
     queries = []
     for views in all_views.values():
-        customer_view = views.get(RevenueAnalyticsCustomerView)
-        revenue_item_view = views.get(RevenueAnalyticsRevenueItemView)
+        customer_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER)
+        revenue_item_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM)
 
         # Only proceed for those where we have customer/revenue_item pairs
         if customer_view is None or revenue_item_view is None:
@@ -74,7 +118,6 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
         # If we're working with event views, we can use the group_key field directly
         # but note that we're getting this from the `RevenueItemView` rather than `Customer`
-        # because we don't expose what group a person belongs to, only
         # Otherwise, we need to join with the groups table by checking whether it exists
         # connected to the virtual CustomerView
         group_key_chains: list[ast.Expr] = []
@@ -91,87 +134,84 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
                 ]
 
         if len(group_key_chains) > 0:
-            queries.append(
-                ast.SelectQuery(
-                    select=[
-                        # `team_id` is required to make HogQL happy and edge-case free
-                        # by avoiding the need to add an exception when querying this table
-                        #
-                        # This table is always safe to query "without a `team_id` filter"
-                        # because it's simply aggregating data from revenue warehouse views,
-                        # and those views are, on their own, safe to query "without a `team_id` filter"
-                        # since they're getting data from either the data warehouse (safe) or the events table (safe)
-                        ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
-                        # We'll create one row per each possible group key (5 for events, and then only one for joins)
-                        ast.Alias(
-                            alias="group_key", expr=ast.Call(name="arrayJoin", args=[ast.Array(exprs=group_key_chains)])
+            query = ast.SelectQuery(
+                select=[
+                    # `team_id` is required to make HogQL happy and edge-case free
+                    # by avoiding the need to add an exception when querying this table
+                    #
+                    # This table is always safe to query "without a `team_id` filter"
+                    # because it's simply aggregating data from revenue warehouse views,
+                    # and those views are, on their own, safe to query "without a `team_id` filter"
+                    # since they're getting data from either the data warehouse (safe) or the events table (safe)
+                    ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
+                    # We'll create one row per each possible group key (5 for events, and then only one for joins)
+                    ast.Alias(
+                        alias="group_key", expr=ast.Call(name="arrayJoin", args=[ast.Array(exprs=group_key_chains)])
+                    ),
+                    ast.Alias(
+                        alias="revenue",
+                        expr=ast.Call(
+                            name="sum",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
+                            ],
                         ),
-                        ast.Alias(
-                            alias="revenue",
-                            expr=ast.Call(
-                                name="sum",
-                                args=[
-                                    ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
-                                    )
-                                ],
-                            ),
-                        ),
-                        ast.Alias(
-                            alias="revenue_last_30_days",
-                            expr=ast.Call(
-                                name="sumIf",
-                                args=[
-                                    ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]
+                    ),
+                    ast.Alias(
+                        alias="revenue_last_30_days",
+                        expr=ast.Call(
+                            name="sumIf",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.GtEq,
+                                    left=ast.Field(
+                                        chain=[
+                                            RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                                            "timestamp",
+                                        ]
                                     ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(
-                                            chain=[
-                                                RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                                                "timestamp",
-                                            ]
-                                        ),
-                                        # For POE, we *should* be able to use the events.timestamp field
-                                        # but that's not possible given Clickhouse's limitations on what you can do in a subquery
-                                        # We should figure out a way to do this in the future
-                                        # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
-                                        right=parse_expr("today() - INTERVAL 30 DAY"),
-                                    ),
-                                ],
-                            ),
-                        ),
-                    ],
-                    select_from=ast.JoinExpr(
-                        alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
-                        table=ast.Field(chain=[customer_view.name]),
-                        next_join=ast.JoinExpr(
-                            alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                            table=ast.Field(chain=[revenue_item_view.name]),
-                            join_type="LEFT JOIN",
-                            constraint=ast.JoinConstraint(
-                                constraint_type="ON",
-                                expr=ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
-                                    right=ast.Field(
-                                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
-                                    ),
+                                    # For GOE, we *should* be able to use the events.timestamp field
+                                    # but that's not possible given Clickhouse's limitations on what you can do in a subquery
+                                    # We should figure out a way to do this in the future
+                                    # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_goe else "today() - INTERVAL {interval} DAY",
+                                    right=parse_expr("today() - INTERVAL 30 DAY"),
                                 ),
-                            ),
+                            ],
                         ),
                     ),
-                    group_by=[ast.Field(chain=["group_key"])],
-                    where=ast.Call(
-                        name="notEmpty",
-                        args=[ast.Field(chain=["group_key"])],
-                    ),
-                )
+                ],
+                select_from=ast.JoinExpr(
+                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    table=ast.Field(chain=[revenue_item_view.name]),
+                ),
+                group_by=[ast.Field(chain=["group_key"])],
+                where=ast.Call(name="notEmpty", args=[ast.Field(chain=["group_key"])]),
             )
 
+            # If it's a data warehouse view, we need to join with the customer view
+            # to get access to the group keys
+            if not customer_view.is_event_view():
+                query.select_from.next_join = ast.JoinExpr(  # type: ignore
+                    alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                    table=ast.Field(chain=[customer_view.name]),
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        constraint_type="ON",
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(
+                                chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]
+                            ),
+                            right=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                        ),
+                    ),
+                )
+
+            queries.append(query)
+
     if not queries:
-        return ast.SelectQuery.empty(columns=columns)
+        return ast.SelectQuery.empty(columns=FIELDS)
     elif len(queries) == 1:
         return queries[0]
     else:
@@ -179,12 +219,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
 
 class GroupsRevenueAnalyticsTable(LazyTable):
-    fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "group_key": StringDatabaseField(name="group_key"),
-        "revenue": DecimalDatabaseField(name="revenue", nullable=False),
-        "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
-    }
+    fields: dict[str, FieldOrTable] = FIELDS
 
     def lazy_select(
         self,

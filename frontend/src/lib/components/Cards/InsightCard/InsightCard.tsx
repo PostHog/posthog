@@ -8,11 +8,11 @@ import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
-import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
     InsightErrorState,
@@ -29,6 +29,7 @@ import { Query } from '~/queries/Query/Query'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     DashboardBasicType,
     DashboardPlacement,
@@ -92,10 +93,12 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    tile?: DashboardTile<QueryBasedInsightModel>
 }
 
 function InsightCardInternal(
     {
+        tile,
         insight,
         dashboardId,
         ribbonColor,
@@ -167,14 +170,18 @@ function InsightCardInternal(
     const BlockingEmptyState = (() => {
         // Check for access denied - use the same logic as other components
         const canViewInsight = insight?.user_access_level
-            ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'viewer')
+            ? accessLevelSatisfied(
+                  AccessControlResourceType.Insight,
+                  insight.user_access_level,
+                  AccessControlLevel.Viewer
+              )
             : true
 
         if (!canViewInsight) {
             const errorMessage = getAccessControlDisabledReason(
                 AccessControlResourceType.Insight,
                 insight.user_access_level,
-                'viewer',
+                AccessControlLevel.Viewer,
                 false
             )
 
@@ -221,6 +228,7 @@ function InsightCardInternal(
                 <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
+                            tile={tile}
                             insight={insight}
                             ribbonColor={ribbonColor}
                             dashboardId={dashboardId}
@@ -242,6 +250,7 @@ function InsightCardInternal(
                             moreButtons={moreButtons}
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
+                            placement={placement}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (

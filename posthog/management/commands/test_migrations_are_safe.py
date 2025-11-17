@@ -26,20 +26,23 @@ def validate_migration_sql(sql) -> bool:
     operations = sql.split("\n")
     tables_created_so_far: list[str] = []
     for operation_sql in operations:
-        # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
-        table_being_altered: Optional[str] = (
-            re.findall(r"ALTER TABLE \"([a-z_]+)\"", operation_sql)[0] if "ALTER TABLE" in operation_sql else None
-        )
-        # Extract table name from queries of this format: CREATE TABLE "posthog_feature"
+        # Extract table name from queries of this format: ALTER TABLE "posthog_feature" or ALTER TABLE posthog_feature
+        table_being_altered: Optional[str] = None
+        if "ALTER TABLE" in operation_sql:
+            matches = re.findall(r'ALTER TABLE "?([a-z_]+)"?', operation_sql)
+            table_being_altered = matches[0] if matches else None
+        # Extract table name from queries of this format: CREATE TABLE "posthog_feature" or CREATE TABLE posthog_feature
         if "CREATE TABLE" in operation_sql:
-            table_name = re.findall(r"CREATE TABLE \"([a-z_]+)\"", operation_sql)[0]
-            tables_created_so_far.append(table_name)
+            matches = re.findall(r'CREATE TABLE "?([a-z_]+)"?', operation_sql)
+            if matches:
+                table_name = matches[0]
+                tables_created_so_far.append(table_name)
 
-            if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
-                print(
-                    f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
-                )
-                return True
+                if '"id" serial' in operation_sql or '"id" bigserial' in operation_sql:
+                    print(
+                        f"\n\n\033[91mFound a new table with an integer id. Please use UUIDModel instead.\nSource: `{operation_sql}`"
+                    )
+                    return True
 
         if (
             "ALTER TABLE" in operation_sql  # Only check ALTER TABLE operations
@@ -147,14 +150,34 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
             try:
-                results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+                # Handle both posthog/migrations and products/*/backend/migrations paths
+                # For products: products/product_name/backend/migrations/0001_initial.py -> (product_name, 0001_initial)
+                # For posthog: posthog/migrations/0001_initial.py -> (posthog, 0001_initial)
+                products_match = re.findall(r"products/([a-z_]+)/backend/migrations/([a-zA-Z_0-9]+)\.py", variable)
+                if products_match:
+                    results = products_match[0]
+                else:
+                    results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
+
                 sql = call_command("sqlmigrate", results[0], results[1])
                 should_fail = validate_migration_sql(sql)
                 if should_fail:
                     sys.exit(1)
 
-            except (IndexError, CommandError):
-                pass
+            except IndexError:
+                print(f"\n\n\033[93m⚠️  WARNING: Could not parse migration path: {variable.strip()}\033[0m")
+                print(
+                    "Expected format: posthog/migrations/NNNN_name.py or products/name/backend/migrations/NNNN_name.py"
+                )
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to unparseable migration path\033[0m")
+                    sys.exit(1)
+            except CommandError as e:
+                print(f"\n\n\033[93m⚠️  WARNING: Failed to run sqlmigrate for {variable.strip()}\033[0m")
+                print(f"Error: {e}")
+                if os.getenv("CI"):
+                    print("\033[91mFailing in CI due to sqlmigrate error\033[0m")
+                    sys.exit(1)
 
         # Wait for stdin with 1 second timeout
         if select.select([sys.stdin], [], [], 1)[0]:
@@ -167,7 +190,7 @@ class Command(BaseCommand):
             migrations = []
 
         if not migrations:
-            migrations = ["posthog/migrations/0770_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
+            migrations = ["posthog/migrations/0771_teamrevenueanalyticsconfig_filter_test_accounts_and_more.py"]
 
         if len(migrations) > 1:
             print(
@@ -176,4 +199,18 @@ class Command(BaseCommand):
             sys.exit(1)
 
         for data in migrations:
+            data = data.strip()
+            # Skip empty lines
+            if not data:
+                continue
+            # Validate file extension
+            if not data.endswith(".py"):
+                print(f"\033[93m⚠️  Skipping non-Python file: {data}\033[0m")
+                continue
+            # Prevent path traversal
+            if ".." in data or data.startswith("/"):
+                print(f"\033[91m⚠️  Skipping suspicious path: {data}\033[0m")
+                if os.getenv("CI"):
+                    sys.exit(1)
+                continue
             run_and_check_migration(data)

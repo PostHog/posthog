@@ -76,7 +76,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
-                    : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
+                    : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
             )}
             ref={ref}
         >
@@ -87,15 +87,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
-                <div className="relative w-full flex flex-col">
+                {/* Have to increase z-index to overlay ToolsDisplay */}
+                <div className="relative w-full flex flex-col z-1">
                     {children}
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
-                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isThreadVisible && 'border-primary m-1'
+                            'hover:border-border-bold focus-within:border-border-bold',
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -141,14 +142,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 minRows={1}
                                 maxRows={10}
                                 className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                autoFocus
                             />
                         </SlashCommandAutocomplete>
                     </div>
                     <div
                         className={clsx(
                             'absolute flex items-center',
-                            isThreadVisible ? 'bottom-[11px] right-3' : 'bottom-[7px] right-2',
-                            isSharedThread && 'hidden' // Submit not available at all for shared threads
+                            isSharedThread && 'hidden', // Submit not available at all for shared threads
+                            isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
                         <AIConsentPopoverWrapper
@@ -216,7 +218,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={threadLoading}
                             onChange={(checked) => setDeepResearchMode(checked)}
                             size="xxsmall"
-                            tooltip="This will make Max think harder about your question"
+                            tooltip="This will make PostHog AI think harder about your question"
                         />
                     </div>
                 )}

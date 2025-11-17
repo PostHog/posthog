@@ -22,6 +22,9 @@ export interface AuthorizedUrlListProps {
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
+    showLaunch?: boolean
+    allowAdd?: boolean
+    allowDelete?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -32,6 +35,9 @@ export function AuthorizedUrlList({
     addText = 'Add new authorized URL',
     allowWildCards,
     displaySuggestions = true,
+    allowAdd = true,
+    allowDelete = true,
+    showLaunch = true,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -65,7 +71,7 @@ export function AuthorizedUrlList({
                         allowWildCards={allowWildCards}
                     />
                 </div>
-            ) : (
+            ) : allowAdd ? (
                 <LemonButton
                     className="w-full"
                     onClick={newUrl}
@@ -75,7 +81,7 @@ export function AuthorizedUrlList({
                 >
                     {addText}
                 </LemonButton>
-            )}
+            ) : null}
 
             {urlsKeyed.map((keyedURL, index) => {
                 // If there are no authorized urls, highlight the first suggestion
@@ -108,7 +114,7 @@ export function AuthorizedUrlList({
                             {keyedURL.url}
                         </span>
                         <div className="Actions flex deprecated-space-x-2 shrink-0">
-                            {keyedURL.type === 'suggestion' ? (
+                            {keyedURL.type === 'suggestion' && allowAdd ? (
                                 <LemonButton
                                     onClick={() => addUrl(keyedURL.url)}
                                     icon={<IconPlus />}
@@ -120,93 +126,99 @@ export function AuthorizedUrlList({
                                 </LemonButton>
                             ) : (
                                 <>
-                                    <LemonButton
-                                        icon={<IconOpenInApp />}
-                                        to={
-                                            // toolbar urls and web analytics urls are sent through the backend to be validated
-                                            // and have toolbar auth information added
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
-                                            type === AuthorizedUrlListType.WEB_ANALYTICS
-                                                ? launchUrl(keyedURL.url)
-                                                : // other urls are simply opened directly
-                                                  `${keyedURL.url}${query ?? ''}`
-                                        }
-                                        targetBlank
-                                        tooltip={
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
-                                            type === AuthorizedUrlListType.WEB_ANALYTICS
-                                                ? 'Launch toolbar'
-                                                : 'Launch url'
-                                        }
-                                        center
-                                        data-attr="toolbar-open"
-                                        type="secondary"
-                                        disabledReason={
-                                            keyedURL.url.includes('*')
-                                                ? 'Wildcard domains cannot be launched'
-                                                : undefined
-                                        }
-                                        sideAction={{
-                                            dropdown: {
-                                                placement: 'bottom-start',
-                                                overlay: (
-                                                    <div className="px-2 py-1">
-                                                        <h3>If launching the toolbar didn't work, </h3>
-                                                        <p>
-                                                            You can copy the launch code and paste it into the browser
-                                                            console on your site.
-                                                        </p>
-                                                        <p>NB you need to have added posthog to the `window`</p>
-                                                        <LemonButton
-                                                            icon={<IconCopy />}
-                                                            size="small"
-                                                            className="float-right"
-                                                            type="primary"
-                                                            data-attr="copy-manual-toolbar-launch-code"
-                                                            onClick={() => {
-                                                                copyLaunchCode(keyedURL.url)
-                                                            }}
-                                                            loading={manualLaunchParamsLoading}
-                                                        >
-                                                            Copy launch code
-                                                        </LemonButton>
-                                                    </div>
-                                                ),
-                                            },
-                                            'data-attr': 'launch-toolbar-sideaction-dropdown',
-                                        }}
-                                    >
-                                        Launch
-                                    </LemonButton>
-
-                                    <LemonButton
-                                        icon={<IconPencil />}
-                                        onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
-                                        tooltip="Edit"
-                                        center
-                                    />
-
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
-                                        center
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: <>Remove {keyedURL.url} ?</>,
-                                                description: `Are you sure you want to remove this authorized ${
-                                                    onlyAllowDomains ? 'domain' : 'URL'
-                                                }?`,
-                                                primaryButton: {
-                                                    status: 'danger',
-                                                    children: 'Remove',
-                                                    onClick: () => removeUrl(index),
+                                    {showLaunch && (
+                                        <LemonButton
+                                            icon={<IconOpenInApp />}
+                                            to={
+                                                // toolbar urls and web analytics urls are sent through the backend to be validated
+                                                // and have toolbar auth information added
+                                                type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                                type === AuthorizedUrlListType.WEB_ANALYTICS
+                                                    ? launchUrl(keyedURL.url)
+                                                    : // other urls are simply opened directly
+                                                      `${keyedURL.url}${query ?? ''}`
+                                            }
+                                            targetBlank
+                                            tooltip={
+                                                type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                                type === AuthorizedUrlListType.WEB_ANALYTICS
+                                                    ? 'Open the toolbar on this page'
+                                                    : 'Open the browser at this page'
+                                            }
+                                            center
+                                            data-attr="toolbar-open"
+                                            type="secondary"
+                                            disabledReason={
+                                                keyedURL.url.includes('*')
+                                                    ? 'Wildcard domains cannot be launched'
+                                                    : undefined
+                                            }
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-start',
+                                                    overlay: (
+                                                        <div className="px-2 py-1">
+                                                            <h3>If launching the toolbar didn't work, </h3>
+                                                            <p>
+                                                                You can copy the launch code and paste it into the
+                                                                browser console on your site.
+                                                            </p>
+                                                            <p>NB you need to have added posthog to the `window`</p>
+                                                            <LemonButton
+                                                                icon={<IconCopy />}
+                                                                size="small"
+                                                                className="float-right"
+                                                                type="primary"
+                                                                data-attr="copy-manual-toolbar-launch-code"
+                                                                onClick={() => {
+                                                                    copyLaunchCode(keyedURL.url)
+                                                                }}
+                                                                loading={manualLaunchParamsLoading}
+                                                            >
+                                                                Copy launch code
+                                                            </LemonButton>
+                                                        </div>
+                                                    ),
                                                 },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                            })
-                                        }}
-                                    />
+                                                'data-attr': 'launch-toolbar-sideaction-dropdown',
+                                            }}
+                                        >
+                                            Launch
+                                        </LemonButton>
+                                    )}
+
+                                    {allowAdd && (
+                                        <LemonButton
+                                            icon={<IconPencil />}
+                                            onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
+                                            tooltip="Edit"
+                                            center
+                                        />
+                                    )}
+
+                                    {allowDelete && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
+                                            center
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: <>Remove {keyedURL.url} ?</>,
+                                                    description: `Are you sure you want to remove this authorized ${
+                                                        onlyAllowDomains ? 'domain' : 'URL'
+                                                    }?`,
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Remove',
+                                                        onClick: () => removeUrl(index),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
+                                        />
+                                    )}
                                 </>
                             )}
                         </div>

@@ -178,6 +178,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
 
@@ -208,6 +209,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
 
@@ -244,6 +246,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         )
         const res = await supertest(app)
@@ -276,6 +279,7 @@ describe('CDP API', () => {
                 headers: { 'Content-Type': 'application/json' },
                 json: () => Promise.resolve({ real: true }),
                 text: () => Promise.resolve(JSON.stringify({ real: true })),
+                dump: () => Promise.resolve(),
             })
         })
 

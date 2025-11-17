@@ -15,26 +15,42 @@ class Command(BaseCommand):
             help="Skip the posthog capture events - for retrying to billing service",
         )
         parser.add_argument("--async", type=bool, help="Run the task asynchronously")
+        parser.add_argument(
+            "--org-ids",
+            type=str,
+            help="Comma-separated list of organization UUIDs to process (e.g., 'uuid1,uuid2,uuid3')",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         date = options["date"]
         skip_capture_event = options["skip_capture_event"]
         run_async = options["async"]
+        org_ids_str = options.get("org_ids")
+
+        organization_ids = (
+            ([oid.strip() for oid in org_ids_str.split(",") if oid.strip()] or None) if org_ids_str else None
+        )
 
         if run_async:
             send_all_org_usage_reports.delay(
                 dry_run=dry_run,
                 at=date,
                 skip_capture_event=skip_capture_event,
+                organization_ids=organization_ids,
             )
         else:
             send_all_org_usage_reports(
                 dry_run=dry_run,
                 at=date,
                 skip_capture_event=skip_capture_event,
+                organization_ids=organization_ids,
             )
 
             if dry_run:
                 print("Dry run so not sent.")  # noqa T201
-        print("Done!")  # noqa T201
+
+        if organization_ids:
+            print(f"Done! Processed {len(organization_ids)} organization(s).")  # noqa T201
+        else:
+            print("Done!")  # noqa T201

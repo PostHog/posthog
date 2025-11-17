@@ -40,13 +40,14 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -71,9 +72,11 @@ jobs:
                   set -m
 
                   (
-                    echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
-                    sudo apt-get update
-                    sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+                    if [ "${{ steps.setup-uv.outputs.cache-hit }}" != "true" ]; then
+                      echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
+                      sudo apt-get update
+                      sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+                    fi
 
                     echo ">>> [Python] Installing dependencies..."
                     UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev

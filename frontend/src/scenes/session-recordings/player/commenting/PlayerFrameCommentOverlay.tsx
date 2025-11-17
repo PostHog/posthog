@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
@@ -20,8 +21,9 @@ export const PlayerCommentModal = (): JSX.Element => {
 
     const playerCommentOverlayLogicProps = { recordingId: sessionRecordingId, ...logicProps }
     const theBuiltOverlayLogic = playerCommentOverlayLogic(playerCommentOverlayLogicProps)
-    const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
+    const { recordingComment, isRecordingCommentSubmitting, richContentEditor } = useValues(theBuiltOverlayLogic)
+    const { submitRecordingComment, resetRecordingComment, setRichContentEditor, setRichContent } =
+        useActions(theBuiltOverlayLogic)
 
     return (
         <div className="absolute bottom-4 left-4 z-20 w-90">
@@ -49,11 +51,19 @@ export const PlayerCommentModal = (): JSX.Element => {
                     </div>
                     <div>
                         <LemonField name="content">
-                            <LemonTextAreaMarkdown
-                                placeholder="Comment on this recording?"
+                            <LemonRichContentEditor
+                                placeholder="Comment on this recording? Use @ to mention team members"
                                 data-attr="create-recording-comment-input"
-                                maxLength={400}
                                 onPressCmdEnter={submitRecordingComment}
+                                initialContent={recordingComment.richContent}
+                                onCreate={setRichContentEditor}
+                                onUpdate={() => {
+                                    // it can't be null by now, but TS doesn't know that
+                                    if (richContentEditor) {
+                                        setRichContent(richContentEditor.getJSON())
+                                    }
+                                }}
+                                minRows={3}
                             />
                         </LemonField>
                     </div>

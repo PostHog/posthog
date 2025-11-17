@@ -11,7 +11,7 @@ The system follows a builder pattern where:
 3. **Orchestrator** coordinates the process and builds concrete view instances
 4. **Views** are the final HogQL queries registered in the database schema
 
-```
+```text
 ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐    ┌───────────────┐
 │   Sources   │───▶│   Builders   │───▶│   Orchestrator  │───▶│  View Objects │
 │             │    │              │    │                 │    │               │
@@ -71,7 +71,7 @@ SUPPORTED_SOURCES: list[ExternalDataSourceType] = [
 
 Create a new directory `sources/chargebee/` with builder modules for each view type:
 
-```
+```text
 sources/chargebee/
 ├── __init__.py
 ├── charge.py
@@ -226,7 +226,7 @@ The testing system follows a structured approach with dedicated test suites for 
 
 #### Test Directory Structure
 
-```
+```text
 sources/test/
 ├── base.py                          # Core testing infrastructure
 ├── events/                          # Event source tests
@@ -260,13 +260,13 @@ sources/test/
 **2. Source-Specific Base Tests**
 
 - `EventsSourceBaseTest`: Specialized for event-based revenue analytics
-    - Revenue analytics event configuration helpers
-    - Team base currency management
-    - Event clearing and setup utilities
+  - Revenue analytics event configuration helpers
+  - Team base currency management
+  - Event clearing and setup utilities
 - `StripeSourceBaseTest`: Specialized for Stripe external data sources
-    - Mock external data source and schema creation
-    - Stripe-specific test fixtures and helpers
-    - Currency validation and testing support
+  - Mock external data source and schema creation
+  - Stripe-specific test fixtures and helpers
+  - Currency validation and testing support
 
 #### Testing Guidelines for New Sources
 
@@ -288,9 +288,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 from typing import List, Dict, Optional
 
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, DataWarehouseTable
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 

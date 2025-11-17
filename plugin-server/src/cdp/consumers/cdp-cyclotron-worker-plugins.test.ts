@@ -48,6 +48,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
             json: () => Promise.resolve({}),
             text: () => Promise.resolve(JSON.stringify({})),
             headers: {},
+            dump: () => Promise.resolve(),
         })
 
         await resetTestDatabase()
@@ -121,6 +122,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
                 text: () => Promise.resolve(''),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             await processor.processBatch([invocation])

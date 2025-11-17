@@ -5,6 +5,7 @@ import { BatchExportService } from '~/types'
 import IconHTTP from 'public/hedgehog/running-hog.png'
 import IconS3 from 'public/services/aws-s3.png'
 import IconBigQuery from 'public/services/bigquery.png'
+import IconDatabricks from 'public/services/databricks.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
@@ -20,6 +21,7 @@ export const BATCH_EXPORT_ICON_MAP: Record<BatchExportService['type'], string> =
     S3: IconS3,
     Snowflake: IconSnowflake,
     HTTP: IconHTTP,
+    Databricks: IconDatabricks,
 }
 
 export function RenderBatchExportIcon({

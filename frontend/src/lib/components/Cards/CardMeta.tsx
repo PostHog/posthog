@@ -37,6 +37,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     detailsTooltip?: string
     topHeading?: JSX.Element | null
     samplingFactor?: number | null
+    /** Additional controls to show in the top controls area */
+    extraControls?: JSX.Element | null
 }
 
 export function CardMeta({
@@ -53,6 +55,7 @@ export function CardMeta({
     detailsTooltip,
     className,
     samplingFactor,
+    extraControls,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -84,6 +87,7 @@ export function CardMeta({
                             )}
                         </h5>
                         <div className="CardMeta__controls">
+                            {extraControls}
                             {showDetailsControls && setAreDetailsShown && (
                                 <Tooltip title={detailsTooltip}>
                                     <LemonButton

@@ -4,6 +4,7 @@ use bytes::{Buf, Bytes};
 use chrono::{DateTime, Utc};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
+use metrics;
 use serde::{Deserialize, Deserializer};
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
@@ -122,6 +123,10 @@ pub struct EventFormData {
 
 pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 0x08];
 
+// Metrics constants
+const METRIC_PAYLOAD_SIZE_EXCEEDED: &str = "capture_payload_size_exceeded";
+const METRIC_GZIP_DECOMPRESSION_RATIO: &str = "capture_gzip_decompression_ratio";
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum RawRequest {
@@ -163,6 +168,7 @@ impl RawRequest {
         Span::current().record("request_id", request_id);
 
         debug!(payload_len = bytes.len(), "from_bytes: decoding new event");
+        metrics::histogram!("capture_raw_payload_size").record(bytes.len() as f64);
 
         let mut payload = if cmp_hint == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
         {
@@ -170,11 +176,12 @@ impl RawRequest {
             debug!(payload_len = len, "from_bytes: matched GZIP compression");
 
             let mut zipstream = GzDecoder::new(bytes.reader());
-            let chunk = &mut [0; 1024];
-            let mut buf = Vec::with_capacity(len);
+            let mut chunk = [0; 8192];
+            let mut buf = Vec::new();
+            let mut total_read = 0;
 
             loop {
-                let got = match zipstream.read(chunk) {
+                let got = match zipstream.read(&mut chunk) {
                     Ok(got) => got,
                     Err(e) => {
                         error!("from_bytes: failed to read GZIP chunk from stream: {}", e);
@@ -186,16 +193,46 @@ impl RawRequest {
                 if got == 0 {
                     break;
                 }
-                buf.extend_from_slice(&chunk[..got]);
-                if buf.len() > limit {
+
+                // Check size BEFORE allocation to prevent memory spikes
+                if total_read + got > limit {
                     error!(
-                        buffer_size = buf.len(),
-                        "from_bytes: GZIP decompression size limit reached"
+                        decompressed_size = total_read + got,
+                        compressed_size = len,
+                        limit = limit,
+                        "from_bytes: GZIP decompression would exceed size limit"
                     );
+
+                    // Metric for exceeding payload sizes
+                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
+                    metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                        .record((total_read + got) as f64);
                     report_dropped_events("event_too_big", 1);
+
                     return Err(CaptureError::EventTooBig(format!(
-                        "Event or batch exceeded {limit} during unzipping",
+                        "Decompressed payload would exceed {} bytes (got {} bytes)",
+                        limit,
+                        total_read + got
                     )));
+                }
+
+                buf.extend_from_slice(&chunk[..got]);
+                total_read += got;
+            }
+
+            // Record decompression ratio metric
+            if len > 0 {
+                let ratio = total_read as f64 / len as f64;
+                metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO).record(ratio);
+
+                // Warn on potential GZIP bombs
+                if ratio > 20.0 {
+                    warn!(
+                        compressed_size = len,
+                        decompressed_size = total_read,
+                        ratio = ratio,
+                        "High GZIP compression ratio detected - potential GZIP bomb"
+                    );
                 }
             }
 
@@ -236,6 +273,9 @@ impl RawRequest {
             })?;
             if s.len() > limit {
                 error!("from_bytes: request size limit reached");
+                metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "none").increment(1);
+                metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                    .record(s.len() as f64);
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig(format!(
                     "Uncompressed payload size limit {} exceeded: {}",
@@ -245,8 +285,10 @@ impl RawRequest {
             }
             s
         };
+        metrics::histogram!("capture_full_payload_size", "oversize" => "false")
+            .record(payload.len() as f64);
 
-        // TODO(eli): remove special casing and additional logging after migration is completed
+        // TODO: test removing legacy special casing against /i/v0/e/ and /batch/ using mirror deploy
         if path_is_legacy_endpoint(&path) {
             if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
                 debug!("from_bytes: payload still base64 after decoding step");
@@ -420,6 +462,7 @@ pub struct ProcessedEventMetadata {
     pub data_type: DataType,
     pub session_id: Option<String>,
     pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    pub event_name: String,
 }
 
 #[cfg(test)]
@@ -727,6 +770,183 @@ mod tests {
             parsed[0].extract_distinct_id().expect("failed to extract"),
             expected_distinct_id
         );
+    }
+
+    #[test]
+    fn test_gzip_bomb_protection() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression as GzCompression;
+        use std::io::Write;
+
+        // Create a highly compressible payload (GZIP bomb)
+        // 10MB of zeros compresses to just a few KB
+        let uncompressed_size = 10 * 1024 * 1024; // 10MB
+        let zeros = vec![0u8; uncompressed_size];
+
+        // Wrap in JSON structure
+        let json_payload = format!(
+            r#"[{{"event":"test","distinct_id":"test","properties":{{"data":"{}"}}}}"#,
+            base64::engine::general_purpose::STANDARD.encode(&zeros)
+        );
+
+        // Compress with maximum compression
+        let mut encoder = GzEncoder::new(Vec::new(), GzCompression::best());
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
+        let compressed = encoder.finish().expect("Failed to compress");
+
+        let compressed_size = compressed.len();
+        let compression_ratio = uncompressed_size as f64 / compressed_size as f64;
+
+        // Verify we created a highly compressed payload
+        assert!(
+            compression_ratio > 100.0,
+            "Expected compression ratio > 100, got {compression_ratio}"
+        );
+
+        // Set a reasonable limit that should catch the bomb
+        let limit = 1024 * 1024; // 1MB limit
+
+        let path = "/i/v0/e";
+        let result = RawRequest::from_bytes(
+            Bytes::from(compressed),
+            Compression::Gzip,
+            "test_gzip_bomb",
+            limit,
+            path.to_string(),
+        );
+
+        // Should fail due to size limit
+        match result {
+            Err(CaptureError::EventTooBig(msg)) => {
+                assert!(
+                    msg.contains("exceed"),
+                    "Expected error message about exceeding limit, got: {msg}"
+                );
+            }
+            Ok(_) => panic!("GZIP bomb should have been rejected"),
+            Err(e) => panic!("Wrong error type: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_gzip_normal_compression_allowed() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression as GzCompression;
+        use std::io::Write;
+
+        // Create a normal JSON payload with realistic compression ratio
+        let json_payload = r#"[{
+            "event": "pageview",
+            "distinct_id": "user123",
+            "properties": {
+                "url": "https://example.com/page",
+                "referrer": "https://google.com",
+                "timestamp": "2024-01-01T00:00:00Z",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+        }]"#;
+
+        // Compress with normal compression
+        let mut encoder = GzEncoder::new(Vec::new(), GzCompression::default());
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
+        let compressed = encoder.finish().expect("Failed to compress");
+
+        let compressed_size = compressed.len();
+        let uncompressed_size = json_payload.len();
+        let compression_ratio = uncompressed_size as f64 / compressed_size as f64;
+
+        // Normal JSON typically compresses 2-4x
+        assert!(
+            compression_ratio < 10.0,
+            "Expected normal compression ratio < 10, got {compression_ratio}"
+        );
+
+        // Should succeed with reasonable limit
+        let limit = 10 * 1024; // 10KB limit
+
+        let path = "/i/v0/e";
+        let result = RawRequest::from_bytes(
+            Bytes::from(compressed),
+            Compression::Gzip,
+            "test_normal_compression",
+            limit,
+            path.to_string(),
+        );
+
+        // Should succeed
+        match result {
+            Ok(req) => {
+                let events = req.events(path).expect("Failed to extract events");
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].event, "pageview");
+                assert_eq!(events[0].extract_distinct_id(), Some("user123".to_string()));
+            }
+            Err(e) => panic!("Normal compressed payload should succeed: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_gzip_decompression_size_check_happens_before_allocation() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression as GzCompression;
+        use std::io::Write;
+
+        // Create a payload that's just under the limit when compressed
+        // but would exceed it when decompressed
+        let limit = 1024; // 1KB limit
+
+        // Create 2KB of JSON data (exceeds limit when decompressed)
+        let large_string = "x".repeat(2048);
+        let json_payload = format!(
+            r#"[{{"event":"test","distinct_id":"test","properties":{{"data":"{large_string}"}}}}"#
+        );
+
+        // Compress it (will be smaller than limit)
+        let mut encoder = GzEncoder::new(Vec::new(), GzCompression::best());
+        encoder
+            .write_all(json_payload.as_bytes())
+            .expect("Failed to write");
+        let compressed = encoder.finish().expect("Failed to compress");
+
+        assert!(
+            compressed.len() < limit,
+            "Compressed size {} should be less than limit {}",
+            compressed.len(),
+            limit
+        );
+
+        assert!(
+            json_payload.len() > limit,
+            "Uncompressed size {} should exceed limit {}",
+            json_payload.len(),
+            limit
+        );
+
+        let path = "/i/v0/e";
+        let result = RawRequest::from_bytes(
+            Bytes::from(compressed),
+            Compression::Gzip,
+            "test_size_check_before_alloc",
+            limit,
+            path.to_string(),
+        );
+
+        // Should fail due to decompressed size exceeding limit
+        match result {
+            Err(CaptureError::EventTooBig(msg)) => {
+                // Verify the error message indicates it caught the size during decompression
+                assert!(
+                    msg.contains("would exceed") || msg.contains("exceed"),
+                    "Expected error about exceeding size during decompression, got: {msg}"
+                );
+            }
+            Ok(_) => panic!("Should have rejected payload that exceeds limit when decompressed"),
+            Err(e) => panic!("Wrong error type: {e:?}"),
+        }
     }
 
     #[test]

@@ -1,12 +1,13 @@
 import './StackTraces.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { MouseEvent, useEffect } from 'react'
+import { useValues } from 'kea'
+import { MouseEvent, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { PropertiesTable } from '@posthog/products-error-tracking/frontend/components/PropertiesTable'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -14,7 +15,10 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { CodeLine, Language, getLanguage } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
+import { GitProviderFileLink } from './GitProviderFileLink'
+import { StackTraceWarningBanner } from './StackTraceWarningBanner'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { framesCodeSourceLogic } from './framesCodeSourceLogic'
 import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
@@ -23,26 +27,30 @@ import {
     ErrorTrackingStackFrameContextLine,
     FingerprintRecordPart,
 } from './types'
-import { stacktraceHasInAppFrames } from './utils'
+import { formatResolvedName, formatType, stacktraceHasInAppFrames } from './utils'
 
 export type ExceptionHeaderProps = {
     id?: string
-    type?: string
-    value?: string
+    exception: ErrorTrackingException
     loading: boolean
     part?: FingerprintRecordPart
 }
 
-function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
+function ExceptionHeader({ exception, part }: ExceptionHeaderProps): JSX.Element {
+    const type = formatType(exception)
+    const value = exception.value
+
     return (
         <div className="flex flex-col gap-0.5 mb-2">
             <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
-            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
-                {value}
-            </div>
+            {value && (
+                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+                    {value}
+                </div>
+            )}
         </div>
     )
 }
@@ -53,6 +61,7 @@ export function ChainedStackTraces({
     showAllFrames,
     renderExceptionHeader,
     onFrameContextClick,
+    onFirstFrameExpanded,
     embedded = false,
 }: {
     renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
@@ -60,27 +69,28 @@ export function ChainedStackTraces({
     showAllFrames: boolean
     embedded?: boolean
     onFrameContextClick?: FrameContextClickHandler
+    onFirstFrameExpanded?: () => void
 }): JSX.Element {
-    const { loadFromRawIds } = useActions(stackFrameLogic)
-    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
+    const { exceptionList, exceptionAttributes, getExceptionFingerprint } = useValues(errorPropertiesLogic)
+    const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
-    useEffect(() => {
-        const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
-            const trace = e.stacktrace
-            if (trace?.type === 'resolved') {
-                return trace.frames
-            }
-            return []
-        })
-        loadFromRawIds(frames.map(({ raw_id }) => raw_id))
-    }, [exceptionList, loadFromRawIds])
+    const handleFrameExpanded = (): void => {
+        if (onFirstFrameExpanded && !hasCalledOnFirstExpanded) {
+            setHasCalledOnFirstExpanded(true)
+            onFirstFrameExpanded()
+        }
+    }
 
     return (
         <div className="flex flex-col gap-y-2">
-            {exceptionList.map(({ stacktrace, value, type, id }, index) => {
+            {exceptionAttributes && <StackTraceWarningBanner exceptionAttributes={exceptionAttributes} />}
+
+            {exceptionList.map((exception, index) => {
+                const { stacktrace, id } = exception
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
                 const part = getExceptionFingerprint(id)
-                const traceHeaderProps = { id, type, value, part, loading: false }
+                const traceHeaderProps = { id, exception, part, loading: false }
+
                 return (
                     <div
                         key={id ?? index}
@@ -96,6 +106,7 @@ export function ChainedStackTraces({
                                 showAllFrames={showAllFrames}
                                 embedded={embedded}
                                 onFrameContextClick={onFrameContextClick}
+                                onFrameExpanded={handleFrameExpanded}
                             />
                         )}
                     </div>
@@ -124,17 +135,19 @@ function Trace({
     showAllFrames,
     embedded,
     onFrameContextClick,
+    onFrameExpanded,
 }: {
     frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
     embedded: boolean
+    onFrameExpanded: () => void
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map((frame: ErrorTrackingStackFrame, idx) => {
-        const { raw_id, lang } = frame
+        const { raw_id, lang, code_variables } = frame
         const record = stackFrameRecords[raw_id]
         return {
             key: idx,
@@ -143,25 +156,33 @@ function Trace({
                 record && record.context ? (
                     <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                         <FrameContext context={record.context} language={getLanguage(lang)} />
+                        {code_variables && Object.keys(code_variables).length > 0 && (
+                            <FrameVariables variables={code_variables} />
+                        )}
                     </div>
                 ) : null,
             className: 'p-0',
         }
     })
 
-    return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
+    return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" onChange={onFrameExpanded} />
 }
 
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
-    const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
+    const { raw_id, source, line, column, resolved, resolve_failure, in_app } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
+    const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
+
     const part = getFrameFingerprint(raw_id)
+    const resolvedName = formatResolvedName(frame)
+    const sourceData = getSourceDataForFrame(raw_id)
+
     return (
         <div className="flex flex-1 justify-between items-center h-full">
             <div className="flex flex-wrap gap-x-1">
-                {resolved_name ? (
+                {resolvedName ? (
                     <div className="flex">
-                        <span>{resolved_name}</span>
+                        <span>{resolvedName}</span>
                     </div>
                 ) : null}
                 <div className="flex font-light text-xs">
@@ -178,12 +199,14 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 </div>
             </div>
             <div className="flex gap-x-1 items-center justify-end">
+                {in_app && sourceData?.url && <GitProviderFileLink sourceData={sourceData} />}
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
                         <CopyToClipboardInline
                             tooltipMessage="Copy file name"
                             iconSize="xsmall"
                             explicitValue={source}
+                            iconMargin={false}
                         />
                     </span>
                 )}
@@ -239,6 +262,16 @@ function FrameContextLine({
                         <CodeLine text={line} wrapLines={true} language={language} />
                     </div>
                 ))}
+        </div>
+    )
+}
+
+function FrameVariables({ variables }: { variables: Record<string, unknown> }): JSX.Element {
+    const entries = Object.entries(variables) as [string, unknown][]
+
+    return (
+        <div className="border-t border-border">
+            <PropertiesTable entries={entries} alternatingColors={false} />
         </div>
     )
 }

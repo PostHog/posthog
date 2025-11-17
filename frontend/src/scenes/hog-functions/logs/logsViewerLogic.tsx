@@ -32,7 +32,7 @@ export const LOG_VIEWER_LIMIT = 100
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_export' | 'external_data_jobs'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
@@ -70,6 +70,7 @@ export type LogEntryParams = {
     dateTo?: string
     order: 'ASC' | 'DESC'
     instanceId?: string
+    limit?: number
 }
 
 const toKey = (log: LogEntry): string => {
@@ -112,7 +113,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         ${hogql.raw(buildBoundaryFilters(request))}
         ${hogql.raw(buildSearchFilters(request))}
         ORDER BY timestamp ${hogql.raw(request.order)}
-        LIMIT ${LOG_VIEWER_LIMIT}`
+        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
 
     const response = await api.queryHogQL(query, {
         refresh: 'force_blocking',
@@ -288,6 +289,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        limit: values.unGroupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
                     const results = await loadLogs(logParams)
@@ -323,6 +325,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const logParams: LogEntryParams = {
                         ...values.logEntryParams,
                         dateTo: toAbsoluteClickhouseTimestamp(values.oldestLogTimestamp),
+                        limit: values.groupedLogs.length + LOG_VIEWER_LIMIT,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -490,8 +493,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         loadLogs: () => {
-            clearTimeout(cache.pollingTimeout)
-
             if (values.isGrouped) {
                 actions.loadGroupedLogs()
             } else {
@@ -516,8 +517,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadGroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         loadUngroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         scheduleLoadNewerLogs: () => {
-            clearTimeout(cache.pollingTimeout)
-            cache.pollingTimeout = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
+                return () => clearTimeout(timeoutId)
+            }, 'pollingTimeout')
         },
 
         revealHiddenLogs: () => {
@@ -541,8 +544,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     afterMount(({ actions }) => {
         actions.loadLogs()
     }),
-    beforeUnmount(({ cache }) => {
-        clearInterval(cache.pollingTimeout)
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
     actionToUrl(({ values }) => {
         const syncProperties = (

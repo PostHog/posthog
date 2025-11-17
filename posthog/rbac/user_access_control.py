@@ -50,18 +50,37 @@ ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(Ac
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
+    "action",
     "feature_flag",
     "dashboard",
     "insight",
     "notebook",
     "session_recording",
     "revenue_analytics",
+    "survey",
+    "experiment",
+    "web_analytics",
+    "activity_log",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
 }
+
+
+class UserAccessControlError(Exception):
+    resource: APIScopeObject
+    required_level: AccessControlLevel
+    resource_id: Optional[str]
+
+    def __init__(self, resource: APIScopeObject, required_level: AccessControlLevel, resource_id: Optional[str] = None):
+        super().__init__(
+            f"Access control failure. You don't have `{required_level}` access to the `{resource}` resource."
+        )
+        self.resource = resource
+        self.required_level = required_level
+        self.resource_id = resource_id
 
 
 def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[APIScopeObject, AccessControlLevel]]:
@@ -93,7 +112,6 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
     if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
-
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
 
 
@@ -102,10 +120,22 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
+    if resource in ["activity_log"]:
+        return "viewer"
     return "editor"
 
 
+def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
+    if resource == "action":
+        return "viewer"
+    return "none"
+
+
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
+    """Returns the highest allowed access level for a resource."""
+    if resource in ["activity_log"]:
+        return "viewer"
     return ordered_access_levels(resource)[-1]
 
 
@@ -586,6 +616,18 @@ class UserAccessControl:
             return False
 
         return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
+
+    def assert_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
+        """
+        Stricter version of `check_access_level_for_resource`.
+        Checks for specific object-level access as well as resource-level access.
+        If they don't, raise a `UserAccessControlError`.
+        """
+
+        if not self.check_access_level_for_resource(resource, required_level):
+            raise UserAccessControlError(resource, required_level)
+
+        return True
 
     def has_any_specific_access_for_resource(
         self, resource: APIScopeObject, required_level: AccessControlLevel

@@ -385,13 +385,13 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)  # type: ignore[misc]
+        super()._validate_conn(conn)
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)  # type: ignore[misc]
+        super()._validate_conn(conn)
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):
@@ -410,7 +410,7 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             block=block,
             **pool_kwargs,
         )
-        self.poolmanager.pool_classes_by_scheme = {  # type: ignore[attr-defined]
+        self.poolmanager.pool_classes_by_scheme = {
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }

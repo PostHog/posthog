@@ -2,6 +2,7 @@ import uuid
 import asyncio
 from typing import Any
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
@@ -12,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.temporal.common.client import sync_connect
@@ -21,6 +22,8 @@ from posthog.utils import str_to_bool
 
 from ee.tasks import subscriptions
 from ee.tasks.subscriptions import team_use_temporal_flag
+
+# comment to trigger redeploy
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
@@ -96,7 +99,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         invite_message=invite_message,
                     ),
                     id=workflow_id,
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 )
             )
 
@@ -121,7 +124,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         invite_message=invite_message,
                     ),
                     id=workflow_id,
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 )
             )
 

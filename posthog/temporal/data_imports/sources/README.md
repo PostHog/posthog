@@ -1,70 +1,10 @@
-# How to add a data warehouse source
+# Adding a new source to data pipelines
 
-Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a minimal amount of other files. Below is a step-by-step guide:
+Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a small number of other files. Simply copy the source template file and address all the TODOs in that file in order.
 
-1. Add a new enum value to `ExternalDataSourceType` (posthog/warehouse/types.py). The key should be fully capitalized and the value should be in pascal case.
-2. Run django migrations - `DEBUG=1 python manage.py makemigrations && ./bin/migrate`
-3. Add a new folder in `posthog/temporal/data_imports/sources` for your source, add a new file within this folder called `source.py` using the template below
-4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
-5. Generate the config class by running `pnpm generate:source-configs`. This will add a new class to the `posthog/temporal/data_imports/sources/generated_configs.py` file. Update all references of `Config` in the below template to your new generated class
-6. Implement the logic of your source. More info on how to do this is below.
-7. Add a new icon for your source - add the icon file in `frontend/public/services/` and add the path to the `SourceConfig` (note: the path should be `/static/services/<source_name>.png`) - this is rendered in the frontend by `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx` -
-8. **Register your source** in `posthog/temporal/data_imports/sources/__init__.py`:
-    - Add import: `from .your_source.source import YourSourceClass`
-    - Add to `__all__` list: `"YourSourceClass"`
-
-    **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
-
-9. **Re-run config generation** after implementing source logic:
-    ```bash
-    pnpm generate:source-configs
-    ```
-    This updates `generated_configs.py` with your actual implemented source class.
-10. **Build schemas** to update types:
-    ```bash
-    pnpm schema:build
-    ```
-    This ensures your source appears in frontend dropdowns and forms.
-
-### Source file template
-
-```python
-from typing import cast
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
-from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.warehouse.types import ExternalDataSourceType
-
-
-@SourceRegistry.register
-class TemplateSource(BaseSource[Config]): # Replace this after config generation
-    @property
-    def source_type(self) -> ExternalDataSourceType:
-        return ExternalDataSourceType.SOURCE_TYPE # Replace this
-
-    @property
-    def get_source_config(self) -> SourceConfig:
-        return SourceConfig(
-            name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
-            label="Template", # Only needed if the readable name is complex
-            caption=None, # Only needed if you wanna inline docs
-            docsUrl=None, # Link to the docs in the website, full path including https://
-            fields=cast(list[FieldType], []), # Add source fields here
-        )
-    def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class
-      return True, None # Implement logic to validate the credentials of your source, e.g. check the validity of API keys. Return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
-
-    def get_schemas(self, config: Config, team_id: int, with_counts: bool = False) -> list[SourceSchema]: # Replace `Config` with your config class
-      return [] # Implement your source schema logic here
-
-    def source_for_pipeline(self, config: Config, inputs: SourceInputs) -> SourceResponse: # Replace `Config` with your config class
-        raise NotImplementedError() # Implement your source logic here
+```sh
+mkdir -p posthog/temporal/data_imports/sources/{SOURCE_NAME}
+cp posthog/temporal/data_imports/sources/source.template posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
 ```
 
 ## Source fields
@@ -156,59 +96,60 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 1. **Environment Variables**: Add to your environment:
 
-    ```bash
-    YOUR_SOURCE_CLIENT_ID=your_client_id
-    YOUR_SOURCE_CLIENT_SECRET=your_client_secret
-    ```
+   ```bash
+   YOUR_SOURCE_CLIENT_ID=your_client_id
+   YOUR_SOURCE_CLIENT_SECRET=your_client_secret
+   ```
 
-    **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
+   **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
 
-    ```python
-    YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
-    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
-    ```
+   ```python
+   YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
+   YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
+   ```
 
 2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
 
-    **a) Add to `IntegrationKind` enum:**
+   **a) Add to `IntegrationKind` enum:**
 
-    ```python
-    class IntegrationKind(models.TextChoices):
-        # ... existing integrations ...
-        YOUR_SOURCE = "your-source"
-    ```
+   ```python
+   class IntegrationKind(models.TextChoices):
+       # ... existing integrations ...
+       YOUR_SOURCE = "your-source"
+   ```
 
-    **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to `OauthIntegration.supported_kinds` list:**
 
-    ```python
-    supported_kinds = [
-        # ... existing kinds ...
-        "your-source",
-    ]
-    ```
+   ```python
+   supported_kinds = [
+       # ... existing kinds ...
+       "your-source",
+   ]
+   ```
 
-    **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in `oauth_config_for_kind()` method:**
 
-    ```python
-    elif kind == "your-source":
-        if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
-            raise NotImplementedError("Your Source app not configured")
+   ```python
+   elif kind == "your-source":
+       if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
+           raise NotImplementedError("Your Source app not configured")
 
-        return OauthConfig(
-            authorize_url="https://your-service.com/oauth/authorize",
-            token_url="https://your-service.com/oauth/token",
-            client_id=settings.YOUR_SOURCE_CLIENT_ID,
-            client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
-            scope="your required scopes",
-            id_path="id",
-            name_path="name",
-        )
-    ```
+       return OauthConfig(
+           authorize_url="https://your-service.com/oauth/authorize",
+           token_url="https://your-service.com/oauth/token",
+           client_id=settings.YOUR_SOURCE_CLIENT_ID,
+           client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
+           scope="your required scopes",
+           id_path="id",
+           name_path="name",
+       )
+   ```
 
 3. **Redirect URI**: Configure in external service:
-    ```
-    https://localhost:8010/integrations/your-kind/callback
-    ```
+
+   ```text
+   https://localhost:8010/integrations/your-kind/callback
+   ```
 
 ## Testing Your Source Locally
 

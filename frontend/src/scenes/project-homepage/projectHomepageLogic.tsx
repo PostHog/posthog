@@ -9,7 +9,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { Breadcrumb, DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
@@ -52,6 +52,16 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 }
                 return [createMaxContextHelpers.dashboard(dashboard)]
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'home',
+                    name: 'Home',
+                    iconType: 'home',
+                },
+            ],
         ],
     }),
 

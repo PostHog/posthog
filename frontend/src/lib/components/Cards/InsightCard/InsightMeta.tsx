@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -22,10 +22,12 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -33,6 +35,8 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardPlacement,
+    DashboardTile,
     ExporterFormat,
     InsightColor,
     QueryBasedInsightModel,
@@ -62,13 +66,16 @@ interface InsightMetaProps
         | 'moreButtons'
         | 'filtersOverride'
         | 'variablesOverride'
+        | 'placement'
     > {
+    tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
+    tile,
     insight,
     ribbonColor,
     dashboardId,
@@ -90,9 +97,11 @@ export function InsightMeta({
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
+    placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insightFeedback } = useValues(insightLogic)
+    const { setInsightFeedback } = useActions(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
@@ -125,6 +134,27 @@ export function InsightMeta({
     const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
 
     const summary = useSummarizeInsight()(insight.query)
+
+    // Feedback buttons for Customer Analytics
+    const feedbackButtons =
+        placement === DashboardPlacement.CustomerAnalytics && featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+            <div className="flex gap-0">
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsUp className={insightFeedback === 'liked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('liked')}
+                    tooltip="Like this insight"
+                    disabledReason={insightFeedback === 'liked' ? 'Already liked' : ''}
+                />
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsDown className={insightFeedback === 'disliked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('disliked')}
+                    tooltip="Dislike this insight"
+                    disabledReason={insightFeedback === 'disliked' ? 'Already disliked' : ''}
+                />
+            </div>
+        ) : null
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -169,10 +199,22 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            topHeading={
+                <TopHeading
+                    query={insight.query}
+                    lastRefresh={insight.last_refresh}
+                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                />
+            }
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
+                    link={urls.insightView(
+                        short_id,
+                        dashboardId,
+                        variablesOverride,
+                        filtersOverride,
+                        tile?.filters_overrides
+                    )}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
@@ -197,13 +239,14 @@ export function InsightMeta({
                                         : urls.insightEdit(short_id)
                                 }
                                 fullWidth
+                                {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                             >
                                 Edit
                             </LemonButton>
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && (
+                            {canAccessTileOverrides && tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>
@@ -372,6 +415,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
+            extraControls={feedbackButtons}
         />
     )
 }

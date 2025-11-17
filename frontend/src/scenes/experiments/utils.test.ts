@@ -96,7 +96,11 @@ describe('utils', () => {
                 ],
             },
             groups: [
-                { properties: [], rollout_percentage: 100 },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    description: 'Added automatically when the experiment variant was shipped',
+                },
                 { properties: [], rollout_percentage: 100 },
             ],
         }
@@ -176,7 +180,11 @@ describe('utils', () => {
                 ],
             },
             groups: [
-                { properties: [], rollout_percentage: 100 },
+                {
+                    properties: [],
+                    rollout_percentage: 100,
+                    description: 'Added automatically when the experiment variant was shipped',
+                },
                 { properties: [], rollout_percentage: 100 },
             ],
         }
@@ -228,6 +236,7 @@ describe('getViewRecordingFilters', () => {
         created_at: null,
         created_by: null,
         updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     it('adds exposure criteria if present', () => {
@@ -620,6 +629,7 @@ describe('checkFeatureFlagEligibility', () => {
         key: 'test',
         name: 'Test',
         created_at: '2021-01-01',
+        updated_at: '2021-01-01',
         created_by: null,
         is_simple_flag: false,
         is_remote_configuration: false,
@@ -645,6 +655,7 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+        evaluation_tags: [],
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

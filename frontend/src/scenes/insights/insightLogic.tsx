@@ -1,15 +1,17 @@
 import { LogicWrapper, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -30,9 +32,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import { isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     InsightLogicProps,
     InsightShortId,
@@ -60,7 +63,7 @@ export const createEmptyInsight = (
 })
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
-    props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
+    props({ filtersOverride: null, variablesOverride: null, tileFiltersOverride: null } as InsightLogicProps),
     key((props) => keyForInsightLogicProps('new')(props)),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
@@ -80,7 +83,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             sceneLogic,
             ['activeSceneId'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], teamLogic, ['addProductIntent']],
         logic: [eventUsageLogic, dashboardsModel],
     })),
 
@@ -109,11 +112,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         loadInsight: (
             shortId: InsightShortId,
             filtersOverride?: DashboardFilter | null,
-            variablesOverride?: Record<string, HogQLVariable> | null
+            variablesOverride?: Record<string, HogQLVariable> | null,
+            tileFiltersOverride?: DashboardFilter | null
         ) => ({
             shortId,
             filtersOverride,
             variablesOverride,
+            tileFiltersOverride,
         }),
         updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
             insightUpdate,
@@ -136,12 +141,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
-                loadInsight: async ({ shortId, filtersOverride, variablesOverride }, breakpoint) => {
+                loadInsight: async (
+                    { shortId, filtersOverride, variablesOverride, tileFiltersOverride },
+                    breakpoint
+                ) => {
                     await breakpoint(100)
                     try {
                         const insight = await insightsApi.getByShortId(
@@ -149,7 +158,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             undefined,
                             'async',
                             filtersOverride,
-                            variablesOverride
+                            variablesOverride,
+                            tileFiltersOverride
                         )
 
                         if (!insight) {
@@ -331,6 +341,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsight: () => null,
             },
         ],
+        insightFeedback: [
+            null as 'liked' | 'disliked' | null,
+            {
+                persist: true,
+                prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}_`,
+            },
+            {
+                setInsightFeedback: (_, { feedback }) => feedback,
+            },
+        ],
     })),
     selectors({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
@@ -364,7 +384,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.insight],
             (insight) =>
                 insight.user_access_level
-                    ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                    ? accessLevelSatisfied(
+                          AccessControlResourceType.Insight,
+                          insight.user_access_level,
+                          AccessControlLevel.Editor
+                      )
                     : true,
         ],
         insightChanged: [
@@ -399,11 +423,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
         hasOverrides: [
-            () => [(_, props) => props.filtersOverride, (_, props) => props.variablesOverride],
-            (filtersOverride: DashboardFilter | null, variablesOverride: Record<string, HogQLVariable> | null) => {
+            () => [
+                (_, props) => props.filtersOverride,
+                (_, props) => props.variablesOverride,
+                (_, props) => props.tileFiltersOverride,
+            ],
+            (
+                filtersOverride: DashboardFilter | null,
+                variablesOverride: Record<string, HogQLVariable> | null,
+                tileFiltersOverride: TileFilters | null
+            ) => {
                 return (
                     (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
+                    (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride))
                 )
             },
         ],
@@ -441,6 +474,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           _create_in_folder: folder ?? getLastNewFolder(),
                       })
                 actions.reloadSavedInsights() // Load insights afresh
+
+                const alertsLogic = insightAlertsLogic.findMounted({
+                    insightLogicProps: props,
+                    insightId: insightNumericId,
+                })
+
+                if (alertsLogic != null) {
+                    if (alertsLogic.values.alerts.length > 0) {
+                        alertsLogic.actions.loadAlerts()
+                    }
+                }
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
                 actions.saveInsightSuccess()
@@ -585,6 +629,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
+        setInsightFeedback: ({ feedback }) => {
+            const eventName = `customer-analytics-insight-${feedback}`
+            posthog.capture(eventName, {
+                insight_id: values.insight.short_id,
+                insight_name: values.insight.name,
+                dashboard_id: values.insightProps.dashboardId,
+            })
+            lemonToast.success(`Insight ${feedback}`)
+        },
     })),
     events(({ props, actions }) => ({
         afterMount: () => {
@@ -596,7 +649,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.loadInsight(
                     props.dashboardItemId as InsightShortId,
                     props.filtersOverride,
-                    props.variablesOverride
+                    props.variablesOverride,
+                    props.tileFiltersOverride
                 )
             }
         },

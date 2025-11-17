@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconBadge, IconEye, IconInfo } from '@posthog/icons'
-import { IconHide } from '@posthog/icons'
-import { LemonDivider, LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -19,16 +21,26 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
+import {
+    AvailableFeature,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+    ReplayTabs,
+} from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -85,6 +97,12 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         metrics,
         metricsLoading,
     } = useValues(logic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const onGuardClick = (callback: () => void): void => {
+        guardAvailableFeature(AvailableFeature.INGESTION_TAXONOMY, () => {
+            callback()
+        })
+    }
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -123,9 +141,21 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const statusProps = getStatusProps(isProperty)
 
     return (
-        <>
-            <PageHeader
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name={definition.name}
+                resourceType={
+                    isEvent
+                        ? {
+                              type: 'event definition',
+                              forceIcon: getEventDefinitionIcon(definition),
+                          }
+                        : {
+                              type: 'property definition',
+                              forceIcon: getPropertyDefinitionIcon(definition),
+                          }
+                }
+                actions={
                     <>
                         {isEvent && (
                             <LemonButton
@@ -150,6 +180,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 })}
                                 sideIcon={<IconPlayCircle />}
                                 data-attr="event-definition-view-recordings"
+                                size="small"
+                                targetBlank
                             >
                                 View recordings
                             </LemonButton>
@@ -158,6 +190,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                             data-attr="delete-definition"
                             type="secondary"
                             status="danger"
+                            size="small"
                             onClick={() =>
                                 LemonDialog.open({
                                     title: `Delete this ${singular} definition?`,
@@ -196,37 +229,24 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         >
                             Delete
                         </LemonButton>
-                        {(hasTaxonomyFeatures || isProperty) && (
-                            <LemonButton
-                                data-attr="edit-definition"
-                                type="secondary"
-                                to={
-                                    isEvent
-                                        ? urls.eventDefinitionEdit(definition.id)
-                                        : urls.propertyDefinitionEdit(definition.id)
+                        <LemonButton
+                            data-attr="edit-definition"
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                if (isProperty) {
+                                    router.actions.push(urls.propertyDefinitionEdit(definition.id))
+                                    return
                                 }
-                            >
-                                Edit
-                            </LemonButton>
-                        )}
+                                return onGuardClick(() => {
+                                    router.actions.push(urls.eventDefinitionEdit(definition.id))
+                                })
+                            }}
+                        >
+                            Edit
+                        </LemonButton>
                     </>
                 }
-            />
-
-            <SceneTitleSection
-                name={definition.name}
-                resourceType={
-                    isEvent
-                        ? {
-                              type: 'event definition',
-                              forceIcon: getEventDefinitionIcon(definition),
-                          }
-                        : {
-                              type: 'property definition',
-                              forceIcon: getPropertyDefinitionIcon(definition),
-                          }
-                }
-                actions
                 forceBackTo={
                     isEvent
                         ? {
@@ -271,7 +291,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 </div>
             </div>
 
-            <LemonDivider className="my-6" />
+            <SceneDivider />
+
             <div className="flex flex-wrap">
                 {isEvent && definition.created_at && (
                     <div className="flex flex-col flex-1">
@@ -329,36 +350,46 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
             </div>
 
-            <LemonDivider className="my-6" />
+            <SceneDivider />
 
             {isEvent && definition.id !== 'new' && (
                 <>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SCHEMA_MANAGEMENT}>
+                        <EventDefinitionSchema definition={definition} />
+                        <SceneDivider />
+                    </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
-                    <LemonDivider className="my-6" />
+                    <SceneDivider />
                     <EventDefinitionInsights definition={definition} />
-                    <LemonDivider className="my-6" />
-                    <h2 className="flex-1 subtitle">Connected destinations</h2>
-                    <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
+                    <SceneDivider />
+                    <SceneSection
+                        title="Connected destinations"
+                        description="Get notified via Slack, webhooks or more whenever this event is captured."
+                    >
+                        <LinkedHogFunctions
+                            type="destination"
+                            forceFilterGroups={[
+                                {
+                                    events: [
+                                        {
+                                            id: `${definition.name}`,
+                                            type: 'events',
+                                        },
+                                    ],
+                                },
+                            ]}
+                        />
+                    </SceneSection>
 
-                    <LinkedHogFunctions
-                        type="destination"
-                        forceFilterGroups={[
-                            {
-                                events: [
-                                    {
-                                        id: `${definition.name}`,
-                                        type: 'events',
-                                    },
-                                ],
-                            },
-                        ]}
-                    />
-                    <LemonDivider className="my-6" />
-                    <h3>Matching events</h3>
-                    <p>This is the list of recent events that match this definition.</p>
-                    <Query query={memoizedQuery} />
+                    <SceneDivider />
+                    <SceneSection
+                        title="Matching events"
+                        description="This is the list of recent events that match this definition."
+                    >
+                        <Query query={memoizedQuery} />
+                    </SceneSection>
                 </>
             )}
-        </>
+        </SceneContent>
     )
 }

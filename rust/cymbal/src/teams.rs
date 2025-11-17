@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
+use tracing::warn;
 
 use crate::{
     app_context::AppContext,
@@ -169,7 +170,12 @@ pub async fn do_team_lookups(
 
         let m_ctx = context.clone();
         let m_token = token.clone();
-        let fut = async move { m_ctx.team_manager.get_team(&m_ctx.pool, &m_token).await };
+        let fut = async move {
+            m_ctx
+                .team_manager
+                .get_team(&m_ctx.posthog_pool, &m_token)
+                .await
+        };
         let lookup = WithIndices {
             indices: vec![index],
             inner: tokio::spawn(fut),
@@ -181,7 +187,12 @@ pub async fn do_team_lookups(
     for (token, lookup) in team_lookups {
         let (indices, task) = (lookup.indices, lookup.inner);
         match task.await.expect("Task was not cancelled") {
-            Ok(maybe_team) => results.insert(token, maybe_team),
+            Ok(maybe_team) => {
+                if maybe_team.is_none() {
+                    warn!("Received event for unknown team token: {}", token);
+                }
+                results.insert(token, maybe_team);
+            }
             Err(err) => return Err((indices[0], err).into()),
         };
     }

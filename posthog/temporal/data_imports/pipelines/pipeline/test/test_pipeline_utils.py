@@ -1,14 +1,21 @@
 import uuid
 import decimal
+import datetime
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any
 
 import pytest
 
 import pyarrow as pa
+import deltalake
+import structlog
 from dateutil import parser
+from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _evolve_pyarrow_schema,
     _get_max_decimal_type,
+    append_partition_key_to_table,
     normalize_table_column_names,
     table_from_py_list,
 )
@@ -327,3 +334,93 @@ def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
         )
     )
     assert table.schema.equals(expected_schema)
+
+
+def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
+    """Test that _evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
+    metadata_struct_type = pa.struct(
+        [
+            ("role", pa.string()),
+            ("hire_date", pa.timestamp("us")),
+            ("salary", pa.decimal128(10, 2)),
+        ]
+    )
+
+    metadata_data = [
+        {
+            "role": "admin",
+            "hire_date": datetime.datetime(2020, 1, 15, 10, 30, 0),
+            "salary": decimal.Decimal("75000.50"),
+        },
+        {"role": "user", "hire_date": datetime.datetime(2021, 3, 20, 9, 0, 0), "salary": decimal.Decimal("65000.00")},
+    ]
+
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "metadata": pa.array(metadata_data, type=metadata_struct_type),
+        }
+    )
+
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("metadata", pa.string(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("metadata").type == pa.string()
+    metadata_values = evolved_table.column("metadata").to_pylist()
+    assert len(metadata_values) == 2
+    assert all(isinstance(val, str) for val in metadata_values)
+
+
+def test_evolve_pyarrow_schema_with_list_containing_datetime():
+    """Test that _evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "tags": pa.array([["python", "data"], ["sales", "crm"]], type=pa.list_(pa.string())),
+        }
+    )
+
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("tags", pa.string(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("tags").type == pa.string()
+    tags_values = evolved_table.column("tags").to_pylist()
+    assert len(tags_values) == 2
+    assert all(isinstance(val, str) for val in tags_values)
+
+
+@pytest.mark.parametrize(
+    "name, data",
+    [
+        ("incrementing_ints_dense", [1, 2, 3, 4, 5]),
+        ("incrementing_ints_sparse", [1, 100]),
+        ("all_nulls", [None, None, None]),
+    ],
+)
+def test_append_partition_key_to_table_does_not_type_error(name: str, data: list[Any]):
+    partition_key = "id"
+    table = pa.table({partition_key: data})
+
+    logger: FilteringBoundLogger = structlog.get_logger()
+
+    try:
+        append_partition_key_to_table(
+            table,
+            partition_keys=[partition_key],
+            partition_mode=None,
+            partition_count=None,
+            partition_size=None,
+            partition_format=None,
+            logger=logger,
+        )
+    except TypeError:
+        pytest.fail(f"raised TypeError for case {name} with data: {data}")

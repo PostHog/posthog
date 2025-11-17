@@ -102,6 +102,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
 
@@ -166,6 +167,9 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
             stacked: undefined,
+            detailedResultsAggregationType: undefined,
+            showFullUrls: undefined,
+            selectedInterval: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

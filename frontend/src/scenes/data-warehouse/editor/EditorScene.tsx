@@ -79,7 +79,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: setSourceQuery,
+        setQuery: (setter) => setSourceQuery(setter(sourceQuery)),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -108,7 +108,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput,
+        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {

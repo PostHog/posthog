@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
+import { Logo } from 'lib/brand/Logo'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -21,7 +22,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { Logo } from '~/toolbar/assets/Logo'
 
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerMetaLogic } from './playerMetaLogic'

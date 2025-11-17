@@ -1,3 +1,4 @@
+use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
@@ -5,7 +6,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::{Frame, FrameId},
+    frames::Frame,
     langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
@@ -51,9 +52,9 @@ impl RawJSFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
-            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize ResolveError to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -166,6 +167,12 @@ impl RawJSFrame {
         );
         format!("{:x}", hasher.finalize())
     }
+
+    pub fn is_suspicious(&self) -> bool {
+        self.source_url
+            .as_ref()
+            .is_some_and(|s| s.contains("posthog.com/static/"))
+    }
 }
 
 impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
@@ -189,8 +196,10 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             .map(|s| !s.contains("node_modules"))
             .unwrap_or(raw_frame.meta.in_app);
 
+        let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
+
         let mut res = Self {
-            raw_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
@@ -201,9 +210,13 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: get_sourcelocation_context(&token),
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious,
+            module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -233,7 +246,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(location.line),
             column: Some(location.column),
@@ -247,9 +260,13 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             // why we thought a frame wasn't minified, they can see the error message
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -274,7 +291,7 @@ impl From<&RawJSFrame> for Frame {
         let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,
@@ -285,9 +302,13 @@ impl From<&RawJSFrame> for Frame {
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

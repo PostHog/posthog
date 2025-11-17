@@ -5,7 +5,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
-import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
+import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -16,7 +16,7 @@ const isVerificationRequired = (integration: IntegrationType): boolean => {
 const isVerified = (integration: IntegrationType): boolean => {
     switch (integration.kind) {
         case 'email':
-            return integration.config.mailjet_verified === true
+            return integration.config.verified === true
         default:
             return true
     }

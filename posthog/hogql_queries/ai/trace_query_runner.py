@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -57,7 +58,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
-        with self.timings.measure("trace_query_hogql_execute"):
+        with self.timings.measure("trace_query_hogql_execute"), tags_context(product=Product.MAX_AI):
             query_result = execute_hogql_query(
                 query=self.to_query(),
                 placeholders={
@@ -86,6 +87,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             """
             SELECT
                 properties.$ai_trace_id AS id,
+                any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -94,30 +96,39 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     argMin(person.properties, timestamp)
                 ) AS first_person,
                 round(
-                    sumIf(toFloat(properties.$ai_latency),
-                        properties.$ai_parent_id IS NULL
-                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                    ), 2
+                    CASE
+                        -- If all events with latency are generations, sum them all
+                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                        THEN sumIf(toFloat(properties.$ai_latency),
+                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                             )
+                        -- Otherwise sum the direct children of the trace
+                        ELSE sumIf(toFloat(properties.$ai_latency),
+                                   properties.$ai_parent_id IS NULL
+                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                             )
+                    END, 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,
                 sumIf(toFloat(properties.$ai_output_tokens),
-                      event = '$ai_generation'
+                      event IN ('$ai_generation', '$ai_embedding')
                 ) AS output_tokens,
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS output_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
-                          event = '$ai_generation'
+                          event IN ('$ai_generation', '$ai_embedding')
                     ), 4
                 ) AS total_cost,
                 arrayDistinct(
@@ -189,6 +200,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
+            "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",

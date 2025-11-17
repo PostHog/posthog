@@ -1,4 +1,4 @@
-use aws_sdk_s3::{primitives::ByteStream, Client as S3Client, Error as S3Error};
+use aws_sdk_s3::{error::SdkError, primitives::ByteStream, Client as S3Client, Error as S3Error};
 #[cfg(test)]
 use mockall::automock;
 use tracing::error;
@@ -23,24 +23,28 @@ impl S3Impl {
     }
 
     #[allow(dead_code)]
-    pub async fn get(&self, bucket: &str, key: &str) -> Result<Vec<u8>, UnhandledError> {
+    pub async fn get(&self, bucket: &str, key: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
         let start = common_metrics::timing_guard(S3_FETCH, &[]);
         let res = self.inner.get_object().bucket(bucket).key(key).send().await;
 
-        if let Ok(res) = res {
-            let data = res.body.collect().await?;
-            start.label("outcome", "success").fin();
-            return Ok(data.to_vec());
+        match res {
+            Ok(res) => {
+                let data = res.body.collect().await?;
+                start.label("outcome", "success").fin();
+                Ok(Some(data.to_vec()))
+            }
+            // If this is a file not found error, return None
+            Err(SdkError::ServiceError(err)) if err.err().is_no_such_key() => {
+                start.label("outcome", "not_found").fin();
+                Ok(None)
+            }
+            Err(err) => {
+                // If we simply failed to talk to s3, return an error
+                start.label("outcome", "failure").fin();
+                error!("Failed to fetch object {} from S3: {:?}", key, err);
+                Err(S3Error::from(err).into())
+            }
         }
-        start.label("outcome", "failure").fin();
-
-        let err = res.unwrap_err();
-
-        error!("Failed to fetch object {} from S3: {:?}", key, err);
-
-        // Note that we're not handling the "object not found" case here, because if we
-        // got a key from the DB, we should have the object in S3
-        Err(S3Error::from(err).into())
     }
 
     #[allow(dead_code)]
@@ -61,5 +65,24 @@ impl S3Impl {
             .label("outcome", if res.is_ok() { "success" } else { "failure" })
             .fin();
         res
+    }
+
+    // Simply assert we can do a ListBucket operation, returning an error if not. This is
+    // useful during app startup to ensure the bucket is accessible.
+    #[allow(dead_code)]
+    pub async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError> {
+        let res = self
+            .inner
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix("")
+            .send()
+            .await;
+
+        if let Err(e) = res {
+            Err(S3Error::from(e).into())
+        } else {
+            Ok(())
+        }
     }
 }

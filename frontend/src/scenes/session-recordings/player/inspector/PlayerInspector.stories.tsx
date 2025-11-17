@@ -7,7 +7,7 @@ import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_
 import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_recording_meta.json'
 import largeRecordingWebVitalsEventsPropertiesJson from 'scenes/session-recordings/__mocks__/large_recording_web_vitals_props.json'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -97,7 +97,7 @@ const meta: Meta<typeof PlayerInspector> = {
 export default meta
 
 const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
-    const dataLogic = sessionRecordingDataLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
+    const dataLogic = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
     const { sessionPlayerMetaData } = useValues(dataLogic)
 
     const { loadSnapshots, loadEvents } = useActions(dataLogic)

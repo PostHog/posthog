@@ -1,11 +1,10 @@
-import { OriginProduct, Task, TaskStatus } from './types'
+import { OriginProduct, Task } from './types'
 
 export const demoTasks: Task[] = [
     {
         id: '1',
         title: 'Memory leak in session recording module',
         description: 'Users reporting browser crashes during long recording sessions, memory usage keeps growing',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.ERROR_TRACKING,
         position: 0,
         created_at: '2024-01-15T10:30:00Z',
@@ -15,7 +14,6 @@ export const demoTasks: Task[] = [
         id: '2',
         title: 'Add dark mode toggle to settings',
         description: 'User requested feature to enable dark mode across the entire application interface',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.USER_CREATED,
         position: 1,
         created_at: '2024-01-14T09:15:00Z',
@@ -25,7 +23,6 @@ export const demoTasks: Task[] = [
         id: '3',
         title: 'Improve A/B test statistical significance calculations',
         description: 'Enhance the evaluation clustering algorithm for more accurate experiment results',
-        status: TaskStatus.TODO,
         origin_product: OriginProduct.EVAL_CLUSTERS,
         position: 0,
         created_at: '2024-01-13T14:20:00Z',
@@ -35,7 +32,6 @@ export const demoTasks: Task[] = [
         id: '4',
         title: 'User cannot access dashboard after password reset',
         description: 'Multiple support tickets about users being locked out after password reset flow',
-        status: TaskStatus.DONE,
         origin_product: OriginProduct.SUPPORT_QUEUE,
         position: 0,
         created_at: '2024-01-12T16:00:00Z',
@@ -45,7 +41,6 @@ export const demoTasks: Task[] = [
         id: '5',
         title: 'Performance testing for new cohort analysis feature',
         description: 'Run evaluation tests to ensure cohort analysis performs well with large datasets',
-        status: TaskStatus.DONE,
         origin_product: OriginProduct.EVAL_CLUSTERS,
         position: 0,
         created_at: '2024-01-11T13:45:00Z',
@@ -55,7 +50,6 @@ export const demoTasks: Task[] = [
         id: '6',
         title: 'Fix JavaScript error in event tracking',
         description: 'TypeError: Cannot read property of undefined in tracking script causing events to fail',
-        status: TaskStatus.DONE,
         origin_product: OriginProduct.ERROR_TRACKING,
         position: 0,
         created_at: '2024-01-10T11:00:00Z',
@@ -65,7 +59,6 @@ export const demoTasks: Task[] = [
         id: '7',
         title: 'Custom dashboard widget for conversion metrics',
         description: 'User-requested feature to create custom widgets showing conversion funnel data',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.USER_CREATED,
         position: 2,
         created_at: '2024-01-09T10:15:00Z',
@@ -75,7 +68,6 @@ export const demoTasks: Task[] = [
         id: '8',
         title: 'Export functionality not working for team admin',
         description: 'Support ticket: Team admin reports CSV export button returns empty files',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.SUPPORT_QUEUE,
         position: 3,
         created_at: '2024-01-08T15:30:00Z',

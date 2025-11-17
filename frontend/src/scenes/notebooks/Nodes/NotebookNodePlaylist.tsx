@@ -2,8 +2,6 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { PostHogErrorBoundary } from 'posthog-js/react'
 import { useEffect, useMemo } from 'react'
 
-import { IconComment } from '@posthog/icons'
-
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -51,8 +49,7 @@ const Component = ({
         [playerKey, universalFilters, pinned]
     )
 
-    const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
-        useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
@@ -81,16 +78,6 @@ const Component = ({
                                       },
                                   },
                               })
-                          },
-                      },
-                      {
-                          text: 'Comment',
-                          icon: <IconComment />,
-                          onClick: () => {
-                              if (activeSessionRecording.id) {
-                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
-                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
-                              }
                           },
                       },
                   ]

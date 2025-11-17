@@ -10,7 +10,8 @@ use crate::{
     },
 };
 use axum::extract::State;
-use serde::{Deserialize, Serialize};
+use common_types::ProjectId;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -18,12 +19,33 @@ use uuid::Uuid;
 use super::{evaluation, types::FeatureFlagEvaluationContext};
 use crate::router;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EvaluationRuntime {
     All,
     Client,
     Server,
+}
+
+impl<'de> Deserialize<'de> for EvaluationRuntime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "all" => Ok(EvaluationRuntime::All),
+            "client" => Ok(EvaluationRuntime::Client),
+            "server" => Ok(EvaluationRuntime::Server),
+            invalid => {
+                tracing::warn!(
+                    "Invalid evaluation_runtime value '{}', defaulting to 'all'",
+                    invalid
+                );
+                Ok(EvaluationRuntime::All)
+            }
+        }
+    }
 }
 
 impl From<String> for EvaluationRuntime {
@@ -148,11 +170,12 @@ fn filter_flags_by_runtime(
 
 pub async fn fetch_and_filter(
     flag_service: &FlagService,
-    project_id: i64,
+    project_id: ProjectId,
     query_params: &FlagsQueryParams,
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
-) -> Result<(FeatureFlagList, bool), FlagError> {
+    environment_tags: Option<&Vec<String>>,
+) -> Result<FeatureFlagList, FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
     // First filter by survey flags if requested
@@ -168,16 +191,18 @@ pub async fn fetch_and_filter(
     let flags_after_runtime_filter =
         filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
 
+    // Finally filter by evaluation tags
+    let flags_after_tag_filter =
+        filter_flags_by_evaluation_tags(flags_after_runtime_filter, environment_tags);
+
     tracing::debug!(
-        "Runtime filtering: detected_runtime={:?}, flags_count={}",
+        "Flag filtering: detected_runtime={:?}, environment_tags={:?}, final_count={}",
         current_runtime,
-        flags_after_runtime_filter.len()
+        environment_tags,
+        flags_after_tag_filter.len()
     );
 
-    Ok((
-        FeatureFlagList::new(flags_after_runtime_filter),
-        flag_result.had_deserialization_errors,
-    ))
+    Ok(FeatureFlagList::new(flags_after_tag_filter))
 }
 
 /// Filters flags to only include survey flags if requested
@@ -193,11 +218,34 @@ fn filter_survey_flags(flags: Vec<FeatureFlag>, only_survey_flags: bool) -> Vec<
     }
 }
 
+/// Filters flags based on evaluation tags.
+/// Only includes flags that either:
+/// 1. Have no evaluation tags (backward compatibility)
+/// 2. Have at least one evaluation tag that matches the provided environment tags
+fn filter_flags_by_evaluation_tags(
+    flags: Vec<FeatureFlag>,
+    environment_tags: Option<&Vec<String>>,
+) -> Vec<FeatureFlag> {
+    let env_tags = match environment_tags {
+        Some(t) if !t.is_empty() => t,
+        _ => return flags,
+    };
+
+    flags
+        .into_iter()
+        .filter(|flag| match &flag.evaluation_tags {
+            None => true,
+            Some(flag_tags) if flag_tags.is_empty() => true,
+            Some(flag_tags) => flag_tags.iter().any(|tag| env_tags.contains(tag)),
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
-    project_id: i64,
+    project_id: ProjectId,
     distinct_id: String,
     filtered_flags: FeatureFlagList,
     person_property_overrides: Option<HashMap<String, Value>>,
@@ -254,6 +302,28 @@ mod tests {
             ensure_experience_continuity: None,
             version: None,
             evaluation_runtime,
+            evaluation_tags: None,
+        }
+    }
+
+    fn create_test_flag_with_tags(
+        id: i32,
+        key: &str,
+        evaluation_runtime: Option<String>,
+        evaluation_tags: Option<Vec<String>>,
+    ) -> FeatureFlag {
+        FeatureFlag {
+            id,
+            team_id: 1,
+            name: Some(format!("Test Flag {id}")),
+            key: key.to_string(),
+            filters: FlagFilters::default(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: None,
+            version: None,
+            evaluation_runtime,
+            evaluation_tags,
         }
     }
 
@@ -573,5 +643,162 @@ mod tests {
 
         // Note: Even if flag_keys explicitly requests a server-only flag from a client,
         // the runtime filter will prevent it from being evaluated
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_no_environment_tags() {
+        // When no environment tags are provided, all flags should be returned
+        let flags = vec![
+            create_test_flag_with_tags(1, "flag1", None, None),
+            create_test_flag_with_tags(2, "flag2", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(
+                3,
+                "flag3",
+                None,
+                Some(vec!["docs".to_string(), "marketing".to_string()]),
+            ),
+        ];
+
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), None);
+        assert_eq!(filtered.len(), 3);
+
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&vec![]));
+        assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_with_matching_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "no-tags", None, None),
+            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(3, "docs-only", None, Some(vec!["docs".to_string()])),
+            create_test_flag_with_tags(
+                4,
+                "multi-env",
+                None,
+                Some(vec!["app".to_string(), "docs".to_string()]),
+            ),
+        ];
+
+        // Test with "app" environment
+        let app_env = vec!["app".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
+        assert_eq!(filtered.len(), 3); // no-tags, app-only, multi-env
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+        assert!(filtered.iter().any(|f| f.key == "multi-env"));
+        assert!(!filtered.iter().any(|f| f.key == "docs-only"));
+
+        // Test with "docs" environment
+        let docs_env = vec!["docs".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&docs_env));
+        assert_eq!(filtered.len(), 3); // no-tags, docs-only, multi-env
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(filtered.iter().any(|f| f.key == "docs-only"));
+        assert!(filtered.iter().any(|f| f.key == "multi-env"));
+        assert!(!filtered.iter().any(|f| f.key == "app-only"));
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_no_matching_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
+        ];
+
+        // Test with unmatched environment
+        let marketing_env = vec!["marketing".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&marketing_env));
+        assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_empty_flag_tags() {
+        // Flags with empty evaluation_tags should be included (backward compatibility)
+        let flags = vec![
+            create_test_flag_with_tags(1, "empty-tags", None, Some(vec![])),
+            create_test_flag_with_tags(2, "app-only", None, Some(vec!["app".to_string()])),
+        ];
+
+        let app_env = vec!["app".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&app_env));
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().any(|f| f.key == "empty-tags"));
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+    }
+
+    #[test]
+    fn test_filter_flags_by_evaluation_tags_multiple_environment_tags() {
+        let flags = vec![
+            create_test_flag_with_tags(1, "app-only", None, Some(vec!["app".to_string()])),
+            create_test_flag_with_tags(2, "docs-only", None, Some(vec!["docs".to_string()])),
+            create_test_flag_with_tags(
+                3,
+                "marketing-only",
+                None,
+                Some(vec!["marketing".to_string()]),
+            ),
+            create_test_flag_with_tags(4, "no-tags", None, None),
+        ];
+
+        // Test with multiple environment tags - should match ANY of them
+        let multi_env = vec!["app".to_string(), "docs".to_string()];
+        let filtered = filter_flags_by_evaluation_tags(flags.clone(), Some(&multi_env));
+        assert_eq!(filtered.len(), 3); // app-only, docs-only, no-tags
+        assert!(filtered.iter().any(|f| f.key == "app-only"));
+        assert!(filtered.iter().any(|f| f.key == "docs-only"));
+        assert!(filtered.iter().any(|f| f.key == "no-tags"));
+        assert!(!filtered.iter().any(|f| f.key == "marketing-only"));
+    }
+
+    #[test]
+    fn test_explicit_runtime_overrides_detection() {
+        // This test verifies that when an explicit runtime is provided,
+        // it takes precedence over any auto-detection based on headers
+
+        let mut headers = axum::http::HeaderMap::new();
+        // Add a browser user-agent that would normally be detected as "client"
+        headers.insert(
+            "user-agent",
+            "Mozilla/5.0 Chrome/120.0.0.0".parse().unwrap(),
+        );
+        headers.insert("origin", "https://app.posthog.com".parse().unwrap());
+
+        // Test 1: Explicit "server" should override client detection
+        let runtime =
+            detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::Server));
+        assert_eq!(
+            runtime,
+            Some(EvaluationRuntime::Server),
+            "Explicit server runtime should override client headers"
+        );
+
+        // Test 2: Explicit "client" with server-like headers
+        headers.clear();
+        headers.insert("user-agent", "posthog-python/3.0.0".parse().unwrap());
+        let runtime =
+            detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::Client));
+        assert_eq!(
+            runtime,
+            Some(EvaluationRuntime::Client),
+            "Explicit client runtime should override server headers"
+        );
+
+        // Test 3: Explicit "all" overrides any detection
+        let runtime =
+            detect_evaluation_runtime_from_request(&headers, Some(EvaluationRuntime::All));
+        assert_eq!(
+            runtime,
+            Some(EvaluationRuntime::All),
+            "Explicit all runtime should be preserved"
+        );
+
+        // Test 4: No explicit runtime falls back to auto-detection
+        let runtime = detect_evaluation_runtime_from_request(&headers, None);
+        assert_eq!(
+            runtime,
+            Some(EvaluationRuntime::Server),
+            "Without explicit runtime, should detect server from python user-agent"
+        );
     }
 }

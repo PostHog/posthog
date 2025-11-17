@@ -325,12 +325,18 @@ mod tests {
                 now: "2024-01-01T00:00:00Z".to_string(),
                 sent_at: None,
                 token: "test_token".to_string(),
+                event: "test_event".to_string(),
+                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
                 computed_timestamp: None,
+                event_name: "test_event".to_string(),
             },
         }
     }

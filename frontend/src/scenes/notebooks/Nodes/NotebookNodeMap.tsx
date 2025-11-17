@@ -13,10 +13,10 @@ import { NotebookNodeEmptyState } from './components/NotebookNodeEmptyState'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element | null => {
-    const { id } = attributes
+    const { id, distinctId } = attributes
     const { expanded } = useValues(notebookNodeLogic)
 
-    const logic = personLogic({ id })
+    const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
 
     if (personLoading) {
@@ -49,6 +49,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>)
 
 type NotebookNodeMapAttributes = {
     id: string
+    distinctId: string
 }
 
 export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes>({
@@ -61,5 +62,6 @@ export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes
     startExpanded: true,
     attributes: {
         id: {},
+        distinctId: {},
     },
 })

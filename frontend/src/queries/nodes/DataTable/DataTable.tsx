@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -49,6 +50,7 @@ import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -61,6 +63,7 @@ import {
     NodeKind,
     PersonsNode,
     SessionAttributionExplorerQuery,
+    SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -82,6 +85,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { DataTableViewReplays } from './DataTableViewReplays'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -587,6 +591,7 @@ export function DataTable({
                 | GroupsQuery
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
+                | SessionsQuery
                 | TracesQuery
                 | MarketingAnalyticsTableQuery
         ) => setQuery?.({ ...query, source }),
@@ -610,7 +615,14 @@ export function DataTable({
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
+                query={
+                    query.source as
+                        | HogQLQuery
+                        | EventsQuery
+                        | SessionAttributionExplorerQuery
+                        | SessionsQuery
+                        | TracesQuery
+                }
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -648,6 +660,13 @@ export function DataTable({
             <PersonPropertyFilters
                 key="person-property"
                 query={query.source as PersonsNode}
+                setQuery={setQuerySource}
+            />
+        ) : null,
+        showPropertyFilter && sourceFeatures.has(QueryFeature.sessionPropertyFilters) ? (
+            <SessionPropertyFilters
+                key="session-property"
+                query={query.source as SessionsQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -694,6 +713,7 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
+        <DataTableViewReplays key="data-table-view-replays" />,
         showExport ? (
             <DataTableExport
                 key="data-table-export"
@@ -754,94 +774,97 @@ export function DataTable({
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
-                        <LemonTable
-                            data-attr={dataAttr}
-                            className={clsx('DataTable', {
-                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
-                            })}
-                            loading={responseLoading && !nextDataLoading && !newDataLoading}
-                            columns={lemonColumns}
-                            embedded={embedded}
-                            key={
-                                [...(columnsInResponse ?? []), ...columnsInQuery].join(
-                                    '::'
-                                ) /* Bust the LemonTable cache when columns change */
-                            }
-                            dataSource={dataTableRows ?? []}
-                            rowKey={(_, rowIndex) => {
-                                return rowIndex
-                            }}
-                            sorting={null}
-                            useURLForSorting={false}
-                            emptyState={
-                                responseError ? (
-                                    sourceFeatures.has(QueryFeature.displayResponseError) ? (
-                                        <InsightErrorState
-                                            query={query}
-                                            excludeDetail
-                                            title={
-                                                queryCancelled
-                                                    ? 'The query was cancelled'
-                                                    : response && 'error' in response
-                                                      ? response.error
-                                                      : responseError
-                                            }
-                                        />
+                        <div className="relative">
+                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            <LemonTable
+                                data-attr={dataAttr}
+                                className="DataTable"
+                                loading={responseLoading && !nextDataLoading && !newDataLoading}
+                                columns={lemonColumns}
+                                embedded={embedded}
+                                key={
+                                    [...(columnsInResponse ?? []), ...columnsInQuery].join(
+                                        '::'
+                                    ) /* Bust the LemonTable cache when columns change */
+                                }
+                                dataSource={dataTableRows ?? []}
+                                rowKey={(_, rowIndex) => {
+                                    return rowIndex
+                                }}
+                                sorting={null}
+                                useURLForSorting={false}
+                                emptyState={
+                                    responseError ? (
+                                        sourceFeatures.has(QueryFeature.displayResponseError) ? (
+                                            <InsightErrorState
+                                                query={query}
+                                                excludeDetail
+                                                title={
+                                                    queryCancelled
+                                                        ? 'The query was cancelled'
+                                                        : response && 'error' in response
+                                                          ? response.error
+                                                          : responseError
+                                                }
+                                            />
+                                        ) : (
+                                            <InsightErrorState query={query} />
+                                        )
                                     ) : (
-                                        <InsightErrorState query={query} />
+                                        <InsightEmptyState
+                                            heading={context?.emptyStateHeading}
+                                            detail={context?.emptyStateDetail}
+                                        />
                                     )
-                                ) : (
-                                    <InsightEmptyState
-                                        heading={context?.emptyStateHeading}
-                                        detail={context?.emptyStateDetail}
-                                    />
-                                )
-                            }
-                            expandable={
-                                expandable && columnsInResponse?.includes('*')
-                                    ? {
-                                          expandedRowRender: function renderExpand({ result }) {
-                                              if (
-                                                  (isEventsQuery(query.source) ||
-                                                      isRevenueExampleEventsQuery(query.source)) &&
-                                                  Array.isArray(result)
-                                              ) {
-                                                  return (
-                                                      <EventDetails
-                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      />
-                                                  )
-                                              }
-                                              if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} />
-                                              }
-                                          },
-                                          rowExpandable: ({ result }) => !!result,
-                                          noIndent: true,
-                                      }
-                                    : undefined
-                            }
-                            rowClassName={({ result, label }) =>
-                                clsx('DataTable__row', {
-                                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                                    'DataTable__row--category_row': !!label,
-                                    'border border-x-danger-dark bg-danger-highlight':
-                                        sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
-                                        result &&
-                                        result[0] &&
-                                        result[0]['event'] === '$exception',
-                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
-                                })
-                            }
-                            footer={
-                                (dataTableRows ?? []).length > 0 &&
-                                !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
-                                    <LoadNext query={query.source} />
-                                ) : null
-                            }
-                            onRow={onRow}
-                            pinnedColumns={query.pinnedColumns}
-                        />
+                                }
+                                expandable={
+                                    context?.expandable
+                                        ? context.expandable
+                                        : expandable && columnsInResponse?.includes('*')
+                                          ? {
+                                                expandedRowRender: function renderExpand({ result }) {
+                                                    if (
+                                                        (isEventsQuery(query.source) ||
+                                                            isRevenueExampleEventsQuery(query.source)) &&
+                                                        Array.isArray(result)
+                                                    ) {
+                                                        return (
+                                                            <EventDetails
+                                                                event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                            />
+                                                        )
+                                                    }
+                                                    if (result && !Array.isArray(result)) {
+                                                        return <EventDetails event={result as EventType} />
+                                                    }
+                                                },
+                                                rowExpandable: ({ result }) => !!result,
+                                                noIndent: true,
+                                            }
+                                          : undefined
+                                }
+                                rowClassName={({ result, label }) =>
+                                    clsx('DataTable__row', {
+                                        'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                                        'DataTable__row--category_row': !!label,
+                                        'border border-x-danger-dark bg-danger-highlight':
+                                            sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
+                                            result &&
+                                            result[0] &&
+                                            result[0]['event'] === '$exception',
+                                        DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
+                                    })
+                                }
+                                footer={
+                                    (dataTableRows ?? []).length > 0 &&
+                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                        <LoadNext query={query.source} />
+                                    ) : null
+                                }
+                                onRow={onRow}
+                                pinnedColumns={query.pinnedColumns}
+                            />
+                        </div>
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <PersonDeleteModal />

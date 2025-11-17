@@ -80,6 +80,7 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined)
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsLineGraphCumulative:
         case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsUnstackedBar:
         case ChartDisplayType.ActionsAreaGraph:
             return 'Y-axis unit'
         case ChartDisplayType.ActionsBarValue:

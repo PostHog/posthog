@@ -1,0 +1,11 @@
+[package]
+name = "common-compression"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flate2 = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+zstd = "0.13"
+

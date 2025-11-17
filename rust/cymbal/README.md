@@ -2,9 +2,10 @@
 
 You throw 'em, we catch 'em.
 
-
 ### Terms
+
 We use a lot of terms in this and other error tracking code, with implied meanings. Here are some of them:
+
 - **Issue**: A group of errors, representing, ideally, one bug.
 - **Error**: An event capable of producing an error fingerprint, letting it be grouped into an issue. May or may not have one or more stack traces.
 - **Fingerprint**: A unique identifier for class of errors. Generated based on the error type and message, and the stack if we have one (with or without raw frames). Notably, multiple fingerprints might be 1 error, because e.g. our ability to process stack frames (based on available symbol sets) changes over time, or our fingerprinting heuristics get better. We do not encode this "class of errors" notions anywhere - it's just important to remember an "issue" might group multiple fingerprints that all have the same "unprocessed" stack trace, but different "processed" ones, or even just that were received at different time.

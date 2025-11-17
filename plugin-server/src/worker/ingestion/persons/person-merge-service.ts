@@ -17,6 +17,7 @@ import {
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
     PersonMergeResult,
+    SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
     mergeError,
@@ -152,7 +153,7 @@ export class PersonMergeService {
             clearTimeout(timeout)
         }
         // For non-merge events or when no merge conditions are met, return success with no person
-        return mergeSuccess(undefined, Promise.resolve())
+        return mergeSuccess(undefined, Promise.resolve(), true)
     }
 
     public async merge(
@@ -164,7 +165,7 @@ export class PersonMergeService {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
             // Create a success result with undefined person to indicate no merge was needed
-            return mergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
@@ -178,7 +179,7 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return mergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
@@ -192,7 +193,7 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return mergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve(), true)
         }
 
         const result = await promiseRetry(
@@ -211,7 +212,6 @@ export class PersonMergeService {
         this.context.updateIsIdentified = true
 
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
-
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -259,14 +259,14 @@ export class PersonMergeService {
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.kafkaProducer.queueMessages(kafkaMessages)
-                return mergeSuccess(existingPerson, Promise.resolve())
+                return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
             if (otherPerson.id == mergeIntoPerson.id) {
                 // Nothing to do, they are the same Person
-                return mergeSuccess(mergeIntoPerson, Promise.resolve())
+                return mergeSuccess(mergeIntoPerson, Promise.resolve(), true)
             }
 
             const result = await this.mergePeople({
@@ -318,8 +318,7 @@ export class PersonMergeService {
                 // never needs an override.
                 const distinctId1Version = 0
 
-                const [person, _] = await this.personCreateService.createPerson(
-                    // TODO: in this case we could skip the properties updates later
+                const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
                     this.context.eventProperties['$set'] || {},
                     this.context.eventProperties['$set_once'] || {},
@@ -333,7 +332,10 @@ export class PersonMergeService {
                     ],
                     tx
                 )
-                return mergeSuccess(person, Promise.resolve())
+                // If person was not created (creation conflict) and is not identified,
+                // we need to update it later
+                const needsPersonUpdate = !wasCreated && !person.is_identified
+                return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
         }
     }
@@ -368,7 +370,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve())
+            return mergeSuccess(mergeInto, Promise.resolve(), true)
         }
 
         // How the merge works:
@@ -422,7 +424,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve())
+            return mergeSuccess(mergeInto, Promise.resolve(), true)
         }
 
         // For other errors (PersonMergeLimitExceededError, etc.), return the error result
@@ -509,7 +511,7 @@ export class PersonMergeService {
                 .inc()
 
             const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return mergeSuccess(mergedPerson, kafkaAck)
+            return mergeSuccess(mergedPerson, kafkaAck, true)
         } catch (error) {
             // Map exceptions to result types - these will cause transaction rollback
             if (error instanceof SourcePersonNotFoundError) {
@@ -518,6 +520,19 @@ export class PersonMergeService {
                 return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
                 return mergeError(error)
+            } else if (error.code === '23503') {
+                // Foreign key constraint violation when attempting to delete the source person.
+                // This occurs when a concurrent merge operation adds a distinct ID to the source person
+                // after we've already moved the distinct IDs we knew about, but before the DELETE executes.
+                // The retry mechanism will:
+                // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
+                // 2. Move ALL distinct IDs to the target person
+                // 3. Successfully delete the now-empty source person
+                return mergeError(
+                    new SourcePersonHasDistinctIdsError(
+                        'Cannot delete source person due to concurrent distinct ID additions'
+                    )
+                )
             } else {
                 // Re-throw unexpected errors
                 throw error
@@ -660,7 +675,10 @@ export class PersonMergeService {
 
             // Handle retryable errors
             if (attempt < maxRetries) {
-                if (result.error instanceof SourcePersonNotFoundError) {
+                if (
+                    result.error instanceof SourcePersonNotFoundError ||
+                    result.error instanceof SourcePersonHasDistinctIdsError
+                ) {
                     const refreshedPerson = await this.refreshPersonData(
                         sourceDistinctId,
                         currentSourcePerson.id,
@@ -669,7 +687,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve())
+                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
                     }
 
                     currentSourcePerson = refreshedPerson
@@ -683,7 +701,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return mergeSuccess(currentTargetPerson, Promise.resolve())
+                        return mergeSuccess(currentTargetPerson, Promise.resolve(), true)
                     }
 
                     currentTargetPerson = refreshedPerson

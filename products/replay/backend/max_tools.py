@@ -29,8 +29,8 @@ logger.setLevel(logging.DEBUG)
 
 
 class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     def _get_custom_tools(self) -> list:
         """Get custom tools for filter options."""
@@ -112,10 +112,8 @@ class SearchSessionRecordingsTool(MaxTool):
     - When NOT to use the tool:
       * When the user asks to summarize session recordings
     """
-    thinking_message: str = "Coming up with session recordings filters"
-    root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
+    context_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -129,6 +127,7 @@ class SearchSessionRecordingsTool(MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
         result = await graph.compile_full_graph().ainvoke(graph_context)

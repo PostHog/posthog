@@ -150,7 +150,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             person_display_name_properties: [],
             access_control: false,
             base_currency: 'USD',
-            session_recording_retention_period: 'legacy',
+            session_recording_retention_period: '30d',
             app_urls: [],
             event_names: [],
             event_names_with_usage: [],

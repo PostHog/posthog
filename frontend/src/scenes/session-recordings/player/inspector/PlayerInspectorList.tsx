@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -19,7 +19,7 @@ export function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, inspectorDataState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
+    const { items, isLoading, isReady, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused } =
         useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
 
@@ -68,28 +68,37 @@ export function PlayerInspectorList(): JSX.Element {
         }
     }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
-        return (
-            <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
-                {({ measure, registerChild }) => (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div ref={(r) => registerChild?.(r || undefined)} style={style}>
-                        <PlayerInspectorListItem
-                            key={index}
-                            item={items[index]}
-                            index={index}
-                            onLayout={({ height }) => {
-                                // Optimization to ensure that we only call measure if the dimensions have actually changed
-                                if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                                    measure()
-                                }
-                            }}
-                        />
-                    </div>
-                )}
-            </CellMeasurer>
-        )
-    }
+    const createLayoutHandler = useCallback(
+        (measure: () => void, index: number) => {
+            return ({ height }: { height: number }) => {
+                if (height !== cellMeasurerCache.getHeight(index, 0)) {
+                    measure()
+                }
+            }
+        },
+        [cellMeasurerCache]
+    )
+
+    const renderRow: ListRowRenderer = useCallback(
+        ({ index, key, parent, style }) => {
+            return (
+                <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
+                    {({ measure, registerChild }) => (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <div ref={(r) => registerChild?.(r || undefined)} style={style}>
+                            <PlayerInspectorListItem
+                                key={index}
+                                item={items[index]}
+                                index={index}
+                                onLayout={createLayoutHandler(measure, index)}
+                            />
+                        </div>
+                    )}
+                </CellMeasurer>
+            )
+        },
+        [items, cellMeasurerCache, createLayoutHandler]
+    )
 
     return (
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
@@ -126,15 +135,11 @@ export function PlayerInspectorList(): JSX.Element {
                         )}
                     </AutoSizer>
                 </div>
-            ) : inspectorDataState['events'] === 'loading' ||
-              inspectorDataState['console'] === 'loading' ||
-              inspectorDataState['network'] === 'loading' ? (
+            ) : isLoading ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
-            ) : inspectorDataState['events'] === 'ready' ||
-              inspectorDataState['console'] === 'ready' ||
-              inspectorDataState['network'] === 'ready' ? (
+            ) : isReady ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-secondary">No results matching your filters.</div>
             ) : null}

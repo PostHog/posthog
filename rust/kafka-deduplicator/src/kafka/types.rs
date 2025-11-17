@@ -1,6 +1,9 @@
-use rdkafka::topic_partition_list::TopicPartitionListElem;
+use std::fmt::{Display, Formatter, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+use rdkafka::topic_partition_list::TopicPartitionListElem;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Partition {
     topic: String,
     partition_number: i32,
@@ -20,6 +23,12 @@ impl Partition {
 
     pub fn partition_number(&self) -> i32 {
         self.partition_number
+    }
+}
+
+impl Display for Partition {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{}:{}", self.topic, self.partition_number)
     }
 }
 

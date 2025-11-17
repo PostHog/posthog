@@ -11,9 +11,17 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-
 if(inputs.debug) {
   print('Incoming request:', request.body)
+}
+
+if(request.method != inputs.method) {
+  return {
+    'httpResponse': {
+      'status': 405,
+      'body': 'Method not allowed'
+    }
+  }
 }
 
 if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.headers['authorization'])) {
@@ -93,6 +101,37 @@ postHogCapture({
                 'If set, the incoming Authorization header must match this value exactly. e.g. "Bearer SECRET_TOKEN"',
             secret: true,
             required: false,
+        },
+        {
+            key: 'method',
+            type: 'choice',
+            label: 'Method',
+            secret: false,
+            choices: [
+                {
+                    label: 'POST',
+                    value: 'POST',
+                },
+                {
+                    label: 'PUT',
+                    value: 'PUT',
+                },
+                {
+                    label: 'PATCH',
+                    value: 'PATCH',
+                },
+                {
+                    label: 'GET',
+                    value: 'GET',
+                },
+                {
+                    label: 'DELETE',
+                    value: 'DELETE',
+                },
+            ],
+            default: 'POST',
+            required: false,
+            description: 'HTTP method to allow for the request.',
         },
         {
             key: 'debug',

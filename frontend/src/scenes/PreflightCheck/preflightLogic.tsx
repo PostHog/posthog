@@ -133,7 +133,7 @@ export const preflightLogic = kea<preflightLogicType>([
                     },
                     {
                         id: 'frontend',
-                        name: 'Frontend build · Webpack',
+                        name: 'Frontend build · Vite',
                         status: 'validated', // Always validated if we're showing the preflight check
                     },
                     {
@@ -272,6 +272,8 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.cloud || preflight?.is_debug
             },
         ],
+        isTest: [(s) => [s.preflight], (preflight) => !!preflight?.is_test],
+        isHobby: [(s) => [s.isCloudOrDev, s.isTest], (isCloudOrDev, isTest) => !isCloudOrDev && !isTest],
         isCloud: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {

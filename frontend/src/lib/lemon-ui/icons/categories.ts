@@ -74,6 +74,7 @@ export const OBJECTS = {
         'IconRuler',
         'IconSignal',
         'IconTextWidthFixed',
+        'IconBrain',
     ],
     People: [
         'IconPeople',
@@ -101,7 +102,7 @@ export const OBJECTS = {
 }
 
 export const TECHNOLOGY = {
-    Messaging: [
+    Workflows: [
         'IconSend',
         'IconHeadset',
         'IconMessage',
@@ -153,6 +154,7 @@ export const TECHNOLOGY = {
     UI: [
         'IconPassword',
         'IconToggle',
+        'IconToggleOff',
         'IconLoading',
         'IconSpinner',
         'IconBrightness',
@@ -322,7 +324,8 @@ export const TEAMS_AND_COMPANIES = {
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconGitLab', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
     LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    PostHogAI: ['IconBrain'],
 }

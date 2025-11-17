@@ -35,8 +35,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action
+from posthog.models import Action, User
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[
@@ -55,6 +56,10 @@ WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
 class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        user_access_control = UserAccessControl(user=user, team=self.team)
+        return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     @cached_property
     def query_date_range(self):

@@ -34,7 +34,7 @@
 # name: TestMarketingAnalyticsAdapters.test_google_ads_query_generation
   '''
   
-  SELECT toString(google_campaign.campaign_name) AS campaign, toString('google') AS source, toFloat(SUM(google_stats.metrics_impressions)) AS impressions, toFloat(SUM(google_stats.metrics_clicks)) AS clicks, toFloat(divide(SUM(google_stats.metrics_cost_micros), 1000000)) AS cost, toFloat(SUM(google_stats.metrics_conversions)) AS reported_conversion 
+  SELECT toString(google_campaign.campaign_name) AS campaign, toString('google') AS source, toFloat(SUM(google_stats.metrics_impressions)) AS impressions, toFloat(SUM(google_stats.metrics_clicks)) AS clicks, toFloat(convertCurrency('USD', 'USD', SUM(toFloat(divide(google_stats.metrics_cost_micros, 1000000))))) AS cost, toFloat(SUM(google_stats.metrics_conversions)) AS reported_conversion 
   FROM google_campaign LEFT JOIN google_stats ON equals(google_campaign.campaign_id, google_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(google_campaign.campaign_name)
@@ -43,19 +43,37 @@
 # name: TestMarketingAnalyticsAdapters.test_linkedin_ads_query_generation
   '''
   
-  SELECT toString(linkedin_campaigns.name) AS campaign, toString('linkedin') AS source, toFloat(SUM(linkedin_stats.impressions)) AS impressions, toFloat(SUM(linkedin_stats.clicks)) AS clicks, toFloat(SUM(linkedin_stats.cost_in_usd)) AS cost, toFloat(SUM(linkedin_stats.external_website_conversions)) AS reported_conversion 
+  SELECT toString(linkedin_campaigns.name) AS campaign, toString('linkedin') AS source, toFloat(SUM(linkedin_stats.impressions)) AS impressions, toFloat(SUM(linkedin_stats.clicks)) AS clicks, toFloat(SUM(toFloat(linkedin_stats.cost_in_usd))) AS cost, toFloat(SUM(linkedin_stats.external_website_conversions)) AS reported_conversion 
   FROM linkedin_campaigns LEFT JOIN linkedin_stats ON equals(linkedin_campaigns.id, linkedin_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(linkedin_stats.date_start), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(linkedin_stats.date_start), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(linkedin_campaigns.name)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_generation
+  '''
+  
+  SELECT toString(meta_campaigns.name) AS campaign, toString('meta') AS source, toFloat(SUM(toFloat(meta_campaign_stats.impressions))) AS impressions, toFloat(SUM(toFloat(meta_campaign_stats.clicks))) AS clicks, SUM(toFloat(meta_campaign_stats.spend)) AS cost, 0 AS reported_conversion 
+  FROM meta_campaigns LEFT JOIN meta_campaign_stats ON equals(meta_campaigns.id, meta_campaign_stats.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(meta_campaigns.name)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_reddit_ads_query_generation
   '''
   
-  SELECT toString(reddit_campaign.name) AS campaign, toString('reddit') AS source, toFloat(SUM(reddit_stats.impressions)) AS impressions, toFloat(SUM(reddit_stats.clicks)) AS clicks, toFloat(divide(SUM(reddit_stats.spend), 1000000)) AS cost, toFloat(plus(SUM(reddit_stats.conversion_signup_total_value), SUM(reddit_stats.conversion_purchase_total_items))) AS reported_conversion 
+  SELECT toString(reddit_campaign.name) AS campaign, toString('reddit') AS source, toFloat(SUM(reddit_stats.impressions)) AS impressions, toFloat(SUM(reddit_stats.clicks)) AS clicks, SUM(toFloat(divide(reddit_stats.spend, 1000000))) AS cost, toFloat(plus(SUM(reddit_stats.conversion_signup_total_value), SUM(reddit_stats.conversion_purchase_total_items))) AS reported_conversion 
   FROM reddit_campaign LEFT JOIN reddit_stats ON equals(reddit_campaign.id, reddit_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(reddit_stats.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(reddit_stats.date), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(reddit_campaign.name)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_tiktok_ads_native_query_generation
+  '''
+  
+  SELECT toString(tiktok_campaigns.campaign_name) AS campaign, toString('tiktok') AS source, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.impressions))) AS impressions, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.clicks))) AS clicks, SUM(toFloatOrZero(tiktok_campaign_report.spend)) AS cost, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.conversion))) AS reported_conversion 
+  FROM tiktok_campaigns LEFT JOIN tiktok_campaign_report ON equals(tiktok_campaigns.campaign_id, tiktok_campaign_report.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(tiktok_campaign_report.stat_time_day), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(tiktok_campaign_report.stat_time_day), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(tiktok_campaigns.campaign_name)
   '''
 # ---
 # name: TestMarketingAnalyticsAdapters.test_tiktok_ads_query_generation

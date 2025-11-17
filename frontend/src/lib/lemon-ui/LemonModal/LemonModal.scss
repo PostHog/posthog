@@ -3,7 +3,7 @@
     inset: 0;
     z-index: var(--z-modal);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     transition:
         background-color var(--modal-transition-time) ease-out,
@@ -37,7 +37,9 @@
     width: fit-content;
     min-width: min(28rem, 100%);
     max-width: 90%;
-    max-height: 90%;
+
+    // Always give toasts some space at the bottom
+    max-height: calc(100vh - 60px - 2rem);
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);

@@ -39,6 +39,28 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_hogql_groupby_unnecessary_ifnull
+  '''
+  -- ClickHouse
+  
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, count() AS cnt 
+  FROM events 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10))) 
+  GROUP BY timestamp 
+  HAVING ifNull(greater(cnt, 10), 0) 
+  LIMIT 1 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT toDate(timestamp) AS timestamp, count() AS cnt 
+  FROM events 
+  WHERE greaterOrEquals(timestamp, addDays(today(), -10)) 
+  GROUP BY timestamp 
+  HAVING greater(cnt, 10) 
+  LIMIT 1
+  '''
+# ---
 # name: TestQuery.test_hogql_lambdas
   '''
   -- ClickHouse
@@ -50,6 +72,38 @@
   -- HogQL
   
   SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]), 1 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_proper_ifnull
+  '''
+  -- ClickHouse
+  
+  SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
+  FROM (
+  SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_6)s, ifNull(latest_events.latest_os_version, %(hogql_val_7)s))[1] AS major_version 
+  FROM (
+  SELECT events.distinct_id AS distinct_id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, %(hogql_val_1)s)) AS latest_os_version 
+  FROM events 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), minus(now64(6, %(hogql_val_5)s), toIntervalDay(30)))) 
+  GROUP BY events.distinct_id) AS latest_events) AS major_versions 
+  WHERE in(major_versions.major_version, tuple(%(hogql_val_8)s, %(hogql_val_9)s, %(hogql_val_10)s)) 
+  GROUP BY major_versions.major_version ORDER BY major_versions.major_version ASC 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
+  FROM (
+  SELECT distinct_id, latest_os_version, splitByChar('.', ifNull(latest_os_version, ''))[1] AS major_version 
+  FROM (
+  SELECT distinct_id, argMax(properties.$os_version, timestamp) AS latest_os_version 
+  FROM events 
+  WHERE and(equals(properties.$os, 'iOS'), greaterOrEquals(timestamp, minus(now(), toIntervalDay(30)))) 
+  GROUP BY distinct_id) AS latest_events) AS major_versions 
+  WHERE in(major_version, tuple('17', '18', '26')) 
+  GROUP BY major_version ORDER BY major_version ASC 
   LIMIT 100
   '''
 # ---
@@ -166,7 +220,7 @@
   FROM raw_sessions 
   WHERE equals(raw_sessions.team_id, 99999) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS sessions 
-  WHERE and(ifNull(equals(sessions.`$entry_current_url`, %(hogql_val_2)s), 0), 1) 
+  WHERE ifNull(equals(sessions.`$entry_current_url`, %(hogql_val_2)s), 0) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
   
@@ -209,6 +263,24 @@
   SELECT event 
   FROM events 
   LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_unnecessary_ifnull
+  '''
+  -- ClickHouse
+  
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(events.properties, %(hogql_val_1)s) AS json_int 
+  FROM events 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT toDate(timestamp) AS timestamp, JSONExtractInt(properties, 'field') AS json_int 
+  FROM events 
+  WHERE and(greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1
   '''
 # ---
 # name: TestQuery.test_join_with_property_materialized_session_id

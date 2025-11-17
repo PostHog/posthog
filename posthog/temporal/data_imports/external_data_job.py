@@ -19,6 +19,8 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -41,11 +43,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
+from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import update_should_sync
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -62,6 +65,8 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
         "Expired API Key provided",
+        "Invalid API Key provided",
+        "PermissionError",
     ],
     ExternalDataSourceType.POSTGRES: [
         "NoSuchTableError",
@@ -87,7 +92,11 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "OperationalError: connection failed: connection to server at",
         "password authentication failed connection",
     ],
-    ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+    ExternalDataSourceType.ZENDESK: [
+        "404 Client Error: Not Found for url",
+        "403 Client Error: Forbidden for url",
+        "401 Client Error",
+    ],
     ExternalDataSourceType.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
@@ -119,10 +128,15 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
     ExternalDataSourceType.METAADS: [
         "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
     ],
-    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist"],
+    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist", "authentication failed"],
     ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
-    ExternalDataSourceType.GOOGLESHEETS: ["the header row in the worksheet contains duplicates", "can't be found"],
+    ExternalDataSourceType.GOOGLESHEETS: [
+        "the header row in the worksheet contains duplicates",
+        "can't be found",
+        "SpreadsheetNotFound",
+    ],
     ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
+    ExternalDataSourceType.REDDITADS: ["401 Client Error", "404 Client Error"],
 }
 
 
@@ -178,7 +192,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     if inputs.internal_error:
         logger.exception(
-            f"External data job failed for external data schema {inputs.schema_id} with error: {inputs.internal_error}"
+            f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
         )
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
@@ -346,10 +360,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 reset_pipeline=inputs.reset_pipeline,
             )
 
+            is_resumable_source = False
+            if source_type is not None:
+                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                is_resumable_source = isinstance(source, ResumableSource)
+
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
-                if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
+                if incremental or is_resumable_source
+                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
             await workflow.execute_activity(

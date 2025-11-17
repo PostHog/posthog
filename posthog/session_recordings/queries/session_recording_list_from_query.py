@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 import structlog
 from opentelemetry import trace
@@ -18,8 +18,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -58,6 +59,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
+            max(s.retention_period_days) as retention_period_days,
+            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
+            date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
             round((
             ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
@@ -72,8 +76,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
 
     @staticmethod
-    def _data_to_return(results: list[Any] | None) -> list[dict[str, Any]]:
-        default_columns = [
+    def _get_result_columns() -> list[str]:
+        """Returns the column order of the query results"""
+        return [
             "session_id",
             "team_id",
             "distinct_id",
@@ -89,9 +94,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "console_log_count",
             "console_warn_count",
             "console_error_count",
+            "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "ongoing",
             "activity_score",
         ]
+
+    @staticmethod
+    def _data_to_return(results: list[Any] | None) -> list[dict[str, Any]]:
+        default_columns = SessionRecordingListFromQuery._get_result_columns()
 
         return [
             {
@@ -104,7 +116,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers],
+        hogql_query_modifiers: HogQLQueryModifiers | None = None,
+        allow_event_property_expansion: bool = False,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -115,10 +128,31 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         super().__init__(team, expanded_query)
 
-        self._paginator = HogQLHasMorePaginator(
-            limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset or 0
-        )
+        # Use offset-based pagination only when offset is explicitly provided, otherwise use cursor-based
+        # This provides backward compatibility while making cursor-based the default
+        if expanded_query.offset is not None:
+            # Backward compatibility: use offset-based pagination when offset is explicitly provided
+            self._paginator: Union[HogQLCursorPaginator, HogQLHasMorePaginator] = HogQLHasMorePaginator(
+                limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=expanded_query.offset
+            )
+        else:
+            # Default: use cursor-based pagination (even on first page without 'after')
+            order_field = expanded_query.order.value if expanded_query.order else RecordingOrder.START_TIME
+            order_direction = expanded_query.order_direction or "DESC"
+
+            # Create field index mapping for cursor extraction from tuple results
+            field_indices = {field: idx for idx, field in enumerate(self._get_result_columns())}
+
+            self._paginator = HogQLCursorPaginator(
+                limit=expanded_query.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT,
+                after=expanded_query.after,
+                order_field=order_field,
+                order_direction=order_direction,
+                field_indices=field_indices,
+                use_having_clause=True,  # Session recordings query uses GROUP BY, so cursor conditions must be in HAVING
+            )
         self._hogql_query_modifiers = hogql_query_modifiers
+        self._allow_event_property_expansion = allow_event_property_expansion
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -135,10 +169,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
+            next_cursor = None
+            if isinstance(self._paginator, HogQLCursorPaginator):
+                next_cursor = self._paginator.get_next_cursor()
+
             return SessionRecordingQueryResult(
                 results=(self._data_to_return(self._paginator.results)),
                 has_more_recording=self._paginator.has_more(),
                 timings=paginated_response.timings,
+                next_cursor=next_cursor,
             )
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
@@ -161,12 +200,21 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
+                "python_now": ast.Constant(value=datetime.now(UTC)),
+                "ttl_days": ast.Constant(value=ttl_days(self._team)),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
             raise Exception("replay does not support SelectSetQuery")
 
-        parsed_query.order_by = [self._order_by_clause()]
+        # Include session_id as a tie-breaker for stable cursor-based pagination
+        parsed_query.order_by = [
+            self._order_by_clause(),
+            ast.OrderExpr(
+                expr=ast.Field(chain=["session_id"]),
+                order=cast(Literal["ASC", "DESC"], self._query.order_direction or "DESC"),
+            ),
+        ]
         return parsed_query
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._order_by_clause")
@@ -179,45 +227,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["s", "min_first_timestamp"]),
-                right=ast.Constant(value=datetime.now(UTC) - timedelta(days=self.ttl_days)),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Call(
-                    name="addDays",
-                    args=[
-                        ast.Call(
-                            name="dateTrunc",
-                            args=[
-                                ast.Constant(value="DAY"),
-                                ast.Field(chain=["s", "min_first_timestamp"]),
-                            ],
-                        ),
-                        ast.Constant(value=1),
-                    ],
-                ),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Constant(value=datetime.now(UTC)),
-                    right=ast.Call(
-                        name="toIntervalDay",
-                        args=[
-                            ast.Call(
-                                name="coalesce",
-                                args=[
-                                    ast.Field(chain=["s", "retention_period_days"]),
-                                    ast.Constant(value=365),
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-            ),
-        ]
+        exprs: list[ast.Expr] = []
 
         if self._query.distinct_ids:
             exprs.append(
@@ -265,7 +275,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        events_sub_queries = ReplayFiltersEventsSubQuery(
+            self._team, self._query, self._allow_event_property_expansion
+        ).get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -337,8 +349,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
-        return (
-            property_to_expr(self._query.having_predicates, team=self._team, scope="replay")
-            if self._query.having_predicates
-            else None
-        )
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["expiry_time"]),
+                right=ast.Constant(value=datetime.now(UTC)),
+            ),
+        ]
+
+        if self._query.having_predicates:
+            exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        return ast.And(exprs=exprs)

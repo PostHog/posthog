@@ -41,6 +41,14 @@ def DROP_EVENTS_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
+def DROP_KAFKA_EVENTS_RECENT_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS kafka_events_recent_json"
+
+
+def DROP_EVENTS_RECENT_MV_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS events_recent_json_mv"
+
+
 DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CLAUSE()}"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
@@ -223,15 +231,15 @@ FROM {database}.kafka_events_json
 )
 
 
-def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():
+def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
     return (
         EVENTS_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100
+    SETTINGS kafka_skip_broken_messages = 100,  kafka_num_consumers = 2, kafka_thread_per_consumer = 1
 """
     ).format(
         table_name="kafka_events_recent_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
         extra_fields="",
         materialized_columns="",
@@ -240,8 +248,8 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():
 
 
 EVENTS_RECENT_TABLE_JSON_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER '{cluster}'
+    lambda target_table="writable_events_recent": """
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -272,8 +280,7 @@ _offset,
 _partition
 FROM {database}.kafka_events_recent_json
 """.format(
-        target_table=EVENTS_RECENT_DATA_TABLE(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        target_table=target_table,
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
@@ -308,6 +315,20 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
             cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="writable_events_recent",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=EVENTS_RECENT_DATA_TABLE(),
+            cluster=settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
         indexes="",
     )

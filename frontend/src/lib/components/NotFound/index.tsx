@@ -13,6 +13,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
@@ -31,9 +32,10 @@ interface NotFoundProps {
     meta?: {
         urlId?: string
     }
+    className?: string
 }
 
-export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -46,9 +48,12 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
     })
 
     return (
-        <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
+        <div
+            className={cn('NotFoundComponent', className)}
+            data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}
+        >
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
-            <h1 className="text-3xl font-bold mt-4 mb-0">
+            <h1 className="text-2xl font-bold mt-4 mb-0">
                 {appContext?.suggested_users_with_access
                     ? 'Log in as a customer to access this project'
                     : `${capitalizeFirstLetter(object)} not found`}

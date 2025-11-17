@@ -1,4 +1,4 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -66,6 +66,24 @@ export function ExperimentMetricOutlierHandling({
                             metric.upper_bound_percentile === undefined ? 'opacity-0 invisible' : 'opacity-100 visible'
                         }`}
                     />
+                    <div
+                        className={`text-xs transition-opacity ${
+                            metric.upper_bound_percentile === undefined ? 'opacity-0 invisible' : 'opacity-100 visible'
+                        }`}
+                    >
+                        <Tooltip
+                            title="Useful if a large number of participants in the experiment does not have the event resulting in a 0 value."
+                            docLink="https://posthog.com/docs/experiments/metrics#outlier-handling"
+                        >
+                            <span>
+                                <LemonCheckbox
+                                    label="Ignore zeros when calculating upper bound"
+                                    checked={metric.ignore_zeros ?? false}
+                                    onChange={(checked) => handleSetMetric({ ...metric, ignore_zeros: checked })}
+                                />
+                            </span>
+                        </Tooltip>
+                    </div>
                 </div>
             </div>
         </SceneSection>

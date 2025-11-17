@@ -2,6 +2,7 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.timezone import now
 
@@ -16,7 +17,6 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -29,9 +29,10 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
-logger = structlog.get_logger(__name__)
+# Allow max 10 full video exports per team per calendar month
+FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 
-SIX_MONTHS = timedelta(weeks=26)
+logger = structlog.get_logger(__name__)
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -51,7 +52,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "expires_after",
             "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
         """Override to show stuck exports as having an exception."""
@@ -100,7 +101,31 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
+        # NEW: Check full video export limit for team (only MP4 exports with "video" mode)
+        export_format = data.get("export_format")
+        export_context = data.get("export_context", {})
+        export_mode = export_context.get("mode")
+
+        if export_format == "video/mp4" and export_mode == "video":
+            # Calculate the start of the current month
+            current_time = now()
+            start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            existing_full_video_exports_count = ExportedAsset.objects.filter(
+                team_id=self.context["team_id"],
+                export_format="video/mp4",
+                export_context__mode="video",
+                created_at__gte=start_of_month,
+            ).count()
+
+            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+                raise ValidationError(
+                    {
+                        "export_limit_exceeded": [
+                            f"Your team has reached the limit of {FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM} full video exports this month."
+                        ]
+                    }
+                )
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -159,7 +184,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )

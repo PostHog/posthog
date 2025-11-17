@@ -1,14 +1,8 @@
-import posthog from 'posthog-js'
-
-import { eventWithTime } from '@posthog/rrweb-types'
-import { fullSnapshotEvent } from '@posthog/rrweb-types'
 import { EventType } from '@posthog/rrweb-types'
 
 import { isObject } from 'lib/utils'
 
 import { RecordingSnapshot } from '~/types'
-
-import { throttleCapture } from './throttle-capturing'
 
 export interface ViewportResolution {
     width: string
@@ -22,92 +16,71 @@ export const getHrefFromSnapshot = (snapshot: unknown): string | undefined => {
         : undefined
 }
 
-export function patchMetaEventIntoWebData(
-    snapshots: RecordingSnapshot[],
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    // Iterate in reverse order so we can modify the array while iterating
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-        const snapshot = snapshots[i]
-        if (snapshot.type !== EventType.FullSnapshot) {
-            continue
-        }
-
-        const previousEvent = snapshots[i - 1]
-        const previousEventIsMeta = previousEvent?.type === EventType.Meta
-        if (previousEventIsMeta) {
-            continue
-        }
-
-        const viewport = viewportForTimestamp(snapshot.timestamp)
-        const thereIsNoViewport = !viewport || !viewport.width || !viewport.height
-        if (thereIsNoViewport) {
-            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
-                    snapshot,
-                })
-            })
-        } else {
-            snapshots.splice(i, 0, {
-                type: EventType.Meta,
-                timestamp: snapshot.timestamp,
-                windowId: snapshot.windowId,
-                data: {
-                    width: parseInt(viewport.width, 10),
-                    height: parseInt(viewport.height, 10),
-                    href: viewport.href || 'unknown',
-                },
-            })
-        }
+/**
+ * Extract dimensions from transformed mobile full snapshot data
+ * This is a fallback when viewport data is not available from events
+ *
+ * By the time this function is called, mobile wireframes have already been transformed by mobileReplay.transformEventToWeb
+ * The transformer creates a specific pattern: body element with data-rrweb-id containing an img element with data-rrweb-id and dimensions
+ */
+export const extractDimensionsFromMobileSnapshot = (snapshot: RecordingSnapshot): ViewportResolution | undefined => {
+    if (snapshot.type !== EventType.FullSnapshot) {
+        return undefined
     }
 
-    return snapshots
-}
-
-/*
- there was a bug in mobile SDK that didn't consistently send a meta event with a full snapshot.
- rrweb player hides itself until it has seen the meta event 🤷
- but we can patch a meta event into the recording data to make it work
-*/
-export function patchMetaEventIntoMobileData(
-    parsedLines: RecordingSnapshot[],
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    let fullSnapshotIndex: number = -1
-    let metaIndex: number = -1
     try {
-        fullSnapshotIndex = parsedLines.findIndex((l) => l.type === EventType.FullSnapshot)
-        metaIndex = parsedLines.findIndex((l) => l.type === EventType.Meta)
+        const data = snapshot.data as any
+        const node = data?.node as any
 
-        // then we need to patch the meta event into the snapshot data
-        if (fullSnapshotIndex > -1 && metaIndex === -1) {
-            const fullSnapshot = parsedLines[fullSnapshotIndex] as RecordingSnapshot & fullSnapshotEvent & eventWithTime
-            // a full snapshot (particularly from the mobile transformer) has a relatively fixed structure,
-            // but the types exposed by rrweb don't quite cover what we need , so...
-            const mainNode = fullSnapshot.data.node as any
-            const targetNode = mainNode.childNodes[1].childNodes[1].childNodes[0]
-            const { width, height } = targetNode.attributes
-            const metaEvent: RecordingSnapshot = {
-                windowId: fullSnapshot.windowId,
-                type: EventType.Meta,
-                timestamp: fullSnapshot.timestamp,
-                data: {
-                    href: getHrefFromSnapshot(fullSnapshot) || '',
-                    width,
-                    height,
-                },
-            }
-            parsedLines.splice(fullSnapshotIndex, 0, metaEvent)
+        if (!node?.childNodes) {
+            return undefined
         }
-    } catch (e) {
-        throttleCapture(`${sessionRecordingId}-missing-mobile-meta-patching`, () => {
-            posthog.captureException(e, {
-                tags: { feature: 'session-recording-missing-mobile-meta-patching' },
-                extra: { fullSnapshotIndex, metaIndex },
-            })
-        })
+
+        // Mobile transformed structure: Document -> [DocumentType, HTML] -> HTML -> [Head, Body]
+        // Use direct traversal instead of .find() for performance
+        let htmlElement: any
+        for (const child of node.childNodes) {
+            if (child.type === 2 && child.tagName === 'html') {
+                htmlElement = child
+                break
+            }
+        }
+
+        if (!htmlElement?.childNodes) {
+            return undefined
+        }
+
+        let bodyElement: any
+        for (const child of htmlElement.childNodes) {
+            if (child.type === 2 && child.tagName === 'body' && child.attributes?.['data-rrweb-id']) {
+                bodyElement = child
+                break
+            }
+        }
+
+        if (!bodyElement?.childNodes) {
+            return undefined
+        }
+
+        // Find first img with required attributes (mobile screenshot)
+        for (const child of bodyElement.childNodes) {
+            if (
+                child.type === 2 &&
+                child.tagName === 'img' &&
+                child.attributes?.['data-rrweb-id'] &&
+                child.attributes?.width &&
+                child.attributes?.height
+            ) {
+                return {
+                    width: String(child.attributes.width),
+                    height: String(child.attributes.height),
+                    href: data?.href || getHrefFromSnapshot(snapshot) || 'unknown',
+                }
+            }
+        }
+    } catch {
+        // Silently fail - this is a best-effort extraction
     }
 
-    return parsedLines
+    return undefined
 }

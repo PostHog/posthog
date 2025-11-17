@@ -79,7 +79,7 @@ function useBillingTooltip(): {
     useOnMountEffect(() => {
         return () => {
             if (tooltipRootRef.current) {
-                setTimeout(() => tooltipRootRef.current?.unmount(), 0)
+                tooltipRootRef.current.unmount()
             }
             tooltipElRef.current?.remove()
         }
@@ -187,6 +187,8 @@ export function BillingLineGraph({
                 },
             },
             plugins: {
+                // @ts-expect-error Types of library are out of date
+                crosshair: false,
                 tooltip: {
                     enabled: false, // Disable default tooltip
                     external: ({ tooltip }: { chart: Chart; tooltip: TooltipModel<'line'> }) => {

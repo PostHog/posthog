@@ -22,7 +22,10 @@ export interface SimpleOption {
     propertyFilterType?: PropertyFilterType
 }
 
-export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
+export type ExcludedProperties = TaxonomicFilterGroupValueMap
+export type SelectedProperties = TaxonomicFilterGroupValueMap
+export type AllowedProperties = TaxonomicFilterGroupValueMap
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
@@ -45,7 +48,9 @@ export interface TaxonomicFilterProps {
     autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties and PersonProperties
+    /** use to indicate if a result in a group is selected */
+    selectedProperties?: SelectedProperties
+    propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
@@ -134,6 +139,8 @@ export enum TaxonomicFilterGroupType {
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
     Events = 'events',
+    InternalEvents = 'internal_events',
+    InternalEventProperties = 'internal_event_properties',
     EventProperties = 'event_properties',
     EventFeatureFlags = 'event_feature_flags',
     EventMetadata = 'event_metadata',
@@ -163,6 +170,7 @@ export enum TaxonomicFilterGroupType {
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
+    ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }

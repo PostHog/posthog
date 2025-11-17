@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
@@ -29,6 +29,12 @@ const lazyLoaderQueuedCacheHits = new Counter({
     labelNames: ['name', 'hit'],
 })
 
+const lazyLoaderCacheSize = new Gauge({
+    name: 'lazy_loader_cache_size',
+    help: 'Current number of entries in the cache',
+    labelNames: ['name'],
+})
+
 /**
  * We have a common pattern across consumers where we want to:
  * - Load a value lazily
@@ -56,6 +62,8 @@ export type LazyLoaderOptions<T> = {
     refreshJitterMs?: number
     /** How long to buffer loads for - if set to 0 then it will load immediately without buffering */
     bufferMs?: number
+    /** Maximum number of entries in the cache - LRU eviction when exceeded */
+    maxSize?: number
 }
 
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
@@ -71,6 +79,7 @@ export class LazyLoader<T> {
     private refreshNullAgeMs: number
     private refreshBackgroundAgeMs?: number
     private refreshJitterMs: number
+    private maxSize: number
 
     private buffer:
         | {
@@ -90,6 +99,7 @@ export class LazyLoader<T> {
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
+        this.maxSize = this.options.maxSize ?? defaultConfig.LAZY_LOADER_MAX_SIZE
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
@@ -121,6 +131,7 @@ export class LazyLoader<T> {
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
         // this.pendingLoads = {} // NOTE: We don't clear this
+        this.updateCacheSizeMetric()
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
@@ -138,6 +149,8 @@ export class LazyLoader<T> {
                     Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
+        this.evictLRU()
+        this.updateCacheSizeMetric()
     }
 
     /**
@@ -270,5 +283,38 @@ export class LazyLoader<T> {
         this.setValues(mappedResults)
 
         return mappedResults
+    }
+
+    private evictLRU(): void {
+        const cacheSize = Object.keys(this.cache).length
+        if (cacheSize <= this.maxSize) {
+            return
+        }
+
+        // Sort keys by lastUsed time (oldest first)
+        const sortedKeys = Object.entries(this.lastUsed)
+            .filter(([key]) => key in this.cache)
+            .sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
+
+        // Calculate how many to evict
+        const toEvict = cacheSize - this.maxSize
+        const keysToEvict = sortedKeys.slice(0, toEvict).map(([key]) => key)
+
+        // Evict the least recently used entries
+        for (const key of keysToEvict) {
+            delete this.cache[key]
+            delete this.lastUsed[key]
+            delete this.cacheUntil[key]
+            delete this.backgroundRefreshAfter[key]
+        }
+
+        if (keysToEvict.length > 0) {
+            this.updateCacheSizeMetric()
+        }
+    }
+
+    private updateCacheSizeMetric(): void {
+        const cacheSize = Object.keys(this.cache).length
+        lazyLoaderCacheSize.labels({ name: this.options.name }).set(cacheSize)
     }
 }

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional, Union
 
 from posthog.schema import (
@@ -7,7 +6,6 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
-    MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
 
@@ -16,25 +14,10 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import Action, Team
 
-from .adapters.base import MarketingSourceAdapter
-from .constants import (
-    CAMPAIGN_COST_CTE_NAME,
-    CONVERSION_GOAL_PREFIX,
-    CONVERSION_GOAL_PREFIX_ABBREVIATION,
-    DECIMAL_PRECISION,
-    DEFAULT_DISTINCT_ID_FIELD,
-    ORGANIC_CAMPAIGN,
-    ORGANIC_SOURCE,
-    TOTAL_COST_FIELD,
-)
+from .adapters.factory import MarketingSourceFactory
+from .marketing_analytics_config import MarketingAnalyticsConfig
 
-MAX_ATTRIBUTION_WINDOW_DAYS = 365  # let's start with a year window for the conversions
 DAY_IN_SECONDS = 86400
-
-
-class AttributionModeOperator(Enum):
-    LAST_TOUCH = "arrayMax"
-    FIRST_TOUCH = "arrayMin"
 
 
 @dataclass
@@ -50,8 +33,7 @@ class ConversionGoalProcessor:
     goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]
     index: int
     team: Team
-    attribution_window_days: int = MAX_ATTRIBUTION_WINDOW_DAYS
-    attribution_mode: str = AttributionModeOperator.LAST_TOUCH.value
+    config: MarketingAnalyticsConfig
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -99,9 +81,9 @@ class ConversionGoalProcessor:
         """Build DAU (Daily Active Users) select expression"""
         if self.goal.kind == "DataWarehouseNode":
             schema_map = self.goal.schema_map
-            distinct_id_field = schema_map.get("distinct_id_field", DEFAULT_DISTINCT_ID_FIELD)
+            distinct_id_field = schema_map.get("distinct_id_field", self.config.default_distinct_id_field)
             return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
-        return ast.Call(name="uniq", args=[ast.Field(chain=["events", DEFAULT_DISTINCT_ID_FIELD])])
+        return ast.Call(name="uniq", args=[ast.Field(chain=["events", self.config.default_distinct_id_field])])
 
     def _build_sum_select(self) -> ast.Expr:
         """Build SUM aggregation select expression"""
@@ -118,7 +100,7 @@ class ConversionGoalProcessor:
             name="round",
             args=[
                 ast.Call(name="sum", args=[ast.Call(name="toFloat", args=[property_field])]),
-                ast.Constant(value=DECIMAL_PRECISION),
+                ast.Constant(value=self.config.decimal_precision),
             ],
         )
 
@@ -163,7 +145,7 @@ class ConversionGoalProcessor:
 
     def _generate_array_based_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
-        if self.attribution_window_days > 0:
+        if self.config.attribution_window_days > 0:
             return self._generate_funnel_query(additional_conditions)
         return self._generate_direct_query(additional_conditions)
 
@@ -177,7 +159,7 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Build nested query structure for attribution
-        attribution_window_seconds = self.attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
         array_join = self._build_array_join_subquery(array_collection, attribution_window_seconds)
         attribution = self._build_attribution_logic_subquery(array_join)
@@ -245,13 +227,19 @@ class ConversionGoalProcessor:
         event_filter: ast.Expr
         if conversion_event:
             # For specific conversion events, we need both conversion and pageview logic
-            event_filter = ast.Or(
-                exprs=[
-                    self._build_conversion_event_filter(conversion_event, date_conditions),
-                    self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
-                ]
-            )
-        elif self.goal.kind == "ActionsNode" and self.attribution_window_days > 0:
+            if conversion_event == "$pageview":
+                # For pageview conversions, we only need attribution pageviews (with UTM data).
+                # No need for separate conversion filter since conversion IS the pageview.
+                event_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
+            else:
+                # For non-pageview conversions, use both filters (no overlap possible)
+                event_filter = ast.Or(
+                    exprs=[
+                        self._build_conversion_event_filter(conversion_event, date_conditions),
+                        self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
+                    ]
+                )
+        elif self.goal.kind == "ActionsNode" and self.config.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)
@@ -325,7 +313,7 @@ class ConversionGoalProcessor:
         ]
 
         # Apply extended date conditions for pageviews (attribution window)
-        attribution_window_seconds = self.attribution_window_days * DAY_IN_SECONDS
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         for date_condition in date_conditions:
             if isinstance(date_condition, ast.CompareOperation):
                 if date_condition.op == ast.CompareOperationOp.GtEq:
@@ -645,7 +633,7 @@ class ConversionGoalProcessor:
         return ast.Alias(
             alias="last_utm_timestamp",
             expr=ast.Call(
-                name=self.attribution_mode,
+                name=self.config.attribution_mode_operator,
                 args=[
                     ast.Call(
                         name="arrayFilter",
@@ -762,19 +750,56 @@ class ConversionGoalProcessor:
         else:
             return ast.Constant(value=1)
 
+    def _normalize_source_field(self, source_expr: ast.Expr) -> ast.Expr:
+        """
+        Normalize source field to map alternative UTM sources to primary sources.
+        Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
+        """
+        # Convert source to lowercase for case-insensitive matching
+        lowercase_source = ast.Call(name="lower", args=[source_expr])
+
+        # Build nested if expressions for each mapping
+        normalized_expr = source_expr
+
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings()
+        for primary_source, alternative_sources in source_mappings.items():
+            # Skip the primary source itself in the alternatives list
+            alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
+
+            if alternatives_only:
+                # If lowercase source is in alternatives, return primary; otherwise continue
+                normalized_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(
+                            name="in",
+                            args=[
+                                lowercase_source,
+                                ast.Array(exprs=[ast.Constant(value=alt) for alt in alternatives_only]),
+                            ],
+                        ),
+                        ast.Constant(value=primary_source),
+                        normalized_expr,
+                    ],
+                )
+
+        return normalized_expr
+
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
         select_columns: list[ast.Expr] = [
             ast.Alias(
-                alias=MarketingSourceAdapter.campaign_name_field,
-                expr=self._build_organic_default_expr("campaign_name", ORGANIC_CAMPAIGN),
+                alias=self.config.campaign_field,
+                expr=self._build_organic_default_expr("campaign_name", self.config.organic_campaign),
             ),
             ast.Alias(
-                alias=MarketingSourceAdapter.source_name_field,
-                expr=self._build_organic_default_expr("source_name", ORGANIC_SOURCE),
+                alias=self.config.source_field,
+                expr=self._normalize_source_field(
+                    self._build_organic_default_expr("source_name", self.config.organic_source)
+                ),
             ),
             ast.Alias(
-                alias=CONVERSION_GOAL_PREFIX + str(self.index),
+                alias=self.config.get_conversion_goal_column_name(self.index),
                 expr=self._get_aggregation_expr(),
             ),
         ]
@@ -782,10 +807,7 @@ class ConversionGoalProcessor:
         return ast.SelectQuery(
             select=select_columns,
             select_from=ast.JoinExpr(table=attribution_query, alias="attributed_conversions"),
-            group_by=[
-                ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
-                ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
-            ],
+            group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
 
     def _build_organic_default_expr(self, field_name: str, default_value: str) -> ast.Call:
@@ -828,15 +850,19 @@ class ConversionGoalProcessor:
         # Build SELECT columns with organic defaults
         select_columns: list[ast.Expr] = [
             ast.Alias(
-                alias=MarketingSourceAdapter.campaign_name_field,
-                expr=ast.Call(name="coalesce", args=[utm_campaign_expr, ast.Constant(value=ORGANIC_CAMPAIGN)]),
+                alias=self.config.campaign_field,
+                expr=ast.Call(
+                    name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
+                ),
             ),
             ast.Alias(
-                alias=MarketingSourceAdapter.source_name_field,
-                expr=ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=ORGANIC_SOURCE)]),
+                alias=self.config.source_field,
+                expr=self._normalize_source_field(
+                    ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=self.config.organic_source)])
+                ),
             ),
             ast.Alias(
-                alias=CONVERSION_GOAL_PREFIX + str(self.index),
+                alias=self.config.get_conversion_goal_column_name(self.index),
                 expr=select_field,
             ),
         ]
@@ -850,40 +876,32 @@ class ConversionGoalProcessor:
             select=select_columns,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table])),
             where=where_expr,
-            group_by=[
-                ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
-                ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
-            ],
+            group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
 
-    def generate_cte_query_expr(self, additional_conditions: list[ast.Expr]) -> ast.Expr:
-        """Generate CTE query expression"""
-        cte_name = self.get_cte_name()
-        select_query = self.generate_cte_query(additional_conditions)
-        return ast.Alias(alias=cte_name, expr=select_query)
-
-    def generate_join_clause(self) -> ast.JoinExpr:
+    def generate_join_clause(self, use_full_outer_join: bool = False) -> ast.JoinExpr:
         """Generate JOIN clause for this conversion goal"""
         cte_name = self.get_cte_name()
-        alias = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
+        alias = self.config.get_conversion_goal_alias(self.index)
 
         join_condition = ast.And(
             exprs=[
                 ast.CompareOperation(
-                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Field(chain=[alias, MarketingSourceAdapter.campaign_name_field]),
+                    right=ast.Field(chain=[alias, self.config.campaign_field]),
                 ),
                 ast.CompareOperation(
-                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field]),
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Field(chain=[alias, MarketingSourceAdapter.source_name_field]),
+                    right=ast.Field(chain=[alias, self.config.source_field]),
                 ),
             ]
         )
 
+        join_type = "FULL OUTER JOIN" if use_full_outer_join else "LEFT JOIN"
         return ast.JoinExpr(
-            join_type="LEFT JOIN",
+            join_type=join_type,
             table=ast.Field(chain=[cte_name]),
             alias=alias,
             constraint=ast.JoinConstraint(expr=join_condition, constraint_type="ON"),
@@ -892,14 +910,14 @@ class ConversionGoalProcessor:
     def generate_select_columns(self) -> list[ast.Alias]:
         """Generate SELECT columns for this conversion goal"""
         goal_name = self.goal.conversion_goal_name
-        alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
+        alias_prefix = self.config.get_conversion_goal_alias(self.index)
 
-        conversion_goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
+        conversion_goal_field = ast.Field(chain=[alias_prefix, self.config.get_conversion_goal_column_name(self.index)])
         conversion_goal_alias = ast.Alias(alias=goal_name, expr=conversion_goal_field)
 
         # Cost per conversion calculation
-        cost_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
-        goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
+        cost_field = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
+        goal_field = ast.Field(chain=[alias_prefix, self.config.get_conversion_goal_column_name(self.index)])
 
         cost_per_goal_expr = ast.Call(
             name="round",
@@ -909,12 +927,12 @@ class ConversionGoalProcessor:
                     op=ast.ArithmeticOperationOp.Div,
                     right=ast.Call(name="nullif", args=[goal_field, ast.Constant(value=0)]),
                 ),
-                ast.Constant(value=DECIMAL_PRECISION),
+                ast.Constant(value=self.config.decimal_precision),
             ],
         )
 
         cost_per_goal_alias = ast.Alias(
-            alias=f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {goal_name}",
+            alias=f"{self.config.cost_per_prefix} {goal_name}",
             expr=cost_per_goal_expr,
         )
 

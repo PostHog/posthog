@@ -2,7 +2,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import CanEditFeatureFlag, FeatureFlagSerializer
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -65,9 +65,15 @@ class OrganizationFeatureFlagView(
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the user is allowed to edit the flag
-        can_edit_feature_flag = CanEditFeatureFlag()
-        if not can_edit_feature_flag.has_object_permission(self.request, None, flag_to_copy):
+        # Check if the user is allowed to edit the flag using new access control
+        from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+
+        user_access_control = UserAccessControl(request.user, flag_to_copy.team)
+        user_access_level = user_access_control.get_user_access_level(flag_to_copy)
+
+        if not user_access_level or not access_level_satisfied_for_resource(
+            "feature_flag", user_access_level, "editor"
+        ):
             return Response(
                 {"error": "You do not have permission to copy this flag."}, status=status.HTTP_403_FORBIDDEN
             )
@@ -171,22 +177,26 @@ class OrganizationFeatureFlagView(
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
             }
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team__project_id=target_project_id, deleted=False
+            ).first()
+
             context = {
                 "request": request,
                 "team_id": target_project_id,
                 "project_id": target_project_id,
             }
 
-            existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team__project_id=target_project_id, deleted=False
-            ).first()
-            # Update existing flag
+            # Set method to PATCH for updates, POST for new creations
+            # This ensures proper validation scoping for feature flag creation
             if existing_flag:
+                request.method = "PATCH"
                 feature_flag_serializer = FeatureFlagSerializer(
                     existing_flag, data=flag_data, partial=True, context=context
                 )
             # Create new flag
             else:
+                request.method = "POST"
                 feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
 
             try:

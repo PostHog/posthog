@@ -5,7 +5,7 @@ import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useThrottledCallback } from 'use-debounce'
 
 import { IconComment } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -28,18 +28,24 @@ import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
+import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
+import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonProperties'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
-import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
+import { NotebookNodeUsageMetrics } from '../Nodes/NotebookNodeUsageMetrics'
+import { NotebookNodeZendeskTickets } from '../Nodes/NotebookNodeZendeskTickets'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
@@ -58,17 +64,14 @@ export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
-    const updatePreviousNode = useCallback(
-        (editor: TTEditor) => {
-            setPreviousNode(getNodeBeforeActiveNode(editor))
-        },
-        [setPreviousNode]
-    )
+    // Throttle setPreviousNode to avoid excessive calls during rapid selection changes
+    const throttledSetPreviousNode = useThrottledCallback((editor: TTEditor) => {
+        setPreviousNode(getNodeBeforeActiveNode(editor))
+    }, 16) // ~60fps throttling
 
     const starterKitConfig: Partial<StarterKitOptions> = {
         document: false,
@@ -100,10 +103,10 @@ export function Editor(): JSX.Element {
         }),
         FloatingMenu.extend({
             onSelectionUpdate(this) {
-                updatePreviousNode(this.editor)
+                throttledSetPreviousNode(this.editor)
             },
             onUpdate(this) {
-                updatePreviousNode(this.editor)
+                throttledSetPreviousNode(this.editor)
                 resetSuggestions()
             },
         }),
@@ -127,7 +130,8 @@ export function Editor(): JSX.Element {
         NotebookNodeEarlyAccessFeature,
         NotebookNodeSurvey,
         NotebookNodeImage,
-        NotebookNodeProperties,
+        NotebookNodePersonProperties,
+        NotebookNodeGroupProperties,
         RichContentNodeMention,
         NotebookNodeEmbed,
         SlashCommandsExtension,
@@ -135,6 +139,11 @@ export function Editor(): JSX.Element {
         NotebookNodePersonFeed,
         NotebookNodeMap,
         NotebookNodeTaskCreate,
+        NotebookNodeLLMTrace,
+        NotebookNodeIssues,
+        NotebookNodeUsageMetrics,
+        NotebookNodeZendeskTickets,
+        NotebookNodeRelatedGroups,
     ]
 
     if (hasCollapsibleSections) {
@@ -162,7 +171,7 @@ export function Editor(): JSX.Element {
             <FloatingSuggestions />
             <InlineMenu
                 extra={(editor) =>
-                    hasDiscussions && !editor.isActive('comment') ? (
+                    !editor.isActive('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton

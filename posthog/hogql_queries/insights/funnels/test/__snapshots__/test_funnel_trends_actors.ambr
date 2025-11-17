@@ -136,7 +136,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
-        WHERE ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0)
+        WHERE equals(entrance_period_start, toDateTime64('today', 6, 'UTC'))
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 2), 0)
@@ -312,7 +312,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
-        WHERE ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0)
+        WHERE equals(entrance_period_start, toDateTime64('today', 6, 'UTC'))
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE and(ifNull(greaterOrEquals(steps_completed, 1), 0), ifNull(less(steps_completed, 3), 0))
@@ -488,7 +488,7 @@
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
-        WHERE ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0)
+        WHERE equals(entrance_period_start, toDateTime64('today', 6, 'UTC'))
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 3), 0)
