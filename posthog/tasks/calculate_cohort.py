@@ -457,7 +457,7 @@ def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start
         )
 
 
-@shared_task(ignore_result=True, max_retries=3, retry_backoff=COHORT_STATS_COLLECTION_DELAY_SECONDS)
+@shared_task(ignore_result=True, max_retries=3)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
