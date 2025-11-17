@@ -334,6 +334,20 @@ class DualPersonQuerySet:
         """Support len(queryset)"""
         return self.count()
 
+    def create(self, **kwargs):
+        """Create a new Person instance.
+
+        Routes to PersonOld during migration. After migration, will route based on ID.
+        """
+        return self.manager.create(**kwargs)
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        """Bulk create Person instances.
+
+        Routes to PersonOld during migration. After migration, will route based on ID.
+        """
+        return self.manager.bulk_create(objs, batch_size=batch_size, ignore_conflicts=ignore_conflicts)
+
 
 class DualPersonManager(models.Manager):
     """Manager that reads from both person tables during migration.
@@ -428,19 +442,48 @@ class DualPersonManager(models.Manager):
         """
         return DualPersonQuerySet(manager=self, filters=kwargs, db=self._db)
 
-    def create(self, *args: Any, **kwargs: Any):
+    def create(self, **kwargs):
         """Handle person creation with distinct_ids support.
 
         During migration: creates go to old table by default.
         TODO: After migration, route new IDs to new table based on sequence.
         """
-        with transaction.atomic(using=self.db):
-            if not kwargs.get("distinct_ids"):
-                return super().create(*args, **kwargs)
-            distinct_ids = kwargs.pop("distinct_ids")
-            person = super().create(*args, **kwargs)
+        # Route to PersonOld during migration
+        # Create directly on the model to avoid recursion through get_queryset()
+        distinct_ids = kwargs.pop("distinct_ids", None)
+
+        person = PersonOld(**kwargs)
+        person.save(using=self._db)
+        person.__class__ = Person  # Convert to Person for FK compatibility
+
+        if distinct_ids:
             person._add_distinct_ids(distinct_ids)
-            return person
+
+        return person
+
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False):
+        """Bulk create Person instances.
+
+        During migration: creates go to old table by default.
+        TODO: After migration, route new IDs to new table based on sequence.
+        """
+        # Convert Person instances to PersonOld for saving
+        old_objs = []
+        for obj in objs:
+            if obj.__class__ == Person:
+                obj.__class__ = PersonOld
+            old_objs.append(obj)
+
+        # Create in PersonOld table
+        created = PersonOld.objects.db_manager(self._db).bulk_create(
+            old_objs, batch_size=batch_size, ignore_conflicts=ignore_conflicts
+        )
+
+        # Convert back to Person for FK compatibility
+        for obj in created:
+            obj.__class__ = Person
+
+        return created
 
     def get_by_id(self, person_id: int, team_id: Optional[int] = None):
         """Get person by ID, trying preferred table first then falling back."""
