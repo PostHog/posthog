@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.models import CustomerAnalyticsConfig
 
 
@@ -37,7 +38,7 @@ class CustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             team=self.team,
             defaults={
                 "created_by": request.user if request.user.is_authenticated else None,
-                "activity_event": {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                "activity_event": DEFAULT_ACTIVITY_EVENT,
             },
         )
         serializer = self.get_serializer(config)

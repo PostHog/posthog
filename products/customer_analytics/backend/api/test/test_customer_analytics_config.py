@@ -4,6 +4,7 @@ from rest_framework import status
 
 from posthog.models.team.team import Team
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.models import CustomerAnalyticsConfig
 
 
@@ -19,7 +20,7 @@ class TestCustomerAnalyticsConfigAPI(APIBaseTest):
         data = response.json()
         self.assertIsInstance(data, dict)
         self.assertIsNotNone(data["id"])
-        self.assertEqual(data["activity_event"], {})
+        self.assertEqual(data["activity_event"], DEFAULT_ACTIVITY_EVENT)
 
         first_id = data["id"]
 
