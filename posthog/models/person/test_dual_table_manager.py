@@ -715,3 +715,62 @@ class TestDualTablePersonManager(BaseTest):
         self.assertTrue(hasattr(old_person, "distinct_ids_cache"))
         distinct_ids = [d.distinct_id for d in old_person.distinct_ids_cache]
         self.assertIn("chain_test_old", distinct_ids)
+
+    def test_queryset_has_model_attribute(self):
+        """Test that DualPersonQuerySet has .model attribute for compatibility."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+
+        # Should have model attribute
+        self.assertTrue(hasattr(queryset, "model"))
+        self.assertEqual(queryset.model, Person)
+
+    def test_raw_delete_deletes_from_both_tables(self):
+        """Test that _raw_delete() deletes from both PersonOld and PersonNew tables."""
+        # Create additional person in new table for this test
+        new_person_uuid = uuid.uuid4()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_person_new (id, team_id, uuid, properties, created_at, is_identified)
+                VALUES (%s, %s, %s, %s, NOW(), false)
+                """,
+                [PERSON_ID_CUTOFF + 200, self.team.id, str(new_person_uuid), '{"name": "delete_test"}'],
+            )
+
+        # Verify persons exist before delete
+        queryset_before = Person.objects.filter(team_id=self.team.id)
+        person_uuids_before = {str(p.uuid) for p in queryset_before}
+        self.assertIn(str(self.old_person_uuid), person_uuids_before)
+        self.assertIn(str(new_person_uuid), person_uuids_before)
+
+        # Delete using _raw_delete (simulating delete_bulky_postgres_data pattern)
+        queryset = Person.objects.filter(team_id=self.team.id)
+        queryset._raw_delete(using=None)  # None means use router
+
+        # Verify persons are deleted from both tables
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM posthog_person WHERE team_id = %s", [self.team.id])
+            old_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM posthog_person_new WHERE team_id = %s", [self.team.id])
+            new_count = cursor.fetchone()[0]
+
+        self.assertEqual(old_count, 0, "Old table should be empty after _raw_delete")
+        self.assertEqual(new_count, 0, "New table should be empty after _raw_delete")
+
+    def test_queryset_db_routing_uses_router(self):
+        """Test that DualPersonQuerySet respects database router when db is None."""
+        queryset = Person.objects.filter(team_id=self.team.id)
+
+        # When db is None, should use router (not force "default")
+        self.assertIsNone(queryset.db)
+
+        # The underlying PersonOld/PersonNew queries should be routed to persons_db
+        # We can't easily test the actual routing in unit tests, but we can verify
+        # that we're not forcing "default" which would bypass the router
+        from django.db import router
+
+        from posthog.models.person.person import PersonNew, PersonOld
+
+        # Verify router routes PersonOld/PersonNew to persons_db
+        self.assertEqual(router.db_for_write(PersonOld), "persons_db_writer")
+        self.assertEqual(router.db_for_write(PersonNew), "persons_db_writer")

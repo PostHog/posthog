@@ -112,11 +112,12 @@ class DualPersonQuerySet:
         only_fields=None,
     ):
         self.manager = manager
+        self.model = manager.model  # Needed for queryset.model access
         self.q_objects = q_objects or []  # List of Q objects for complex queries
         self.filters = filters or {}
         self.excludes = excludes or {}
         self.ordering = ordering or []
-        self.db = db or "default"
+        self.db = db  # None means use router, explicit value bypasses router
         self.prefetch = prefetch or []
         self.only_fields = only_fields or []
 
@@ -218,6 +219,14 @@ class DualPersonQuerySet:
         total = old_count + new_count
         # Return format matching Django's QuerySet.delete(): (total_deleted, {model_name: count})
         return (total, {"posthog.Person": total})
+
+    def _raw_delete(self, using):
+        """Raw delete for bulk operations. Deletes from both tables."""
+        old_qs = PersonOld.objects.db_manager(using).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(using).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        old_qs._raw_delete(using)
+        new_qs._raw_delete(using)
 
     def values_list(self, *fields, flat=False):
         """Execute on both tables and return merged list of values."""
