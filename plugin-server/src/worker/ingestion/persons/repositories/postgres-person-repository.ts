@@ -653,7 +653,7 @@ export class PostgresPersonRepository
 
             // When cutover is enabled and no forcedId, we need to explicitly call nextval() for id
             // because partitioned tables don't automatically apply DEFAULT values when the column is omitted
-            const useDefaultId = this.options.tableCutoverEnabled && !forcedId
+            const useDefaultId = true
 
             let columns: string[]
             let valuePlaceholders: string
