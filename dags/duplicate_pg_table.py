@@ -18,7 +18,7 @@ from posthog.clickhouse.custom_metrics import MetricsClient
 
 from dags.common import JobOwners
 
-MIGRATION_PREFIX = "duplicate_pg_table"
+METRICS_PREFIX = "duplicate_pg_table"
 
 
 class DuplicatePgTableConfig(dagster.Config):
@@ -210,7 +210,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "{METRICS_PREFIX}_records_attempted_total",
+                            f"{METRICS_PREFIX}_records_attempted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_attempted),
                         ).result()
@@ -221,7 +221,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "{METRICS_PREFIX}_records_inserted_total",
+                            f"{METRICS_PREFIX}_records_inserted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_inserted),
                         ).result()
@@ -230,7 +230,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "{METRICS_PREFIX}_batches_copied_total",
+                            f"{METRICS_PREFIX}_batches_copied_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=1.0,
                         ).result()
@@ -239,7 +239,7 @@ ORDER BY s.id DESC
                     # Track batch duration metric (IV)
                     try:
                         metrics_client.increment(
-                            "{METRICS_PREFIX}_batch_duration_seconds_total",
+                            f"{METRICS_PREFIX}_batch_duration_seconds_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=batch_duration_seconds,
                         ).result()
@@ -294,7 +294,7 @@ ORDER BY s.id DESC
                     # Report fatal error metric before raising
                     try:
                         metrics_client.increment(
-                            "{METRICS_PREFIX}_error",
+                            f"{METRICS_PREFIX}_error",
                             labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "batch_copy_failed"},
                             value=1.0,
                         ).result()
@@ -324,7 +324,7 @@ ORDER BY s.id DESC
         # Report fatal error metric before raising
         try:
             metrics_client.increment(
-                "{METRICS_PREFIX}_error",
+                f"{METRICS_PREFIX}_error",
                 labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "unexpected_copy_error"},
                 value=1.0,
             ).result()
@@ -349,7 +349,7 @@ ORDER BY s.id DESC
     run_id = context.run.run_id
     try:
         metrics_client.increment(
-            "{METRICS_PREFIX}_chunks_completed_total",
+            f"{METRICS_PREFIX}_chunks_completed_total",
             labels={"job_name": job_name, "run_id": run_id, "chunk_id": chunk_id},
             value=1.0,
         ).result()
