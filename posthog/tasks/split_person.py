@@ -23,11 +23,12 @@ def split_person(
     # where second arg would be a string (distinct_id) or None
     if isinstance(team_id, str) or (team_id is None and main_distinct_id is None):
         # Old signature: split_person(person_id, main_distinct_id, max_splits)
-        old_main_distinct_id = team_id if isinstance(team_id, str) else None
-        old_max_splits = main_distinct_id  # type: ignore
+        old_main_distinct_id: Optional[str] = team_id if isinstance(team_id, str) else None
+        old_max_splits: Optional[int] = main_distinct_id  # type: ignore[assignment]
         person = Person.objects.get(pk=person_id)
-        person.split_person(old_main_distinct_id, old_max_splits)  # type: ignore
+        person.split_person(old_main_distinct_id, old_max_splits)
     else:
         # New signature: split_person(person_id, team_id, main_distinct_id, max_splits)
+        assert team_id is not None and isinstance(team_id, int), "team_id must be an int in new signature"
         person = Person.objects.get(team_id=team_id, pk=person_id)
         person.split_person(main_distinct_id, max_splits)
