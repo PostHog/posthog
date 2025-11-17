@@ -25,7 +25,7 @@ class CustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
 
 
 class CustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "customer_analytics_config"
+    scope_object = "INTERNAL"
     queryset = CustomerAnalyticsConfig.objects.all()
     serializer_class = CustomerAnalyticsConfigSerializer
     permission_classes = [IsAuthenticated]
