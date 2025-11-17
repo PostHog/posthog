@@ -35,7 +35,10 @@ class CustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     def list(self, request, *args, **kwargs):
         config, created = CustomerAnalyticsConfig.objects.get_or_create(
             team=self.team,
-            defaults={"created_by": request.user if request.user.is_authenticated else None},
+            defaults={
+                "created_by": request.user if request.user.is_authenticated else None,
+                "activity_event": {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+            },
         )
         serializer = self.get_serializer(config)
         return Response(serializer.data)

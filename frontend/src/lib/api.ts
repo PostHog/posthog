@@ -181,6 +181,7 @@ import {
     UserType,
 } from '~/types'
 
+import { CustomerAnalyticsConfigType } from 'products/customer_analytics/frontend/types'
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -537,6 +538,7 @@ export class ApiRequest {
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
     }
+
     public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
     }
@@ -590,6 +592,11 @@ export class ApiRequest {
 
     public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.links(teamId).addPathComponent(id)
+    }
+
+    // # Customer Analytics Config
+    public customerAnalyticsConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('customer_analytics_config')
     }
 
     // # Actions
@@ -3018,6 +3025,15 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
+        },
+    },
+
+    customerAnalyticsConfig: {
+        async get_or_create(): Promise<CustomerAnalyticsConfigType> {
+            return await new ApiRequest().customerAnalyticsConfig().get()
+        },
+        async update(data: Partial<CustomerAnalyticsConfigType>): Promise<CustomerAnalyticsConfigType> {
+            return await new ApiRequest().customerAnalyticsConfig().create({ data })
         },
     },
 
