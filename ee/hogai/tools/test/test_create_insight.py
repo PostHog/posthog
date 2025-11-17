@@ -210,7 +210,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_editing_mode_adds_ui_payload(self):
         """Test that in editing mode, UI payload is added to tool call message."""
-        tool = await self._create_tool(contextual_tools={AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}})
+        tool = await self._create_tool(contextual_tools={AssistantTool.CREATE_INSIGHT.value: {}})
 
         query = AssistantTrendsQuery(series=[])
         viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
@@ -276,7 +276,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_is_editing_mode_detection(self):
         """Test that is_editing_mode correctly detects editing mode."""
         config_editing: RunnableConfig = RunnableConfig(
-            configurable={"contextual_tools": {AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}}}
+            configurable={"contextual_tools": {AssistantTool.CREATE_INSIGHT.value: {}}}
         )
         context_manager_editing = AssistantContextManager(team=self.team, user=self.user, config=config_editing)
         self.assertTrue(CreateInsightTool.is_editing_mode(context_manager_editing))

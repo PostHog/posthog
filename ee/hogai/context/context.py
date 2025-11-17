@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import Sequence
-from functools import lru_cache
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -137,7 +136,6 @@ class AssistantContextManager(AssistantContextMixin):
         """
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
-    @lru_cache(maxsize=1)
     async def get_group_names(self) -> list[str]:
         """
         Returns the names of the team's groups.

@@ -163,7 +163,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
                     ? 'Edited the insight you are viewing'
@@ -178,7 +178,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
                     ? 'Edited the insight you are viewing'
