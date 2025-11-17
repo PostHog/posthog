@@ -9,6 +9,8 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -17,7 +19,6 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -40,7 +41,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-
+    const { shortcuts } = useValues(appShortcutLogic)
     const pinnedCount = tabs.filter((tab) => tab.pinned).length
     const unpinnedCount = tabs.length - pinnedCount
     const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
@@ -141,28 +142,24 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <Link
-                            to={urls.newTab()}
-                            data-attr="scene-tab-new-button"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                newTab()
-                            }}
-                            buttonProps={{
-                                size: 'sm',
-                                className:
-                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
-                                iconOnly: true,
-                            }}
-                            tooltip={
-                                <>
-                                    New tab <KeyboardShortcut command option t />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
-                        >
-                            <IconPlus className="!ml-0" fontSize={14} />
-                        </Link>
+                        <AppShortcut {...shortcuts.app.newTab}>
+                            <Link
+                                to={urls.newTab()}
+                                data-attr="scene-tab-new-button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    newTab()
+                                }}
+                                buttonProps={{
+                                    size: 'sm',
+                                    className:
+                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
+                                    iconOnly: true,
+                                }}
+                            >
+                                <IconPlus className="!ml-0" fontSize={14} />
+                            </Link>
+                        </AppShortcut>
                     </div>
                 </SortableContext>
             </DndContext>
@@ -228,9 +225,9 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId } = useValues(sceneLogic)
+    const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
-
+    const { shortcuts } = useValues(appShortcutLogic)
     const isEditing = editingTabId === tab.id
 
     useEffect(() => {
@@ -263,28 +260,23 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
-                    <ButtonPrimitive
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            removeTab(tab)
-                        }}
-                        isSideActionRight
-                        iconOnly
-                        size="xs"
-                        className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
-                        tooltip={
-                            tab.active ? (
-                                <>
-                                    Close active tab <KeyboardShortcut command option w />
-                                </>
-                            ) : (
-                                'Close tab'
-                            )
-                        }
-                    >
-                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
-                    </ButtonPrimitive>
+                    <AppShortcut {...shortcuts.app.closeCurrentTab} enabled={tab.active && tabs.length > 1}>
+                        <ButtonPrimitive
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                removeTab(tab)
+                            }}
+                            tooltip={!tab.active ? 'Close tab' : undefined}
+                            tooltipCloseDelayMs={0}
+                            isSideActionRight
+                            iconOnly
+                            size="xs"
+                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                        >
+                            <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </ButtonPrimitive>
+                    </AppShortcut>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {

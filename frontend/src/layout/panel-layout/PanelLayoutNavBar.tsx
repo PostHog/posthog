@@ -21,6 +21,9 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
+import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -30,6 +33,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -85,6 +89,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { shortcuts } = useValues(appShortcutLogic)
+    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -395,6 +402,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             <NavPanelAdvertisement />
 
+                            <AppShortcut {...shortcuts.app.search}>
+                                <ButtonPrimitive className="hidden">placeholder</ButtonPrimitive>
+                            </AppShortcut>
+
+                            <AppShortcut {...shortcuts.app.toggleShortcutMenu}>
+                                <ButtonPrimitive
+                                    iconOnly={isLayoutNavCollapsed}
+                                    tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
+                                    tooltipPlacement="right"
+                                    onClick={() => setAppShortcutMenuOpen(true)}
+                                    menuItem={!isLayoutNavCollapsed}
+                                >
+                                    <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
+                                    {!isLayoutNavCollapsed && <>Shortcut menu</>}
+                                </ButtonPrimitive>
+                            </AppShortcut>
+
                             <ButtonPrimitive
                                 iconOnly={isLayoutNavCollapsed}
                                 tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
@@ -432,6 +456,26 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </span>
                                     {!isLayoutNavCollapsed && 'Quick start'}
                                 </ButtonPrimitive>
+                            )}
+                            {(user?.is_staff ||
+                                user?.is_impersonated ||
+                                preflight?.is_debug ||
+                                preflight?.instance_preferences?.debug_queries) && (
+                                <AppShortcut {...shortcuts.app.debugClickhouseQueries}>
+                                    <ButtonPrimitive
+                                        menuItem={!isLayoutNavCollapsed}
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        iconOnly={isLayoutNavCollapsed}
+                                        tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
+                                        tooltipPlacement="right"
+                                        data-attr="menu-item-debug-ch-queries"
+                                    >
+                                        <IconDatabase />
+                                        {!isLayoutNavCollapsed && 'Debug CH queries'}
+                                    </ButtonPrimitive>
+                                </AppShortcut>
                             )}
                             <Link
                                 buttonProps={{

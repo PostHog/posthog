@@ -1,9 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import type { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { AppShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
+import { isMac } from 'lib/utils'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
 import { openCHQueriesDebugModal } from './utils/DebugCHQueries'
@@ -22,6 +27,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
         registerAppShortcut: (tabId: string, shortcut: AppShortcut) => ({ tabId, shortcut }),
         unregisterAppShortcut: (tabId: string, shortcutId: string) => ({ tabId, shortcutId }),
         setOptionKeyHeld: (held: boolean) => ({ held }),
+        setCommandKeyHeld: (held: boolean) => ({ held }),
         setAppShortcutMenuOpen: (open: boolean) => ({ open }),
     }),
 
@@ -52,6 +58,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 setOptionKeyHeld: (_, { held }) => held,
             },
         ],
+        commandKeyHeld: [
+            false,
+            {
+                setCommandKeyHeld: (_, { held }) => held,
+            },
+        ],
         appShortcutMenuOpen: [
             false,
             {
@@ -69,8 +81,31 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
 
                 return {
                     app: {
-                        toggleShortcutMenu: {
+                        search: {
                             keys: ['command', 'k'],
+                            description: 'Search',
+                            onAction: () => {
+                                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
+                                    const activeTabId = sceneLogic.values.activeTabId
+                                    const mountedLogic = activeTabId
+                                        ? newTabSceneLogic.findMounted({ tabId: activeTabId })
+                                        : null
+                                    if (mountedLogic) {
+                                        mountedLogic.actions.focusNewTabSearchInput()
+                                    } else {
+                                        // If no mounted logic found, try with default key
+                                        const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
+                                        if (defaultLogic) {
+                                            defaultLogic.actions.focusNewTabSearchInput()
+                                        }
+                                    }
+                                    return
+                                }
+                                router.actions.push(urls.newTab())
+                            },
+                        },
+                        toggleShortcutMenu: {
+                            keys: ['command', 'shift', 'k'],
                             description: appShortcutMenuOpen ? 'Close shortcut menu' : 'Open shortcut menu',
                             onAction: () => {
                                 appShortcutLogic.actions.setAppShortcutMenuOpen(!appShortcutMenuOpen)
@@ -193,9 +228,17 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
+                const commandKey = isMac() ? event.metaKey : event.ctrlKey
+
                 // Track option key state (but don't interfere with shortcuts)
                 if (event.altKey && !values.optionKeyHeld) {
                     actions.setOptionKeyHeld(true)
+                }
+
+                if (commandKey) {
+                    if (!values.commandKeyHeld) {
+                        actions.setCommandKeyHeld(true)
+                    }
                 }
 
                 // Handle scene shortcuts
@@ -250,9 +293,15 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             }
 
             const onKeyUp = (event: KeyboardEvent): void => {
+                const commandKey = isMac() ? event.metaKey : event.ctrlKey
+
                 // Track option key release
                 if (!event.altKey && values.optionKeyHeld) {
                     actions.setOptionKeyHeld(false)
+                }
+
+                if (!commandKey && values.commandKeyHeld) {
+                    actions.setCommandKeyHeld(false)
                 }
             }
 

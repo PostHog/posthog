@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -12,6 +14,7 @@ export const commandBarLogic = kea<commandBarLogicType>([
 
     connect(() => ({
         actions: [eventUsageLogic, ['reportCommandBarStatusChanged']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setCommandBar: (status: BarStatus, initialQuery?: string) => ({ status, initialQuery }),
@@ -50,10 +53,15 @@ export const commandBarLogic = kea<commandBarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, cache, values }) => {
         // register keyboard shortcuts
         cache.disposables.add(() => {
+            const useAppShortcuts = values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS] === true
+
             const onKeyDown = (event: KeyboardEvent): void => {
+                if (useAppShortcuts) {
+                    return
+                }
                 if (shouldIgnoreInput(event)) {
                     return
                 }
