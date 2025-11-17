@@ -59,7 +59,7 @@ export function formatResolvedDateRange(
         // YYYY-MM-DD HH:mm
         const dateTime = iso.slice(0, 16).replace('T', ' ')
         // timezone (+00:00, -08:00, +08:00)
-        let tz = iso.endsWith('Z') ? '+00:00' : iso.slice(-6)
+        const tz = iso.endsWith('Z') ? '+00:00' : iso.slice(-6)
         return { dateTime, tz }
     }
 

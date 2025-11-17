@@ -32,7 +32,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             disabled={disabled}
             disabledReason={editingDisabledReason}
             onChange={(date_from, date_to, explicit_date) => {
-                // Prevent debouncing when toggling the exact time range tootle as it glitches the animation
+                // Prevent debouncing when toggling the exact time range toggle as it glitches the animation
                 const ignoreDebounce = dateRange?.explicitDate !== explicit_date
                 updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
             }}
