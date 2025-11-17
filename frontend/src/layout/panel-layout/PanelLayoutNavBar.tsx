@@ -28,6 +28,7 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -92,6 +93,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { preflight } = useValues(preflightLogic)
     const { shortcuts } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -403,7 +406,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <NavPanelAdvertisement />
 
                             <AppShortcut {...shortcuts.app.search}>
-                                <ButtonPrimitive className="hidden">placeholder</ButtonPrimitive>
+                                <ButtonPrimitive className="hidden" aria-hidden="true">
+                                    placeholder
+                                </ButtonPrimitive>
                             </AppShortcut>
 
                             <AppShortcut {...shortcuts.app.toggleShortcutMenu}>
@@ -413,6 +418,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     onClick={() => setAppShortcutMenuOpen(true)}
                                     menuItem={!isLayoutNavCollapsed}
+                                    className={cn('hidden', { flex: useAppShortcuts })}
                                 >
                                     <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
                                     {!isLayoutNavCollapsed && <>Shortcut menu</>}

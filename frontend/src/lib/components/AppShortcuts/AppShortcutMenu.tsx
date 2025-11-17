@@ -272,8 +272,8 @@ export function AppShortcutMenu(): JSX.Element | null {
                     <Combobox.Search
                         placeholder="Search actions... escape to close"
                         autoFocus
-                        className="border-0 focus:ring-0 focus:border-0"
-                        // wrapperClassName="sticky bottom-0"
+                        className="animate-input-focus-pulse"
+                        wrapperClassName="sticky bottom-0"
                     />
                 </Combobox>
             </div>

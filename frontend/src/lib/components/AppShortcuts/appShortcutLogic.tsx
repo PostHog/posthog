@@ -3,6 +3,8 @@ import { router } from 'kea-router'
 
 import type { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { AppShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMac } from 'lib/utils'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
@@ -16,7 +18,7 @@ import { openCHQueriesDebugModal } from './utils/DebugCHQueries'
 export const appShortcutLogic = kea<appShortcutLogicType>([
     path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
     connect(() => ({
-        values: [sceneLogic, ['activeTab', 'activeTabId']],
+        values: [sceneLogic, ['activeTab', 'activeTabId'], featureFlagLogic, ['featureFlags']],
         actions: [sceneLogic, ['newTab', 'removeTab']],
     })),
 
@@ -72,13 +74,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(() => ({
         shortcuts: [
-            (s) => [s.appShortcutMenuOpen],
-            (appShortcutMenuOpen: boolean): AppShortcuts => {
+            (s) => [s.appShortcutMenuOpen, s.featureFlags],
+            (appShortcutMenuOpen, featureFlags): AppShortcuts => {
                 // Reserved shortcuts, please don't use them
                 // command+option+j = browser open dev tools
-
                 return {
                     app: {
                         search: {
@@ -87,17 +88,17 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                             onAction: () => {
                                 if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                                     const activeTabId = sceneLogic.values.activeTabId
+
+                                    // Try to find mounted logic instances
+                                    const allMounted = newTabSceneLogic.findAllMounted()
                                     const mountedLogic = activeTabId
                                         ? newTabSceneLogic.findMounted({ tabId: activeTabId })
                                         : null
                                     if (mountedLogic) {
                                         mountedLogic.actions.focusNewTabSearchInput()
-                                    } else {
-                                        // If no mounted logic found, try with default key
-                                        const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
-                                        if (defaultLogic) {
-                                            defaultLogic.actions.focusNewTabSearchInput()
-                                        }
+                                    } else if (allMounted.length > 0) {
+                                        // Use the first available mounted logic
+                                        allMounted[0].actions.focusNewTabSearchInput()
                                     }
                                     return
                                 }
@@ -108,8 +109,11 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                             keys: ['command', 'shift', 'k'],
                             description: appShortcutMenuOpen ? 'Close shortcut menu' : 'Open shortcut menu',
                             onAction: () => {
-                                appShortcutLogic.actions.setAppShortcutMenuOpen(!appShortcutMenuOpen)
+                                if (featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]) {
+                                    appShortcutLogic.actions.setAppShortcutMenuOpen(!appShortcutMenuOpen)
+                                }
                             },
+                            order: 999,
                         },
                         newTab: {
                             keys: ['command', 'option', 't'],
@@ -130,35 +134,6 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                                 openCHQueriesDebugModal()
                             },
                             type: 'action',
-                        },
-                        toggleInfoActionsPanel: {
-                            keys: ['command', 'option', 'i'],
-                            description: 'Toggle Info & actions panel',
-                            type: 'toggle',
-                        },
-                    },
-                    [Scene.Dashboards]: {
-                        newDashboard: {
-                            keys: ['command', 'option', 'n'],
-                            description: 'New dashboard',
-                            sceneKey: Scene.Dashboards,
-                        },
-                    },
-                    [Scene.Dashboard]: {
-                        addTextTile: {
-                            keys: ['command', 'option', 'a'],
-                            description: 'Add text tile to dashboard',
-                            sceneKey: Scene.Dashboard,
-                        },
-                        addInsightToDashboard: {
-                            keys: ['command', 'option', 'n'],
-                            description: 'Add insight to dashboard',
-                            sceneKey: Scene.Dashboard,
-                        },
-                        toggleEditMode: {
-                            keys: ['command', 'option', 'e'],
-                            description: 'Toggle dashboard edit mode',
-                            sceneKey: Scene.Dashboard,
                         },
                     },
                 }
@@ -212,7 +187,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 return conflicts
             },
         ],
-    }),
+    })),
 
     listeners(({ values, actions }) => ({
         triggerNewTab: () => {
@@ -241,19 +216,21 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     }
                 }
 
-                // Handle scene shortcuts
-                const activeShortcuts = values.activeAppShortcuts
+                // Handle shortcuts - combine app shortcuts with scene shortcuts
+                const appShortcuts = Object.values(values.shortcuts.app).filter((shortcut) => shortcut.onAction)
+                const activeShortcuts = [...appShortcuts, ...values.activeAppShortcuts]
+
                 if (activeShortcuts.length === 0) {
                     return
                 }
 
-                // Build current key combination
+                // Build current key combination in the same order as shortcuts are defined
                 const pressedKeys: string[] = []
+                if (commandKey) {
+                    pressedKeys.push('command')
+                }
                 if (event.shiftKey) {
                     pressedKeys.push('shift')
-                }
-                if (event.ctrlKey || event.metaKey) {
-                    pressedKeys.push('command')
                 }
                 if (event.altKey) {
                     pressedKeys.push('option')
@@ -288,7 +265,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 if (matchingShortcut) {
                     event.preventDefault()
                     event.stopPropagation()
-                    matchingShortcut.action()
+                    // Call action or onAction depending on shortcut type
+                    if ('action' in matchingShortcut && matchingShortcut.action) {
+                        matchingShortcut.action()
+                    } else if ('onAction' in matchingShortcut && matchingShortcut.onAction) {
+                        matchingShortcut.onAction()
+                    }
                 }
             }
 

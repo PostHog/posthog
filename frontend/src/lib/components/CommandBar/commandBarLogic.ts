@@ -56,10 +56,8 @@ export const commandBarLogic = kea<commandBarLogicType>([
     afterMount(({ actions, cache, values }) => {
         // register keyboard shortcuts
         cache.disposables.add(() => {
-            const useAppShortcuts = values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS] === true
-
             const onKeyDown = (event: KeyboardEvent): void => {
-                if (useAppShortcuts) {
+                if (values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]) {
                     return
                 }
                 if (shouldIgnoreInput(event)) {
