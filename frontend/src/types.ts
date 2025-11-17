@@ -5228,6 +5228,7 @@ export type BatchExportServiceDatabricks = {
 
 export type BatchExportRealtimeDestinationBackfill = {
     type: 'PostHogRealtimeDestinations'
+    config: {}
 }
 
 // When adding a new option here also add a icon for it to

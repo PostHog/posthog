@@ -335,6 +335,11 @@ DESTINATION_WORKFLOWS = {
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
+    "PostHogRealtimeDestinations": (
+        "posthog-realtime-destinations-export",
+        # TODO(batch-exports): configure a proper inputs for realtime destinations as needed
+        NoOpInputs,
+    ),
     "NoOp": ("no-op", NoOpInputs),
 }
 
