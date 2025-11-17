@@ -2,7 +2,7 @@ import logging
 import traceback
 from typing import cast
 
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -15,12 +15,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .agents import get_agent_dict_by_id, get_all_agents
 from .models import Task, TaskRun
 from .serializers import (
-    AgentDefinitionSerializer,
-    AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
     TaskSerializer,
@@ -56,6 +54,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "run",
         ]
     }
+
+    @validated_request(
+        query_serializer=TaskListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+        },
+        summary="List tasks",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).order_by("position")
@@ -201,6 +210,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
+        },
+        summary="List task runs",
+        description="Get a list of runs for a specific task.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+        },
+        summary="Create task run",
+        description="Create a new run for a specific task.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -268,66 +297,3 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
-
-
-@extend_schema(tags=["agents"])
-class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    API for retrieving agent definitions. Agents are automation services that can be assigned to tasks to process them.
-    """
-
-    serializer_class = AgentDefinitionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    queryset = None  # No model queryset since we're using hardcoded agents
-    scope_object = "task"
-    posthog_feature_flag = {"tasks": ["list", "retrieve"]}
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(
-                response=AgentListResponseSerializer,
-                description="List of agent definitions",
-                examples=[
-                    OpenApiExample(
-                        "Agent List Response",
-                        description="Example response with available agents",
-                        response_only=True,
-                        value={
-                            "results": [
-                                {
-                                    "id": "claude_code_agent",
-                                    "name": "Claude Code Agent",
-                                    "agent_type": "code_execution",
-                                    "description": "Executes code changes and technical tasks using Claude Code",
-                                    "config": {"timeout": 3600, "sandbox": True},
-                                    "is_active": True,
-                                }
-                            ]
-                        },
-                    )
-                ],
-            )
-        },
-        summary="List agent definitions",
-        description="Get a list of available agent definitions that can be assigned to tasks.",
-    )
-    def list(self, request, *args, **kwargs):
-        agents = get_all_agents()
-        return Response(AgentListResponseSerializer({"results": agents}).data)
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(response=AgentDefinitionSerializer, description="Agent definition"),
-            404: OpenApiResponse(description="Agent not found"),
-        },
-        summary="Get agent definition",
-        description="Retrieve a specific agent definition by ID.",
-    )
-    def retrieve(self, request, pk=None, *args, **kwargs):
-        agent = get_agent_dict_by_id(pk)
-        if agent:
-            return Response(AgentDefinitionSerializer(agent).data)
-
-        raise NotFound(f"Unable to find agent definition")

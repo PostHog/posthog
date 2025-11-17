@@ -198,10 +198,7 @@ const DataVisualizationNodeSchema = z.object({
 })
 
 // Any insight query
-const InsightQuerySchema = z.discriminatedUnion('kind', [
-    InsightVizNodeSchema,
-    DataVisualizationNodeSchema,
-])
+const InsightQuerySchema = z.discriminatedUnion('kind', [InsightVizNodeSchema, DataVisualizationNodeSchema])
 
 // Export all schemas
 export {

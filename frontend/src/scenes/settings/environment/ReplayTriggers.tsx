@@ -852,7 +852,7 @@ function TriggerMatchTypeTag(): JSX.Element {
     )
 }
 
-function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web' | 'mobile' }): JSX.Element {
+export function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatform: 'web' | 'mobile' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
 

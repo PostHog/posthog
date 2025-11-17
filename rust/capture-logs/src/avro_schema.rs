@@ -41,14 +41,6 @@ pub const AVRO_SCHEMA: &str = r#"
     "doc": "The timestamp when the event was observed or ingested, in microseconds since epoch."
     },
     {
-    "name": "created_at",
-    "type": ["null", {
-        "type": "long",
-        "logicalType": "timestamp-micros"
-    }],
-    "doc": "The timestamp when the record was created in the system, in microseconds since epoch."
-    },
-    {
     "name": "body",
     "type": ["null", "string"],
     "doc": "The main content or message of the log."
@@ -77,11 +69,6 @@ pub const AVRO_SCHEMA: &str = r#"
     "doc": "Attributes describing the resource that produced the log (e.g., host, region)."
     },
     {
-    "name": "resource_id",
-    "type": ["null", "string"],
-    "doc": "A unique identifier for the resource."
-    },
-    {
     "name": "instrumentation_scope",
     "type": ["null", "string"],
     "doc": "The name of the library or framework that captured the log."
@@ -98,33 +85,6 @@ pub const AVRO_SCHEMA: &str = r#"
         "values": "string"
     }],
     "doc": "A map of custom string-valued attributes associated with the log."
-    },
-    {
-    "name": "attributes_map_str",
-    "type": ["null", {
-        "type": "map",
-        "values": "string"
-    }],
-    "doc": "Additional map of string attributes."
-    },
-    {
-    "name": "attributes_map_float",
-    "type": ["null", {
-        "type": "map",
-        "values": "double"
-    }],
-    "doc": "Map of custom double-precision float attributes."
-    },
-    {
-    "name": "attributes_map_datetime",
-    "type": ["null", {
-        "type": "map",
-        "values": {
-        "type": "long",
-        "logicalType": "timestamp-millis"
-        }
-    }],
-    "doc": "Map of custom timestamp-valued attributes."
     }
 ]
 }"#;

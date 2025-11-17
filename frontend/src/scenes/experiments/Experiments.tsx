@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -20,6 +20,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,7 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
+import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
@@ -95,58 +97,61 @@ const ExperimentsTableFilters = ({
 }): JSX.Element => {
     return (
         <div className="flex justify-between gap-2 flex-wrap">
-            <LemonInput
-                type="search"
-                placeholder="Search experiments"
-                onChange={(search) => onFiltersChange({ search, page: 1 })}
-                value={filters.search || ''}
-            />
-            <div className="flex items-center gap-2">
-                {ExperimentsTabs.Archived !== tab && (
-                    <>
-                        <span>
-                            <b>Status</b>
-                        </span>
-                        <LemonSelect
-                            size="small"
-                            onChange={(status) => {
-                                if (status === 'all') {
-                                    const { status: _, ...restFilters } = filters
-                                    onFiltersChange({ ...restFilters, page: 1 }, true)
-                                } else {
-                                    onFiltersChange({ status: status as ProgressStatus, page: 1 })
-                                }
-                            }}
-                            options={
-                                [
-                                    { label: 'All', value: 'all' },
-                                    { label: 'Draft', value: ProgressStatus.Draft },
-                                    { label: 'Running', value: ProgressStatus.Running },
-                                    { label: 'Complete', value: ProgressStatus.Complete },
-                                ] as { label: string; value: string }[]
-                            }
-                            value={filters.status ?? 'all'}
-                            dropdownMatchSelectWidth={false}
-                            dropdownMaxContentWidth
-                        />
-                    </>
-                )}
-                <span className="ml-1">
-                    <b>Created by</b>
-                </span>
-                <MemberSelect
-                    defaultLabel="Any user"
-                    value={filters.created_by_id ?? null}
-                    onChange={(user) => {
-                        if (!user) {
-                            const { created_by_id, ...restFilters } = filters
-                            onFiltersChange({ ...restFilters, page: 1 }, true)
-                        } else {
-                            onFiltersChange({ created_by_id: user.id, page: 1 })
-                        }
-                    }}
+            <div className="flex items-center gap-6">
+                <LemonInput
+                    type="search"
+                    placeholder="Search experiments"
+                    onChange={(search) => onFiltersChange({ search, page: 1 })}
+                    value={filters.search || ''}
                 />
+                <div className="flex items-center gap-2">
+                    {ExperimentsTabs.Archived !== tab && (
+                        <>
+                            <span>
+                                <b>Status</b>
+                            </span>
+                            <LemonSelect
+                                size="small"
+                                onChange={(status) => {
+                                    if (status === 'all') {
+                                        const { status: _, ...restFilters } = filters
+                                        onFiltersChange({ ...restFilters, page: 1 }, true)
+                                    } else {
+                                        onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                    }
+                                }}
+                                options={
+                                    [
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Draft', value: ProgressStatus.Draft },
+                                        { label: 'Running', value: ProgressStatus.Running },
+                                        { label: 'Complete', value: ProgressStatus.Complete },
+                                    ] as { label: string; value: string }[]
+                                }
+                                value={filters.status ?? 'all'}
+                                dropdownMatchSelectWidth={false}
+                                dropdownMaxContentWidth
+                            />
+                        </>
+                    )}
+                    <span className="ml-1">
+                        <b>Created by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.created_by_id ?? null}
+                        onChange={(user) => {
+                            if (!user) {
+                                const { created_by_id, ...restFilters } = filters
+                                onFiltersChange({ ...restFilters, page: 1 }, true)
+                            } else {
+                                onFiltersChange({ created_by_id: user.id, page: 1 })
+                            }
+                        }}
+                    />
+                </div>
             </div>
+            <ExperimentVelocityStats />
         </div>
     )
 }
@@ -417,32 +422,71 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
-    const { setExperimentsTab } = useActions(experimentsLogic)
+    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
+
+    // Register feature flag creation tool so that it's always available on experiments page
+    useMaxTool({
+        identifier: 'create_feature_flag',
+        initialMaxPrompt: 'Create a feature flag for ',
+        suggestions: [],
+        callback: () => {},
+        active: true,
+        context: {},
+    })
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Experiments"
-                description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                 resourceType={{
                     type: 'experiment',
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            data-attr="create-experiment"
-                            to={urls.experiment('new')}
+                    tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Experiment}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New experiment
-                        </LemonButton>
-                    </AccessControlAction>
+                            <MaxTool
+                                identifier="create_experiment"
+                                initialMaxPrompt="Create an experiment for "
+                                suggestions={[
+                                    'Create an experiment to test…',
+                                    'Set up an A/B test with a 70/30 split between control and test for…',
+                                ]}
+                                callback={(toolOutput: {
+                                    experiment_id?: string | number
+                                    experiment_name?: string
+                                    feature_flag_key?: string
+                                    error?: string
+                                }) => {
+                                    if (toolOutput?.error || !toolOutput?.experiment_id) {
+                                        lemonToast.error(
+                                            `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
+                                        )
+                                        return
+                                    }
+                                    // Refresh experiments list to show new experiment, then redirect to it
+                                    loadExperiments()
+                                    router.actions.push(urls.experiment(toolOutput.experiment_id))
+                                }}
+                                position="bottom-right"
+                                active={true}
+                                context={{}}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    data-attr="create-experiment"
+                                    to={urls.experiment('new')}
+                                >
+                                    <span className="pr-3">New experiment</span>
+                                </LemonButton>
+                            </MaxTool>
+                        </AccessControlAction>
+                    ) : undefined
                 }
             />
             <LemonTabs

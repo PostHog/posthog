@@ -28,7 +28,7 @@ impl SourcePair {
     }
 
     pub fn has_release_id(&self) -> bool {
-        self.get_release_id().is_some()
+        self.sourcemap.has_release_id()
     }
 
     pub fn get_release_id(&self) -> Option<String> {

@@ -32,12 +32,12 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, firstTabIsActive } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -53,6 +53,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
+    const showRoundedCorner = !isLayoutPanelVisible && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -82,26 +84,37 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
-            {/* rounded corner on the left to make scene curve into tab line */}
+            {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1"
+                    className="ml-1 z-20 rounded-lg"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelVisible && (
-                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
-                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
-                </div>
+            {/* Line between tabs and main content */}
+            <div
+                className={cn(
+                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
+                    !showRoundedCorner && 'left-0 lg:left-0'
+                )}
+            />
+
+            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
+            {showRoundedCorner && (
+                <>
+                    {/* background to match the navbar  */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    {/* corner to match the main */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary" />
+                </>
             )}
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
@@ -111,7 +124,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
+                            className={cn('scene-tab-row grid min-w-0 gap-1 items-center')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
@@ -143,7 +156,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             }}
                             tooltip={
                                 <>
-                                    New tab <KeyboardShortcut command b />
+                                    New tab <KeyboardShortcut command option t />
                                 </>
                             }
                             tooltipPlacement="bottom"
@@ -191,7 +204,12 @@ function SortableSceneTab({
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} containerClassName={containerClassName} />
+                <SceneTabComponent
+                    tab={tab}
+                    isDragging={isDragging}
+                    containerClassName={containerClassName}
+                    index={index}
+                />
             </SceneTabContextMenu>
         </div>
     )
@@ -202,9 +220,10 @@ interface SceneTabProps {
     className?: string
     isDragging?: boolean
     containerClassName?: string
+    index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
@@ -234,6 +253,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
             <div
                 className={cn({
                     'scene-tab-active-indicator': tab.active,
+                    'scene-tab-active-indicator--first': index === 0,
                 })}
             />
 
@@ -256,7 +276,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         tooltip={
                             tab.active ? (
                                 <>
-                                    Close active tab <KeyboardShortcut shift command b />
+                                    Close active tab <KeyboardShortcut command option w />
                                 </>
                             ) : (
                                 'Close tab'
@@ -302,7 +322,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         className
                     )}
                     tooltip={
-                        tab.customTitle && tab.customTitle !== 'New tab'
+                        tab.customTitle && tab.customTitle !== 'Search'
                             ? `${tab.customTitle} (${tab.title})`
                             : tab.title
                     }
