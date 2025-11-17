@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentUpdateTransformSchema } from '@/schema/experiments'
 import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -31,9 +30,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`,
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(experimentWithUrl) }],
-    }
+    return experimentWithUrl
 }
 
 const definition = getToolDefinition('experiment-update')

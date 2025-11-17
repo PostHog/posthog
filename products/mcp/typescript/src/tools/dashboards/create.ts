@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { DashboardCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -22,7 +21,7 @@ export const createHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${dashboardResult.data.id}`,
     }
 
-    return { content: [{ type: 'text', text: formatResponse(dashboardWithUrl) }] }
+    return dashboardWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({

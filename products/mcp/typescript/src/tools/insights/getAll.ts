@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { InsightGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -22,7 +21,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insight.short_id}`,
     }))
 
-    return { content: [{ type: 'text', text: formatResponse(insightsWithUrls) }] }
+    return insightsWithUrls
 }
 
 const tool = (): ToolBase<typeof schema> => ({

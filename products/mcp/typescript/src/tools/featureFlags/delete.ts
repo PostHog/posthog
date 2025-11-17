@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { FeatureFlagDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -18,9 +17,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
     }
 
     if (!flagResult.data) {
-        return {
-            content: [{ type: 'text', text: 'Feature flag is already deleted.' }],
-        }
+        return { message: 'Feature flag is already deleted.' }
     }
 
     const deleteResult = await context.api.featureFlags({ projectId }).delete({
@@ -30,9 +27,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to delete feature flag: ${deleteResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(deleteResult.data) }],
-    }
+    return deleteResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

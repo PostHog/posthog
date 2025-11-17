@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { LLMAnalyticsGetCostsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -37,9 +36,7 @@ export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (con
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return {
-        content: [{ type: 'text', text: formatResponse(costsResult.data.results) }],
-    }
+    return costsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

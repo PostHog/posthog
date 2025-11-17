@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -27,14 +26,7 @@ export const createExperimentHandler: ToolBase<typeof schema>['handler'] = async
         url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`,
     }
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: formatResponse(experimentWithUrl),
-            },
-        ],
-    }
+    return experimentWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({

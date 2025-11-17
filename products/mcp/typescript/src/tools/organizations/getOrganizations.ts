@@ -1,4 +1,3 @@
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { OrganizationGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -10,9 +9,7 @@ export const getOrganizationsHandler: ToolBase<typeof schema>['handler'] = async
         throw new Error(`Failed to get organizations: ${orgsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(orgsResult.data) }],
-    }
+    return orgsResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

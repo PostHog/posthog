@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentResultsResponseSchema } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -36,14 +35,7 @@ export const getResultsHandler: ToolBase<typeof schema>['handler'] = async (cont
         exposures,
     })
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: formatResponse(parsedExperiment),
-            },
-        ],
-    }
+    return parsedExperiment
 }
 
 const tool = (): ToolBase<typeof schema> => ({

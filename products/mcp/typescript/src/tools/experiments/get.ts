@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentGetSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -19,7 +18,7 @@ export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Co
         throw new Error(`Failed to get experiment: ${result.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: formatResponse(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

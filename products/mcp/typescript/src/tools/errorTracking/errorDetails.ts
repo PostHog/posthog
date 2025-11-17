@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ErrorTrackingDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -28,9 +27,7 @@ export const errorDetailsHandler: ToolBase<typeof schema>['handler'] = async (co
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(errorsResult.data.results) }],
-    }
+    return errorsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { SurveyStatsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -20,9 +19,7 @@ export const statsHandler: ToolBase<typeof schema>['handler'] = async (context: 
         throw new Error(`Failed to get survey stats: ${result.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(result.data) }],
-    }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

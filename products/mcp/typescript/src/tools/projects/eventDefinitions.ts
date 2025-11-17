@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { EventDefinitionSchema } from '@/schema/properties'
 import { ProjectEventDefinitionsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -23,9 +22,7 @@ export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async
 
     const simplifiedEvents = eventDefsResult.data.map((def) => EventDefinitionSchema.parse(def))
 
-    return {
-        content: [{ type: 'text', text: formatResponse(simplifiedEvents) }],
-    }
+    return simplifiedEvents
 }
 
 const tool = (): ToolBase<typeof schema> => ({

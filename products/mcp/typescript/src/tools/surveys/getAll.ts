@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { SurveyGetAllSchema } from '@/schema/tool-inputs'
 import { formatSurveys } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -23,9 +22,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         results: formattedSurveys,
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(response) }],
-    }
+    return response
 }
 
 const tool = (): ToolBase<typeof schema> => ({

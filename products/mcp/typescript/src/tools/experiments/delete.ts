@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -19,9 +18,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to delete experiment: ${deleteResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(deleteResult.data) }],
-    }
+    return deleteResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

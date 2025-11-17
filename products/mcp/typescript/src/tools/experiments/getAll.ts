@@ -1,4 +1,3 @@
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ExperimentGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -13,7 +12,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get experiments: ${results.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: formatResponse(results.data) }] }
+    return results.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

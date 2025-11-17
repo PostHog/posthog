@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { FeatureFlagUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -26,9 +25,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/feature_flags/${flagResult.data.id}`,
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(featureFlagWithUrl) }],
-    }
+    return featureFlagWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({

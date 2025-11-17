@@ -1,4 +1,3 @@
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { ProjectGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -19,9 +18,7 @@ export const getProjectsHandler: ToolBase<typeof schema>['handler'] = async (con
         throw new Error(`Failed to get projects: ${projectsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: formatResponse(projectsResult.data) }],
-    }
+    return projectsResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

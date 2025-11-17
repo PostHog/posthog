@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 
-import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { InsightGenerateHogQLFromQuestionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -28,7 +27,7 @@ export const generateHogQLHandler: ToolBase<typeof schema>['handler'] = async (c
             ],
         }
     }
-    return { content: [{ type: 'text', text: formatResponse(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({
