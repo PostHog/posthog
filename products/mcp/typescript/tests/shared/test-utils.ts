@@ -1,3 +1,4 @@
+import { decode } from '@byjohann/toon'
 import { expect } from 'vitest'
 
 import { ApiClient } from '@/api/client'
@@ -106,7 +107,7 @@ export async function cleanupResources(
 export function parseToolResponse(result: any): any {
     expect(result.content).toBeTruthy()
     expect(result.content[0].type).toBe('text')
-    return JSON.parse(result.content[0].text)
+    return decode(result.content[0].text)
 }
 
 export function generateUniqueKey(prefix: string): string {
