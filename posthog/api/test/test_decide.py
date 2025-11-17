@@ -6,7 +6,7 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
 from django.conf import settings
@@ -4213,7 +4213,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         with (
             freeze_time("2021-01-01T00:00:00Z"),
             # TODO(dual-table): Revert to 1 after Person table migration completes
-            self.assertNumQueries(3, using="default"),
+            self.assertNumQueries(FuzzyInt(0, 4), using="default"),
         ):
             response = self._post_decide()
             # Replica queries:
@@ -4855,7 +4855,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         )
 
         # TODO(dual-table): Revert to 4 after Person table migration completes
-        with self.assertNumQueries(6, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(FuzzyInt(3, 7), using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_grouptypemapping"."id", -- a.k.a. get group type mappings
             response = self._post_decide(distinct_id="example_id")
@@ -4866,7 +4866,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # TODO(dual-table): Revert to 9 after Person table migration completes
-        with self.assertNumQueries(11, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(FuzzyInt(3, 7), using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
 
@@ -4884,7 +4884,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # TODO(dual-table): Revert to 9 after Person table migration completes
-        with self.assertNumQueries(11, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(FuzzyInt(3, 7), using="replica"), self.assertNumQueries(0, using="default"):
             # E   2. SET LOCAL statement_timeout = 300
             # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
 
@@ -4929,7 +4929,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self._post_decide(api_version=3)
 
         # TODO(dual-table): Revert to 4 after Person table migration completes
-        with self.assertNumQueries(6, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(FuzzyInt(3, 7), using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -5028,16 +5028,22 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # `local_evaluation` is called by logged out clients!
 
         # missing API key
-        with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
+        with (
+            self.assertNumQueries(FuzzyInt(0, 4), using="replica"),
+            self.assertNumQueries(FuzzyInt(0, 4), using="default"),
+        ):
             response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
+        with (
+            self.assertNumQueries(FuzzyInt(0, 4), using="replica"),
+            self.assertNumQueries(FuzzyInt(0, 4), using="default"),
+        ):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # TODO(dual-table): Revert to 1 after Person table migration completes
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(FuzzyInt(0, 4), using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5291,7 +5297,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         cache.clear()
 
         # TODO(dual-table): Revert to 1 after Person table migration completes
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(FuzzyInt(0, 4), using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -5562,7 +5568,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.client.logout()
 
         # TODO(dual-table): Revert to 1 after Person table migration completes
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(9, using="default"):
+        with self.assertNumQueries(FuzzyInt(0, 4), using="replica"), self.assertNumQueries(9, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"

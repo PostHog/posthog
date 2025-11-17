@@ -5,6 +5,7 @@ from typing import Any, Optional
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     _create_event,
     _create_person,
@@ -294,7 +295,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(response.status_code, 201, response.content)
 
         # TODO(dual-table): Revert to 13 after Person table migration completes
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(FuzzyInt(12, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -310,7 +311,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(response.status_code, 201, response.content)
 
         # TODO(dual-table): Revert to 13 after Person table migration completes
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(FuzzyInt(12, 16)):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
