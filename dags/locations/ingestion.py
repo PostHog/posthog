@@ -1,15 +1,15 @@
 import dagster
 
-from dags import persons_new_backfill
+from dags import duplicate_pg_table
 
 from . import resources
 
 defs = dagster.Definitions(
     assets=[
-        persons_new_backfill.postgres_env_check,
+        duplicate_pg_table.postgres_env_check,
     ],
     jobs=[
-        persons_new_backfill.persons_new_backfill_job,
+        duplicate_pg_table.duplicate_pg_table_job,
     ],
     resources=resources,
 )

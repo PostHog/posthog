@@ -1,4 +1,8 @@
-"""Dagster job for backfilling posthog_persons data from source to destination Postgres database."""
+"""Dagster job for migrating all data from a source to a destination table on the same Postgres database. Assumptions:
+    1. The table schemas are assumed to be identical
+    2. The schema includes an integer ID PK we can use to divide the ID space to parallelize data migration
+
+Note: duplicate keys are not rewritten (we assume *new* row writes/creates are handled elsewhere and that process is already active.)"""
 
 import os
 import time
@@ -14,25 +18,27 @@ from posthog.clickhouse.custom_metrics import MetricsClient
 
 from dags.common import JobOwners
 
+MIGRATION_PREFIX = "duplicate_pg_table"
 
-class PersonsNewBackfillConfig(dagster.Config):
-    """Configuration for the persons new backfill job."""
 
-    chunk_size: int = 1_000_000  # ID range per chunk
-    batch_size: int = 100_000  # Records per batch insert
-    source_table: str = "posthog_persons"
-    destination_table: str = "posthog_persons_new"
-    max_id: int | None = None  # Optional override for max ID to resume from partial state
+class DuplicatePgTableConfig(dagster.Config):
+    """Configuration for the duplicate table job."""
+
+    chunk_size: int = 2_000_000  # Default ID range size per chunk
+    batch_size: int = 100_000  # Default records per batch to fetch and insert
+    source_table: str = "posthog_person"  # Default source table (note: job is table-agnostic atm, can be reused!)
+    destination_table: str = "posthog_person_new"  # Default destination table
+    max_id: int | None = None  # Optional override for max PK ID to resume from partial state
 
 
 @dagster.op
 def get_id_range(
     context: dagster.OpExecutionContext,
-    config: PersonsNewBackfillConfig,
+    config: DuplicatePgTableConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
 ) -> tuple[int, int]:
     """
-    Query source database for MIN(id) and optionally MAX(id) from posthog_persons table.
+    Query source database for MIN(id) and optionally MAX(id) from source table.
     If max_id is provided in config, uses that instead of querying.
     Returns tuple (min_id, max_id).
     """
@@ -90,7 +96,7 @@ def get_id_range(
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
 def create_chunks(
     context: dagster.OpExecutionContext,
-    config: PersonsNewBackfillConfig,
+    config: DuplicatePgTableConfig,
     id_range: tuple[int, int],
 ):
     """
@@ -128,7 +134,7 @@ def create_chunks(
 @dagster.op
 def copy_chunk(
     context: dagster.OpExecutionContext,
-    config: PersonsNewBackfillConfig,
+    config: DuplicatePgTableConfig,
     chunk: tuple[int, int],
     database: dagster.ResourceParam[psycopg2.extensions.connection],
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -156,7 +162,7 @@ def copy_chunk(
     try:
         with database.cursor() as cursor:
             # Set session-level settings once for the entire chunk
-            cursor.execute("SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'")
+            cursor.execute(f"SET application_name = 'backfill_{config.source_table}_to_{config.destination_table}'")
             cursor.execute("SET lock_timeout = '5s'")
             cursor.execute("SET statement_timeout = '30min'")
             cursor.execute("SET maintenance_work_mem = '12GB'")
@@ -204,7 +210,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "persons_new_backfill_records_attempted_total",
+                            "{METRICS_PREFIX}_records_attempted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_attempted),
                         ).result()
@@ -215,7 +221,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "persons_new_backfill_records_inserted_total",
+                            "{METRICS_PREFIX}_records_inserted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_inserted),
                         ).result()
@@ -224,7 +230,7 @@ ORDER BY s.id DESC
 
                     try:
                         metrics_client.increment(
-                            "persons_new_backfill_batches_copied_total",
+                            "{METRICS_PREFIX}_batches_copied_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=1.0,
                         ).result()
@@ -233,7 +239,7 @@ ORDER BY s.id DESC
                     # Track batch duration metric (IV)
                     try:
                         metrics_client.increment(
-                            "persons_new_backfill_batch_duration_seconds_total",
+                            "{METRICS_PREFIX}_batch_duration_seconds_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=batch_duration_seconds,
                         ).result()
@@ -288,7 +294,7 @@ ORDER BY s.id DESC
                     # Report fatal error metric before raising
                     try:
                         metrics_client.increment(
-                            "persons_new_backfill_error",
+                            "{METRICS_PREFIX}_error",
                             labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "batch_copy_failed"},
                             value=1.0,
                         ).result()
@@ -318,7 +324,7 @@ ORDER BY s.id DESC
         # Report fatal error metric before raising
         try:
             metrics_client.increment(
-                "persons_new_backfill_error",
+                "{METRICS_PREFIX}_error",
                 labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "unexpected_copy_error"},
                 value=1.0,
             ).result()
@@ -343,7 +349,7 @@ ORDER BY s.id DESC
     run_id = context.run.run_id
     try:
         metrics_client.increment(
-            "persons_new_backfill_chunks_completed_total",
+            "{METRICS_PREFIX}_chunks_completed_total",
             labels={"job_name": job_name, "run_id": run_id, "chunk_id": chunk_id},
             value=1.0,
         ).result()
@@ -388,9 +394,9 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
     tags={"owner": JobOwners.TEAM_INGESTION.value},
     executor_def=k8s_job_executor,
 )
-def persons_new_backfill_job():
+def duplicate_postgres_table_job():
     """
-    Backfill posthog_persons data from source to destination Postgres database.
+    Backfill table data from source to destination on the same Postgres database.
     Divides the ID space into chunks and processes them in parallel.
     """
     id_range = get_id_range()

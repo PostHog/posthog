@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import psycopg2.errors
 from dagster import build_op_context
 
-from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks
+from dags.duplicate_pg_table import DuplicatePgTableConfig, copy_chunk, create_chunks
 
 
 class TestCreateChunks:
@@ -13,7 +13,7 @@ class TestCreateChunks:
 
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         id_range = (1, 5000)  # min_id=1, max_id=5000
 
         context = build_op_context()
@@ -33,7 +33,7 @@ class TestCreateChunks:
 
     def test_create_chunks_covers_entire_id_space(self):
         """Test that chunks cover the entire ID space from min to max."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -56,7 +56,7 @@ class TestCreateChunks:
 
     def test_create_chunks_first_chunk_includes_max_id(self):
         """Test that the first chunk (in yielded order) includes the source table max_id."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -73,7 +73,7 @@ class TestCreateChunks:
 
     def test_create_chunks_final_chunk_includes_min_id(self):
         """Test that the final chunk (in yielded order) includes the source table min_id."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -90,7 +90,7 @@ class TestCreateChunks:
 
     def test_create_chunks_reverse_order(self):
         """Test that chunks are yielded in reverse order (highest IDs first)."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -107,7 +107,7 @@ class TestCreateChunks:
 
     def test_create_chunks_exact_multiple(self):
         """Test chunk creation when ID range is an exact multiple of chunk_size."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 5000  # Exactly 5 chunks of 1000
         id_range = (min_id, max_id)
 
@@ -124,7 +124,7 @@ class TestCreateChunks:
 
     def test_create_chunks_non_exact_multiple(self):
         """Test chunk creation when ID range is not an exact multiple of chunk_size."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 1, 3750  # 3 full chunks + 1 partial chunk
         id_range = (min_id, max_id)
 
@@ -141,7 +141,7 @@ class TestCreateChunks:
 
     def test_create_chunks_single_chunk(self):
         """Test chunk creation when ID range fits in a single chunk."""
-        config = PersonsNewBackfillConfig(chunk_size=1000)
+        config = DuplicatePgTableConfig(chunk_size=1000)
         min_id, max_id = 100, 500
         id_range = (min_id, max_id)
 
@@ -199,8 +199,8 @@ class TestCopyChunk:
 
     def test_copy_chunk_single_batch_success(self):
         """Test successful copy of a single batch within a chunk."""
-        config = PersonsNewBackfillConfig(
-            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        config = DuplicatePgTableConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_person", destination_table="posthog_person_new"
         )
         chunk = (1, 100)  # Single batch covers entire chunk
 
@@ -223,7 +223,7 @@ class TestCopyChunk:
 
         # Verify SET statements called once (session-level, before loop)
         set_statements = [
-            "SET application_name = 'backfill_posthog_persons_to_posthog_persons_new'",
+            "SET application_name = 'backfill_posthog_person_to_posthog_person_new'",
             "SET lock_timeout = '5s'",
             "SET statement_timeout = '30min'",
             "SET maintenance_work_mem = '12GB'",
@@ -249,7 +249,7 @@ class TestCopyChunk:
         insert_calls = [call for call in execute_calls if "INSERT INTO" in call]
         assert len(insert_calls) == 1
         insert_query = insert_calls[0]
-        assert "INSERT INTO posthog_persons_new" in insert_query
+        assert "INSERT INTO posthog_person_new" in insert_query
         assert "SELECT s.*" in insert_query
         assert "FROM posthog_persons s" in insert_query
         assert "WHERE s.id >" in insert_query
@@ -259,8 +259,8 @@ class TestCopyChunk:
 
     def test_copy_chunk_multiple_batches(self):
         """Test copy with multiple batches in a chunk."""
-        config = PersonsNewBackfillConfig(
-            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        config = DuplicatePgTableConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_person", destination_table="posthog_person_new"
         )
         chunk = (1, 250)  # 3 batches: (1,100), (100,200), (200,250)
 
@@ -312,8 +312,8 @@ class TestCopyChunk:
 
     def test_copy_chunk_duplicate_key_violation_retry(self):
         """Test that duplicate key violation triggers retry."""
-        config = PersonsNewBackfillConfig(
-            chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
+        config = DuplicatePgTableConfig(
+            chunk_size=1000, batch_size=100, source_table="posthog_person", destination_table="posthog_person_new"
         )
         chunk = (1, 100)
 
@@ -346,7 +346,7 @@ class TestCopyChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.persons_new_backfill.time.sleep"),
+            patch("dags.duplicate_pg_table.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
             copy_chunk(context, config, chunk)
@@ -361,7 +361,7 @@ class TestCopyChunk:
 
     def test_copy_chunk_error_handling_and_rollback(self):
         """Test error handling and rollback on non-duplicate errors."""
-        config = PersonsNewBackfillConfig(
+        config = DuplicatePgTableConfig(
             chunk_size=1000, batch_size=100, source_table="posthog_persons", destination_table="posthog_persons_new"
         )
         chunk = (1, 100)
@@ -403,7 +403,7 @@ class TestCopyChunk:
 
     def test_copy_chunk_insert_query_format(self):
         """Test that INSERT query has correct format."""
-        config = PersonsNewBackfillConfig(
+        config = DuplicatePgTableConfig(
             chunk_size=1000, batch_size=100, source_table="test_source", destination_table="test_dest"
         )
         chunk = (1, 100)
@@ -440,8 +440,8 @@ class TestCopyChunk:
 
     def test_copy_chunk_session_settings_applied_once(self):
         """Test that SET statements are applied once at session level before batch loop."""
-        config = PersonsNewBackfillConfig(
-            chunk_size=1000, batch_size=50, source_table="posthog_persons", destination_table="posthog_persons_new"
+        config = DuplicatePgTableConfig(
+            chunk_size=1000, batch_size=50, source_table="posthog_person", destination_table="posthog_person_new"
         )
         chunk = (1, 150)  # 3 batches
 
