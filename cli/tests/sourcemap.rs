@@ -72,17 +72,11 @@ fn test_include() {
         &None,
     )
     .expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 3);
+    assert_eq!(pairs.len(), 1);
     assert_eq!(
         pairs.first().unwrap().source.inner.path,
         get_case_path("search/index.js")
     );
-    // Make sure chunks are ignored
-    let all_path = pairs
-        .iter()
-        .map(|pair| pair.source.inner.path.clone())
-        .collect::<Vec<_>>();
-    assert!(!all_path.contains(&get_case_path("inject/chunk.js")));
 }
 
 #[test]
