@@ -2325,6 +2325,19 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     user_id: str
 
 
+class ProjectSecretAPIKeyAllowedScope(StrEnum):
+    ENDPOINT_READ = "endpoint:read"
+    INTERNAL = "INTERNAL"
+
+
+class ProjectSecretAPIKeyRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: Optional[str] = None
+    scopes: Optional[list[str]] = None
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -4665,17 +4678,6 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
-
-
-class WebAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    doPathCleaning: Optional[bool] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
