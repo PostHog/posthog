@@ -11,9 +11,6 @@ import { publicAssetsPlugin } from './vite-public-assets-plugin'
 export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
 
-    // TODO: Load from environment variable when we figure out the env loading issue
-    const ngrokOrigin = 'https://tatyana-difficult-positivistically.ngrok-free.dev'
-
     return {
         plugins: [
             react(),
@@ -99,14 +96,10 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
-            allowedHosts: ngrokOrigin ? ['.ngrok-free.dev', '.ngrok.io'] : undefined,
-            cors: ngrokOrigin
-                ? {
-                      // Allow Django backend and ngrok to access Vite dev server
-                      origin: ['http://localhost:8000', 'http://localhost:8010', ngrokOrigin],
-                      credentials: true,
-                  }
-                : undefined,
+            cors: {
+                // Allow Django backend to access Vite dev server
+                origin: ['http://localhost:8000', 'http://localhost:8010'],
+            },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
         },

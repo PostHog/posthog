@@ -42,7 +42,7 @@ VERCEL_CLIENT_INTEGRATION_SECRET="op://General/Vercel Client Integration Secret/
 
 **Notes**:
 
-- The Vite configuration automatically reads the `NGROK_ORIGIN` environment variable and configures CORS and allowed hosts. No manual Vite configuration changes are needed.
+- If you need to configure CORS for ngrok (e.g., for hot reload or asset loading), you can temporarily modify `frontend/vite.config.ts` to add your ngrok domain to the `cors.origin` array and `allowedHosts`. **Do not commit these changes** - they are for local development only.
 
 ## Step 3: Configure Vercel Integration Settings
 
