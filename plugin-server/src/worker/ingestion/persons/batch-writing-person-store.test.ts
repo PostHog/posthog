@@ -1276,11 +1276,10 @@ describe('BatchWritingPersonStore', () => {
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
             const personId = 'test-person-id'
-            const teamId = 1
 
-            const result = await personStoreForBatch.personPropertiesSize(personId, teamId)
+            const result = await personStoreForBatch.personPropertiesSize(personId)
 
-            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId, teamId)
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId)
             expect(result).toBe(1024)
         })
 
@@ -1290,11 +1289,10 @@ describe('BatchWritingPersonStore', () => {
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
             const personId = 'test-person-id'
-            const teamId = 1
 
-            const result = await personStoreForBatch.personPropertiesSize(personId, teamId)
+            const result = await personStoreForBatch.personPropertiesSize(personId)
 
-            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId, teamId)
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(personId)
             expect(result).toBe(0)
         })
     })
