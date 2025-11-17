@@ -185,26 +185,6 @@ URL: {url}
 
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        if self._has_rag_docs_search_feature_flag():
-            return await self._search_using_rag_endpoint(query, tool_call_id)
-        else:
-            return await self._search_using_node(query, tool_call_id)
-
-    async def _search_using_node(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        # Avoid circular import
-        from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
-
-        # Init the graph
-        node = InkeepDocsNode(self._team, self._user)
-        chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
-        copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
-        result = await chain.ainvoke(copied_state)
-        assert result is not None
-        return "", ToolMessagesArtifact(messages=result.messages)
-
-    async def _search_using_rag_endpoint(
-        self, query: str, tool_call_id: str
-    ) -> tuple[str, ToolMessagesArtifact | None]:
         model = ChatOpenAI(
             model="inkeep-rag",
             base_url="https://api.inkeep.com/v1/",
@@ -236,15 +216,6 @@ class InkeepDocsSearchTool(MaxSubtool):
 
         formatted_docs = "\n\n---\n\n".join(docs)
         return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
-
-    def _has_rag_docs_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "max-inkeep-rag-docs-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
 
 EMPTY_DATABASE_ERROR_MESSAGE = """
