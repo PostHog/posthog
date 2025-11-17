@@ -1,6 +1,5 @@
 from typing import Literal, Optional, cast
 
-from django.conf import settings
 from django.db import connection, connections
 
 import orjson as json
@@ -51,11 +50,25 @@ class PersonStrategy(ActorStrategy):
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        person_table = settings.PERSON_TABLE_NAME
-        persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
-            FROM {person_table}
-            WHERE {person_table}.uuid = ANY(%(uuids)s)
-            AND {person_table}.team_id = %(team_id)s"""
+        persons_query = """SELECT id, uuid, properties, is_identified, created_at
+            FROM (
+                SELECT posthog_person_new.id, posthog_person_new.uuid, posthog_person_new.properties, posthog_person_new.is_identified, posthog_person_new.created_at
+                FROM posthog_person_new
+                WHERE posthog_person_new.uuid = ANY(%(uuids)s)
+                AND posthog_person_new.team_id = %(team_id)s
+
+                UNION ALL
+
+                SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
+                FROM posthog_person
+                WHERE posthog_person.uuid = ANY(%(uuids)s)
+                AND posthog_person.team_id = %(team_id)s
+                AND posthog_person.uuid NOT IN (
+                    SELECT uuid FROM posthog_person_new
+                    WHERE posthog_person_new.uuid = ANY(%(uuids)s)
+                    AND posthog_person_new.team_id = %(team_id)s
+                )
+            ) combined"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
 

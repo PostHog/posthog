@@ -54,10 +54,8 @@ def journeys_for(
                 distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
             )
         else:
-            people[distinct_id] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id,
-                persondistinctid__team_id=team.pk,
-            )
+            # Use dual-table-aware manager helper
+            people[distinct_id] = Person.objects.get_by_distinct_id(team.pk, distinct_id)
 
         for event in events:
             # Populate group properties as well
@@ -195,15 +193,24 @@ class InMemoryEvent:
 
 
 def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
-    (person, _) = Person.objects.update_or_create(
-        persondistinctid__distinct_id__in=distinct_ids,
-        persondistinctid__team_id=team_id,
-        defaults={**kwargs, "team_id": team_id},
-    )
+    # Dual-table support: Query PersonDistinctId first to find existing person
+    existing_persons = Person.objects.filter_by_distinct_ids(team_id, distinct_ids)
+
+    if existing_persons:
+        # Update existing person
+        person = existing_persons[0]
+        for key, value in {**kwargs, "team_id": team_id}.items():
+            setattr(person, key, value)
+        person.save()
+    else:
+        # Create new person
+        person = Person.objects.create(team_id=team_id, **kwargs)
+
+    # Ensure all distinct_ids are linked to this person
     for distinct_id in distinct_ids:
         PersonDistinctId.objects.update_or_create(
             distinct_id=distinct_id,
-            team_id=person.team_id,
+            team_id=team_id,
             defaults={
                 "person_id": person.id,
                 "team_id": team_id,

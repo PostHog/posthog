@@ -179,11 +179,9 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at
         else:
+            # Dual-table compatible person lookup using manager helper
             try:
-                person = Person.objects.get(
-                    persondistinctid__distinct_id=event["distinct_id"],
-                    persondistinctid__team_id=team_id,
-                )
+                person = Person.objects.get_by_distinct_id(team_id, event["distinct_id"])
                 person_properties = person.properties
                 person_id = person.uuid
                 person_created_at = person.created_at

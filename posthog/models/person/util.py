@@ -189,15 +189,36 @@ def create_person_distinct_id(
     )
 
 
-def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[Person]:
+    """DEPRECATED: Use Person.objects.filter_by_distinct_ids() instead.
+
+    This function is a thin wrapper for backward compatibility.
+    """
+    return Person.objects.filter_by_distinct_ids(team_id, distinct_ids)
+
+
+def get_persons_by_uuids(
+    team_id: int,
+    uuids: list[str],
+    distinct_id_limit: int = 1000,
+    order_by: Optional[list[str]] = None,
+    only_fields: Optional[list[str]] = None,
+) -> list[Person]:
+    """DEPRECATED: Use Person.objects.filter_by_uuids() instead.
+
+    This function is a thin wrapper for backward compatibility.
+    """
+    return Person.objects.filter_by_uuids(
         team_id=team_id,
-        persondistinctid__team_id=team_id,
-        persondistinctid__distinct_id__in=distinct_ids,
+        uuids=uuids,
+        distinct_id_limit=distinct_id_limit,
+        order_by=order_by,
+        only_fields=only_fields,
     )
 
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
+def get_persons_by_uuids_legacy(team: Team, uuids: list[str]) -> QuerySet:
+    """Legacy helper - use get_persons_by_uuids() for dual-table support."""
     return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 

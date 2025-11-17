@@ -1,1 +1,1 @@
-0905_update_person_table_name
+0905_personnew_personold_alter_person_table

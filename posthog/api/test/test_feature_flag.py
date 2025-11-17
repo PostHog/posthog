@@ -6618,7 +6618,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(2):
+        # TODO(dual-table): Revert to 2 after Person table migration completes
+        with self.assertNumQueries(4):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6656,7 +6657,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(2):
+        # TODO(dual-table): Revert to 2 after Person table migration completes
+        with self.assertNumQueries(4):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6695,7 +6697,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(2):
+        # TODO(dual-table): Revert to 2 after Person table migration completes
+        with self.assertNumQueries(4):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6727,7 +6730,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(6):
+        # TODO(dual-table): Revert to 6 after Person table migration completes
+        with self.assertNumQueries(8):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6745,7 +6749,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with self.assertNumQueries(2):
+        # TODO(dual-table): Revert to 2 after Person table migration completes
+        with self.assertNumQueries(4):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6799,7 +6804,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        # TODO(dual-table): Revert to 26 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6853,7 +6859,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
+        # TODO(dual-table): Revert to 41 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6864,7 +6871,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(23):
+        # TODO(dual-table): Revert to 23 after Person table migration completes
+        with self.assertNumQueries(25):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6928,7 +6936,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        # TODO(dual-table): Revert to 25 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(27):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6945,7 +6954,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        # TODO(dual-table): Revert to 25 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(27):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7039,7 +7049,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
+        # TODO(dual-table): Revert to 40 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(42):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -7757,7 +7768,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # one query to get group type mappings, another to get group properties
             # 2 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
@@ -7767,7 +7779,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            with self.assertNumQueries(3):
+            # TODO(dual-table): Revert to 3 after Person table migration completes
+            with self.assertNumQueries(5):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team, "example_id", groups={"organization": "org:1"}
                 )
@@ -7778,7 +7791,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent correct group property overrides
-            with self.assertNumQueries(3):
+            # TODO(dual-table): Revert to 3 after Person table migration completes
+            with self.assertNumQueries(5):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team,
                     "random",
@@ -7791,7 +7805,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(3):
+            # TODO(dual-table): Revert to 3 after Person table migration completes
+            with self.assertNumQueries(5):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team,
                     "exam",
@@ -7858,7 +7873,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             # 1 query to get person properties
             # 1 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -7959,7 +7975,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             # 1 query to set statement timeout
             # 1 query to get person properties
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -8169,7 +8186,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
+        # TODO(dual-table): Revert to 4 after Person table migration completes
+        with self.assertNumQueries(6):
             # 1 query to get person properties
             # 1 query to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -8269,7 +8287,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(8):
+        # TODO(dual-table): Revert to 8 after Person table migration completes
+        with self.assertNumQueries(10):
             # one query to get group type mappings, another to get group properties
             # 2 queries to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
@@ -8286,7 +8305,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 500,
             ),
         ):
-            with self.assertNumQueries(4):
+            # TODO(dual-table): Revert to 4 after Person table migration completes
+            with self.assertNumQueries(6):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team, "example_id", groups={"organization": "org:1"}
                 )
@@ -8297,7 +8317,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is slow, but decide was sent correct group property overrides
-            with self.assertNumQueries(4):
+            # TODO(dual-table): Revert to 4 after Person table migration completes
+            with self.assertNumQueries(6):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team,
                     "random",
@@ -8319,7 +8340,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 )
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(4):
+            # TODO(dual-table): Revert to 4 after Person table migration completes
+            with self.assertNumQueries(6):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team,
                     "exam",
@@ -8387,7 +8409,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        # TODO(dual-table): Revert to 17 after Person table migration completes
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(19):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -8411,7 +8434,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is slow, but decide was sent email parameter with correct email
             # still need to get hash key override from db, so should time out
-            with self.assertNumQueries(4):
+            # TODO(dual-table): Revert to 4 after Person table migration completes
+            with self.assertNumQueries(6):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team,
                     "random",

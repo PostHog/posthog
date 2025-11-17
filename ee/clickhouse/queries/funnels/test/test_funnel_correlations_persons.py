@@ -255,7 +255,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         insert_cohort_from_insight_filter(cohort_id, params)
 
         cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
+        people = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(people.count(), 5)
         self.assertEqual(cohort.count, 5)

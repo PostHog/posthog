@@ -13,51 +13,59 @@ import temporalio.workflow
 from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models.person import Person
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 
-SELECT_QUERY_TEMPLATE = """
+SELECT_QUERY = """
     SELECT id
-    FROM {{person_table}}
-    WHERE team_id=%(team_id)s {{person_ids_filter}}
+    FROM (
+        SELECT id
+        FROM posthog_person_new
+        WHERE team_id=%(team_id)s {person_ids_filter}
+
+        UNION ALL
+
+        SELECT id
+        FROM posthog_person
+        WHERE team_id=%(team_id)s {person_ids_filter}
+        AND id NOT IN (
+            SELECT id FROM posthog_person_new
+            WHERE team_id=%(team_id)s {person_ids_filter}
+        )
+    ) combined
     ORDER BY id ASC
     LIMIT %(limit)s
 """
 
 DELETE_QUERY_PERSON_DISTINCT_IDS = """
-    WITH to_delete AS ({{select_query}})
+    WITH to_delete AS ({select_query})
     DELETE FROM posthog_persondistinctid
     WHERE person_id IN (SELECT id FROM to_delete);
 """
 
 DELETE_QUERY_PERSON_OVERRIDE = """
-    WITH to_delete AS ({{select_query}})
+    WITH to_delete AS ({select_query})
     DELETE FROM posthog_personoverride
     WHERE (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
 """
 
 DELETE_QUERY_COHORT_PEOPLE = """
-    WITH to_delete AS ({{select_query}})
+    WITH to_delete AS ({select_query})
     DELETE FROM posthog_cohortpeople
     WHERE person_id IN (SELECT id FROM to_delete);
 """
 
-DELETE_QUERY_PERSON_TEMPLATE = """
-    WITH to_delete AS ({{select_query}})
-    DELETE FROM {{person_table}}
+DELETE_QUERY_PERSON = """
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_person_new
+    WHERE id IN (SELECT id FROM to_delete);
+
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_person
     WHERE id IN (SELECT id FROM to_delete);
 """
-
-# Format templates with person table name at module level
-SELECT_QUERY = SELECT_QUERY_TEMPLATE.replace("{{person_table}}", Person._meta.db_table).replace(
-    "{{person_ids_filter}}", "{person_ids_filter}"
-)
-DELETE_QUERY_PERSON = DELETE_QUERY_PERSON_TEMPLATE.replace("{{person_table}}", Person._meta.db_table).replace(
-    "{{select_query}}", "{select_query}"
-)
 
 
 @dataclasses.dataclass

@@ -293,7 +293,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        # TODO(dual-table): Revert to 13 after Person table migration completes
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -308,7 +309,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        # TODO(dual-table): Revert to 13 after Person table migration completes
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -345,7 +347,7 @@ email@example.org
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter_by_cohort(cohort.id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -374,7 +376,7 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter_by_cohort(cohort.id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -392,7 +394,7 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter_by_cohort(cohort.id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -460,7 +462,7 @@ email@example.org
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
@@ -495,7 +497,7 @@ Zero User,0,zero@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 3)
 
         # Verify specific persons are in the cohort
@@ -563,7 +565,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -606,7 +608,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -653,7 +655,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
@@ -683,7 +685,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -721,7 +723,7 @@ John Doe,{person1.uuid},john@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -4277,7 +4279,7 @@ jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -4320,7 +4322,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -4367,7 +4369,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter_by_cohort(cohort.pk)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)

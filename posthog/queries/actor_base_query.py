@@ -2,21 +2,19 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union, cast
 
-from django.db.models import OuterRef, Subquery
-from django.db.models.query import Prefetch, QuerySet
+from django.db.models.query import QuerySet
 
 from posthog.schema import ActorsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
+from posthog.models import Entity, Filter, SessionRecording, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
-from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.queries.insight import insight_sync_execute
 
 
@@ -265,25 +263,17 @@ def get_people(
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
     distinct_id_limit=1000,
-) -> tuple[QuerySet[Person], list[SerializedPerson]]:
-    """Get people from raw SQL results in data model and dict formats"""
-    distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(person_id=OuterRef("person_id"))
-        .values_list("id", flat=True)[:distinct_id_limit]
-    )
-    persons: QuerySet[Person] = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(team_id=team.pk, uuid__in=people_ids)
-        .prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                to_attr="distinct_ids_cache",
-                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
-            )
-        )
-        .order_by("-created_at", "uuid")
-        .only("id", "is_identified", "created_at", "properties", "uuid")
+) -> tuple[list[Person], list[SerializedPerson]]:
+    """Get people from raw SQL results in data model and dict formats.
+
+    Uses filter_by_uuids() for dual-table support during migration.
+    """
+    persons = Person.objects.filter_by_uuids(
+        team_id=team.pk,
+        uuids=people_ids,
+        distinct_id_limit=distinct_id_limit,
+        order_by=["-created_at", "uuid"],
+        only_fields=["id", "is_identified", "created_at", "properties", "uuid"],
     )
     return persons, serialize_people(team, persons, value_per_actor_id)
 
