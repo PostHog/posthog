@@ -4,9 +4,9 @@
   DELETE
   FROM "posthog_persondistinctid"
   WHERE ("id",
-         "team_id") IN ((5,
-                         53),(6,
-                              53))
+         "team_id") IN ((174,
+                         120),(175,
+                               120))
   '''
 # ---
 # name: TestTeamAPI.test_delete_bulky_postgres_data.1
@@ -14,8 +14,8 @@
   DELETE
   FROM "posthog_person"
   WHERE ("id",
-         "team_id") IN ((3,
-                         53))
+         "team_id") IN ((172,
+                         120))
   '''
 # ---
 # name: TestTeamAPI.test_delete_bulky_postgres_data.2
