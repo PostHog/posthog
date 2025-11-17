@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -14,24 +13,18 @@ import { cn } from 'lib/utils/css-classes'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
-import type { AppShortcut } from './AppShortcut'
+import { AppShortcutDeuxType, appShortcutDeuxLogic } from './appShortcutDeuxLogic'
 import { appShortcutLogic } from './appShortcutLogic'
 
-function getShortcutIcon(shortcut: AppShortcut): JSX.Element | null {
-    switch (shortcut.type) {
-        case 'toggle':
-            return (
-                <div className="flex items-center gap-1 size-4">
-                    <LemonSwitch checked={shortcut.active ?? false} size="xsmall" />
-                </div>
-            )
-        case 'link':
+function getShortcutIcon(shortcut: AppShortcutDeuxType): JSX.Element | null {
+    switch (shortcut.interaction) {
+        case 'focus':
             return (
                 <div className="flex items-center gap-1 size-4">
                     <IconArrowRight className="w-4 h-4 text-muted" />
                 </div>
             )
-        case 'action':
+        case 'click':
         default:
             return (
                 <div className="flex items-center gap-1 size-4">
@@ -42,78 +35,40 @@ function getShortcutIcon(shortcut: AppShortcut): JSX.Element | null {
 }
 
 export function AppShortcutMenu(): JSX.Element | null {
-    const { appShortcutMenuOpen, activeAppShortcuts } = useValues(appShortcutLogic)
+    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { registeredAppShortcuts } = useValues(appShortcutDeuxLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
-    // Group shortcuts by sceneKey, with scene-specific first and app shortcuts last
+    // Group shortcuts by name, simplified since AppShortcutDeux doesn't have sceneKey
     const groupedShortcuts = React.useMemo(() => {
-        const groups: Record<string, AppShortcut[]> = {}
+        const groups: Record<string, AppShortcutDeuxType[]> = {
+            app: [...registeredAppShortcuts],
+        }
 
-        activeAppShortcuts.forEach((shortcut) => {
-            // Normalize the key - convert Scene enum values to strings and handle undefined
-            let key = 'app'
-            if (shortcut.sceneKey) {
-                // Convert Scene enum to string if needed, or use as-is if already string
-                const rawKey = typeof shortcut.sceneKey === 'string' ? shortcut.sceneKey : String(shortcut.sceneKey)
-                // Normalize to lowercase to handle case inconsistencies
-                key = rawKey.toLowerCase()
-            }
-
-            if (!groups[key]) {
-                groups[key] = []
-            }
-            groups[key].push(shortcut)
-        })
-
-        // Sort groups: scene-specific first, then 'app' last
-        const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
-            if (a === 'app') {
-                return 1
-            }
-            if (b === 'app') {
-                return -1
-            }
-            return a.localeCompare(b)
-        })
-
-        return sortedGroupKeys.map((key) => ({
-            key,
-            shortcuts: groups[key].sort((a, b) => {
-                // Sort by order prop within each group
-                const orderA = a.order ?? 0
-                const orderB = b.order ?? 0
-                return orderA - orderB
-            }),
-            title: key === 'app' ? 'App' : key.charAt(0).toUpperCase() + key.slice(1),
-        }))
-    }, [activeAppShortcuts])
+        return [
+            {
+                key: 'app',
+                shortcuts: groups.app,
+                title: 'App',
+            },
+        ]
+    }, [registeredAppShortcuts])
 
     const handleClose = useCallback(() => {
         setAppShortcutMenuOpen(false)
     }, [setAppShortcutMenuOpen])
 
     const handleItemClick = useCallback(
-        (shortcut: AppShortcut) => {
-            shortcut.action()
-
-            if (shortcut.closeActionPaletteOnAction) {
-                // Close the palette if the action requests it (e.g., opens a modal)
-                handleClose()
-            } else {
-                // Keep the action palette open after executing an action
-                // Users can press Escape or click outside to close it
-
-                // Ensure search input stays focused and first item is selected after action execution
-                setTimeout(() => {
-                    const searchInput = document.querySelector('#scene-action-palette input') as HTMLInputElement
-                    if (searchInput) {
-                        searchInput.focus()
-                    }
-                    comboboxRef.current?.recalculateFocusableElements()
-                    comboboxRef.current?.focusFirstItem()
-                }, 10) // Small delay to allow DOM updates
+        (shortcut: AppShortcutDeuxType) => {
+            if (shortcut.interaction === 'click') {
+                shortcut.ref.current?.click()
+            } else if (shortcut.interaction === 'focus') {
+                shortcut.ref.current?.focus()
             }
+
+            // Always close the menu after executing a shortcut
+            handleClose()
         },
         [handleClose]
     )
@@ -139,10 +94,10 @@ export function AppShortcutMenu(): JSX.Element | null {
                 // Find the currently focused/selected shortcut by looking at the virtual focus
                 const focusedElement = document.querySelector('#scene-action-palette [data-focused="true"]')
                 if (focusedElement) {
-                    // Get the shortcut ID from the data attribute
-                    const shortcutId = focusedElement.getAttribute('data-shortcut-id')
-                    if (shortcutId) {
-                        const shortcut = activeAppShortcuts.find((s) => s.id === shortcutId)
+                    // Get the shortcut name from the data attribute
+                    const shortcutName = focusedElement.getAttribute('data-shortcut-name')
+                    if (shortcutName) {
+                        const shortcut = registeredAppShortcuts.find((s) => s.name === shortcutName)
                         if (shortcut) {
                             handleItemClick(shortcut)
                         }
@@ -163,7 +118,7 @@ export function AppShortcutMenu(): JSX.Element | null {
                 }, 50) // Slightly longer delay for search updates
             }
         },
-        [handleClose, activeAppShortcuts, handleItemClick]
+        [handleClose, registeredAppShortcuts, handleItemClick]
     )
 
     useEffect(() => {
@@ -195,7 +150,7 @@ export function AppShortcutMenu(): JSX.Element | null {
 
     // Ensure search input is focused and first item is selected when shortcuts change
     useEffect(() => {
-        if (appShortcutMenuOpen && activeAppShortcuts.length > 0) {
+        if (appShortcutMenuOpen && registeredAppShortcuts.length > 0) {
             setTimeout(() => {
                 const searchInput = document.querySelector('#scene-action-palette input') as HTMLInputElement
                 if (searchInput) {
@@ -205,7 +160,7 @@ export function AppShortcutMenu(): JSX.Element | null {
                 comboboxRef.current?.focusFirstItem()
             }, 0)
         }
-    }, [appShortcutMenuOpen, activeAppShortcuts])
+    }, [appShortcutMenuOpen, registeredAppShortcuts])
 
     if (!appShortcutMenuOpen) {
         return null
@@ -237,11 +192,11 @@ export function AppShortcutMenu(): JSX.Element | null {
                                     {group.shortcuts.map((shortcut, index) => {
                                         const isFirstItem = groupIndex === 0 && index === 0
                                         return (
-                                            <Combobox.Group key={shortcut.id} value={[shortcut.description]}>
+                                            <Combobox.Group key={shortcut.name} value={[shortcut.intent]}>
                                                 <Combobox.Item focusFirst={isFirstItem} asChild>
                                                     <ButtonPrimitive
                                                         menuItem
-                                                        data-shortcut-id={shortcut.id}
+                                                        data-shortcut-name={shortcut.name}
                                                         onClick={(e) => {
                                                             e.preventDefault()
                                                             e.stopPropagation()
@@ -250,12 +205,12 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                     >
                                                         <div className="flex items-center gap-2">
                                                             {getShortcutIcon(shortcut)}
-                                                            {shortcut.description}
+                                                            {shortcut.intent}
                                                         </div>
                                                         <span className="ml-auto">
                                                             <KeyboardShortcut
                                                                 {...Object.fromEntries(
-                                                                    shortcut.keys.map((key) => [key, true])
+                                                                    shortcut.keybind.map((key) => [key, true])
                                                                 )}
                                                                 className="text-xs"
                                                             />

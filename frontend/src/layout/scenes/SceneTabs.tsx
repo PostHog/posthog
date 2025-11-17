@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
 import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -41,7 +42,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const { shortcuts } = useValues(appShortcutLogic)
+
     const pinnedCount = tabs.filter((tab) => tab.pinned).length
     const unpinnedCount = tabs.length - pinnedCount
     const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
@@ -142,7 +143,13 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <AppShortcut {...shortcuts.app.newTab}>
+                        <AppShortcutDeux
+                            name="NewTab"
+                            keybind={['command', 'shift', 'g']}
+                            asChild
+                            intent="new tab"
+                            interaction="click"
+                        >
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -159,7 +166,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
-                        </AppShortcut>
+                        </AppShortcutDeux>
                     </div>
                 </SortableContext>
             </DndContext>

@@ -86,7 +86,7 @@ export function Navigation({
                     role="main"
                     tabIndex={0}
                     id="main-content"
-                    className="@container/main-content bg-surface-tertiary"
+                    className="@container/main-content bg-surface-tertiary focus-visible:outline-accent"
                     style={
                         {
                             '--scene-layout-rect-right': mainContentRect?.right + 'px',
@@ -111,6 +111,7 @@ export function Navigation({
                         {children}
                     </SceneLayout>
                 </main>
+
                 <SidePanel />
                 <CommandBar />
             </FloatingContainerContext.Provider>

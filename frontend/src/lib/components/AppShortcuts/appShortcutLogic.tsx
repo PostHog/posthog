@@ -146,6 +146,30 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                             type: 'action',
                         },
                     },
+                    [Scene.Dashboards]: {
+                        newDashboard: {
+                            keys: ['command', 'option', 'n'],
+                            description: 'New dashboard',
+                            sceneKey: Scene.Dashboards,
+                        },
+                    },
+                    [Scene.Dashboard]: {
+                        addTextTile: {
+                            keys: ['command', 'option', 'a'],
+                            description: 'Add text tile to dashboard',
+                            sceneKey: Scene.Dashboard,
+                        },
+                        addInsightToDashboard: {
+                            keys: ['command', 'option', 'n'],
+                            description: 'Add insight to dashboard',
+                            sceneKey: Scene.Dashboard,
+                        },
+                        toggleEditMode: {
+                            keys: ['command', 'option', 'e'],
+                            description: 'Toggle dashboard edit mode',
+                            sceneKey: Scene.Dashboard,
+                        },
+                    },
                 }
             },
         ],

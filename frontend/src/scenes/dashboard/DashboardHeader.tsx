@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
@@ -79,10 +81,12 @@ export function DashboardHeader(): JSX.Element | null {
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { shortcuts } = useValues(appShortcutLogic)
 
     const { user } = useValues(userLogic)
 
@@ -94,6 +98,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { push } = useActions(router)
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
+
+    // Check if text tile modal is currently open
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
@@ -244,17 +250,30 @@ export function DashboardHeader(): JSX.Element | null {
                         </ButtonPrimitive>
                     )}
                     {dashboard && canEditDashboard && (
-                        <ButtonPrimitive
-                            onClick={() =>
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                            }
-                            menuItem
+                        <AppShortcut
+                            {...shortcuts[Scene.Dashboard]!.toggleEditMode}
+                            onActionToggle={(active) => {
+                                if (active) {
+                                    setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                } else {
+                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                }
+                            }}
                             active={dashboardMode === DashboardMode.Edit}
-                            data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                            enabled={canEditDashboard}
                         >
-                            <IconGridMasonry />
-                            Edit layout <KeyboardShortcut e />
-                        </ButtonPrimitive>
+                            <ButtonPrimitive
+                                onClick={() =>
+                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                }
+                                menuItem
+                                active={dashboardMode === DashboardMode.Edit}
+                                data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                            >
+                                <IconGridMasonry />
+                                Edit layout <KeyboardShortcut e />
+                            </ButtonPrimitive>
+                        </AppShortcut>
                     )}
 
                     {dashboard && canEditDashboard && (
@@ -405,24 +424,34 @@ export function DashboardHeader(): JSX.Element | null {
                                 >
                                     Cancel
                                 </LemonButton>
-                                <LemonButton
-                                    data-attr="dashboard-edit-mode-save"
-                                    type="primary"
-                                    onClick={() =>
+                                <AppShortcut
+                                    keys={['command', 'option', 's']}
+                                    description="Save dashboard"
+                                    sceneKey={Scene.Dashboard}
+                                    enabled={canEditDashboard}
+                                    onAction={() =>
                                         setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
                                     }
-                                    size="small"
-                                    tabIndex={10}
-                                    disabledReason={
-                                        dashboardLoading
-                                            ? 'Wait for dashboard to finish loading'
-                                            : canEditDashboard
-                                              ? undefined
-                                              : 'Not privileged to edit this dashboard'
-                                    }
                                 >
-                                    Save
-                                </LemonButton>
+                                    <LemonButton
+                                        data-attr="dashboard-edit-mode-save"
+                                        type="primary"
+                                        onClick={() =>
+                                            setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                                        }
+                                        size="small"
+                                        tabIndex={10}
+                                        disabledReason={
+                                            dashboardLoading
+                                                ? 'Wait for dashboard to finish loading'
+                                                : canEditDashboard
+                                                  ? undefined
+                                                  : 'Not privileged to edit this dashboard'
+                                        }
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </AppShortcut>
                             </>
                         ) : dashboardMode === DashboardMode.Fullscreen ? (
                             <LemonButton
