@@ -222,6 +222,43 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["id"], str(task.id))
         self.assertEqual(data["title"], task.title)
 
+    @parameterized.expand(
+        [
+            # (filter_param, filter_value, task_repos, expected_task_indices)
+            ("repository", "posthog/posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0]),
+            ("repository", "posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0, 2]),
+            ("repository", "posthog-js", ["posthog/posthog", "posthog/posthog-js", "other/posthog-js"], [1, 2]),
+            ("organization", "posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0, 1]),
+            ("organization", "other", ["posthog/posthog", "other/repo1", "other/repo2"], [1, 2]),
+            # Case insensitive tests
+            ("repository", "PostHog/PostHog", ["posthog/posthog", "posthog/posthog-js"], [0]),
+            ("repository", "PostHog", ["posthog/posthog", "other/posthog"], [0, 1]),
+            ("organization", "PostHog", ["posthog/posthog", "posthog/posthog-js", "other/repo"], [0, 1]),
+        ]
+    )
+    def test_filter_by_repository_and_organization(self, filter_param, filter_value, task_repos, expected_indices):
+        tasks = []
+        for i, repo in enumerate(task_repos):
+            task = Task.objects.create(
+                team=self.team,
+                title=f"Task {i}",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=repo,
+            )
+            tasks.append(task)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?{filter_param}={filter_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+
+        self.assertEqual(len(task_ids), len(expected_task_ids))
+        for expected_id in expected_task_ids:
+            self.assertIn(expected_id, task_ids)
+
 
 class TestTaskRunAPI(BaseTaskAPITest):
     def test_list_runs_for_task(self):

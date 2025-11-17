@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -227,6 +228,44 @@ class TestTask(TestCase):
 
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("posthog-repo",),
+            ("noslashhere",),
+        ]
+    )
+    def test_repository_validation_fails_without_slash(self, repository):
+        with self.assertRaises(ValidationError) as cm:
+            Task.objects.create(
+                team=self.team,
+                title="Test Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=repository,
+            )
+
+        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+
+    @parameterized.expand(
+        [
+            ("PostHog/posthog", "posthog/posthog"),
+            ("posthog/PostHog-JS", "posthog/posthog-js"),
+            ("PostHog/PostHog", "posthog/posthog"),
+            ("POSTHOG/POSTHOG-JS", "posthog/posthog-js"),
+            ("posthog/posthog-js", "posthog/posthog-js"),
+        ]
+    )
+    def test_repository_converts_to_lowercase(self, input_repo, expected_repo):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository=input_repo,
+        )
+
+        self.assertEqual(task.repository, expected_repo)
 
 
 class TestTaskSlug(TestCase):

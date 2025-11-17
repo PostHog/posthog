@@ -5,6 +5,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -34,18 +35,6 @@ class Task(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
-    position = models.IntegerField(default=0)
-
-    # DEPRECATED: Workflow concept has been removed
-    workflow = models.ForeignKey(
-        "TaskWorkflow",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        editable=False,
-        related_name="tasks",
-        help_text="DEPRECATED: The workflow concept has been removed. This field is kept for backwards compatibility only.",
-    )
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -57,32 +46,14 @@ class Task(models.Model):
         help_text="GitHub integration for this task",
     )
 
-    repository_config = models.JSONField(
-        default=dict, help_text="Repository configuration with organization and repository fields"
-    )
+    repository = models.CharField(max_length=255)  # Format is organization/repo, for example posthog/posthog-js
 
-    # DEPRECATED FIELDS - these have been moved to TaskRun
-    # editable=False prevents them from appearing in forms/admin
-    current_stage = models.ForeignKey(
-        "WorkflowStage",
-        on_delete=models.SET_NULL,
+    json_schema = models.JSONField(
+        default=None,
         null=True,
+        required=False,
         blank=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.stage. Use task.latest_run.stage instead.",
-    )
-    github_branch = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.branch. Use task.latest_run.branch instead.",
-    )
-    github_pr_url = models.URLField(
-        blank=True,
-        null=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.output['pr_url']. Use task.latest_run.output.get('pr_url') instead.",
+        help_text="JSON schema for the task. This is used to validate the output of the task.",
     )
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -91,12 +62,17 @@ class Task(models.Model):
     class Meta:
         db_table = "posthog_task"
         managed = True
-        ordering = ["position"]
 
     def __str__(self):
         return self.title
 
     def save(self, *args, **kwargs):
+        if self.repository:
+            if "/" not in self.repository:
+                raise ValidationError({"repository": "Format for repository is organization/repo"})
+
+            self.repository = self.repository.lower()
+
         if self.task_number is None:
             self._assign_task_number()
 
@@ -117,52 +93,6 @@ class Task(models.Model):
         prefix = self.generate_team_prefix(self.team.name)
         return f"{prefix}-{self.task_number}"
 
-    # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
-    @property
-    def repository_list(self) -> list[dict]:
-        """
-        Returns list of repositories this task can work with
-        Format: [{"org": "PostHog", "repo": "repo-name", "integration_id": 123, "full_name": "PostHog/repo-name"}]
-        """
-        config = self.repository_config
-        if config.get("organization") and config.get("repository"):
-            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
-            return [
-                {
-                    "org": config.get("organization"),
-                    "repo": config.get("repository"),
-                    "integration_id": self.github_integration_id,
-                    "full_name": full_name,
-                }
-            ]
-        return []
-
-    def can_access_repository(self, org: str, repo: str) -> bool:
-        """Check if task can work with a specific repository"""
-        repo_list = self.repository_list
-        return any(r["org"] == org and r["repo"] == repo for r in repo_list)
-
-    @property
-    def primary_repository(self) -> dict | None:
-        """Get the primary repository for this task"""
-        repositories = self.repository_list
-        if not repositories:
-            return None
-
-        # Since we only support single repository, return the first (and only) one
-        return repositories[0]
-
-    @property
-    def legacy_github_integration(self):
-        """Get the team's main GitHub integration if available (legacy compatibility)"""
-        if self.github_integration:
-            return self.github_integration
-
-        try:
-            return Integration.objects.filter(team_id=self.team_id, kind="github").first()
-        except Exception:
-            return None
-
     @property
     def latest_run(self) -> Optional["TaskRun"]:
         return self.runs.order_by("-created_at").first()
@@ -178,7 +108,7 @@ class Task(models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
+        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
@@ -193,14 +123,6 @@ class Task(models.Model):
         if not github_integration:
             raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
-        repository_config = {}
-
-        if "/" in repository:
-            org, repo = repository.split("/", 1)
-            repository_config = {"organization": org, "repository": repo}
-        else:
-            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
-
         task = Task.objects.create(
             team=team,
             title=title,
@@ -208,7 +130,7 @@ class Task(models.Model):
             origin_product=origin_product,
             created_by=created_by,
             github_integration=github_integration,
-            repository_config=repository_config,
+            repository=repository,
         )
 
         execute_task_processing_workflow(
@@ -238,27 +160,11 @@ class TaskRun(models.Model):
         max_length=100,
         blank=True,
         null=True,
-        help_text="Current stage for this run (e.g., 'backlog', 'in_progress', 'done')",
-    )
-
-    # DEPRECATED: Use stage CharField instead
-    current_stage = models.ForeignKey(
-        "WorkflowStage",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        editable=False,
-        help_text="DEPRECATED: Use stage CharField instead. This field is kept for backwards compatibility only.",
+        help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
 
-    # Claude Code output
-    log = models.JSONField(
-        blank=True,
-        default=list,
-        help_text="DEPRECATED: Logs now stored in S3. This field only contains legacy logs.",
-    )
     log_storage_path = models.CharField(max_length=500, blank=True, null=True, help_text="S3 path to log file")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
@@ -353,13 +259,6 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
-
-    def get_next_stage(self):
-        """
-        DEPRECATED: This method relied on the workflow/stage concept which has been removed.
-        Stage transitions should now be managed by setting the 'stage' CharField directly.
-        """
-        return None
 
 
 class SandboxSnapshot(UUIDModel):
@@ -462,165 +361,3 @@ class SandboxSnapshot(UUIDModel):
                     ) from e
 
         super().delete(*args, **kwargs)
-
-
-#
-# DEPRECATED MODELS - these have been replaced with new models
-#
-
-
-class TaskWorkflow(models.Model):
-    """
-    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
-    This model is kept for backwards compatibility only and should not be used for new code.
-    The table still exists in the database but should not be used.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255, help_text="Human-readable name for this workflow")
-    description = models.TextField(blank=True, help_text="Description of the workflow purpose")
-    color = models.CharField(max_length=7, default="#3b82f6", help_text="Hex color for UI display")
-    is_default = models.BooleanField(default=False, help_text="Whether this is the default workflow for new tasks")
-    is_active = models.BooleanField(default=True, help_text="Whether this workflow is currently active")
-    version = models.IntegerField(default=1, help_text="Version number for tracking workflow changes")
-
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_task_workflow"
-        unique_together = [("team", "name")]
-        ordering = ["name"]
-
-    def __str__(self):
-        return "TaskWorkflow has been deprecated."
-
-    def save(self, *args, **kwargs):
-        raise DeprecationWarning("TaskWorkflow has been deprecated.")
-
-    def delete(self, *args, **kwargs):
-        raise DeprecationWarning("TaskWorkflow has been deprecated.")
-
-    @classmethod
-    def _raise_deprecation_error(cls):
-        raise DeprecationWarning("TaskWorkflow has been deprecated.")
-
-
-class WorkflowStage(models.Model):
-    """
-    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
-    This model is kept for backwards compatibility only and should not be used for new code.
-    The table still exists in the database but should not be used.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workflow = models.ForeignKey(TaskWorkflow, on_delete=models.CASCADE, related_name="stages")
-    name = models.CharField(max_length=100, help_text="Stage name (e.g., 'Backlog', 'In Progress')")
-    key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
-    position = models.IntegerField(help_text="Order of this stage in the workflow")
-    color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-
-    agent_name = models.CharField(
-        max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
-    )
-
-    is_manual_only = models.BooleanField(
-        default=True, help_text="Whether only manual transitions are allowed from this stage"
-    )
-
-    is_archived = models.BooleanField(
-        default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)"
-    )
-
-    fallback_stage = models.ForeignKey(
-        "self",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Stage to move tasks to if this stage is deleted",
-    )  # NOTE: We probably don't need this? We can just move it to the previous stage, we're rarely going to bother setting this
-
-    class Meta:
-        db_table = "posthog_workflow_stage"
-        unique_together = [("workflow", "key"), ("workflow", "position")]
-        ordering = ["position"]
-
-    def __str__(self):
-        return "WorkflowStage has been deprecated."
-
-    def save(self, *args, **kwargs):
-        raise DeprecationWarning("WorkflowStage has been deprecated.")
-
-    def delete(self, *args, **kwargs):
-        raise DeprecationWarning("WorkflowStage has been deprecated.")
-
-    @classmethod
-    def _raise_deprecation_error(cls):
-        raise DeprecationWarning("WorkflowStage has been deprecated.")
-
-
-class TaskProgress(models.Model):
-    """
-    DEPRECATED: This model has been renamed to TaskRun.
-    Use TaskRun instead. This class is kept for backwards compatibility only.
-
-    The table still exists in the database but should not be used.
-    Any attempt to use this model will raise an error.
-    """
-
-    class Status(models.TextChoices):
-        STARTED = "started", "Started"
-        IN_PROGRESS = "in_progress", "In Progress"
-        COMPLETED = "completed", "Completed"
-        FAILED = "failed", "Failed"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="progress_logs")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-
-    # Progress tracking
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
-    current_step = models.CharField(max_length=255, blank=True, help_text="Current step being executed")
-    total_steps = models.IntegerField(default=0, help_text="Total number of steps if known")
-    completed_steps = models.IntegerField(default=0, help_text="Number of completed steps")
-
-    # Claude Code output
-    output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
-    error_message = models.TextField(blank=True, help_text="Error message if execution failed")
-
-    # Workflow metadata
-    workflow_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow ID")
-    workflow_run_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow run ID")
-    activity_id = models.CharField(max_length=255, blank=True, help_text="Temporal activity ID")
-
-    # Timestamps
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "posthog_task_progress"
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"TaskProgress has been deprecated. Use TaskRun instead."
-
-    def save(self, *args, **kwargs):
-        raise DeprecationWarning(
-            "TaskProgress has been renamed to TaskRun. Use TaskRun.objects.create() instead. "
-            "This model is deprecated and should not be used."
-        )
-
-    def delete(self, *args, **kwargs):
-        raise DeprecationWarning(
-            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
-            "This model is deprecated and should not be used."
-        )
-
-    @classmethod
-    def _raise_deprecation_error(cls):
-        raise DeprecationWarning(
-            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
-            "This model is deprecated and should not be used."
-        )
