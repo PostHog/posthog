@@ -174,7 +174,13 @@ export function InsightsTable({
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
             render: (_, item) => {
-                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                return (
+                    <BreakdownColumnItem
+                        item={item}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                        breakdownFilter={breakdownFilter}
+                    />
+                )
             },
             key: 'breakdown',
             sorter: (a, b) => {
@@ -217,7 +223,13 @@ export function InsightsTable({
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
-                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
                 },
                 key: `breakdown-${breakdown.property?.toString() || index}`,
                 sorter: (a, b) => {
