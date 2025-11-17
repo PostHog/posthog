@@ -29,7 +29,7 @@ from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -948,61 +948,113 @@ def get_teams_with_ai_credits_used_in_period(
     """
     Calculate AI credits used in the period for billable AI generations.
 
+    Billing is performed at the trace level. Traces are billable only if they contain
+    tool calls that include at least one non-search tool. Free (non-billable) traces:
+    - Traces with no tool calls
+    - Traces that only contain 'search' tool calls
+
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
     2. Filter out negative or zero costs (defensive)
-    3. Convert to cents (multiply by 100)
-    4. Add markup
+    3. Exclude generations from traces with no tool calls or only search tool calls
+    4. Convert to cents (multiply by 100)
+    5. Add markup
     6. Convert 1:1 to credits
 
     Only counts generations where $ai_billable is true and cost > 0.
     Events are stored in team 2, with the actual team (on which we group by) in properties.
     """
-    results = sync_execute(
-        """
-        WITH costs AS (
+    with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
+        results = sync_execute(
+            """
+            WITH trace_analysis AS (
             SELECT
-                JSONExtractInt(properties, 'team_id') AS customer_team_id,
-                toDecimal32OrNull(JSONExtractString(properties, '$ai_total_cost_usd'), 5) AS cost_usd,
-                JSONExtractBool(properties, '$ai_billable') AS ai_billable,
-                timestamp
-            FROM events
+                trace_id,
+                -- Only billable if trace has tool calls and not all are search
+                multiIf(
+                    length(tool_names) > 0 AND NOT arrayAll(x -> x IN ['search'], tool_names),
+                    1,  -- billable: has tool calls with at least one non-search tool
+                    0   -- not billed: no tool calls OR only search tools
+                ) AS is_billable
+            FROM (
+                SELECT
+                    JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                    arrayMap(
+                        x -> JSONExtractString(x, 'name'),
+                        arrayFlatten(
+                            arrayMap(
+                                msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
+                                JSONExtractArrayRaw(
+                                    JSONExtractRaw(properties, '$ai_output_state'),
+                                    'messages'
+                                )
+                            )
+                        )
+                    ) AS tool_names
+                FROM events
+                PREWHERE
+                    -- hardcoding data inside PostHog project used as ground truth for billing
+                    team_id = 2
+                    AND timestamp >= %(begin)s
+                    AND timestamp < %(end)s
+                    AND event = '$ai_trace'
+            )
+        ),
+        costs AS (
+            SELECT
+                customer_team_id,
+                trace_id,
+                cost_usd
+            FROM (
+                SELECT
+                    JSONExtractInt(properties, 'team_id') AS customer_team_id,
+                    JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                    toDecimal32OrNull(
+                        JSONExtractString(properties, '$ai_total_cost_usd'),
+                        5
+                    ) AS cost_usd,
+                    JSONExtractBool(properties, '$ai_billable') AS ai_billable
+                FROM events
+                PREWHERE
+                    -- hardcoding data inside PostHog project used as ground truth for billing
+                    team_id = 2
+                    AND timestamp >= %(begin)s
+                    AND timestamp < %(end)s
+                    AND event = '$ai_generation'
+            )
             WHERE
-                -- hardcoding data inside PostHog project used as ground truth for billing
-                team_id = 2
-                AND event = '$ai_generation'
-                AND timestamp >= %(begin)s
-                AND timestamp < %(end)s
+                ai_billable = 1
+                AND cost_usd > 0
+                AND cost_usd IS NOT NULL
         )
         SELECT
-            customer_team_id AS team,
+            c.customer_team_id AS team,
             toInt64(
                 roundBankers(
-                    sum(cost_usd * 100 * %(markup_multiplier)s)
+                    sum(c.cost_usd * 100 * %(markup_multiplier)s)
                 )
             ) AS ai_credits
-        FROM costs
+        FROM costs c
+        LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
         WHERE
-            ai_billable = 1
-            AND cost_usd > 0
-            AND cost_usd IS NOT NULL
+            t.is_billable = 1 OR t.trace_id IS NULL
         GROUP BY
-            customer_team_id
+            c.customer_team_id
         HAVING
             ai_credits > 0
         ORDER BY
             ai_credits DESC
-    """,
-        {
-            "begin": begin,
-            "end": end,
-            "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
-        },
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
+        """,
+            {
+                "begin": begin,
+                "end": end,
+                "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
 
-    return results
+        return results
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
@@ -1339,6 +1391,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
+        or report.ai_credits_used_in_period > 0
     )
 
 

@@ -2568,6 +2568,205 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
+    def test_ai_credits_with_billable_tools(self) -> None:
+        """Test that generations with non-search tools are billed correctly."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with non-search tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search"},
+                                {"name": "query_executor"},
+                            ]
+                        }
+                    ]
+                },
+            },
+        )
+
+        # Create billable generation for this trace
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 1.0 USD * 100 * 1.2 = 120 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    def test_ai_credits_with_only_search_tools(self) -> None:
+        """Test that generations with only search tools are NOT billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with only search tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_free",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search"},
+                                {"name": "search"},
+                            ]
+                        }
+                    ]
+                },
+            },
+        )
+
+        # Create generation for this trace (should NOT be billed)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_free",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges for search-only traces
+        self.assertEqual(len(result), 0)
+
+    def test_ai_credits_filters_non_billable(self) -> None:
+        """Test that non-billable generations and invalid costs are filtered out."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with billable tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+            },
+        )
+
+        # Billable generation (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+            },
+        )
+
+        # Non-billable generation (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": False,
+            },
+        )
+
+        # Zero cost (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_3",
+            timestamp=period_start + relativedelta(hours=3),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 0.0,
+                "$ai_billable": True,
+            },
+        )
+
+        # Negative cost (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_4",
+            timestamp=period_start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": -1.0,
+                "$ai_billable": True,
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only the first generation: 0.5 USD * 100 * 1.2 = 60 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -3420,120 +3619,3 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(len(all_data["teams_with_event_count_in_period"]), 1)
         self.assertEqual(next(iter(all_data["teams_with_event_count_in_period"].keys())), self.team.id)
         self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)
-
-    def test_get_teams_with_ai_credits_used_in_period(self) -> None:
-        """Test AI credits calculation with various scenarios."""
-        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
-
-        # Create billable AI generation events with valid costs
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_1",
-            timestamp=self.begin + relativedelta(hours=1),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 1.0,
-                "$ai_billable": True,
-            },
-        )
-
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_2",
-            timestamp=self.begin + relativedelta(hours=2),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 0.50,
-                "$ai_billable": True,
-            },
-        )
-
-        # Create non-billable event (should not be counted)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_3",
-            timestamp=self.begin + relativedelta(hours=3),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 2.0,
-                "$ai_billable": False,
-            },
-        )
-
-        # Create event with zero cost (should not be counted)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_4",
-            timestamp=self.begin + relativedelta(hours=4),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 0.0,
-                "$ai_billable": True,
-            },
-        )
-
-        # Create event with negative cost (should not be counted)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_5",
-            timestamp=self.begin + relativedelta(hours=5),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": -1.0,
-                "$ai_billable": True,
-            },
-        )
-
-        # Create event without cost property (should not be counted)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_6",
-            timestamp=self.begin + relativedelta(hours=6),
-            properties={
-                "team_id": self.team.id,
-                "$ai_billable": True,
-            },
-        )
-
-        # Create event without billable property (should not be counted, defaults to false)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_7",
-            timestamp=self.begin + relativedelta(hours=7),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 3.0,
-            },
-        )
-
-        # Create event outside the period (should not be counted)
-        _create_event(
-            event="$ai_generation",
-            team=self.analytics_team,
-            distinct_id="user_8",
-            timestamp=self.begin - relativedelta(hours=1),
-            properties={
-                "team_id": self.team.id,
-                "$ai_total_cost_usd": 5.0,
-                "$ai_billable": True,
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_ai_credits_used_in_period(self.begin, self.end)
-
-        # Expected calculation:
-        # Event 1: 1.0 USD * 100 * 1.2 = 120 credits
-        # Event 2: 0.50 USD * 100 * 1.2 = 60 credits
-        # Total: 180 credits
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.team.id)
-        self.assertEqual(result[0][1], 180)
