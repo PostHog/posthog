@@ -3,25 +3,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.models import CustomerAnalyticsConfig
 
 
 class CustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-
     class Meta:
         model = CustomerAnalyticsConfig
-        fields = [
-            "id",
-            "activity_event",
-            "created_at",
-            "created_by",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+        fields = ["id", "activity_event"]
+        read_only_fields = ["id"]
 
 
 class CustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -48,14 +39,10 @@ class CustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         config, created = CustomerAnalyticsConfig.objects.update_or_create(
             team=self.team,
             defaults={
-                "activity_event": request.data.get("activity_event", {}),
-                "created_by": request.user if request.user.is_authenticated else None,
+                "activity_event": request.data.get("activity_event", DEFAULT_ACTIVITY_EVENT),
+                "created_by": request.user,
             },
         )
-        if created and request.user.is_authenticated:
-            config.created_by = request.user
-            config.save()
-
         serializer = self.get_serializer(config)
         return Response(
             serializer.data,
