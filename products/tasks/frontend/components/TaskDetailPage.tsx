@@ -13,7 +13,7 @@ import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
 import { taskDetailLogic } from '../taskDetailLogic'
 import { tasksLogic } from '../tasksLogic'
 import { Task } from '../types'
-import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
+import { RepositorySelector } from './RepositorySelector'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
 
 interface TaskDetailPageProps {
@@ -27,15 +27,11 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
     const { allWorkflows } = useValues(tasksLogic)
 
     const [isEditingRepository, setIsEditingRepository] = useState(false)
-    const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
-        integrationId: task?.github_integration || undefined,
-        organization: task?.repository_config?.organization || undefined,
-        repository: task?.repository_config?.repository || undefined,
-    })
+    const [,setRepository] = useState<string | null>(task.repository ?? null)
     const [savingRepository, setSavingRepository] = useState(false)
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
 
-    const isInBacklog = !task.workflow || !task.current_stage
+    const isInBacklog = task.stage === 'backlog'
 
     const getCurrentStage = (): any => {
         if (task.workflow && task.current_stage) {
@@ -92,7 +88,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
     const handleCancelEdit = (): void => {
         setRepositoryConfig({
             integrationId: task?.github_integration || undefined,
-            organization: task?.repository_config?.organization || undefined,
+            organization: task?.repository?.organization || undefined,
             repository: task?.repository_config?.repository || undefined,
         })
         setIsEditingRepository(false)

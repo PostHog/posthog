@@ -30,8 +30,8 @@ from .serializers import (
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
+    TaskRunUpdateSerializer,
     TaskSerializer,
-    TaskUpdatePositionRequestSerializer,
 )
 from .temporal.client import execute_task_processing_workflow
 
@@ -57,9 +57,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
-            "update_position",
-            "progress",
-            "progress_stream",
             "run",
         ]
     }
@@ -89,30 +86,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if stage:
             qs = qs.filter(runs__stage=stage)
 
-        # Filter by repository or organization inside repository_config JSON
+        # Filter by repository or organization using the repository field
         organization = params.get("organization")
         repository = params.get("repository")
 
         if repository:
-            repo_str = repository.strip()
+            repo_str = repository.strip().lower()
             if "/" in repo_str:
-                org_part, repo_part = repo_str.split("/", 1)
-                org_part = org_part.strip()
-                repo_part = repo_part.strip()
-                if org_part and repo_part:
-                    qs = qs.filter(
-                        repository_config__organization__iexact=org_part,
-                        repository_config__repository__iexact=repo_part,
-                    )
-                elif repo_part:
-                    qs = qs.filter(repository_config__repository__iexact=repo_part)
-                elif org_part:
-                    qs = qs.filter(repository_config__organization__iexact=org_part)
+                qs = qs.filter(repository__iexact=repo_str)
             else:
-                qs = qs.filter(repository_config__repository__iexact=repo_str)
+                qs = qs.filter(repository__iendswith=f"/{repo_str}")
 
         if organization:
-            qs = qs.filter(repository_config__organization__iexact=organization.strip())
+            org_str = organization.strip().lower()
+            qs = qs.filter(repository__istartswith=f"{org_str}/")
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
@@ -145,31 +132,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
         serializer.save()
         logger.info(f"Task {task.id} updated successfully")
-
-    @validated_request(
-        request_serializer=TaskUpdatePositionRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskSerializer, description="Task with updated position"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid position"),
-            404: OpenApiResponse(description="Task not found"),
-        },
-        summary="Update task position",
-        description="Update the position of a task within its current stage",
-        strict_request_validation=True,
-    )
-    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
-    def update_position(self, request, pk=None, **kwargs):
-        task = self.get_object()
-
-        new_position = request.validated_data.get("position")
-
-        if new_position is None:
-            return Response(
-                ErrorResponseSerializer({"error": "Position is required"}).data, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        task.position = new_position
-        task.save()
 
         return Response(TaskSerializer(task).data)
 
@@ -210,8 +172,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "retrieve",
             "create",
             "update",
-            "partial_update",
-            "progress_run",
+            "partial_update",l
             "set_output",
             "append_log",
         ]
@@ -238,6 +199,51 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=TaskRunUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Update task run",
+        description="Update a task run with status, stage, branch, output, and state information.",
+        strict_request_validation=True,
+    )
+    def update(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=TaskRunUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Update task run",
+        strict_request_validation=True,
+    )
+    def partial_update(self, request, *args, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        # Update fields from validated data
+        for key, value in request.validated_data.items():
+            setattr(task_run, key, value)
+
+        # Auto-set completed_at if status is completed or failed
+        if "status" in request.validated_data and request.validated_data["status"] in [
+            TaskRun.Status.COMPLETED,
+            TaskRun.Status.FAILED,
+        ]:
+            if not task_run.completed_at:
+                from django.utils import timezone
+
+                task_run.completed_at = timezone.now()
+
+        task_run.save()
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task

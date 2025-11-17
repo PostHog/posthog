@@ -8,134 +8,58 @@ export enum OriginProduct {
     SESSION_SUMMARIES = 'session_summaries',
 }
 
-export interface Task {
-    id: string
-    title: string
-    description: string
-    origin_product: OriginProduct
-    position: number
-    github_branch?: string
-    github_pr_url?: string
-    created_at: string
-    updated_at: string
-    repository_scope?: 'single' | 'multiple' | 'smart_select'
-    github_integration?: number
-    repository_config?: Record<string, any>
-    repository_list?: Array<{ organization: string; repository: string }>
-    primary_repository?: { organization: string; repository: string }
-    workflow?: string
-    current_stage?: string
-}
-
-// TODO: figure out if position can be set on the backend
-export type TaskUpsertProps = Optional<
-    Pick<
-        Task,
-        | 'title'
-        | 'description'
-        | 'origin_product'
-        | 'position'
-        | 'github_integration'
-        | 'repository_config'
-        | 'workflow'
-        | 'current_stage'
-    >,
-    'position' | 'workflow' | 'current_stage' | 'title'
->
-
-export interface KanbanColumn {
-    id: string
-    title: string
-    tasks: Task[]
-}
-
-export enum ProgressStatus {
+export enum TaskRunStatus {
     STARTED = 'started',
     IN_PROGRESS = 'in_progress',
     COMPLETED = 'completed',
     FAILED = 'failed',
 }
 
-export interface TaskProgress {
+export interface TaskRun {
     id: string
-    status: ProgressStatus
-    current_step: string
-    completed_steps: number
-    total_steps: number
-    progress_percentage: number
-    output_log: string
-    error_message: string
+    task: string
+    stage: string | null
+    branch: string | null
+    status: TaskRunStatus
+    log_url: string | null
+    error_message: string | null
+    output: Record<string, any> | null
+    state: Record<string, any>
     created_at: string
     updated_at: string
-    completed_at?: string
-    workflow_id: string
-    workflow_run_id: string
+    completed_at: string | null
 }
 
-export interface ProgressResponse {
-    has_progress: boolean
-    message?: string
-    id?: string
-    status?: ProgressStatus
-    current_step?: string
-    completed_steps?: number
-    total_steps?: number
-    progress_percentage?: number
-    output_log?: string
-    error_message?: string
-    created_at?: string
-    updated_at?: string
-    completed_at?: string
-    workflow_id?: string
-    workflow_run_id?: string
-}
-
-// New workflow-related types
-export interface WorkflowStage {
+export interface Task {
     id: string
-    name: string
-    key: string
-    position: number
-    color: string
-    is_manual_only: boolean
-    is_archived: boolean
-    task_count: number
-    agent?: AgentDefinition | null
-    agent_name?: string
-}
-
-export interface AgentDefinition {
-    id: string
-    name: string
-    agent_type: 'code_generation' | 'triage' | 'review' | 'testing'
+    task_number: number | null
+    slug: string
+    title: string
     description: string
-    config: Record<string, any>
-    is_active: boolean
+    origin_product: OriginProduct
+    repository: string
+    github_integration: number | null
+    latest_run: TaskRun | null
     created_at: string
     updated_at: string
+    created_by: {
+        id: number
+        uuid: string
+        distinct_id: string
+        first_name: string
+        email: string
+    } | null
 }
 
-export interface TaskWorkflow {
+export type TaskUpsertProps = Optional<
+    Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'>,
+    'title'
+>
+
+export interface KanbanColumn {
     id: string
-    name: string
-    description: string
-    color?: string
-    is_default: boolean
-    is_active: boolean
-    version: number
-    stages: WorkflowStage[]
-    task_count: number
-    can_delete: {
-        can_delete: boolean
-        reason: string
-    }
-    created_at: string
-    updated_at: string
-}
-
-export interface WorkflowConfiguration {
-    workflow: TaskWorkflow
-    stages: WorkflowStage[]
+    title: string
+    tasks: Task[]
 }
 
 export type TaskTrackerTab = 'dashboard' | 'backlog' | 'kanban' | 'settings'
