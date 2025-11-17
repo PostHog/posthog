@@ -34,6 +34,12 @@ class CommentSerializer(serializers.ModelSerializer):
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
 
+        content = data.get("content", "")
+        rich_content = data.get("rich_content")
+
+        if not content.strip() and not rich_content:
+            raise exceptions.ValidationError("A comment must have either content or rich_content")
+
         data["created_by"] = request.user
 
         return data
