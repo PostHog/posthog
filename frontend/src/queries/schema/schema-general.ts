@@ -4342,6 +4342,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4355,6 +4360,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [

@@ -21,6 +21,7 @@ import {
     SourceFieldSwitchGroupConfig,
     externalDataSources,
 } from '~/queries/schema/schema-general'
+import { SuggestedTable } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -384,6 +385,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
+        suggestedTablesMap: [
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfig | null): Record<string, string | undefined> => {
+                if (!selectedConnector?.suggestedTables) {
+                    return {}
+                }
+
+                return selectedConnector.suggestedTables.reduce(
+                    (acc: Record<string, string | undefined>, suggested: SuggestedTable) => {
+                        acc[suggested.table] = suggested.tooltip ?? undefined
+                        return acc
+                    },
+                    {} as Record<string, string | undefined>
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
@@ -781,6 +798,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 for (const schema of schemas) {
                     if (schema.sync_type === null) {
                         showToast = true
+                        // Auto-enable suggested tables, preserve original behavior for others
                         schema.should_sync = true
 
                         // Use incremental if available
