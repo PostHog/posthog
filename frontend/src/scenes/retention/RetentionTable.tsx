@@ -149,7 +149,14 @@ export function RetentionTable({
                                 )}
 
                                 {tableHeaders.map((_, interval) => (
-                                    <td key={interval}>
+                                    <td
+                                        key={interval}
+                                        className={clsx({
+                                            'RetentionTable__SelectedColumn--cell': interval === selectedInterval,
+                                            'RetentionTable__HoveredColumn--cell':
+                                                interval === hoveredColumn && interval !== selectedInterval,
+                                        })}
+                                    >
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
                                             clickable={false}
