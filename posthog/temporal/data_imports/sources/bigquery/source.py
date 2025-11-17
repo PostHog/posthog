@@ -32,6 +32,20 @@ def build_destination_table_prefix(schema_id: str | None) -> str:
     return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
 
 
+def normalize_dataset_id(dataset_id: str) -> str:
+    """Extract just the dataset name from a potentially fully-qualified dataset ID.
+
+    BigQuery dataset IDs should be just the dataset name (e.g., "my_dataset"),
+    but users sometimes provide them in the format "project.dataset".
+    This function extracts just the dataset name (the last component after splitting by dot).
+    """
+    dataset_id_parts = dataset_id.split(".")
+    if len(dataset_id_parts) > 1:
+        # If dataset_id contains a dot, extract just the dataset name (last part)
+        return dataset_id_parts[-1]
+    return dataset_id
+
+
 @SourceRegistry.register
 class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
     @property
@@ -72,7 +86,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         ):
             region = config.use_custom_region.region
         if validate_bigquery_credentials(
-            config.dataset_id,
+            normalize_dataset_id(config.dataset_id),
             {
                 "project_id": config.key_file.project_id,
                 "private_key": config.key_file.private_key,
@@ -93,7 +107,11 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
 
         region: str | None = None
         dataset_project_id: str | None = None
-        destination_table_dataset_id = config.dataset_id
+
+        # Extract just the dataset name if dataset_id contains a project prefix (e.g., "project.dataset")
+        # This handles cases where users incorrectly provide "project.dataset" instead of just "dataset"
+        normalized_dataset_id = normalize_dataset_id(config.dataset_id)
+        destination_table_dataset_id = normalized_dataset_id
 
         if (
             config.use_custom_region
@@ -143,7 +161,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
 
         try:
             return bigquery_source(
-                dataset_id=config.dataset_id,
+                dataset_id=normalized_dataset_id,
                 project_id=config.key_file.project_id,
                 location=region,
                 dataset_project_id=dataset_project_id,

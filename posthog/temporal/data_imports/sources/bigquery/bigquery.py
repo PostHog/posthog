@@ -38,6 +38,10 @@ def get_schemas(
     ):
         region = config.use_custom_region.region
 
+    # Extract just the dataset name if it contains a project prefix
+    dataset_id_parts = config.dataset_id.split(".")
+    dataset_id = dataset_id_parts[-1] if len(dataset_id_parts) > 1 else config.dataset_id
+
     with bigquery_client(
         config.key_file.project_id,
         region,
@@ -47,7 +51,7 @@ def get_schemas(
         config.key_file.token_uri,
     ) as bq:
         query = bq.query(
-            f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            f"SELECT table_name, column_name, data_type FROM `{dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
             project=config.dataset_project.dataset_project_id
             if config.dataset_project and config.dataset_project.enabled
             else config.key_file.project_id,
