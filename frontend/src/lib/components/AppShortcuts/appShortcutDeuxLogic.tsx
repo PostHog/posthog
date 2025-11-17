@@ -13,6 +13,8 @@ export interface AppShortcutDeuxType {
     intent: string
     // The type of interaction to trigger
     interaction: 'click' | 'focus'
+    // The scope of the shortcut - 'global' or a specific scene key
+    scope?: string
 }
 
 export const appShortcutDeuxLogic = kea<appShortcutDeuxLogicType>([

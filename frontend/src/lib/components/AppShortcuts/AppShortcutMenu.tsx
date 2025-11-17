@@ -9,6 +9,7 @@ import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
@@ -38,22 +39,43 @@ export function AppShortcutMenu(): JSX.Element | null {
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { registeredAppShortcuts } = useValues(appShortcutDeuxLogic)
+    const { activeTab } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
-    // Group shortcuts by name, simplified since AppShortcutDeux doesn't have sceneKey
+    // Group shortcuts by scope, with scene-specific first and global last
     const groupedShortcuts = React.useMemo(() => {
-        const groups: Record<string, AppShortcutDeuxType[]> = {
-            app: [...registeredAppShortcuts],
-        }
+        const groups: Record<string, AppShortcutDeuxType[]> = {}
+        const currentScene = activeTab?.sceneId
 
-        return [
-            {
-                key: 'app',
-                shortcuts: groups.app,
-                title: 'App',
-            },
-        ]
-    }, [registeredAppShortcuts])
+        registeredAppShortcuts.forEach((shortcut) => {
+            const scope = shortcut.scope || 'global'
+
+            // Only include shortcuts that are global or match the current scene
+            if (scope === 'global' || scope === currentScene) {
+                if (!groups[scope]) {
+                    groups[scope] = []
+                }
+                groups[scope].push(shortcut)
+            }
+        })
+
+        // Sort groups: scene-specific first, then 'global' last
+        const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+            if (a === 'global') {
+                return 1
+            }
+            if (b === 'global') {
+                return -1
+            }
+            return a.localeCompare(b)
+        })
+
+        return sortedGroupKeys.map((key) => ({
+            key,
+            shortcuts: groups[key],
+            title: key === 'global' ? 'App' : key.charAt(0).toUpperCase() + key.slice(1),
+        }))
+    }, [registeredAppShortcuts, activeTab])
 
     const handleClose = useCallback(() => {
         setAppShortcutMenuOpen(false)

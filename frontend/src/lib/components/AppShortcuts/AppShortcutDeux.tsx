@@ -26,7 +26,7 @@ interface AppShortcutDeuxProps extends React.HTMLAttributes<HTMLElement>, Omit<A
 
 export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
     (
-        { children, asChild = false, name, keybind, intent, interaction, className, ...props },
+        { children, asChild = false, name, keybind, intent, interaction, scope = 'global', className, ...props },
         forwardedRef
     ): JSX.Element => {
         const internalRef = useRef<HTMLElement>(null)
@@ -65,10 +65,11 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
                         ref: internalRef,
                         intent,
                         interaction,
+                        scope,
                     })
                 }
             }
-        }, [isRefReady, name, keybind, intent, interaction, registeredAppShortcuts, registerAppShortcut])
+        }, [isRefReady, name, keybind, intent, interaction, scope, registeredAppShortcuts, registerAppShortcut])
 
         // Clean up on unmount
         useEffect(() => {

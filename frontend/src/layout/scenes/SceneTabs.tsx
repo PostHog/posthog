@@ -9,9 +9,8 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
-import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -145,10 +144,10 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                         </div>
                         <AppShortcutDeux
                             name="NewTab"
-                            keybind={['command', 'shift', 'g']}
-                            asChild
-                            intent="new tab"
+                            keybind={keyBinds.newTab}
+                            intent="New tab"
                             interaction="click"
+                            asChild
                         >
                             <Link
                                 to={urls.newTab()}
@@ -232,9 +231,8 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId, tabs } = useValues(sceneLogic)
+    const { editingTabId } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
-    const { shortcuts } = useValues(appShortcutLogic)
     const isEditing = editingTabId === tab.id
 
     useEffect(() => {
@@ -267,7 +265,13 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
-                    <AppShortcut {...shortcuts.app.closeCurrentTab} enabled={tab.active && tabs.length > 1}>
+                    <AppShortcutDeux
+                        name="CloseActiveTab"
+                        keybind={keyBinds.closeActiveTab}
+                        intent="Close active tab"
+                        interaction="click"
+                        asChild
+                    >
                         <ButtonPrimitive
                             onClick={(e) => {
                                 e.stopPropagation()
@@ -283,7 +287,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
-                    </AppShortcut>
+                    </AppShortcutDeux>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {

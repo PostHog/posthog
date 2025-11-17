@@ -6,7 +6,8 @@ import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, Icon
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
+import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
+import { baseModifier, keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
@@ -86,7 +87,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { shortcuts } = useValues(appShortcutLogic)
 
     const { user } = useValues(userLogic)
 
@@ -250,22 +250,22 @@ export function DashboardHeader(): JSX.Element | null {
                         </ButtonPrimitive>
                     )}
                     {dashboard && canEditDashboard && (
-                        <AppShortcut
-                            {...shortcuts[Scene.Dashboard]!.toggleEditMode}
-                            onActionToggle={(active) => {
-                                if (active) {
-                                    setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
-                                } else {
-                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                                }
-                            }}
-                            active={dashboardMode === DashboardMode.Edit}
-                            enabled={canEditDashboard}
+                        <AppShortcutDeux
+                            name="ToggleEditMode"
+                            scope={Scene.Dashboard}
+                            keybind={keyBinds.edit}
+                            intent="Toggle edit mode"
+                            interaction="click"
+                            asChild
                         >
                             <ButtonPrimitive
-                                onClick={() =>
-                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                                }
+                                onClick={() => {
+                                    if (dashboardMode === DashboardMode.Edit) {
+                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                    } else {
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                    }
+                                }}
                                 menuItem
                                 active={dashboardMode === DashboardMode.Edit}
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}
@@ -273,7 +273,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 <IconGridMasonry />
                                 Edit layout <KeyboardShortcut e />
                             </ButtonPrimitive>
-                        </AppShortcut>
+                        </AppShortcutDeux>
                     )}
 
                     {dashboard && canEditDashboard && (
@@ -486,16 +486,25 @@ export function DashboardHeader(): JSX.Element | null {
                                             minAccessLevel={AccessControlLevel.Editor}
                                             userAccessLevel={dashboard.user_access_level}
                                         >
-                                            <LemonButton
-                                                onClick={() => {
-                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                }}
-                                                data-attr="add-text-tile-to-dashboard"
-                                                type="secondary"
-                                                size="small"
+                                            <AppShortcutDeux
+                                                name="AddTextTileToDashboard"
+                                                scope={Scene.Dashboard}
+                                                keybind={[...baseModifier, 'c']}
+                                                intent="Add text card"
+                                                interaction="click"
+                                                asChild
                                             >
-                                                Add text card
-                                            </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                    }}
+                                                    data-attr="add-text-tile-to-dashboard"
+                                                    type="secondary"
+                                                    size="small"
+                                                >
+                                                    Add text card
+                                                </LemonButton>
+                                            </AppShortcutDeux>
                                         </AccessControlAction>
                                         <MaxTool
                                             identifier="edit_current_dashboard"
