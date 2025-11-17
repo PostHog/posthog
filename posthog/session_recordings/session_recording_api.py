@@ -1178,7 +1178,7 @@ class SessionRecordingViewSet(
         try:
             recording = SessionRecording.get_or_build(session_id=session_id, team=self.team)
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.get_or_build", "session_id": session_id}
             )
             return Response({"reason": "unknown", "confidence": "low", "details": {"error": "init_failed"}}, status=200)
@@ -1192,7 +1192,7 @@ class SessionRecordingViewSet(
                     status=200,
                 )
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.fast_path", "session_id": session_id}
             )
             # Fall through to unknown
@@ -1225,7 +1225,7 @@ class SessionRecordingViewSet(
                 end_time = rows[0].get("end_time")
                 event_count = int(rows[0].get("cnt") or 0)
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.events_summary", "session_id": session_id}
             )
 
@@ -1263,7 +1263,7 @@ class SessionRecordingViewSet(
                 except Exception:
                     first_hostname = None
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.first_url", "session_id": session_id}
             )
 
@@ -1286,7 +1286,7 @@ class SessionRecordingViewSet(
                 details["ttl_days"] = ttl
                 return Response({"reason": "retention_expired", "confidence": "high", "details": details}, status=200)
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.retention", "session_id": session_id}
             )
 
@@ -1308,7 +1308,7 @@ class SessionRecordingViewSet(
                         status=200,
                     )
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.domain_check", "session_id": session_id}
             )
 
@@ -1333,7 +1333,7 @@ class SessionRecordingViewSet(
                             # ignore invalid regex
                             continue
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.url_blocklist", "session_id": session_id}
             )
 
@@ -1349,7 +1349,7 @@ class SessionRecordingViewSet(
                         {"reason": "below_min_duration", "confidence": "high", "details": details}, status=200
                     )
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.min_duration", "session_id": session_id}
             )
 
@@ -1366,7 +1366,7 @@ class SessionRecordingViewSet(
                     details["sampleRate"] = sample_rate
                     return Response({"reason": "sampled_out", "confidence": "low", "details": details}, status=200)
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.sample_rate", "session_id": session_id}
             )
 
@@ -1393,7 +1393,7 @@ class SessionRecordingViewSet(
                 if event_rows and isinstance(event_rows[0].get("events"), list):
                     events_list = [str(x) for x in event_rows[0]["events"] if isinstance(x, str)]
             except Exception as e:
-                posthoganalytics.capture_exception(
+                capture_exception(
                     e, additional_properties={"location": "missing_reason.events_names", "session_id": session_id}
                 )
 
@@ -1459,7 +1459,7 @@ class SessionRecordingViewSet(
                             else:
                                 flag_check = False
             except Exception as e:
-                posthoganalytics.capture_exception(
+                capture_exception(
                     e, additional_properties={"location": "missing_reason.flag_link", "session_id": session_id}
                 )
 
@@ -1479,7 +1479,7 @@ class SessionRecordingViewSet(
                         {"reason": "triggers_not_matched", "confidence": "medium", "details": details}, status=200
                     )
         except Exception as e:
-            posthoganalytics.capture_exception(
+            capture_exception(
                 e, additional_properties={"location": "missing_reason.triggers", "session_id": session_id}
             )
 
