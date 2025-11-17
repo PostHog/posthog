@@ -18,6 +18,7 @@ from posthog.management.migration_analysis.operations import (
     RunPythonAnalyzer,
     RunSQLAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
+    is_unmanaged_model,
 )
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
@@ -81,6 +82,10 @@ class RiskAnalyzer:
         operation_risks = []
 
         for op in migration.operations:
+            # Skip operations on managed=False models - Django won't execute DDL for them
+            if is_unmanaged_model(op, migration):
+                continue
+
             risk = self.analyze_operation(op)
 
             # Skip AddIndex/AddConstraint on newly created tables - they're safe

@@ -12,6 +12,29 @@ from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
+def is_unmanaged_model(op, migration) -> bool:
+    """Check if operation targets a managed=False model.
+
+    managed=False models have their schema managed externally (e.g., via rust/persons_migrations).
+    Django will not execute DDL for these models, so operations are safe.
+    """
+    # Check CreateModel/AlterModelOptions directly for managed=False
+    if hasattr(op, "options") and op.options.get("managed") is False:
+        return True
+
+    # For field operations, check current model state
+    if hasattr(op, "model_name") and migration:
+        try:
+            from django.apps import apps
+
+            model = apps.get_model(migration.app_label, op.model_name)
+            return model._meta.managed is False
+        except LookupError:
+            return False
+
+    return False
+
+
 class OperationAnalyzer:
     """Base class for operation-specific analyzers"""
 
