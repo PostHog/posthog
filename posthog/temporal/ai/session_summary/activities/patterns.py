@@ -336,30 +336,13 @@ async def assign_events_to_patterns_activity(
 ) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
     """Summarize a group of sessions in one call. Returns tuple of (patterns, session_group_summary_id)."""
     session_ids = _get_session_ids_from_inputs(inputs)
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+    # Not checking for existing summary in the DB, as the input of `~300 exactly the same ids + context` seems highly unlikely
+    redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         output_label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-    patterns_with_events_context = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
-        target_class=EnrichedSessionGroupSummaryPatternsList,
-    )
-    # Return if it's processed already
-    if patterns_with_events_context:
-        # Fetch the existing summary ID from DB
-        existing_summary = await SessionGroupSummary.objects.filter(
-            team_id=inputs.team_id, session_ids=session_ids
-        ).afirst()
-        if not existing_summary:
-            raise ValueError(
-                f"Cached patterns found but no SessionGroupSummary in DB for team {inputs.team_id} and sessions {logging_session_ids(session_ids)}"
-            )
-        return patterns_with_events_context, str(existing_summary.id)
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
@@ -449,14 +432,6 @@ async def assign_events_to_patterns_activity(
         # We don't do visual confirmation on the patterns assignments level, only on single session level
         run_metadata=asdict(SessionSummaryRunMeta(model_used=inputs.model_to_use, visual_confirmation=False)),
         created_by=user,
-    )
-    # Store data in Redis to load it without procesing, if the activity is retried
-    patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
-    await store_data_in_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        data=patterns_with_events_context_str,
-        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
     )
     return patterns_with_events_context, str(session_group_summary.id)
 

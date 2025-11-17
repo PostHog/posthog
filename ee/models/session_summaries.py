@@ -265,40 +265,6 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     """
     Stores LLM-generated summaries for groups of session replays.
     Each summary represents pattern analysis across multiple sessions.
-
-    Usage examples:
-
-    # Create a new group summary
-    from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-    summary = SessionGroupSummary.objects.create(
-        team_id=team_id,
-        name="Checkout flow analysis - Q4 2024",
-        session_ids=["session1", "session2", "session3"],
-        summary=enriched_patterns.model_dump(),  # EnrichedSessionGroupSummaryPatternsList
-        extra_summary_context={"focus_area": "checkout flow"},
-        run_metadata={"model_used": "claude-3-5-sonnet", "visual_confirmation": False},
-        created_by=user,
-    )
-
-    # Get a summary by UUID and team
-    summary = SessionGroupSummary.objects.get(id=summary_uuid, team_id=team_id)
-
-    # Get all group summaries for a team
-    summaries = SessionGroupSummary.objects.filter(team_id=team_id)
-
-    # Get recent summaries ordered by creation date
-    recent_summaries = SessionGroupSummary.objects.filter(team_id=team_id).order_by("-created_at")[:10]
-
-    # Check if a summary exists
-    exists = SessionGroupSummary.objects.filter(id=summary_uuid, team_id=team_id).exists()
-
-    # Update a summary (generally you'd create a new one instead)
-    summary.summary = updated_patterns.model_dump()
-    summary.save()
-
-    # Delete old summaries (for cleanup jobs)
-    old_date = timezone.now() - timedelta(days=365)
-    SessionGroupSummary.objects.filter(team_id=team_id, created_at__lt=old_date).delete()
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -328,6 +294,9 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     class Meta:
         db_table = "ee_group_session_summary"
         indexes = [
+            # Not indexing session ids or extra summary context, as the input for group summaries is highly volatile
+            # (even a single session could change the meaning of the patterns).
+            # Creating Manager for rare cases of `exact 300 ids + context input match` seems excessive.
             models.Index(fields=["team", "id"]),
         ]
 
