@@ -1,10 +1,52 @@
+//! # Feature Flags Authentication
+//!
+//! This module handles authentication for the feature flags API endpoints.
+//!
+//! ## Supported Authentication Methods
+//!
+//! 1. **Team Secret Token** (`phs_*`)
+//!    - Extracted from Authorization header
+//!    - Provides access to a single team
+//!    - No user context
+//!    - Used by SDKs for local evaluation
+//!
+//! 2. **Personal API Key** (non-`phs_*` Bearer tokens, typically `phx_*`)
+//!    - Extracted from Authorization header
+//!    - Hashed with SHA256 (current) or PBKDF2 (legacy, auto-upgraded)
+//!    - Requires active user
+//!    - Subject to scoping restrictions:
+//!      - `scoped_teams`: Restricts to specific teams
+//!      - `scoped_organizations`: Restricts to specific orgs
+//!      - `scopes`: Feature-level permissions (feature_flag:read, feature_flag:write)
+//!
+//! ## NOT Currently Supported
+//!
+//! - **OAuth Access Tokens** (`pha_*`): While Python supports OAuth tokens via
+//!   `OAuthAccessTokenAuthentication`, the Rust implementation does not currently
+//!   support them. This can be added in the future if needed, but is not required
+//!   for the initial `/evaluation_reasons` endpoint port since this endpoint is
+//!   primarily used by SDKs and internal tools, not OAuth applications.
+//!
+//! ## Organization & Team Access Validation
+//!
+//! For Personal API Keys:
+//! 1. User must be active
+//! 2. User must have appropriate scopes (feature_flag:read or feature_flag:write)
+//! 3. User must be a member of the team's organization (MANDATORY - cannot be bypassed)
+//! 4. If `scoped_teams` is set, team must be in the list
+//! 5. If `scoped_organizations` is set, organization must be in the list
+//!
+//! The organization membership check (#3) is ALWAYS performed first as a security
+//! control, and `scoped_organizations` provides additional restrictions on top of
+//! that base membership requirement.
+
 use crate::{
     api::errors::FlagError,
     router::State as AppState,
     team::{team_models::Team, team_operations},
 };
 use axum::http::HeaderMap;
-use common_database::PostgresReader;
+use common_database::{Client, PostgresReader};
 use tracing::{debug, warn};
 
 /// Token prefix constants
@@ -141,6 +183,7 @@ fn hash_personal_api_key(value: &str, mode: &str, iterations: Option<u32>) -> St
 
 /// Validates personal API key with feature flag scopes for a specific team
 /// Returns Ok(()) if the personal API key has access to the specified team
+/// Also updates last_used_at timestamp and upgrades old hashes to SHA256
 pub async fn validate_personal_api_key_with_scopes_for_team(
     state: &AppState,
     key: &str,
@@ -158,6 +201,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
     ];
 
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let pg_writer = state.database_pools.non_persons_writer.clone();
     let mut conn = pg_reader.get_connection().await?;
 
     for (mode, iterations) in modes_to_try {
@@ -173,6 +217,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 pak.scopes,
                 pak.scoped_teams,
                 pak.scoped_organizations,
+                pak.last_used_at,
                 u.id as user_id,
                 u.is_active as user_is_active,
                 u.current_organization_id as user_organization_id
@@ -210,8 +255,8 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             }
 
             // Validate organization access (MANDATORY for teams with organization_id)
-            // Personal API keys can only access teams in organizations where the user is a member,
-            // unless explicitly scoped to specific organizations via scoped_organizations
+            // Personal API keys can only access teams in organizations where the user is a member.
+            // The scoped_organizations field provides additional restrictions on top of membership.
             let user_id: i32 = row.get("user_id");
             let user_organization_id: uuid::Uuid = row.get("user_organization_id");
             let scoped_organizations: Option<Vec<String>> =
@@ -221,34 +266,42 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             if let Some(team_organization_id) = team.organization_id {
                 let team_organization_id_str = team_organization_id.to_string();
 
-                // Check organization access:
-                // - If scoped_organizations has entries: team's org must be in the list
-                // - Otherwise (NULL or empty): user must be a member of the team's org
-                let has_org_access = match scoped_organizations.as_ref() {
-                    Some(orgs) if !orgs.is_empty() => orgs.contains(&team_organization_id_str),
-                    _ => {
-                        // Check if user is a member of the team's organization
-                        let is_member: bool = sqlx::query_scalar(
-                            "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
-                        )
-                        .bind(user_id)
-                        .bind(team_organization_id)
-                        .fetch_one(&mut *conn)
-                        .await?;
-                        is_member
-                    }
-                };
+                // SECURITY: Always check organization membership first
+                // This prevents unauthorized access even if scoped_organizations is set
+                let is_member: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
+                )
+                .bind(user_id)
+                .bind(team_organization_id)
+                .fetch_one(&mut *conn)
+                .await?;
 
-                if !has_org_access {
+                if !is_member {
                     warn!(
+                        user_id = user_id,
                         user_organization_id = %user_organization_id,
                         team_organization_id = %team_organization_id_str,
-                        scoped_organizations = ?scoped_organizations,
-                        "Personal API key does not have access to this organization"
+                        "Personal API key user is not a member of the team's organization"
                     );
                     return Err(FlagError::PersonalApiKeyInvalid(
                         "Authorization header".to_string(),
                     ));
+                }
+
+                // Additional check: if scoped_organizations is set, verify the org is in the allowed list
+                // This provides an additional restriction on top of organization membership
+                if let Some(orgs) = scoped_organizations.as_ref() {
+                    if !orgs.is_empty() && !orgs.contains(&team_organization_id_str) {
+                        warn!(
+                            user_organization_id = %user_organization_id,
+                            team_organization_id = %team_organization_id_str,
+                            scoped_organizations = ?orgs,
+                            "Personal API key is scoped to different organizations"
+                        );
+                        return Err(FlagError::PersonalApiKeyInvalid(
+                            "Authorization header".to_string(),
+                        ));
+                    }
                 }
             } else {
                 // Legacy team without organization_id - skip organization validation
@@ -268,6 +321,87 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 scoped_organizations = ?scoped_organizations,
                 "Personal API key validated successfully"
             );
+
+            // Update last_used_at timestamp and upgrade hash if needed
+            // This matches Python behavior in posthog/auth.py:184-190
+            let key_id: i64 = row.get("key_id");
+            let last_used_at: Option<chrono::DateTime<chrono::Utc>> =
+                row.try_get("last_used_at").ok().flatten();
+
+            // Spawn a background task to update the key
+            // We don't want to block the request on these updates
+            let pg_writer_clone = pg_writer.clone();
+            let key_clone = key.to_string();
+            let mode_used = mode;
+            tokio::spawn(async move {
+                let mut write_conn = match pg_writer_clone.get_connection().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to get write connection for API key update");
+                        return;
+                    }
+                };
+
+                let now = chrono::Utc::now();
+                let should_update_timestamp = last_used_at
+                    .map(|last_used| (now - last_used).num_hours() >= 1)
+                    .unwrap_or(true);
+
+                let should_upgrade_hash = mode_used != "sha256";
+
+                if should_update_timestamp && should_upgrade_hash {
+                    // Update both last_used_at and hash
+                    let new_hash = hash_personal_api_key(&key_clone, "sha256", None);
+                    let update_result = sqlx::query(
+                        "UPDATE posthog_personalapikey SET last_used_at = $1, secure_value = $2 WHERE id = $3"
+                    )
+                    .bind(now)
+                    .bind(&new_hash)
+                    .bind(key_id)
+                    .execute(&mut *write_conn)
+                    .await;
+
+                    if let Err(e) = update_result {
+                        warn!(error = %e, key_id = key_id, "Failed to update API key timestamp and hash");
+                    } else {
+                        debug!(
+                            key_id = key_id,
+                            "Updated API key timestamp and upgraded hash to SHA256"
+                        );
+                    }
+                } else if should_update_timestamp {
+                    // Only update last_used_at
+                    let update_result = sqlx::query(
+                        "UPDATE posthog_personalapikey SET last_used_at = $1 WHERE id = $2",
+                    )
+                    .bind(now)
+                    .bind(key_id)
+                    .execute(&mut *write_conn)
+                    .await;
+
+                    if let Err(e) = update_result {
+                        warn!(error = %e, key_id = key_id, "Failed to update API key timestamp");
+                    } else {
+                        debug!(key_id = key_id, "Updated API key timestamp");
+                    }
+                } else if should_upgrade_hash {
+                    // Only upgrade hash
+                    let new_hash = hash_personal_api_key(&key_clone, "sha256", None);
+                    let update_result = sqlx::query(
+                        "UPDATE posthog_personalapikey SET secure_value = $1 WHERE id = $2",
+                    )
+                    .bind(&new_hash)
+                    .bind(key_id)
+                    .execute(&mut *write_conn)
+                    .await;
+
+                    if let Err(e) = update_result {
+                        warn!(error = %e, key_id = key_id, "Failed to upgrade API key hash");
+                    } else {
+                        debug!(key_id = key_id, "Upgraded API key hash to SHA256");
+                    }
+                }
+            });
 
             return Ok(());
         }

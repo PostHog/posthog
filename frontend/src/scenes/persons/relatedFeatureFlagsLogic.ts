@@ -72,7 +72,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     // first load the feature flags
                     actions.loadFeatureFlags()
                     // For local testing, always use the Rust endpoint
-                    const useRustEndpoint = false // TODO: Change to featureFlagLogic.values.featureFlags?.['use-rust-evaluation-reasons']
+                    const useRustEndpoint = true // TODO: Change to featureFlagLogic.values.featureFlags?.['use-rust-evaluation-reasons']
 
                     if (useRustEndpoint) {
                         // Use the Rust endpoint directly
