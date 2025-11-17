@@ -103,7 +103,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     })
                     if (blob.size > MAX_EXPORT_SIZE_BYTES) {
                         lemonToast.error(
-                            `Export size (${(blob.size / (1024 * 1024)).toFixed(2)} MB) exceeds the 10 MB limit`
+                            `Export size (${(blob.size / (1024 * 1024)).toFixed(2)} MiB) exceeds the 10 MiB limit`
                         )
                         return
                     }
