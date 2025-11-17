@@ -39,6 +39,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 'histogramBinsUsed as globalHistogramBinsUsed',
                 'histogramBinCount as globalBinCount',
                 'normalizeBreakdownUrl as globalNormalizeBreakdownUrl',
+                'pathCleaningEnabled as globalPathCleaningEnabled',
                 'breakdownFilter',
             ],
         ],
@@ -48,6 +49,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 'removeBreakdown as removeBreakdownFromList',
                 'setHistogramBinCount as setHistogramBinCountInList',
                 'setNormalizeBreakdownURL as setNormalizeBreakdownURLInList',
+                'setPathCleaningEnabled as setPathCleaningEnabledInList',
                 'setHistogramBinsUsed as setHistogramBinsUsedInList',
             ],
         ],
@@ -62,6 +64,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         }),
         setNormalizeBreakdownURL: (normalizeURL: boolean) => ({
             normalizeURL,
+        }),
+        setPathCleaningEnabled: (pathCleaningEnabled: boolean) => ({
+            pathCleaningEnabled,
         }),
     })),
     reducers({
@@ -141,6 +146,10 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 return globalNormalizeBreakdownUrl
             },
         ],
+        pathCleaningEnabled: [
+            (s) => [s.globalPathCleaningEnabled],
+            (globalPathCleaningEnabled) => globalPathCleaningEnabled,
+        ],
         taxonomicBreakdownType: [
             (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],
             (isMultipleBreakdownsEnabled, breakdownFilter, multipleBreakdown): TaxonomicFilterGroupType | undefined => {
@@ -169,6 +178,9 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         },
         setNormalizeBreakdownURL: ({ normalizeURL }) => {
             actions.setNormalizeBreakdownURLInList(values.breakdown, values.breakdownType, normalizeURL)
+        },
+        setPathCleaningEnabled: ({ pathCleaningEnabled }) => {
+            actions.setPathCleaningEnabledInList(values.breakdown, values.breakdownType, pathCleaningEnabled)
         },
         setHistogramBinsUsed: ({ binsUsed }) => {
             actions.setHistogramBinsUsedInList(
