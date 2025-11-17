@@ -499,14 +499,8 @@ Query results: 42 events
         result = self.context_manager._format_entity_context([], "events", "Event")
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.registry.get_contextual_tool_class")
-    async def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
+    async def test_get_contextual_tools_prompt(self):
         """Test generation of contextual tools prompt"""
-        # Mock the tool class
-        mock_tool = MagicMock()
-        mock_tool.format_context_prompt_injection.return_value = "Tool system prompt"
-        mock_get_contextual_tool_class.return_value = lambda team, user: mock_tool
-
         config = RunnableConfig(
             configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}
         )
@@ -515,7 +509,7 @@ Query results: 42 events
         result = await context_manager._get_contextual_tools_prompt()
         assert result is not None
         self.assertIn("<search_session_recordings>", result)
-        self.assertIn("Tool system prompt", result)
+        self.assertIn("Current recordings filters are", result)
         self.assertIn("</search_session_recordings>", result)
 
     async def test_get_contextual_tools_prompt_no_tools(self):

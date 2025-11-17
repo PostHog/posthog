@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Generic, Optional, cast
 from uuid import uuid4
 
+import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import (
@@ -235,6 +236,15 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
+
+    def _has_agent_modes_feature_flag(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "phai-agent-modes",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
 
 class SchemaGeneratorToolsNode(AssistantNode):
