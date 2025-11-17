@@ -350,9 +350,10 @@ class FunnelBase(ABC):
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
-            raise ValidationError(
-                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            )
+            # raise ValidationError(
+            #     "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            # )
+            return {}
 
         if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return {
@@ -678,9 +679,10 @@ class FunnelBase(ABC):
             action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
-            raise ValidationError(
-                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            )
+            event_expr = ast.Constant(value=1)
+            # raise ValidationError(
+            #     "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            # )
         elif entity.event is None:
             # all events
             event_expr = ast.Constant(value=1)

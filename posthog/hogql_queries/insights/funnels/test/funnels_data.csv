@@ -1,0 +1,6 @@
+id,user_id,created,event_name,properties
+1,d1f7bc7b-8378-3015-4347-e60e2d2f6348,2025-11-01,payment_succeeded,"{""payment_source"": ""stripe""}"
+2,cf6a408b-b00d-2458-7b24-9321c13033ec,2025-11-02,payment_succeeded,"{""payment_source"": ""paypal""}"
+3,4bee5d74-a588-a205-45ef-69db7f5e8bc2,2025-11-03,payment_succeeded,"{""payment_source"": ""stripe""}"
+4,bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539,2025-11-04,payment_succeeded,"{""payment_failed"": ""paypal""}"
+5,8cadb28f-1825-f158-73fa-3f228865b540,2025-11-05,payment_succeeded,"{""payment_source"": ""paypal""}"

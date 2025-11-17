@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Optional, Union
 
 from rest_framework.exceptions import ValidationError
@@ -8,6 +9,7 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsQuery,
 )
 
 from posthog.hogql import ast
@@ -19,6 +21,9 @@ from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
+
+
+FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
 
 
 class FunnelEventQuery:
@@ -47,37 +52,121 @@ class FunnelEventQuery:
         self,
         skip_entity_filter=False,
     ) -> ast.SelectQuery:
-        _extra_fields: list[ast.Expr] = [
-            ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field]))
-            for field in self._extra_fields
-        ]
+        def _get_table_name(node: FunnelsNode):
+            if isinstance(node, DataWarehouseNode):
+                return node.table_name
+            else:
+                return "events"
 
-        select: list[ast.Expr] = [
+        tables_to_steps: dict[str, list[tuple[int, FunnelsNode]]] = defaultdict(list)
+
+        for step_index, node in enumerate(self.context.query.series):
+            table_name = _get_table_name(node)
+            tables_to_steps[table_name].append((step_index, node))
+
+        def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
+            _extra_fields: list[ast.Expr] = [
+                ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field]))
+                for field in self._extra_fields
+            ]
+
+            select: list[ast.Expr] = [
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
+                ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+                *_extra_fields,
+            ]
+
+            select_from = ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                alias=self.EVENT_TABLE_ALIAS,
+                sample=self._sample_expr(),
+            )
+
+            where_exprs = [
+                self._date_range_expr(),
+                self._entity_expr(skip_entity_filter),
+                *self._properties_expr(),
+                self._aggregation_target_filter(),
+            ]
+            where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+            stmt = ast.SelectQuery(
+                select=select,
+                select_from=select_from,
+                where=where,
+            )
+            return stmt
+
+        def _build_data_warehouse_table_query(
+            table_name: str, steps: list[tuple[int, DataWarehouseNode]]
+        ) -> ast.SelectQuery:
+            table_alias = self.EVENT_TABLE_ALIAS
+            node = steps[0][1]
+
+            _extra_fields: list[ast.Expr] = [
+                ast.Alias(alias=field, expr=ast.Constant(value=None)) for field in self._extra_fields
+            ]
+
+            select: list[ast.Expr] = [
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=[table_alias, node.timestamp_field])),
+                ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[table_alias, node.distinct_id_field])),
+                *_extra_fields,
+            ]
+
+            date_range = self._date_range()
+            where_exprs: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=[table_alias, node.timestamp_field]),
+                    right=ast.Constant(value=date_range.date_from()),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=[table_alias, node.timestamp_field]),
+                    right=ast.Constant(value=date_range.date_to()),
+                ),
+            ]
+
+            aggregation_target_filter = self._aggregation_target_filter()
+            if aggregation_target_filter is not None:
+                where_exprs.append(aggregation_target_filter)
+
+            where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+            return ast.SelectQuery(
+                select=select,
+                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=table_alias),
+                where=where,
+            )
+
+        queries: list[ast.SelectQuery] = []
+
+        for table_name, steps in tables_to_steps.items():
+            if table_name == "events":
+                queries.append(_build_events_table_query(steps))
+            else:
+                queries.append(_build_data_warehouse_table_query(table_name, steps))
+
+        if len(queries) == 1:
+            return queries[0]
+
+        union_selects: list[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
-            ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
-            *_extra_fields,
+            ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "aggregation_target"])),
         ]
 
-        select_from = ast.JoinExpr(
-            table=ast.Field(chain=["events"]),
-            alias=self.EVENT_TABLE_ALIAS,
-            sample=self._sample_expr(),
-        )
+        for field in self._extra_fields:
+            union_selects.append(
+                ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])),
+            )
 
-        where_exprs = [
-            self._date_range_expr(),
-            self._entity_expr(skip_entity_filter),
-            *self._properties_expr(),
-            self._aggregation_target_filter(),
-        ]
-        where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
-
-        stmt = ast.SelectQuery(
-            select=select,
-            select_from=select_from,
-            where=where,
+        return ast.SelectQuery(
+            select=union_selects,
+            select_from=ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL"),
+                alias=self.EVENT_TABLE_ALIAS,
+            ),
         )
-        return stmt
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
