@@ -41,7 +41,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
             }
             const modifiedProps = {
                 ...triggerExportProps,
-                export_context: modifiedContext,
+                export_context: modifiedContext ?? triggerExportProps.export_context,
             }
             actions.startExport(modifiedProps)
         }
