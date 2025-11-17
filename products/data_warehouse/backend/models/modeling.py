@@ -1,7 +1,6 @@
 import enum
 import uuid
 import dataclasses
-import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
@@ -478,18 +477,6 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
                 cursor.execute(DELETE_DUPLICATE_PATHS_QUERY, params={"team_id": team.pk})
                 cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
-
-    def get_longest_common_ancestor_path(
-        self, leaf_models: collections.abc.Iterable[DataWarehouseSavedQuery | DataWarehouseTable]
-    ) -> str | None:
-        """Return the longest common ancestor path among paths from all leaf models, if any."""
-        query = "select lca(array_agg(path)) from posthog_datawarehousemodelpath where path ? %(lqueries)s"
-
-        with connection.cursor() as cursor:
-            cursor.execute(query, params={"lqueries": [f"*.{leaf_model.id.hex}" for leaf_model in leaf_models]})
-            row = cursor.fetchone()
-
-        return row[0] or None
 
     def get_dag(self, team: Team):
         """Return a DAG of all the models for the given team.
