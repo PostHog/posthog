@@ -61,7 +61,7 @@ export function TextViewDisplay({
             if (popoutSegment !== null) {
                 const target = event.target as HTMLElement
                 if (!target.closest('[data-popout-content]') && !target.closest('[data-popout-button]')) {
-                    setPopoutSegment(null)
+                    setPopoutSegment(null) // oxlint-disable-line react-hooks/exhaustive-deps
                 }
             }
         }
