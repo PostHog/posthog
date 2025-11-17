@@ -192,6 +192,44 @@ class DualPersonQuerySet:
             only_fields=list(fields),
         )
 
+    def get(self, *args, **kwargs):
+        """Get a single person from either table.
+
+        Tries preferred table first (new, then old), raising DoesNotExist if not found in either.
+        """
+        # Apply additional filters from args/kwargs
+        qs = self.filter(*args, **kwargs)
+
+        # Build querysets for both tables
+        old_qs = PersonOld.objects.db_manager(qs.db).filter(*qs.q_objects, **qs.filters).exclude(**qs.excludes)
+        new_qs = PersonNew.objects.db_manager(qs.db).filter(*qs.q_objects, **qs.filters).exclude(**qs.excludes)
+
+        # Apply ordering if specified
+        if qs.ordering:
+            old_qs = old_qs.order_by(*qs.ordering)
+            new_qs = new_qs.order_by(*qs.ordering)
+
+        # Apply only() if specified
+        if qs.only_fields:
+            old_qs = old_qs.only(*qs.only_fields)
+            new_qs = new_qs.only(*qs.only_fields)
+
+        # Try preferred table first (new, then old as fallback)
+        primary_qs, fallback_qs = new_qs, old_qs
+        primary_model, fallback_model = PersonNew, PersonOld
+
+        try:
+            person = primary_qs.get()
+            person.__class__ = Person
+            return person
+        except primary_model.DoesNotExist:
+            try:
+                person = fallback_qs.get()
+                person.__class__ = Person
+                return person
+            except fallback_model.DoesNotExist:
+                raise Person.DoesNotExist()
+
     def count(self):
         """Execute count on both tables and return sum."""
         old_qs = PersonOld.objects.db_manager(self.db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
@@ -222,11 +260,17 @@ class DualPersonQuerySet:
 
     def _raw_delete(self, using):
         """Raw delete for bulk operations. Deletes from both tables."""
-        old_qs = PersonOld.objects.db_manager(using).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
-        new_qs = PersonNew.objects.db_manager(using).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        from django.db import router
 
-        old_qs._raw_delete(using)
-        new_qs._raw_delete(using)
+        # If using is None, get the database from the router
+        old_db = using if using is not None else router.db_for_write(PersonOld)
+        new_db = using if using is not None else router.db_for_write(PersonNew)
+
+        old_qs = PersonOld.objects.db_manager(old_db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+        new_qs = PersonNew.objects.db_manager(new_db).filter(*self.q_objects, **self.filters).exclude(**self.excludes)
+
+        old_qs._raw_delete(old_db)
+        new_qs._raw_delete(new_db)
 
     def values_list(self, *fields, flat=False):
         """Execute on both tables and return merged list of values."""
@@ -303,6 +347,13 @@ class DualPersonManager(models.Manager):
         manager._hints = hints
         manager.model = self.model
         return manager
+
+    def get_queryset(self):
+        """Return a DualPersonQuerySet for dual-table queries.
+
+        This is used by Django's ORM for ForeignKey lookups and other operations.
+        """
+        return DualPersonQuerySet(manager=self, db=self._db)
 
     def _get_table_preference(self):
         """Get primary and fallback table models based on read preference.
