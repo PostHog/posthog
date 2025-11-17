@@ -142,7 +142,7 @@ if persons_db_writer_url:
 
     # Only register PersonDBRouter in non-test mode
     # In tests, Person operations naturally use default database without routing
-    # conftest.py creates posthog_person_new in default test DB
+    # conftest.py creates posthog_person (partitioned) in default test DB
     if not TEST:
         DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
