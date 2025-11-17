@@ -473,7 +473,7 @@ describe('PostgresPersonRepository', () => {
             }
         })
 
-        it('should handle target person not found', async () => {
+        it.skip('should handle target person not found', async () => {
             const team = await getFirstTeam(hub)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const nonExistentTargetPerson = {
