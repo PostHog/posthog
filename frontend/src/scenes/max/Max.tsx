@@ -249,7 +249,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 sideIcon={<IconShare />}
                                 onClick={() => {
                                     copyToClipboard(
-                                        urls.absolute(urls.currentProject(urls.max(conversationId))),
+                                        urls.absolute(urls.currentProject(urls.max(conversationId ?? undefined))),
                                         'conversation sharing link'
                                     )
                                 }}
@@ -263,7 +263,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 type="secondary"
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
-                                    openSidePanelMax(conversationId)
+                                    openSidePanelMax(conversationId ?? undefined)
                                     closeTabId(tabId)
                                 }}
                             >
