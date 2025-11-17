@@ -5,9 +5,11 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
+import { RecordingsWidget } from './messages/UIPayloadAnswer'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -29,7 +31,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
-    ) => string
+    ) => string | [text: string, widget: JSX.Element | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -210,6 +212,25 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Searched recordings'
             }
             return 'Searching recordings...'
+        },
+    },
+    filter_session_recordings: {
+        name: 'Filter recordings',
+        description: 'Filter recordings to find the most relevant ones',
+        product: Scene.Replay,
+        icon: iconForType('session_replay'),
+        displayFormatter: (toolCall) => {
+            const widget = toolCall.args?.recordings_filters ? (
+                <RecordingsWidget
+                    toolCallId={toolCall.id}
+                    filters={toolCall.args.recordings_filters as RecordingUniversalFilters}
+                />
+            ) : null
+
+            if (toolCall.status === 'completed') {
+                return ['Filtered recordings', widget]
+            }
+            return ['Filtering recordings...', widget]
         },
     },
     generate_hogql_query: {

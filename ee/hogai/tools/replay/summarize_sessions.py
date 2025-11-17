@@ -1,23 +1,22 @@
 import asyncio
-from typing import Any, Literal, Self
+from textwrap import dedent
+from typing import Any, Literal
 from uuid import uuid4
 
 import structlog
 import posthoganalytics
-from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
+from posthog.utils import pluralize
 
-from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
@@ -33,190 +32,323 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.state import prepare_reasoning_progress_message
-from ee.hogai.utils.types.base import AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
 
 
-SUMMARIZE_SESSIONS_TOOL_PROMPT = """
-Use this tool to convert a natural language request into session replay filters. You will generate a MaxRecordingUniversalFilters object to find relevant recordings for summarization.
+class FilterSessionRecordingsToolArgs(BaseModel):
+    recordings_filters: MaxRecordingUniversalFilters = Field(
+        description=dedent("""
+        User's question converted into a recordings query.
+        Use the read_taxonomy tool to clarify properties and events to use.
 
-**Guidelines:**
-- Be minimalist - only include filters essential to answer the user's question
-- Use sensible defaults unless explicitly requested otherwise
-- Adjust filters rather than accepting subpar results (note: no results is NOT a data issue)
+        # Property Types and Discovery
 
-# Property Types and Discovery
+        A session recording contains events and entities. When filtering, you must understand which property type to use:
 
-A session recording contains events and entities. When filtering, you must understand which property type to use:
+        **ENTITY PROPERTIES** (person, session, group):
+        - **Person properties**: User attributes (email, name, country, custom fields). Use tools to discover available person properties.
+        - **Session properties**: Session-level data (device type, browser, OS, screen size, start timestamp). Use tools to discover available session properties.
+        - **Group properties**: Organization/account attributes (plan tier, company name). Use tools to discover group properties for specific group types. The defined group types are: {{#groups}} {{.}}s,{{/groups}}.
 
-**ENTITY PROPERTIES** (person, session, group):
-- **Person properties**: User attributes (email, name, country, custom fields). Use tools to discover available person properties.
-- **Session properties**: Session-level data (device type, browser, OS, screen size, start timestamp). Use tools to discover available session properties.
-- **Group properties**: Organization/account attributes (plan tier, company name). Use tools to discover group properties for specific group types. The defined group types are: {{#groups}} {{.}}s,{{/groups}}.
+        **EVENT PROPERTIES**:
+        - Properties of specific events that occurred during the recording (e.g., URL visited, button clicked). Use tools to discover properties for specific event names.
 
-**EVENT PROPERTIES**:
-- Properties of specific events that occurred during the recording (e.g., URL visited, button clicked). Use tools to discover properties for specific event names.
+        **RECORDING PROPERTIES**:
+        - Recording-level metrics (console_error_count, click_count, activity_score). These are built-in and don't require discovery.
 
-**RECORDING PROPERTIES**:
-- Recording-level metrics (console_error_count, click_count, activity_score). These are built-in and don't require discovery.
+        **CRITICAL**: Use property discovery tools before creating filters. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
 
-**CRITICAL**: Use property discovery tools before creating filters. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
+        # Property Value Matching
 
-# Property Value Matching
+        When using discovered property values:
+        - **Related but not synonyms**: Use the user's original value. Example: User asks for browser "Chrome", tool returns ["Firefox", "Safari"] -> use "Chrome" (related concept)
+        - **Synonyms or variants**: Use the discovered value. Example: User asks for city "New York", tool returns ["New York City", "NYC"] -> use "New York City" (synonym)
 
-When using discovered property values:
-- **Related but not synonyms**: Use the user's original value. Example: User asks for browser "Chrome", tool returns ["Firefox", "Safari"] -> use "Chrome" (related concept)
-- **Synonyms or variants**: Use the discovered value. Example: User asks for city "New York", tool returns ["New York City", "NYC"] -> use "New York City" (synonym)
+        # Filter Structure
 
-# Filter Structure
+        ## filter_group (REQUIRED)
+        Two-level nested structure with AND/OR logic.
 
-## filter_group (REQUIRED)
-Two-level nested structure with AND/OR logic.
+        **Empty filter** (all recordings):
+        ```json
+        {"type":"AND","values":[{"type":"AND","values":[]}]}
+        ```
 
-**Empty filter** (all recordings):
-```json
-{"type":"AND","values":[{"type":"AND","values":[]}]}
-```
+        ## duration (REQUIRED)
+        Array of duration constraints. Default to `[]` unless user asks about recording length.
 
-## duration (REQUIRED)
-Array of duration constraints. Default to `[]` unless user asks about recording length.
+        Duration types: "duration", "active_seconds", "inactive_seconds"
 
-Duration types: "duration", "active_seconds", "inactive_seconds"
+        Example (longer than 5 minutes):
+        ```json
+        {"duration":[{"key":"duration","type":"recording","operator":"gt","value":300}]}
+        ```
 
-Example (longer than 5 minutes):
-```json
-{"duration":[{"key":"duration","type":"recording","operator":"gt","value":300}]}
-```
+        ## Date Range
+        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
+        - **date_to**: null (current time, default) or "2025-01-20" (absolute)
 
-## Date Range
-- **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
-- **date_to**: null (current time, default) or "2025-01-20" (absolute)
+        ## Ordering
+        - **order**: "start_time" (default), "duration", "console_error_count", "activity_score", etc.
+        - **order_direction**: "DESC" (default), "ASC"
 
-## Ordering
-- **order**: "start_time" (default), "duration", "console_error_count", "activity_score", etc.
-- **order_direction**: "DESC" (default), "ASC"
+        ## Test Accounts
+        - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
 
-## Test Accounts
-- **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
+        # Operators by Data Type
 
-# Operators by Data Type
+        **String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
+        **Numeric**: "exact", "is_not", "gt", "gte", "lt", "lte", "is_set", "is_not_set"
+        **DateTime**: "is_date_exact", "is_not", "is_date_before", "is_date_after", "is_set", "is_not_set"
+        **Boolean**: "exact", "is_not", "is_set", "is_not_set"
 
-**String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
-**Numeric**: "exact", "is_not", "gt", "gte", "lt", "lte", "is_set", "is_not_set"
-**DateTime**: "is_date_exact", "is_not", "is_date_before", "is_date_after", "is_set", "is_not_set"
-**Boolean**: "exact", "is_not", "is_set", "is_not_set"
+        Note: "exact" and "is_not" accept arrays of multiple values.
 
-Note: "exact" and "is_not" accept arrays of multiple values.
+        **Operator Selection Tips:**
+        - Use "icontains" for URLs (handles parameters/query strings)
+        - Use "exact" for enumerated values (device type, browser, country codes)
+        - Use "gt"/"lt" for counts and metrics
 
-**Operator Selection Tips:**
-- Use "icontains" for URLs (handles parameters/query strings)
-- Use "exact" for enumerated values (device type, browser, country codes)
-- Use "gt"/"lt" for counts and metrics
+        # Logical Grouping
 
-# Logical Grouping
+        **AND**: All criteria must match (narrower results). Example: "mobile users from US" -> mobile AND US
+        **OR**: Any criteria can match (broader results). Example: "users from US or UK" -> US OR UK
 
-**AND**: All criteria must match (narrower results). Example: "mobile users from US" -> mobile AND US
-**OR**: Any criteria can match (broader results). Example: "users from US or UK" -> US OR UK
+        **Simple AND** (most common):
+        ```json
+        {"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]}
+        ```
 
-**Simple AND** (most common):
-```json
-{"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]}
-```
+        **Simple OR**:
+        ```json
+        {"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+        ```
 
-**Simple OR**:
-```json
-{"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
-```
+        **Complex (A OR B) AND (C OR D)**:
+        ```json
+        {"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+        ```
 
-**Complex (A OR B) AND (C OR D)**:
-```json
-{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
-```
+        **Complex (A AND B) OR (C AND D)**:
+        ```json
+        {"type":"OR","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Desktop"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+        ```
 
-**Complex (A AND B) OR (C AND D)**:
-```json
-{"type":"OR","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Desktop"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
-```
+        # Common Properties
 
-# Common Properties
+        **Session**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`
+        **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
+        **Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
+        **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
 
-**Session**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`
-**Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
-**Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
-**Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
+        # Special Patterns
 
-# Special Patterns
+        **Frustrated users (rageclicks)**:
+        ```json
+        {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$event_type","type":"event","operator":"exact","value":["$rageclick"]}]}]}}
+        ```
 
-**Frustrated users (rageclicks)**:
-```json
-{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$event_type","type":"event","operator":"exact","value":["$rageclick"]}]}]}}
-```
+        **Users with errors**:
+        ```json
+        {"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
+        ```
 
-**Users with errors**:
-```json
-{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
-```
+        **Clear all filters**:
+        ```json
+        {"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}
+        ```
 
-**Clear all filters**:
-```json
-{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}
-```
+        # Complete Examples
 
-# Complete Examples
+        **Mobile users from US (last 3 days)**:
+        ```json
+        {"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]},"filter_test_accounts":true}
+        ```
 
-**Mobile users from US (last 3 days)**:
-```json
-{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]},"filter_test_accounts":true}
-```
+        **US or UK users (last week)**:
+        ```json
+        {"date_from":"-7d","date_to":null,"duration":[],"filter_group":{"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
+        ```
 
-**US or UK users (last week)**:
-```json
-{"date_from":"-7d","date_to":null,"duration":[],"filter_group":{"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
-```
+        **Long mobile sessions from paid customers on pricing page**:
+        ```json
+        {"date_from":"-7d","date_to":null,"duration":[{"key":"duration","type":"recording","operator":"gt","value":300}],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"plan_type","type":"person","operator":"exact","value":["paid"]},{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$current_url","type":"event","operator":"icontains","value":["/pricing"]}]}]},"order":"duration","order_direction":"DESC","filter_test_accounts":true}
+        ```
 
-**Long mobile sessions from paid customers on pricing page**:
-```json
-{"date_from":"-7d","date_to":null,"duration":[{"key":"duration","type":"recording","operator":"gt","value":300}],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"plan_type","type":"person","operator":"exact","value":["paid"]},{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$current_url","type":"event","operator":"icontains","value":["/pricing"]}]}]},"order":"duration","order_direction":"DESC","filter_test_accounts":true}
-```
+        **Error tracking (yesterday)**:
+        ```json
+        {"date_from":"-1d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC","filter_test_accounts":true}
+        ```
 
-**Error tracking (yesterday)**:
-```json
-{"date_from":"-1d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC","filter_test_accounts":true}
-```
+        **(Mobile OR Tablet) AND (US OR UK)**:
+        ```json
+        {"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
+        ```
 
-**(Mobile OR Tablet) AND (US OR UK)**:
-```json
-{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
-```
+        # Filter Completion Strategy
 
-# Filter Completion Strategy
+        Always aim to complete filters as much as possible:
+        - If you found most properties but are missing some, return what you have (user can refine later)
+        - If you've found very few properties, use property discovery tools or ask for clarification
+        - Don't get stuck on perfect matches - use reasonable approximations when appropriate
 
-Always aim to complete filters as much as possible:
-- If you found most properties but are missing some, return what you have (user can refine later)
-- If you've found very few properties, use property discovery tools or ask for clarification
-- Don't get stuck on perfect matches - use reasonable approximations when appropriate
+        # Critical Reminders
 
-# Critical Reminders
+        1. **Property discovery**: Use tools to find properties before creating filters
+        2. **Don't repeat tool calls**: If a property isn't found, try the next best option
+        3. **Minimalism**: Only include essential filters
+        4. **Defaults**: date_from="-3d", duration=[], filter_test_accounts=true
+        5. **Duration placement**: Duration filters go in `duration` array, NOT filter_group
+        6. **Value types**: Arrays for "exact"/"is_not", single values for comparisons
+        7. **Output format**: Valid JSON object only, no markdown or explanatory text
+        """).strip()
+    )
 
-1. **Property discovery**: Use tools to find properties before creating filters
-2. **Don't repeat tool calls**: If a property isn't found, try the next best option
-3. **Minimalism**: Only include essential filters
-4. **Defaults**: date_from="-3d", duration=[], filter_test_accounts=true
-5. **Duration placement**: Duration filters go in `duration` array, NOT filter_group
-6. **Value types**: Arrays for "exact"/"is_not", single values for comparisons
-7. **Output format**: Valid JSON object only, no markdown or explanatory text
-""".strip()
+
+class FilterSessionRecordingsTool(MaxTool):
+    name: Literal["filter_session_recordings"] = "filter_session_recordings"
+    args_schema: type[BaseModel] = FilterSessionRecordingsToolArgs
+    description: str = dedent("""
+        Filters session recordings by creating a recordings query, and then running it to list the recordings. The list is AUTOMATICALLY shown to the user as a widget.
+        - When to use the tool:
+        * When the user asks to update session recordings filters
+            - "update" synonyms: "change", "modify", "adjust", and similar
+            - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+        * When the user asks to search for session recordings
+            - "search for" synonyms: "find", "look up", and similar
+        * When the user asks to summarize session recordings
+
+        When on the replay page, the tool will update the filters in the page.
+        """).strip()
+
+    async def _arun_impl(
+        self, recordings_filters: MaxRecordingUniversalFilters
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        # Convert filters to recordings query and execute
+        recordings_query = SummarizeSessionsTool._convert_max_filters_to_recordings_query(recordings_filters)
+        query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
+            recordings_query
+        )
+
+        if query_results is None:
+            content = "⚠️ Updated session recordings filters, but encountered an issue fetching results."
+        else:
+            total_count = len(query_results.results)
+            if total_count == 0:
+                content = "✅ Filtered session recordings. No recordings found matching these criteria."
+            elif total_count == 1:
+                content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
+                content += self._format_recording_metadata(query_results.results[0])
+            else:
+                content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
+                # Include metadata for up to first 5 recordings
+                for i, recording in enumerate(query_results.results[:5]):
+                    content += f"{i+1}. {self._format_recording_metadata(recording)}\n"
+                if total_count > 5:
+                    content += f"\n...and {total_count - 5} more recordings"
+        return content, None
+
+    def _get_recordings_with_filters(self, recordings_query: RecordingsQuery, limit: int = 50) -> Any:
+        """Get recordings from DB with filters"""
+        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
+        recordings_query.limit = limit
+        try:
+            query_runner = SessionRecordingListFromQuery(
+                team=self._team, query=recordings_query, hogql_query_modifiers=None, limit=limit
+            )
+            results = query_runner.run()
+        except Exception as e:
+            logger.exception(
+                f"Error getting recordings with filters query ({recordings_query.model_dump_json(exclude_none=True)}): {e}"
+            )
+            return None
+        return results
+
+    def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
+        """Format recording metadata for display."""
+        from datetime import datetime
+
+        parts = []
+
+        # Person/distinct_id
+        distinct_id = recording.get("distinct_id", "Unknown")
+        parts.append(f"User: {distinct_id}")
+
+        # Start time
+        start_time = recording.get("start_time")
+        if start_time:
+            try:
+                # start_time can be either a datetime object (from ClickHouse) or a string
+                if isinstance(start_time, datetime):
+                    dt = start_time
+                else:
+                    dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                parts.append(f"Started: {dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            except (ValueError, AttributeError):
+                parts.append(f"Started: {start_time}")
+
+        # Duration
+        duration = recording.get("duration")
+        if duration is not None:
+            minutes, seconds = divmod(int(duration), 60)
+            hours, minutes = divmod(minutes, 60)
+            if hours > 0:
+                parts.append(f"Duration: {hours}h {minutes}m {seconds}s")
+            elif minutes > 0:
+                parts.append(f"Duration: {minutes}m {seconds}s")
+            else:
+                parts.append(f"Duration: {seconds}s")
+
+        # Activity metrics
+        click_count = recording.get("click_count")
+        keypress_count = recording.get("keypress_count")
+        if click_count is not None or keypress_count is not None:
+            activity_parts = []
+            if click_count is not None:
+                activity_parts.append(f"{click_count} clicks")
+            if keypress_count is not None:
+                activity_parts.append(f"{keypress_count} keypresses")
+            parts.append(f"Activity: {', '.join(activity_parts)}")
+
+        # Console errors
+        console_error_count = recording.get("console_error_count")
+        if console_error_count is not None and console_error_count > 0:
+            parts.append(f"Console errors: {console_error_count}")
+
+        # Active/inactive seconds
+        active_seconds = recording.get("active_seconds")
+        inactive_seconds = recording.get("inactive_seconds")
+        if active_seconds is not None:
+            parts.append(f"Active: {int(active_seconds)}s")
+        if inactive_seconds is not None:
+            parts.append(f"Inactive: {int(inactive_seconds)}s")
+
+        # First URL
+        first_url = recording.get("first_url")
+        if first_url:
+            parts.append(f"First URL: {first_url}")
+
+        # Ongoing status
+        ongoing = recording.get("ongoing")
+        if ongoing:
+            parts.append("Status: Ongoing")
+
+        return " | ".join(parts)
 
 
 class SummarizeSessionsToolArgs(BaseModel):
-    search_query: MaxRecordingUniversalFilters = Field(
-        description="Converted user's query into a JSON object that will be used to search for relevant session recordings to summarize."
+    recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str] = Field(
+        description=dedent("""
+        - User's question converted into a JSON object that will be used to search for relevant session recordings to summarize, based on filter_session_recordings use.
+        - If the user provided explicit sessions IDs, or requested ones from context to be use, pass this as a list of those UUIDs.
+          Important: If the user refers to a query created by search_session_recordings in the context, use those filters as a filters object instead of the list of UUIDs, as there could be hundreds of UUIDs to pass.
+        """).strip()
     )
     summary_title: str = Field(
-        description="""
+        description=dedent("""
         - The name of the summary that is expected to be generated from the user's `search_query`.
         - The name should cover in 3-7 words what sessions would be to be summarized in the summary
         - This won't be used for any search of filtering, only to properly label the generated summary.
@@ -225,10 +357,10 @@ class SummarizeSessionsToolArgs(BaseModel):
             - filters: "{"date_from": "-7d", "filter_test_accounts": True}" -> name: "All sessions (last 7 days)"
             - and similar
         * If there's not enough context to generated the summary name - keep it an empty string ("")
-        """.strip()
+        """).strip()
     )
     session_summarization_limit: int = Field(
-        description="""
+        description=dedent("""
         - The maximum number of sessions to summarize
         - This will be used to apply to DB query to limit the results.
         - Extract the limit from the user's query if present. Set to -1 if not present.
@@ -242,63 +374,42 @@ class SummarizeSessionsToolArgs(BaseModel):
           * 'summarize the sessions of the last 30 days' -> limit: -1
           * 'summarize last 500 sessions of the MacOS users from US' -> limit: 500
           * and similar
-        """.strip()
+        """).strip()
     )
 
 
 class SummarizeSessionsTool(MaxTool):
     name: Literal["summarize_sessions"] = "summarize_sessions"
+    description: str = dedent("""
+        Use this tool to summarize session recordings by analyzing the events within those sessions (and the visual recordings) to find patterns and issues.
+        If explicit session IDs to summarize were not specified by the user, you MUST first use the filter_session_recordings tool to filter for relevant recordings.
+
+        IMPORTANT: Do not use this tool if the preceding filter_session_recordings call returned no results.
+
+        To use session summarization, get the filters right rather than accepting subpar ones (no results is likely a filtering issue rather than a data issue)
+        """).strip()
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
 
-    def _stream_filters(self, filters: MaxRecordingUniversalFilters) -> None:
-        """Stream filters to the user"""
-        self.dispatcher.message(
-            AssistantToolCallMessage(
-                content="",
-                ui_payload={"search_session_recordings": filters.model_dump(exclude_none=True)},
-                # Randomized tool call ID, as we don't want this to be THE result of the actual session summarization tool call
-                # - it's OK because this is only dispatched ephemerally, so the tool message doesn't get added to the state
-                tool_call_id=str(uuid4()),
-            )
-        )
-
-    @classmethod
-    async def create_tool_class(
-        cls,
-        *,
-        team: Team,
-        user: User,
-        node_path: tuple[NodePath, ...] | None = None,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
-        context_manager: AssistantContextManager | None = None,
-    ) -> Self:
-        context_manager = context_manager or AssistantContextManager(team, user, config)
-        prompt = format_prompt_string(
-            SUMMARIZE_SESSIONS_TOOL_PROMPT,
-            groups=await context_manager.get_group_names(),
-        )
-        return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
-
     async def _arun_impl(
-        self, search_query: MaxRecordingUniversalFilters, summary_title: str, session_summarization_limit: int
+        self,
+        recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
+        summary_title: str,
+        session_summarization_limit: int,
     ) -> tuple[str, ToolMessagesArtifact | None]:
-        # Stream filters to the user at the start
-        self._stream_filters(search_query)
-
         # Convert filters to recordings query
-        recordings_query = self._convert_max_filters_to_recordings_query(search_query)
-
-        # Determine query limit
-        query_limit = session_summarization_limit
-        if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
-            # If no limit provided (none or negative) or too large - use the default limit
-            query_limit = MAX_SESSIONS_TO_SUMMARIZE
-
-        # Get session IDs
-        session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-            recordings_query, query_limit
-        )
+        if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
+            recordings_query = self._convert_max_filters_to_recordings_query(recordings_filters_or_explicit_session_ids)
+            # Determine query limit
+            query_limit = session_summarization_limit
+            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+                # If no limit provided (none or negative) or too large - use the default limit
+                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+            # Get session IDs
+            session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
+                recordings_query, query_limit
+            )
+        else:
+            session_ids = recordings_filters_or_explicit_session_ids
 
         # No sessions found
         if not session_ids:
@@ -324,6 +435,9 @@ class SummarizeSessionsTool(MaxTool):
             summaries_content, session_group_summary_id = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
+                session_ids_source="filters"
+                if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters)
+                else "explicit",
             )
             # Build messages artifact for group summaries (with "Open report" button)
             content, artifact = None, None
@@ -402,7 +516,8 @@ class SummarizeSessionsTool(MaxTool):
         if content:
             self.dispatcher.update(content)
 
-    def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
+    @staticmethod
+    def _convert_max_filters_to_recordings_query(replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
         """Convert Max-generated filters into recordings query format"""
         properties = []
         if replay_filters.filter_group and replay_filters.filter_group.values:
@@ -546,26 +661,24 @@ class SummarizeSessionsTool(MaxTool):
             raise ValueError(msg)
 
     async def _summarize_sessions(
-        self,
-        session_ids: list[str],
-        summary_title: str | None,
+        self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
     ) -> tuple[str, str | None]:
         """
         Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
         session_group_summary_id is None for individual summaries, as report is not generated.
         """
         # Process sessions based on count
-        base_message = f"Found sessions ({len(session_ids)})"
+        base_message = f"Found {pluralize(len(session_ids), 'session')} based on {'filters' if session_ids_source == 'filters' else 'explicit session IDs'}."
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
             self._stream_progress(
-                progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
+                progress_message=f"{base_message} We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
         # For large groups, process in detail, searching for patterns
         self._stream_progress(
-            progress_message=f"{base_message}. We will analyze in detail, and store the report",
+            progress_message=f"{base_message} We will analyze in detail, and store the report",
         )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,

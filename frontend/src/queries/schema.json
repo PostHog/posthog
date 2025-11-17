@@ -1881,6 +1881,7 @@
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
+                "filter_session_recordings",
                 "create_insight"
             ],
             "type": "string"

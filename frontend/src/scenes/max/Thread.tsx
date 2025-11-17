@@ -702,6 +702,7 @@ function AssistantActionComponent({
     icon,
     animate = true,
     showCompletionIcon = true,
+    widget = null,
 }: {
     id: string
     content: string
@@ -710,6 +711,7 @@ function AssistantActionComponent({
     icon?: React.ReactNode
     animate?: boolean
     showCompletionIcon?: boolean
+    widget?: JSX.Element | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
@@ -801,6 +803,7 @@ function AssistantActionComponent({
                     })}
                 </div>
             )}
+            {widget}
         </div>
     )
 }
@@ -867,9 +870,18 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinition(toolCall.name)
                         let description = `Executing ${toolCall.name}`
+                        let widget: JSX.Element | null = null
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall, { registeredToolMap })
+                                const displayFormatterResult = definition.displayFormatter(toolCall, {
+                                    registeredToolMap,
+                                })
+                                if (typeof displayFormatterResult === 'string') {
+                                    description = displayFormatterResult
+                                } else {
+                                    description = displayFormatterResult[0]
+                                    widget = displayFormatterResult[1]
+                                }
                             }
                             if (commentary) {
                                 description = commentary
@@ -884,6 +896,7 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                 state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
                                 showCompletionIcon={true}
+                                widget={widget}
                             />
                         )
                     })}
