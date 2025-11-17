@@ -46,7 +46,7 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
-            send_discussions_mentioned(comment, mentions, slug)
+            send_discussions_mentioned.delay(comment.id, mentions, slug)
 
         return comment
 
@@ -69,7 +69,7 @@ class CommentSerializer(serializers.ModelSerializer):
                 updated_instance = super().update(locked_instance, validated_data)
 
         if mentions:
-            send_discussions_mentioned(updated_instance, mentions, slug)
+            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
 
         return updated_instance
 

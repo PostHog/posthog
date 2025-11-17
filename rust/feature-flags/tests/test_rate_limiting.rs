@@ -13,6 +13,7 @@ async fn test_rate_limit_basic() -> Result<()> {
     // Create config with very restrictive rate limiting (capacity: 3, replenish: 0.1/sec)
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false); // Actually block requests
     config.flags_bucket_capacity = 3;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -131,6 +132,7 @@ async fn test_rate_limit_per_token_isolation() -> Result<()> {
     // Create config with capacity of 1
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 1;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -219,6 +221,7 @@ async fn test_rate_limit_with_invalid_tokens() -> Result<()> {
     // Create config with very restrictive rate limiting
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 3;
     config.flags_bucket_replenish_rate = 0.01;
 
@@ -273,6 +276,7 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     // Test that IP is used for rate limiting when body parsing fails
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 2;
     config.flags_bucket_replenish_rate = 0.1;
 
@@ -321,6 +325,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     // Test that rate limit replenishes over time
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 1;
     config.flags_bucket_replenish_rate = 1.0; // 1 token per second
 
@@ -394,6 +399,7 @@ async fn test_ip_rate_limit_basic() -> Result<()> {
     // Create config with IP rate limiting enabled
     let mut config = Config::default_test_config();
     config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
     config.flags_ip_burst_size = 3;
     config.flags_ip_replenish_rate = 0.1;
 
@@ -463,6 +469,7 @@ async fn test_ip_rate_limit_with_rotating_tokens() -> Result<()> {
     // Test that IP rate limiting prevents DDoS with rotating fake tokens
     let mut config = Config::default_test_config();
     config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
     config.flags_ip_burst_size = 5;
     config.flags_ip_replenish_rate = 0.1;
 
@@ -518,9 +525,11 @@ async fn test_both_rate_limiters_together() -> Result<()> {
     // Test that both token-based and IP-based rate limiting work together
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 2;
     config.flags_bucket_replenish_rate = 0.1;
     config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
     config.flags_ip_burst_size = 10;
     config.flags_ip_replenish_rate = 1.0;
 
@@ -627,6 +636,309 @@ async fn test_ip_rate_limit_disabled() -> Result<()> {
             "Request {i} should succeed when IP rate limiting is disabled"
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
+    // Test that IP rate limiting uses X-Forwarded-For header (production scenario)
+    let mut config = Config::default_test_config();
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
+    config.flags_ip_burst_size = 2;
+    config.flags_ip_replenish_rate = 0.1;
+
+    // Set up team and token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // Simulate requests from two different client IPs via X-Forwarded-For
+    let client_ip_1 = "203.0.113.1"; // Test IP 1
+    let client_ip_2 = "203.0.113.2"; // Test IP 2
+
+    // Client IP 1: First 2 requests should succeed
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .header("X-Forwarded-For", client_ip_1)
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Client IP 1 request {i} should succeed"
+        );
+    }
+
+    // Client IP 1: 3rd request should be rate limited
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .header("X-Forwarded-For", client_ip_1)
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Client IP 1 should be rate limited after 2 requests"
+    );
+
+    // Client IP 2: Should have its own separate rate limit bucket
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .header("X-Forwarded-For", client_ip_2)
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Client IP 2 request {i} should succeed (separate bucket)"
+        );
+    }
+
+    // Client IP 2: 3rd request should be rate limited
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .header("X-Forwarded-For", client_ip_2)
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Client IP 2 should be rate limited after 2 requests"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_token_rate_limit_log_only_mode() -> Result<()> {
+    // Test that token-based rate limiting in log-only mode allows requests through
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(true); // Log-only mode
+    config.flags_bucket_capacity = 2;
+    config.flags_bucket_replenish_rate = 0.1;
+
+    // Set up team and token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First 2 requests should succeed (within capacity)
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed"
+        );
+    }
+
+    // Requests 3-5 should also succeed despite exceeding rate limit (log-only mode)
+    for i in 3..=5 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed in log-only mode despite exceeding rate limit"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ip_rate_limit_log_only_mode() -> Result<()> {
+    // Test that IP-based rate limiting in log-only mode allows requests through
+    let mut config = Config::default_test_config();
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(true); // Log-only mode
+    config.flags_ip_burst_size = 2;
+    config.flags_ip_replenish_rate = 0.1;
+
+    // Set up team and token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First 2 requests should succeed (within capacity)
+    for i in 1..=2 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed"
+        );
+    }
+
+    // Requests 3-5 should also succeed despite exceeding IP rate limit (log-only mode)
+    for i in 3..=5 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed in log-only mode despite exceeding IP rate limit"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_mixed_log_only_modes() -> Result<()> {
+    // Test IP rate limiting in enforced mode while token rate limiting is in log-only mode
+    let mut config = Config::default_test_config();
+    config.flags_rate_limit_enabled = FlexBool(true);
+    config.flags_rate_limit_log_only = FlexBool(true); // Token: log-only
+    config.flags_bucket_capacity = 1;
+    config.flags_bucket_replenish_rate = 0.1;
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(false); // IP: enforced
+    config.flags_ip_burst_size = 3;
+    config.flags_ip_replenish_rate = 0.1;
+
+    // Set up team and token
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, "user123".to_string(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    // First 3 requests should succeed (within IP burst capacity)
+    for i in 1..=3 {
+        let response = client
+            .post(format!("http://{}/flags", server.addr))
+            .header("content-type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Request {i} should succeed (within IP limit)"
+        );
+    }
+
+    // 4th request should be rate limited by IP (enforced mode)
+    // even though token rate limiting is in log-only mode
+    let response = client
+        .post(format!("http://{}/flags", server.addr))
+        .header("content-type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "4th request should be IP rate limited (enforced mode takes precedence)"
+    );
 
     Ok(())
 }

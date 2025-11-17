@@ -11,7 +11,7 @@ use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
 };
 use common_database::PostgresReader;
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
@@ -140,6 +140,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     };
 
+    let query_labels = [("pool".to_string(), "persons_reader".to_string())];
+
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
     // distinct_id. There's two cases for that:
@@ -148,25 +150,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
     // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
     // That's fine though, we shouldn't error out just because we can't find a person ID.
-    let person_query = r#"
-        SELECT DISTINCT ON (ppd.distinct_id)
-            p.id as person_id,
-            p.properties as person_properties
-        FROM posthog_persondistinctid ppd
-        INNER JOIN posthog_person p
-            ON p.id = ppd.person_id
-            AND p.team_id = ppd.team_id
-        WHERE ppd.distinct_id = $1
-            AND ppd.team_id = $2
-    "#;
-
     let person_query_start = Instant::now();
-    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
-    let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
-        .bind(&distinct_id)
-        .bind(team_id)
-        .fetch_optional(&mut *conn)
-        .await?
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
+    let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
+    let (person_id, person_props) = person
+        .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
 
@@ -209,7 +197,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 "#;
 
             let cohort_query_start = Instant::now();
-            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
                 .bind(person_id)
@@ -298,7 +286,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
         let group_query_start = Instant::now();
-        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
         let groups = sqlx::query(group_query)
             .bind(team_id)
             .bind(&group_type_indexes_vec)
@@ -386,16 +374,6 @@ fn are_overrides_useful_for_flag(
     property_filters
         .iter()
         .any(|filter| overrides.contains_key(&filter.key))
-}
-
-/// Check if a FlagError contains a foreign key constraint violation
-fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
-    match error {
-        FlagError::DatabaseError(sqlx_error, _) => {
-            common_database::is_foreign_key_constraint_error(sqlx_error)
-        }
-        _ => false,
-    }
 }
 
 /// Determines if a FlagError should trigger a retry
@@ -684,9 +662,8 @@ pub async fn set_feature_flag_hash_key_overrides(
         )
         .await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+            Err(e) => {
                 // Track error classification
                 classify_and_track_error(e, "set_hash_key_overrides", true);
 
@@ -707,17 +684,10 @@ pub async fn set_feature_flag_hash_key_overrides(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
-                    "Hash key override setting failed due to person deletion, will retry"
+                    "Hash key override setting failed, will retry"
                 );
 
                 // Return error to trigger retry
-                result
-            }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "set_hash_key_overrides", false);
-
                 result
             }
             // Success case - return the result
@@ -756,7 +726,10 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                AND (
+                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
+                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                )
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -789,6 +762,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let person_query_start = Instant::now();
         let person_query_timer =
@@ -862,6 +836,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "non_persons_reader".to_string()),
         ];
         let flags_query_start = Instant::now();
         let flags_query_timer =
@@ -925,6 +900,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
@@ -1002,9 +978,8 @@ pub async fn should_write_hash_key_override(
         let result =
             try_should_write_hash_key_override(router, team_id, &distinct_ids, project_id).await;
 
-        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
+            Err(e) => {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -1022,14 +997,12 @@ pub async fn should_write_hash_key_override(
                     team_id = %team_id,
                     distinct_id = %distinct_id,
                     error = ?e,
-                    "Hash key override check failed due to person deletion, will retry"
+                    "Hash key override check failed, will retry"
                 );
 
                 // Return error to trigger retry
                 result
             }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(_) => result,
             // Success case - return the result
             Ok(_) => result,
         }
@@ -1053,7 +1026,12 @@ async fn try_should_write_hash_key_override(
         FROM posthog_persondistinctid p
         LEFT JOIN posthog_featureflaghashkeyoverride existing
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
-        WHERE p.team_id = $1 AND p.distinct_id = ANY($2)
+        WHERE p.team_id = $1
+            AND p.distinct_id = ANY($2)
+            AND (
+                EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
+                OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+            )
     "#;
 
     // Query 2: Get feature flags from non-person pool
@@ -1129,6 +1107,7 @@ async fn try_should_write_hash_key_override(
                 "person_data_with_overrides".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "persons_reader".to_string()),
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
@@ -1221,6 +1200,7 @@ async fn try_should_write_hash_key_override(
                 "active_flags_with_continuity".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "non_persons_reader".to_string()),
         ];
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
@@ -1368,7 +1348,7 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id,
+            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1481,7 +1461,7 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id,
+            team.project_id(),
             hash_key.clone(),
         )
         .await
@@ -1617,7 +1597,7 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id,
+            team.project_id(),
             new_hash.clone(),
         )
         .await
@@ -1764,7 +1744,7 @@ mod tests {
             &router,
             team.id,
             vec!["filter_test_user".to_string()],
-            team.project_id,
+            team.project_id(),
             "filter_hash".to_string(),
         )
         .await
@@ -1843,7 +1823,7 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1857,7 +1837,7 @@ mod tests {
             &router,
             team.id,
             vec!["should_write_user".to_string()],
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1869,7 +1849,7 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1886,7 +1866,7 @@ mod tests {
             &router,
             team.id,
             "non_existent_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1931,7 +1911,7 @@ mod tests {
                 "nonexistent_user1".to_string(),
                 "nonexistent_user2".to_string(),
             ],
-            team.project_id,
+            team.project_id(),
             "some_hash".to_string(),
         )
         .await

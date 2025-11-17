@@ -13,13 +13,22 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
+def get_create_clause(table_name: str, replace: bool = False) -> str:
+    use_replace = replace or settings.DEBUG
+    if use_replace:
+        return f"CREATE OR REPLACE TABLE {table_name}"
+    return f"CREATE TABLE IF NOT EXISTS {table_name}"
+
+
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     if force_unique_zk_path:
         engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -41,8 +50,10 @@ def HOURLY_TABLE_TEMPLATE(
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
+    create_clause = get_create_clause(table_name, replace)
+
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,

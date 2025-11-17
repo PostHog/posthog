@@ -10,7 +10,6 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.utils import relative_date_parse
 
@@ -114,14 +113,9 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateTo).tzinfo is not None:
-                        # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
-                        # create a temporary exception just to capture it and make debugging easier
-                        try:
-                            raise Exception("timezone would be overridden")
-                        except Exception as e:
-                            capture_exception(e)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
@@ -136,14 +130,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateFrom).tzinfo is not None:
-                        # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
-                        # create a temporary exception just to capture it and make debugging easier
-                        try:
-                            raise Exception("timezone would be overridden")
-                        except Exception as e:
-                            capture_exception(e)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
@@ -175,14 +164,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateFrom).tzinfo is not None:
-                        # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
-                        # create a temporary exception just to capture it and make debugging easier
-                        try:
-                            raise Exception("timezone would be overridden")
-                        except Exception as e:
-                            capture_exception(e)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
 
@@ -202,14 +186,9 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
-                    if isoparse(dateTo).tzinfo is not None:
-                        # Check if we have overridden the timezone, this likely indicates a bug somewhere if we have
-                        # create a temporary exception just to capture it and make debugging easier
-                        try:
-                            raise Exception("timezone would be overridden")
-                        except Exception as e:
-                            capture_exception(e)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)

@@ -9,7 +9,8 @@ export const fromNodeTypeToLabel: Omit<
     Record<NotebookNodeType, string>,
     | NotebookNodeType.Backlink
     | NotebookNodeType.PersonFeed
-    | NotebookNodeType.Properties
+    | NotebookNodeType.PersonProperties
+    | NotebookNodeType.GroupProperties
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
@@ -32,6 +33,8 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.LLMTrace]: 'LLM traces',
     [NotebookNodeType.Issues]: 'Issues',
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
+    [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
+    [NotebookNodeType.RelatedGroups]: 'Related groups',
 }
 
 export function ContainsTypeFilters({

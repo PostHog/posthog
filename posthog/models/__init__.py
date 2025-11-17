@@ -7,7 +7,7 @@ from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExport
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from ..warehouse.models import DataWarehouseTable
+from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .action import Action
 from .action.action_step import ActionStep
@@ -41,6 +41,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
+from .heatmap_saved import SavedHeatmap, HeatmapSnapshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
@@ -81,6 +82,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
+from .user_home_settings import UserHomeSettings
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -126,6 +128,7 @@ __all__ = [
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
+    "HeatmapSnapshot",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
@@ -173,6 +176,7 @@ __all__ = [
     "RetentionFilter",
     "RemoteConfig",
     "EventSchema",
+    "SavedHeatmap",
     "SchemaPropertyGroup",
     "SchemaPropertyGroupProperty",
     "SessionRecording",
@@ -192,6 +196,7 @@ __all__ = [
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",
+    "UserHomeSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

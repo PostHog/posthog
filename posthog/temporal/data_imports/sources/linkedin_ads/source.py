@@ -11,11 +11,12 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .linkedin_ads import (
     get_incremental_fields as get_linkedin_ads_incremental_fields,
@@ -25,7 +26,7 @@ from .linkedin_ads import (
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
+class LinkedInAdsSource(SimpleSource[LinkedinAdsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS

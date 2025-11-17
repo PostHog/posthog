@@ -136,7 +136,8 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 0)
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["results"]), 0)
 
     def test_opt_outs_no_category_with_global_opt_outs(self):
         """Test opt_outs endpoint with no category and recipients opted out globally"""
@@ -161,10 +162,11 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 2)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["results"]), 2)
 
         # Check that the correct recipients are returned
-        identifiers = [item["identifier"] for item in data]
+        identifiers = [item["identifier"] for item in data["results"]]
         self.assertIn("user1@example.com", identifiers)
         self.assertIn("user2@example.com", identifiers)
         self.assertNotIn("user3@example.com", identifiers)
@@ -194,10 +196,11 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 2)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(len(data["results"]), 2)
 
         # Check that only recipients opted out from the specific category are returned
-        identifiers = [item["identifier"] for item in data]
+        identifiers = [item["identifier"] for item in data["results"]]
         self.assertIn("user1@example.com", identifiers)
         self.assertIn("user3@example.com", identifiers)
         self.assertNotIn("user2@example.com", identifiers)
@@ -223,10 +226,11 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 1)
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(len(data["results"]), 1)
 
         # Check that all expected fields are present
-        item = data[0]
+        item = data["results"][0]
         expected_fields = ["id", "identifier", "updated_at", "preferences"]
         for field in expected_fields:
             self.assertIn(field, item)
@@ -257,5 +261,6 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["identifier"], "user1@example.com")
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["identifier"], "user1@example.com")

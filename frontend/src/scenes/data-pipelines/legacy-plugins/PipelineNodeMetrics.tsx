@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useEffect, useRef } from 'react'
 
 import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -16,7 +17,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
 
 import {

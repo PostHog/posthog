@@ -489,6 +489,45 @@ class SessionReplayEvents:
         )
         return query
 
+    @staticmethod
+    def count_soon_to_expire_sessions_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for counting all sessions that are about to expire
+        """
+        query = """
+                WITH
+                    expiring_sessions
+                AS (
+                    SELECT
+                        session_id,
+                        min(min_first_timestamp) as start_time,
+                        max(retention_period_days) as retention_period_days,
+                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                        dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                    FROM
+                        session_replay_events
+                    PREWHERE
+                        team_id = %(team_id)s
+                        AND min_first_timestamp <= %(python_now)s
+                    GROUP BY
+                        session_id
+                    HAVING
+                        expiry_time >= %(python_now)s
+                        AND recording_ttl <= %(ttl_threshold)s
+                    ORDER BY recording_ttl ASC
+                )
+                SELECT
+                    count(session_id) as recording_count
+                FROM expiring_sessions
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
+
 
 def ttl_days(team: Team) -> int:
     if is_cloud():

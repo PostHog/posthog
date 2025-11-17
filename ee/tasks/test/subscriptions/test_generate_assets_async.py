@@ -221,7 +221,7 @@ async def test_async_foreign_key_access_with_real_subscription(team, user, dashb
 
 @patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset_direct")
 async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -> None:
-    def export_success(asset: ExportedAsset) -> None:
+    def export_success(asset: ExportedAsset, **kwargs) -> None:
         asset.content = b"fake image data"
         asset.save()
 
@@ -283,7 +283,7 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
 async def test_async_generate_assets_partial_success(mock_export: MagicMock, team, user) -> None:
     call_count = 0
 
-    def export_with_partial_success(asset: ExportedAsset) -> None:
+    def export_with_partial_success(asset: ExportedAsset, **kwargs) -> None:
         nonlocal call_count
         call_count += 1
         if call_count <= 2:

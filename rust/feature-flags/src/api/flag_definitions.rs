@@ -108,6 +108,7 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
         state.redis_reader.clone(),
         state.redis_writer.clone(),
         token,
+        Some(state.config.team_cache_ttl_seconds),
         || async move {
             Team::from_pg(pg_reader, &token_str)
                 .await
@@ -158,6 +159,7 @@ async fn get_from_cache(
     let source_name = match source {
         CacheSource::Redis => "Redis",
         CacheSource::S3 => "S3",
+        CacheSource::Fallback => "Fallback",
     };
     info!(
         team_id = team.id,

@@ -34,6 +34,7 @@ export const manifest: ProductManifest = {
             type: 'feature_flag',
             href: urls.featureFlags(),
             sceneKey: 'FeatureFlags',
+            sceneKeys: ['FeatureFlags', 'FeatureFlag'],
         },
     ],
 }

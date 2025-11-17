@@ -1,5 +1,7 @@
-import uuid
+import time
 import asyncio
+
+from django.conf import settings
 
 import structlog
 from rest_framework import serializers, viewsets
@@ -9,7 +11,6 @@ from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
@@ -21,6 +22,7 @@ logger = structlog.get_logger(__name__)
 class EvaluationRunRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.UUIDField(required=True)
     target_event_id = serializers.UUIDField(required=True)
+    timestamp = serializers.DateTimeField(required=True)
 
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -40,6 +42,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         evaluation_id = str(serializer.validated_data["evaluation_id"])
         target_event_id = str(serializer.validated_data["target_event_id"])
+        timestamp = serializer.validated_data["timestamp"].isoformat()
 
         # Verify evaluation exists and belongs to this team
         try:
@@ -51,10 +54,11 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         inputs = RunEvaluationInputs(
             evaluation_id=evaluation_id,
             target_event_id=target_event_id,
+            timestamp=timestamp,
         )
 
         # Generate unique workflow ID
-        workflow_id = f"eval-{evaluation_id}-{target_event_id}-{uuid.uuid4()}"
+        workflow_id = f"{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:
@@ -64,7 +68,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )

@@ -20,19 +20,21 @@ from posthog.schema import (
     DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
-    PlanningMessage,
-    PlanningStepStatus,
     TaskExecutionStatus,
 )
 
-from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
+from ee.hogai.graph.deep_research.planner.nodes import (
+    DeepResearchPlannerNode,
+    DeepResearchPlannerToolsNode,
+    DeepResearchTaskExecutionItem,
+)
 from ee.hogai.graph.deep_research.planner.prompts import (
     FINALIZE_RESEARCH_TOOL_RESULT,
     NO_TASKS_RESULTS_TOOL_RESULT,
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState, TodoItem
 from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 
@@ -213,95 +215,6 @@ class TestDeepResearchPlannerNode(BaseTest):
             await self.node.arun(state, self.config)
         self.assertEqual(str(cm.exception), "Unexpected message type.")
 
-    async def test_arun_multiple_tool_calls_error(self):
-        """Test node execution raises error when multiple tool calls are present"""
-        state = self._create_state()
-
-        with (
-            patch.object(self.node, "_aget_core_memory", return_value="Test core memory") as _mock_core_memory,
-            patch.object(self.node, "_get_model") as mock_get_model,
-        ):
-            mock_chain = AsyncMock()
-            mock_response = self._create_langchain_ai_message(
-                "Test response",
-                [
-                    {"id": "tool_1", "name": "todo_write", "args": {"todos": []}},
-                    {"id": "tool_2", "name": "todo_read", "args": {}},
-                ],
-            )
-            mock_chain.ainvoke.return_value = mock_response
-
-            mock_model = AsyncMock()
-            mock_model.bind_tools.return_value = mock_chain
-            mock_get_model.return_value = mock_model
-
-            with patch("ee.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate") as mock_prompt:
-                mock_prompt_instance = MagicMock()
-                mock_prompt.from_messages.return_value = mock_prompt_instance
-                mock_prompt_instance.__or__ = MagicMock(return_value=mock_chain)
-
-                with patch("ee.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget") as mock_notebook_get:
-                    mock_notebook = MagicMock()
-                    mock_notebook.content = {}
-
-                    async def async_get(*args, **kwargs):
-                        return mock_notebook
-
-                    mock_notebook_get.side_effect = async_get
-
-                    with patch("ee.hogai.graph.deep_research.planner.nodes.NotebookSerializer") as mock_serializer:
-                        mock_serializer_instance = MagicMock()
-                        mock_serializer_instance.from_json_to_markdown.return_value = "content"
-                        mock_serializer.return_value = mock_serializer_instance
-
-                        with self.assertRaises(ValueError) as cm:
-                            await self.node.arun(state, self.config)
-                        self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
-
-    async def test_arun_with_commentary(self):
-        """Test node execution includes commentary message when present"""
-        state = self._create_state()
-
-        with (
-            patch.object(self.node, "_aget_core_memory", return_value="Test core memory") as _mock_core_memory,
-            patch.object(self.node, "_get_model") as mock_get_model,
-        ):
-            mock_chain = AsyncMock()
-            mock_response = self._create_langchain_ai_message(
-                "Test response",
-                [{"id": "tool_1", "name": "todo_write", "args": {"todos": [], "commentary": "This is my plan"}}],
-            )
-            mock_chain.ainvoke.return_value = mock_response
-
-            mock_model = AsyncMock()
-            mock_model.bind_tools.return_value = mock_chain
-            mock_get_model.return_value = mock_model
-
-            with patch("ee.hogai.graph.deep_research.planner.nodes.ChatPromptTemplate") as mock_prompt:
-                mock_prompt_instance = MagicMock()
-                mock_prompt.from_messages.return_value = mock_prompt_instance
-                mock_prompt_instance.__or__ = MagicMock(return_value=mock_chain)
-
-                with patch("ee.hogai.graph.deep_research.planner.nodes.Notebook.objects.aget") as mock_notebook_get:
-                    mock_notebook = MagicMock()
-                    mock_notebook.content = {}
-
-                    async def async_get(*args, **kwargs):
-                        return mock_notebook
-
-                    mock_notebook_get.side_effect = async_get
-
-                    with patch("ee.hogai.graph.deep_research.planner.nodes.NotebookSerializer") as mock_serializer:
-                        mock_serializer_instance = MagicMock()
-                        mock_serializer_instance.from_json_to_markdown.return_value = "content"
-                        mock_serializer.return_value = mock_serializer_instance
-
-                        result = await self.node.arun(state, self.config)
-
-                        self.assertEqual(len(result.messages), 2)
-                        self.assertIsInstance(result.messages[0], AssistantMessage)
-                        self.assertEqual(cast(AssistantMessage, result.messages[0]).content, "This is my plan")
-
     def test_model_configuration(self):
         """Test model is properly configured with tools"""
         with (
@@ -364,6 +277,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[AssistantMessage(content="Test", tool_calls=None, id=str(uuid4()))])
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], HumanMessage)
@@ -386,12 +300,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     @parameterized.expand(
         [
             ("empty_todos", []),
-            ("single_todo", [{"id": 1, "description": "Test task", "status": "pending", "priority": "high"}]),
+            ("single_todo", [{"id": "1", "content": "Test task", "status": "pending", "priority": "high"}]),
             (
                 "multiple_todos",
                 [
-                    {"id": 1, "description": "Task 1", "status": "pending", "priority": "high"},
-                    {"id": 2, "description": "Task 2", "status": "in_progress", "priority": "medium"},
+                    {"id": "1", "content": "Task 1", "status": "pending", "priority": "high"},
+                    {"id": "2", "content": "Task 2", "status": "in_progress", "priority": "medium"},
                 ],
             ),
         ]
@@ -402,6 +316,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[self._create_assistant_message_with_tool_calls(tool_calls)])
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         if len(todos_data) == 0:
             self.assertEqual(len(result.messages), 1)
@@ -411,19 +326,17 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             )
             self.assertIsNone(result.todos)
         else:
-            self.assertEqual(len(result.messages), 2)
-            self.assertIsInstance(result.messages[0], PlanningMessage)
-            self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(len(cast(PlanningMessage, result.messages[0]).steps), len(todos_data))
-            self.assertIn("Todos updated. Current list:", cast(AssistantToolCallMessage, result.messages[1]).content)
+            self.assertEqual(len(result.messages), 1)
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+            self.assertIn("Todos updated. Current list:", cast(AssistantToolCallMessage, result.messages[0]).content)
             self.assertIsNotNone(result.todos)
-            self.assertEqual(len(cast(list[DeepResearchTodo], result.todos)), len(todos_data))
+            self.assertEqual(len(cast(list[TodoItem], result.todos)), len(todos_data))
 
     @parameterized.expand(
         [
             (
                 "with_todos",
-                [DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+                [TodoItem(id="1", content="Test", status="pending", priority="high")],
             ),
             ("empty_todos", []),
             ("no_todos", None),
@@ -435,6 +348,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[self._create_assistant_message_with_tool_calls(tool_calls)], todos=todos)
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -456,6 +370,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)], todos=None
                 )
                 result = await self.node.arun(state, self.config)
+                result = cast(PartialDeepResearchState, result)
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -468,7 +383,6 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     TaskResult(
                         id="1",
-                        description="Task 1",
                         result="Result",
                         status=TaskExecutionStatus.COMPLETED,
                         artifacts=[_create_test_artifact("art1", "Artifact 1")],
@@ -480,7 +394,6 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     TaskResult(
                         id="1",
-                        description="Task 1",
                         result="Result",
                         status=TaskExecutionStatus.COMPLETED,
                         artifacts=[],
@@ -495,11 +408,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="artifacts_read", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=task_results,
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -507,26 +421,25 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         self.assertIn("Current artifacts:", cast(AssistantToolCallMessage, result.messages[0]).content)
 
     async def test_execute_tasks_tool(self):
-        """Test execute_tasks tool execution returns tasks"""
+        """Test execute_tasks tool returns None to redirect to task executor"""
         tasks = [
-            DeepResearchTask(
+            DeepResearchTaskExecutionItem(
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
-                status=TaskExecutionStatus.PENDING,
                 task_type="create_insight",
             )
         ]
         tool_calls = [AssistantToolCall(id="test_1", name="execute_tasks", args={"tasks": tasks})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
         )
 
         result = await self.node.arun(state, self.config)
 
-        self.assertEqual(result.tasks, tasks)
-        self.assertEqual(len(result.messages), 0)
+        # execute_tasks returns None to redirect to task executor
+        self.assertIsNone(result)
 
     async def test_tools_requiring_task_results_without_results(self):
         """Test tools that require task results fail when no results exist"""
@@ -537,13 +450,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 tool_calls = [AssistantToolCall(id="test_1", name=tool_name, args={})]
                 state = self._create_state(
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-                    todos=[
-                        DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")
-                    ],
+                    todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
                     task_results=[],
                 )
 
                 result = await self.node.arun(state, self.config)
+                result = cast(PartialDeepResearchState, result)
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -563,13 +475,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         if not content:
             self.assertEqual(len(result.messages), 1)
@@ -591,11 +502,10 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=[
                 TaskResult(
                     id="1",
-                    description="Task",
                     result="Result",
                     status=TaskExecutionStatus.COMPLETED,
                     artifacts=[_create_test_artifact("valid_id", "Valid artifact")],
@@ -604,6 +514,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -618,11 +529,10 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=[
                 TaskResult(
                     id="1",
-                    description="Task",
                     result="Result",
                     status=TaskExecutionStatus.COMPLETED,
                     artifacts=[artifact1, artifact2],
@@ -631,6 +541,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 2)
 
@@ -648,13 +559,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="finalize_research", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -665,10 +575,8 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="unknown_tool", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         with self.assertRaises(ValueError) as cm:
@@ -678,32 +586,29 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     @parameterized.expand(
         [
             (
-                "with_tasks",
-                [
-                    DeepResearchTask(
-                        id="1",
-                        description="Test",
-                        prompt="Test prompt",
-                        status=TaskExecutionStatus.PENDING,
-                        task_type="create_insight",
-                    )
-                ],
+                "with_tool_calls",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[AssistantToolCall(id="1", name="execute_tasks", args={})],
+                    id=str(uuid4()),
+                ),
                 "task_executor",
             ),
-            ("with_finalize_message", [], "end"),
-            ("continue_case", [], "continue"),
+            (
+                "with_finalize_message",
+                AssistantToolCallMessage(content=FINALIZE_RESEARCH_TOOL_RESULT, tool_call_id="test", id=str(uuid4())),
+                "end",
+            ),
+            (
+                "continue_case",
+                AssistantToolCallMessage(content="Other content", tool_call_id="test", id=str(uuid4())),
+                "continue",
+            ),
         ]
     )
-    def test_router_logic(self, _name, tasks, expected_route):
-        """Test router method returns correct route based on state"""
-        if expected_route == "end":
-            last_message = AssistantToolCallMessage(
-                content=FINALIZE_RESEARCH_TOOL_RESULT, tool_call_id="test", id=str(uuid4())
-            )
-        else:
-            last_message = AssistantToolCallMessage(content="Other content", tool_call_id="test", id=str(uuid4()))
-
-        state = self._create_state(messages=[last_message], tasks=tasks if tasks else None)
+    def test_router_logic(self, _name, last_message, expected_route):
+        """Test router method returns correct route based on message type"""
+        state = self._create_state(messages=[last_message])
 
         route = self.node.router(state)
 

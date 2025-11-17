@@ -4,11 +4,7 @@ import { cloneObject } from '~/utils/utils'
 
 import { InternalPerson } from '../../../types'
 import { logger } from '../../../utils/logger'
-import {
-    personProfileIgnoredPropertiesCounter,
-    personProfileUpdateOutcomeCounter,
-    personPropertyKeyUpdateCounter,
-} from './metrics'
+import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
 import { eventToPersonProperties, initialEventToPersonProperties } from './person-property-utils'
 
 export interface PropertyUpdates {
@@ -24,7 +20,7 @@ const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously
 
 // For tracking what property keys cause us to update persons
 // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
-function getMetricKey(key: string): string {
+export function getMetricKey(key: string): string {
     if (key.startsWith('$geoip_') || key.startsWith('$initial_geoip_')) {
         return 'geoIP'
     }
@@ -55,20 +51,32 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
     const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []
 
     let hasChanges = false
+    let hasNonFilteredChanges = false
     const toSet: Properties = {}
     const toUnset: string[] = []
+    const ignoredProperties: string[] = []
 
     Object.entries(propertiesOnce).forEach(([key, value]) => {
         if (typeof personProperties[key] === 'undefined') {
             hasChanges = true
             toSet[key] = value
+            if (shouldUpdatePersonIfOnlyChange(event, key)) {
+                hasNonFilteredChanges = true
+            }
         }
     })
 
     Object.entries(properties).forEach(([key, value]) => {
         if (personProperties[key] !== value) {
-            if (typeof personProperties[key] === 'undefined' || shouldUpdatePersonIfOnlyChange(event, key)) {
+            const isNewProperty = typeof personProperties[key] === 'undefined'
+            const shouldUpdate = isNewProperty || shouldUpdatePersonIfOnlyChange(event, key)
+
+            if (shouldUpdate) {
                 hasChanges = true
+                hasNonFilteredChanges = true
+            } else {
+                hasChanges = true
+                ignoredProperties.push(key)
             }
             toSet[key] = value
         }
@@ -78,21 +86,23 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
         if (propertyKey in personProperties) {
             if (typeof propertyKey === 'string') {
                 hasChanges = true
+                hasNonFilteredChanges = true
                 toUnset.push(propertyKey)
             }
         }
     })
 
-    // Track person profile update outcomes
+    // Track person profile update outcomes at event level
     const hasPropertyChanges = Object.keys(toSet).length > 0 || toUnset.length > 0
-    if (hasChanges) {
-        personProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc()
-    } else if (hasPropertyChanges) {
-        personProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc()
-        // Track which specific properties were ignored
-        Object.keys(toSet).forEach((propertyName) => {
-            personProfileIgnoredPropertiesCounter.labels({ property: propertyName }).inc()
-        })
+    if (hasPropertyChanges) {
+        if (hasNonFilteredChanges) {
+            personProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc()
+        } else {
+            personProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc()
+            ignoredProperties.forEach((property) => {
+                personProfileIgnoredPropertiesCounter.labels({ property }).inc()
+            })
+        }
     } else {
         personProfileUpdateOutcomeCounter.labels({ outcome: 'no_change' }).inc()
     }
@@ -110,7 +120,6 @@ export function applyEventPropertyUpdates(
     person: InternalPerson
 ): [InternalPerson, boolean] {
     let updated = false
-    const metricsKeys = new Set<string>()
 
     // Create a copy of the person with copied properties
     const updatedPerson = cloneObject(person)
@@ -120,7 +129,6 @@ export function applyEventPropertyUpdates(
         if (updatedPerson.properties[key] !== value) {
             updated = true
         }
-        metricsKeys.add(getMetricKey(key))
         updatedPerson.properties[key] = value
     })
 
@@ -132,12 +140,10 @@ export function applyEventPropertyUpdates(
                 return
             }
             updated = true
-            metricsKeys.add(getMetricKey(propertyKey))
             delete updatedPerson.properties[propertyKey]
         }
     })
 
-    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
     return [updatedPerson, updated]
 }
 

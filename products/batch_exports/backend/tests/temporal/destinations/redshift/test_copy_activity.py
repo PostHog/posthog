@@ -27,13 +27,13 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
-    delete_all_from_s3_prefix,
     has_valid_credentials,
 )
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
+from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -52,7 +52,7 @@ async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
 
     assert s3_client is not None
 
-    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
+    await delete_all_from_s3(s3_client, bucket_name, key_prefix)
 
 
 async def _run_activity(
@@ -76,6 +76,8 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
+    extra_fields=None,
+    assert_records: bool = True,
 ):
     """Helper function to run Redshift main COPY activity and assert records exported.
 
@@ -144,6 +146,9 @@ async def _run_activity(
     )
     result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
 
+    if not assert_records:
+        return result
+
     await assert_clickhouse_records_in_redshift(
         redshift_connection=redshift_connection,
         clickhouse_client=clickhouse_client,
@@ -157,6 +162,7 @@ async def _run_activity(
         sort_key=sort_key,
         expected_fields=expected_fields,
         copy=True,
+        extra_fields=extra_fields,
     )
 
     return result
@@ -580,3 +586,146 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
         sort_key="person_id",
         expected_fields=expected_fields,
     )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    bucket_name,
+    bucket_region,
+    exclude_events,
+    model: BatchExportModel,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    aws_credentials,
+    key_prefix,
+    ateam,
+):
+    """Test data is inserted even in the presence of additional columns.
+
+    Redshift's "MERGE" command can run in a simplified mode which performs better and
+    cleans up duplicates, but this requires a matching schema. We should assert we don't
+    fail when we can't use this mode.
+    """
+    batch_export_model = model
+    table_name = f"test_copy_activity_table_extra_columns__{ateam.pk}"
+    sort_key = "event"
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+    )
+
+    async with psycopg_connection.transaction():
+        async with psycopg_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN test INT DEFAULT NULL;").format(
+                    sql.Identifier(redshift_config["schema"], table_name)
+                )
+            )
+
+    await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        extra_fields=["test"],
+    )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_copy_into_redshift_activity_handles_data_over_string_limit(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    bucket_name,
+    bucket_region,
+    exclude_events,
+    model: BatchExportModel,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    aws_credentials,
+    key_prefix,
+    ateam,
+):
+    """Test that the copy_into_redshift_activity raises a non-retryable error on varchar limit exceeded."""
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        event_name="test-funny-props-{i}",
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count_outside_range=0,
+        count_other_team=0,
+        count=1,
+        properties={
+            "$that_is_a_long_property": "wow" * 64 * 1024,
+        },
+    )
+
+    batch_export_model = model
+    table_name = f"test_copy_activity_table_handles_string_limit__{ateam.pk}"
+
+    sort_key = "event"
+
+    result = await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        assert_records=False,
+    )
+
+    assert result.error is not None
+    assert result.error.type == "StringLimitExceededError"
+    assert "Consider switching this column to 'SUPER' type" in result.error.message

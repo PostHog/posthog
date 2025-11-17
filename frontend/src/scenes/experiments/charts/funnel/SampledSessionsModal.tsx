@@ -62,13 +62,13 @@ export function SampledSessionsModal(): JSX.Element {
 
     const { sessionData, stepName, variant } = modalData
 
-    const openSessionRecording = (sessionId: string, eventUuid: string): void => {
+    const openSessionRecording = (session: SessionData): void => {
         openSessionPlayer({
-            id: sessionId,
+            id: session.session_id,
             matching_events: [
                 {
-                    session_id: sessionId,
-                    events: [{ uuid: eventUuid }],
+                    session_id: session.session_id,
+                    events: [{ uuid: session.event_uuid, timestamp: session.timestamp }],
                 },
             ],
         })
@@ -116,7 +116,7 @@ export function SampledSessionsModal(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(session.session_id, session.event_uuid)}
+                            onClick={() => openSessionRecording(session)}
                         >
                             View recording
                         </LemonButton>

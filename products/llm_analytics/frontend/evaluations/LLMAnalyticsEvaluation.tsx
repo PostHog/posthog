@@ -121,12 +121,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
 
                             <Field name="enabled" label="Status">
                                 <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={evaluation.enabled}
-                                        onChange={setEvaluationEnabled}
-                                        disabled={true}
-                                        disabledReason="The evaluations backend is still WIP"
-                                    />
+                                    <LemonSwitch checked={evaluation.enabled} onChange={setEvaluationEnabled} />
                                     <span>{evaluation.enabled ? 'Enabled' : 'Disabled'}</span>
                                     <span className="text-muted text-sm">
                                         {evaluation.enabled

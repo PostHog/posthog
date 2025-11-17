@@ -94,6 +94,7 @@ class OperationCategorizer:
             ("ADD" in sql_upper and "CONSTRAINT" in sql_upper and "NOT VALID" in sql_upper)
             or ("VALIDATE" in sql_upper and "CONSTRAINT" in sql_upper)
             or ("DROP" in sql_upper and "CONSTRAINT" in sql_upper)
+            or ("ADD" in sql_upper and "CONSTRAINT" in sql_upper and "USING INDEX" in sql_upper)
             or ("COMMENT ON" in sql_upper)
             or ("SET STATISTICS" in sql_upper)
             or ("SET (FILLFACTOR" in sql_upper)
@@ -142,31 +143,40 @@ class OperationCategorizer:
         return ", ".join(f"#{idx+1} {op.type}" for idx, op in ops)
 
 
-def check_drop_table_properly_staged(table_name: str, migration: Any, loader: Any) -> bool:
+def check_drop_properly_staged(
+    target_type: str, table_name: str, migration: Any, loader: Any, field_name: Optional[str] = None
+) -> bool:
     """
-    Check if a DROP TABLE operation was preceded by proper state removal.
+    Check if a DROP operation (table or column) was preceded by proper state removal.
 
     Args:
-        table_name: Name of table being dropped (e.g., "posthog_namedquery")
-        migration: The migration object containing the DROP TABLE
+        target_type: Either "table" or "column"
+        table_name: Name of table (e.g., "posthog_namedquery" or "llm_analytics_evaluation")
+        migration: The migration object containing the DROP operation
         loader: Django MigrationLoader with migration history
+        field_name: Column name (required for target_type="column", e.g., "prompt")
 
     Returns:
-        True if model was properly removed from state in migration history,
+        True if drop was properly staged (state removed in prior migration),
         False otherwise
 
-    Pattern being checked:
-    1. Earlier migration used SeparateDatabaseAndState to remove model from state
-    2. That migration had DeleteModel for the model matching the table name
+    Patterns checked:
+    - For "table": SeparateDatabaseAndState with DeleteModel for the model
+    - For "column": SeparateDatabaseAndState with RemoveField for the model+field
     """
     if not loader or not hasattr(loader, "disk_migrations"):
         return False
 
     # Extract model name from table name
     # posthog_namedquery -> NamedQuery
-    # Strip app prefix and convert to PascalCase
-    model_name = _extract_model_name_from_table(table_name)
+    # llm_analytics_evaluation (app=llm_analytics) -> Evaluation
+    app_label = getattr(migration, "app_label", None)
+    model_name = _extract_model_name_from_table(table_name, app_label)
     if not model_name:
+        return False
+
+    # For column drops, field_name is required
+    if target_type == "column" and not field_name:
         return False
 
     # Walk back through migration history via dependencies
@@ -186,8 +196,8 @@ def check_drop_table_properly_staged(table_name: str, migration: Any, loader: An
         if not parent_migration:
             continue
 
-        # Check if this migration removed the model from state
-        if _migration_removed_model_from_state(parent_migration, model_name):
+        # Check if this migration removed the target from state
+        if _migration_removed_from_state(parent_migration, target_type, model_name, field_name):
             return True
 
         # Continue walking back through dependencies
@@ -197,33 +207,56 @@ def check_drop_table_properly_staged(table_name: str, migration: Any, loader: An
     return False
 
 
-def _extract_model_name_from_table(table_name: str) -> Optional[str]:
+def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = None) -> Optional[str]:
     """
     Extract Django model name from table name.
 
     Examples:
         posthog_namedquery -> NamedQuery
         posthog_old_model -> OldModel
+        llm_analytics_evaluation (app=llm_analytics) -> Evaluation
         my_app_some_table -> SomeTable
+
+    Args:
+        table_name: Database table name (e.g., "posthog_namedquery", "llm_analytics_evaluation")
+        app_label: Optional app label to strip (e.g., "llm_analytics"). If not provided, assumes single-word app.
     """
-    # Remove common prefixes (app_label)
     parts = table_name.split("_")
     if len(parts) < 2:
         return None
 
-    # Skip first part (assumed to be app label like 'posthog')
+    # If app_label provided, strip it from the table name
+    if app_label:
+        # app_label might be multi-word (e.g., "llm_analytics")
+        app_parts = app_label.split("_") if "_" in app_label else [app_label]
+        # Check if table starts with app parts
+        if parts[: len(app_parts)] == app_parts:
+            model_parts = parts[len(app_parts) :]
+        else:
+            # Fallback: assume single-word app
+            model_parts = parts[1:]
+    else:
+        # Skip first part (assumed to be app label like 'posthog')
+        model_parts = parts[1:]
+
+    if not model_parts:
+        return None
+
     # Join remaining parts and convert to PascalCase
-    model_parts = parts[1:]
     model_name = "".join(word.capitalize() for word in model_parts)
 
     return model_name
 
 
-def _migration_removed_model_from_state(migration: Any, model_name: str) -> bool:
+def _migration_removed_from_state(
+    migration: Any, target_type: str, model_name: str, field_name: Optional[str] = None
+) -> bool:
     """
-    Check if a migration removed a specific model from Django state.
+    Check if a migration removed a model or field from Django state.
 
-    Looks for SeparateDatabaseAndState operations with DeleteModel in state_operations.
+    Looks for SeparateDatabaseAndState operations with:
+    - DeleteModel (for target_type="table")
+    - RemoveField (for target_type="column")
     """
     if not hasattr(migration, "operations"):
         return False
@@ -237,12 +270,30 @@ def _migration_removed_model_from_state(migration: Any, model_name: str) -> bool
             continue
 
         for state_op in op.state_operations:
-            if state_op.__class__.__name__ != "DeleteModel":
-                continue
+            if target_type == "table":
+                # Check for DeleteModel
+                if state_op.__class__.__name__ != "DeleteModel":
+                    continue
 
-            # Check if the model name matches (case-insensitive)
-            deleted_model_name = getattr(state_op, "name", "")
-            if deleted_model_name.lower() == model_name.lower():
-                return True
+                # Check if the model name matches (case-insensitive)
+                deleted_model_name = getattr(state_op, "name", "")
+                if deleted_model_name.lower() == model_name.lower():
+                    return True
+
+            elif target_type == "column":
+                # Check for RemoveField
+                if state_op.__class__.__name__ != "RemoveField":
+                    continue
+
+                # Check if both model and field match (case-insensitive)
+                removed_model_name = getattr(state_op, "model_name", "")
+                removed_field_name = getattr(state_op, "name", "")
+
+                if (
+                    removed_model_name.lower() == model_name.lower()
+                    and field_name
+                    and removed_field_name.lower() == field_name.lower()
+                ):
+                    return True
 
     return False

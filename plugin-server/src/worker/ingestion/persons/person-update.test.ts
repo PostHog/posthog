@@ -15,17 +15,11 @@ jest.mock('./metrics', () => ({
             inc: jest.fn(),
         }),
     },
-    personPropertyKeyUpdateCounter: {
-        labels: jest.fn().mockReturnValue({
-            inc: jest.fn(),
-        }),
-    },
 }))
 
 const mockPersonProfileUpdateOutcomeCounter = personProfileUpdateOutcomeCounter as jest.Mocked<
     typeof personProfileUpdateOutcomeCounter
 >
-
 const mockPersonProfileIgnoredPropertiesCounter = personProfileIgnoredPropertiesCounter as jest.Mocked<
     typeof personProfileIgnoredPropertiesCounter
 >
@@ -34,10 +28,9 @@ describe('person-update', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
-
     describe('computeEventPropertyUpdates', () => {
-        describe('outcome: changed', () => {
-            it('should track "changed" when custom properties are updated', () => {
+        describe('property changes', () => {
+            it('should compute updates when custom properties are updated', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -56,7 +49,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should track "changed" when properties are unset', () => {
+            it('should compute updates when properties are unset', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -73,7 +66,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should track "changed" when setting a new property', () => {
+            it('should compute updates when setting a new property', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -90,7 +83,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should track "changed" when $set_once sets a property that does not exist', () => {
+            it('should compute updates when $set_once sets a property that does not exist', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -107,7 +100,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should track "changed" when a new eventToPersonProperty is set (not just updated)', () => {
+            it('should compute updates when a new eventToPersonProperty is set (not just updated)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -125,9 +118,9 @@ describe('person-update', () => {
             })
         })
 
-        describe('outcome: ignored', () => {
+        describe('eventToPersonProperties accepted at event level', () => {
             it.each(Array.from(eventToPersonProperties))(
-                'should track "ignored" when only "%s" is updated on non-person events',
+                'should accept "%s" updates at event level (filtering happens at batch level)',
                 (propertyName) => {
                     const event: PluginEvent = {
                         event: 'pageview',
@@ -140,8 +133,10 @@ describe('person-update', () => {
 
                     const result = computeEventPropertyUpdates(event, personProperties)
 
-                    expect(result.hasChanges).toBe(false)
+                    expect(result.hasChanges).toBe(true)
                     expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
+                    // At event level, this property would be marked as ignored (outcome: 'ignored')
+                    // but it's still included in toSet for batch-level filtering
                     expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                     expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalled()
                     expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -153,7 +148,7 @@ describe('person-update', () => {
                 }
             )
 
-            it('should track "ignored" when only $geoip_* properties are updated', () => {
+            it('should accept $geoip_* property updates at event level (filtering happens at batch level)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -165,15 +160,16 @@ describe('person-update', () => {
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
-                expect(result.hasChanges).toBe(false)
+                expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
+                // At event level, geoip properties would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
                     property: '$geoip_city_name',
                 })
             })
 
-            it('should track "ignored" when mixing eventToPersonProperties with unchanged custom properties', () => {
+            it('should accept eventToPersonProperties even when mixed with unchanged custom properties', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -185,13 +181,16 @@ describe('person-update', () => {
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
-                expect(result.hasChanges).toBe(false)
+                expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                // At event level, $browser would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: '$browser',
+                })
             })
 
-            it('should track all ignored properties when multiple eventToPersonProperties are updated', () => {
+            it('should accept multiple eventToPersonProperties at event level', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -213,7 +212,8 @@ describe('person-update', () => {
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
-                expect(result.hasChanges).toBe(false)
+                expect(result.hasChanges).toBe(true)
+                // At event level, all these properties would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -226,8 +226,8 @@ describe('person-update', () => {
             })
         })
 
-        describe('outcome: no_change', () => {
-            it('should track "no_change" when no properties are provided', () => {
+        describe('no changes', () => {
+            it('should return no changes when no properties are provided', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {},
@@ -244,7 +244,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should track "no_change" when all properties have the same value', () => {
+            it('should return no changes when all properties have the same value', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -261,7 +261,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
-            it('should track "no_change" when $set_once property already exists', () => {
+            it('should return no changes when $set_once property already exists', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -278,7 +278,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
-            it('should track "no_change" when trying to unset non-existent property', () => {
+            it('should return no changes when trying to unset non-existent property', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -297,7 +297,7 @@ describe('person-update', () => {
         })
 
         describe('person events behavior', () => {
-            it('should track "changed" for eventToPersonProperties on $identify events', () => {
+            it('should compute updates for eventToPersonProperties on $identify events', () => {
                 const event: PluginEvent = {
                     event: '$identify',
                     properties: {
@@ -314,7 +314,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should track "changed" for eventToPersonProperties on $set events', () => {
+            it('should compute updates for eventToPersonProperties on $set events', () => {
                 const event: PluginEvent = {
                     event: '$set',
                     properties: {
@@ -332,7 +332,7 @@ describe('person-update', () => {
         })
 
         describe('NO_PERSON_UPDATE_EVENTS behavior', () => {
-            it('should track "unsupported" for $exception events regardless of properties', () => {
+            it('should skip updates for $exception events regardless of properties', () => {
                 const event: PluginEvent = {
                     event: '$exception',
                     properties: {
@@ -349,7 +349,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
 
-            it('should track "unsupported" for $$heatmap events regardless of properties', () => {
+            it('should skip updates for $$heatmap events regardless of properties', () => {
                 const event: PluginEvent = {
                     event: '$$heatmap',
                     properties: {
@@ -367,7 +367,7 @@ describe('person-update', () => {
         })
 
         describe('mixed scenarios', () => {
-            it('should track "changed" when both custom and eventToPersonProperties change, but custom properties drive the change', () => {
+            it('should compute updates when both custom and eventToPersonProperties change', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {

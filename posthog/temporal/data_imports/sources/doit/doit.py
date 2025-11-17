@@ -11,7 +11,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -126,4 +127,4 @@ def doit_source(
 
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
-    return SourceResponse(name=report_name, items=get_rows(report_id), primary_keys=["id"])
+    return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])

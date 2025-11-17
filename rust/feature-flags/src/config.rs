@@ -165,15 +165,47 @@ pub struct Config {
     // Database connection pool settings:
     // - High traffic: Increase max_pg_connections (e.g., 20-50)
     // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
-    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    // - Set min_connections > 0 to pre-warm pools at startup and avoid cold-start latency
+    // - Total connections depend on configuration:
+    //   - With persons DB routing: 4 pools × max_pg_connections
+    //   - Without persons DB routing: 2 pools × max_pg_connections (persons pools alias to non-persons)
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
+
+    // Minimum connections to maintain in each pool
+    // Set > 0 to pre-warm connections at startup for faster first requests
+    // Production recommendation: Set to 2-5 to avoid cold start on deploy
+    #[envconfig(default = "0")]
+    pub min_non_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_non_persons_writer_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_writer_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
     #[envconfig(default = "")]
     pub redis_reader_url: String,
+
+    // Dedicated Redis for feature flags (critical path: team cache + flags cache)
+    // When empty, falls back to shared Redis URLs above
+    #[envconfig(default = "")]
+    pub flags_redis_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_reader_url: String,
+
+    // Controls whether to read from dedicated Redis cache
+    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
+    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    #[envconfig(default = "false")]
+    pub flags_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -184,9 +216,6 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
-
-    #[envconfig(default = "")]
-    pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
@@ -200,19 +229,6 @@ pub struct Config {
     // - Decrease to free resources more aggressively (e.g., 60-120)
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
-
-    // Force refresh connections after this many seconds regardless of activity
-    // - Set to 0 to disable (connections never refresh automatically)
-    // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
-    // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
-    #[envconfig(default = "1800")]
-    pub max_lifetime_secs: u64,
-
-    // Additional maximum jitter to max_lifetime to avoid thundering herd.
-    // - Adds random amount of seconds [0, max_lifetime_jitter_secs) to max_lifetime_secs
-    // - Set to 0 to disable (uses fixed max_lifetime).
-    #[envconfig(default = "1800")]
-    pub max_lifetime_jitter_secs: u64,
 
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
@@ -289,6 +305,42 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    /// Redis TTL for team cache entries in seconds
+    ///
+    /// Controls how long team data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures stale data is refreshed.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: TEAM_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 3600 (1 hour) - For frequently changing team data
+    /// - 86400 (1 day) - For moderate refresh rate
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
+    pub team_cache_ttl_seconds: u64,
+
+    /// Redis TTL for feature flags cache entries in seconds
+    ///
+    /// Controls how long feature flag data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures flag changes are visible
+    /// within a reasonable time.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 300 (5 minutes) - For rapid flag development/testing
+    /// - 3600 (1 hour) - For frequently changing flags
+    /// - 86400 (1 day) - For stable flag deployments
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
+    pub flags_cache_ttl_seconds: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -296,10 +348,10 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
     pub cookieless_force_stateless: bool,
 
-    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "7200")]
+    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
-    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
+    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "345600")]
     pub cookieless_salt_ttl_seconds: u64,
 
     #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
@@ -383,6 +435,28 @@ pub struct Config {
     // Set higher than token bucket rate to account for multiple users behind same IP
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
+
+    // Log-only mode for rate limiting (defaults to true for safe rollout)
+    // When true, rate limits are checked and violations logged, but requests are not blocked
+    // This allows gathering metrics to tune limits before enforcing them
+    #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_rate_limit_log_only: FlexBool,
+
+    // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Redis compression configuration
+    // When enabled, uses zstd compression for Redis values above threshold
+    // The `default_test_config()` sets this to true for test/development scenarios.
+    #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
+    pub redis_compression_enabled: FlexBool,
+
+    // Number of times to retry creating a Redis client before giving up
+    // Helps handle transient network issues during startup
+    // Set to 0 to disable retries (fail immediately on first error)
+    #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
+    pub redis_client_retry_count: u32,
 }
 
 impl Config {
@@ -391,7 +465,9 @@ impl Config {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
-            redis_writer_url: "".to_string(),
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            flags_redis_enabled: FlexBool(false),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -401,10 +477,12 @@ impl Config {
                 .to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
+            min_non_persons_reader_connections: 0,
+            min_non_persons_writer_connections: 0,
+            min_persons_reader_connections: 0,
+            min_persons_writer_connections: 0,
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
-            max_lifetime_secs: 1800,
-            max_lifetime_jitter_secs: 1800,
             test_before_acquire: FlexBool(true),
             non_persons_reader_statement_timeout_ms: 5000,
             persons_reader_statement_timeout_ms: 5000,
@@ -419,10 +497,12 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            team_cache_ttl_seconds: 432000,
+            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
-            cookieless_identifies_ttl_seconds: 7200,
-            cookieless_salt_ttl_seconds: 86400,
+            cookieless_identifies_ttl_seconds: 345600,
+            cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
             cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
@@ -447,6 +527,10 @@ impl Config {
             flags_ip_rate_limit_enabled: FlexBool(false),
             flags_ip_burst_size: 500,
             flags_ip_replenish_rate: 100.0,
+            flags_rate_limit_log_only: FlexBool(true),
+            flags_ip_rate_limit_log_only: FlexBool(true),
+            redis_compression_enabled: FlexBool(true),
+            redis_client_retry_count: 3,
         }
     }
 
@@ -473,10 +557,28 @@ impl Config {
     }
 
     pub fn get_redis_writer_url(&self) -> &str {
-        if self.redis_writer_url.is_empty() {
-            &self.redis_url
+        &self.redis_url
+    }
+
+    /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_reader_url(&self) -> Option<&str> {
+        if !self.flags_redis_reader_url.is_empty() {
+            Some(&self.flags_redis_reader_url)
+        } else if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
         } else {
-            &self.redis_writer_url
+            None
+        }
+    }
+
+    /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_writer_url(&self) -> Option<&str> {
+        if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
+        } else {
+            None
         }
     }
 
@@ -552,6 +654,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -581,6 +687,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -607,6 +717,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(

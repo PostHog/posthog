@@ -65,6 +65,51 @@ class TestTaxonomyAgentNode(BaseTest):
 
     @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
+    def test_loop_preserves_previous_results_and_appends_new_calls(self, mock_format_events, mock_merge):
+        mock_format_events.return_value = "formatted events"
+        mock_merge.return_value = Mock()
+
+        mock_chain = Mock()
+        mock_output = Mock()
+        mock_output.tool_calls = [{"name": "new_tool", "args": {"param": "value"}, "id": "new_id"}]
+        mock_output.content = "test content"
+        mock_output.id = "message_id"
+        mock_chain.invoke.return_value = mock_output
+
+        with (
+            patch.object(self.node, "_construct_messages") as mock_construct,
+            patch.object(self.node, "_get_model") as mock_get_model,
+        ):
+            mock_template = Mock()
+            mock_construct.return_value = mock_template
+            mock_model = Mock()
+            mock_get_model.return_value = mock_model
+
+            mock_template.__or__ = Mock(return_value=Mock())
+            mock_template.__or__.return_value.__or__ = Mock(return_value=mock_chain)
+
+            state = TaxonomyAgentState()
+            state.intermediate_steps = [(AgentAction(tool="old_tool", tool_input={}, log="old_id"), "old_result")]
+
+            config = RunnableConfig()
+            result = self.node.run(state, config)
+
+            self.assertIsInstance(result, TaxonomyAgentState)
+            self.assertIsNotNone(result.intermediate_steps)
+            self.assertEqual(len(result.intermediate_steps), 2)
+
+            # Old step is preserved with its result
+            old_action, old_obs = result.intermediate_steps[0]
+            self.assertEqual(old_action.log, "old_id")
+            self.assertEqual(old_obs, "old_result")
+
+            # New step is appended with None observation (pending)
+            new_action, new_obs = result.intermediate_steps[1]
+            self.assertEqual(new_action.log, "new_id")
+            self.assertIsNone(new_obs)
+
+    @patch("ee.hogai.graph.taxonomy.nodes.merge_message_runs")
+    @patch("ee.hogai.graph.taxonomy.nodes.format_events_yaml")
     def test_run_basic_flow(self, mock_format_events, mock_merge):
         mock_format_events.return_value = "formatted events"
         mock_merge.return_value = Mock()
@@ -175,6 +220,8 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = await self.node.arun(state, RunnableConfig())
 
         self.assertIsInstance(result, TaxonomyAgentState)
+        self.assertIsNotNone(result.intermediate_steps)
+        assert result.intermediate_steps is not None
         self.assertEqual(len(result.intermediate_steps), 1)
         self.assertEqual(result.intermediate_steps[0][1], "tool output")
         self.assertEqual(result.intermediate_steps[0][0].log, "test_tool_id")
@@ -273,7 +320,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         ]
     )
     def test_router(self, scenario, expected):
-        state = TaxonomyAgentState()
+        state: TaxonomyAgentState = TaxonomyAgentState()
         if scenario == "has_output":
             state.output = {"result": "test"}  # Has output
         elif scenario == "final_answer":
@@ -301,8 +348,35 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
             result = self.node._get_reset_state("test output", "test_tool", original_state)
 
+            self.assertIsNotNone(result.intermediate_steps)
+            assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
-            action, output = result.intermediate_steps[0]  # type: ignore
+            action, output = result.intermediate_steps[0]
             self.assertEqual(action.tool, "test_tool")
             self.assertEqual(action.tool_input, "test output")
             self.assertIsNone(output)
+
+    @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
+    @patch.object(MockTaxonomyAgentToolkit, "retrieve_event_or_action_properties_parallel")
+    async def test_duplicate_event_properties_ids_are_all_mapped(self, mock_retrieve_props, mock_get_tool_input):
+        mock_input = Mock()
+        mock_input.name = "retrieve_event_properties"
+        mock_input.arguments = Mock()
+        mock_input.arguments.event_name = "$ai_generation"
+        mock_get_tool_input.return_value = mock_input
+
+        mock_retrieve_props.return_value = {"$ai_generation": "event properties for $ai_generation"}
+
+        action1 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id1")
+        action2 = AgentAction(tool="retrieve_event_properties", tool_input={"event_name": "$ai_generation"}, log="id2")
+        state: TaxonomyAgentState = TaxonomyAgentState(intermediate_steps=[(action1, None), (action2, None)])
+
+        # Must not raise KeyError
+        result = await self.node.arun(state, RunnableConfig())
+
+        # Verify both actions got results
+        self.assertIsNotNone(result.intermediate_steps)
+        assert result.intermediate_steps is not None
+        self.assertEqual(len(result.intermediate_steps), 2)
+        self.assertEqual(result.intermediate_steps[0][0].log, "id1")
+        self.assertEqual(result.intermediate_steps[1][0].log, "id2")

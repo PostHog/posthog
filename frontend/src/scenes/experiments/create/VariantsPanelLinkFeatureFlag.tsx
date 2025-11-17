@@ -14,6 +14,7 @@ import type { FeatureFlagType } from '~/types'
 interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
     setShowFeatureFlagSelector: () => void
+    disabled?: boolean
 }
 
 const getTargetingSummary = (flag: FeatureFlagType): string[] => {
@@ -73,8 +74,16 @@ const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
 export const VariantsPanelLinkFeatureFlag = ({
     linkedFeatureFlag,
     setShowFeatureFlagSelector,
+    disabled = false,
 }: VariantsPanelLinkFeatureFlagProps): JSX.Element => {
     if (!linkedFeatureFlag) {
+        if (disabled) {
+            return (
+                <div className="text-danger text-sm">
+                    You cannot change the feature flag when editing an experiment.
+                </div>
+            )
+        }
         return (
             <div>
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
@@ -114,7 +123,16 @@ export const VariantsPanelLinkFeatureFlag = ({
                             <IconOpenInNew />
                         </Link>
                     </div>
-                    <LemonButton type="secondary" size="small" onClick={setShowFeatureFlagSelector}>
+                    {/* Only show Change button when not read-only */}
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={setShowFeatureFlagSelector}
+                        disabledReason={
+                            disabled ? 'You cannot change the feature flag when editing an experiment.' : undefined
+                        }
+                    >
                         Change
                     </LemonButton>
                 </div>
