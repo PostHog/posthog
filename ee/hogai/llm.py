@@ -113,14 +113,22 @@ class MaxChatMixin(BaseModel):
         self,
         kwargs: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a shallow copy of kwargs with PostHog properties, billable flag, and team_id injected into metadata."""
+        """Return a shallow copy of kwargs with PostHog properties, billable flag, team_id, and region injected into metadata."""
         new_kwargs = dict(kwargs or {})
         metadata = dict(new_kwargs.get("metadata") or {})
 
-        # Build posthog_properties with billable flag and team_id
+        # Determine region
+        region = CLOUD_DEPLOYMENT or "US"
+        if region in ["US", "EU"]:
+            region = region.lower()
+        else:
+            region = "us"
+
+        # Build posthog_properties with billable flag, team_id, and region
         posthog_props = dict(self.posthog_properties or {})
         posthog_props["$ai_billable"] = self.billable
         posthog_props["team_id"] = self.team.id
+        posthog_props["region"] = region
 
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
