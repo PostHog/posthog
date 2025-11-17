@@ -21,7 +21,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
-import { CodeVariablesBanner } from '../../components/Banners/CodeVariablesBanner'
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
@@ -87,7 +86,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 </div>
 
                 <PostHogSDKIssueBanner event={selectedEvent} />
-                <CodeVariablesBanner event={selectedEvent} />
 
                 <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                     <div className="space-y-2 col-span-3">

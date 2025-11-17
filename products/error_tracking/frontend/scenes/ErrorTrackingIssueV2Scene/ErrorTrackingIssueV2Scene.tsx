@@ -27,7 +27,6 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
-import { CodeVariablesBanner } from '../../components/Banners/CodeVariablesBanner'
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
@@ -84,7 +83,6 @@ const RightHandColumn = (): JSX.Element => {
     return (
         <div className="flex flex-1 gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-            <CodeVariablesBanner event={selectedEvent} />
 
             <ExceptionCard
                 issue={issue ?? undefined}
