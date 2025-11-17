@@ -17,6 +17,7 @@ import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.customer_analytics.backend.api import customer_analytics_config
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -802,6 +803,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
+projects_router.register(
+    r"customer_analytics_config",
+    customer_analytics_config.CustomerAnalyticsConfigViewSet,
+    "project_customer_analytics_config",
+    ["team_id"],
+)
 
 projects_router.register(
     r"hog_function_templates",
