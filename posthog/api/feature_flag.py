@@ -1555,7 +1555,11 @@ class FeatureFlagViewSet(
             # A result of a Rust evaluation is a dictionary. Parse it to get the flags data.
             flags_data = result.get("flags", {})
             matches = {
-                flag_key: flag_data.get("enabled", False) or flag_data.get("variant")
+                flag_key: (
+                    flag_data.get("variant")
+                    if flag_data.get("variant") is not None
+                    else flag_data.get("enabled", False)
+                )
                 for flag_key, flag_data in flags_data.items()
             }
         else:
