@@ -1542,7 +1542,10 @@ class FeatureFlagViewSet(
         if not feature_flags:
             return Response([])
 
-        groups = json.loads(request.GET.get("groups", "{}"))
+        try:
+            groups = json.loads(request.GET.get("groups", "{}"))
+        except (json.JSONDecodeError, ValueError):
+            raise exceptions.ValidationError("Invalid JSON in groups parameter")
 
         distinct_id = request.user.distinct_id
         if not distinct_id:
@@ -1758,7 +1761,10 @@ class FeatureFlagViewSet(
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.query_params.get("distinct_id", None)
-        groups = json.loads(request.query_params.get("groups", "{}"))
+        try:
+            groups = json.loads(request.query_params.get("groups", "{}"))
+        except (json.JSONDecodeError, ValueError):
+            raise exceptions.ValidationError("Invalid JSON in groups parameter")
 
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
