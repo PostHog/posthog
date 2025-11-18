@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -12,7 +12,7 @@ import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-gener
 import { isDataWarehouseNode } from '~/queries/utils'
 import { BaseMathType, Breadcrumb, ChartDisplayType, FilterType, InsightType } from '~/types'
 
-import { customerAnalyticsConfigModel } from './customerAnalyticsConfigModel'
+import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 import { InsightDefinition } from './insightDefinitions'
 
@@ -24,8 +24,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
     tabAwareScene(),
     connect(() => ({
-        values: [customerAnalyticsConfigModel, ['config', 'configLoading', 'activityEvent']],
-        actions: [customerAnalyticsConfigModel, ['loadConfig', 'updateActivityEvent']],
+        values: [customerAnalyticsConfigLogic, ['customerAnalyticsConfig', 'activityEvent']],
+        actions: [customerAnalyticsConfigLogic, ['updateActivityEvent']],
     })),
     actions({
         setActivityEventSelection: (filters: FilterType | null) => ({
@@ -251,8 +251,4 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadConfig()
-    }),
 ])

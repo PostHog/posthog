@@ -35,6 +35,7 @@ from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
+from posthog.models.team.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -172,6 +173,7 @@ TEAM_CONFIG_FIELDS = (
     "default_data_theme",
     "revenue_analytics_config",
     "marketing_analytics_config",
+    "customer_analytics_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
@@ -258,6 +260,24 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         return instance
 
 
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
+    activity_event = serializers.JSONField(required=False)
+    signup_pageview_event = serializers.JSONField(required=False)
+    signup_event = serializers.JSONField(required=False)
+    subscription_event = serializers.JSONField(required=False)
+    payment_event = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamCustomerAnalyticsConfig
+        fields = [
+            "activity_event",
+            "signup_pageview_event",
+            "signup_event",
+            "subscription_event",
+            "payment_event",
+        ]
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -269,6 +289,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     managed_viewsets = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
+    customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -388,6 +409,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamMarketingAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_customer_analytics_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamCustomerAnalyticsConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -621,6 +652,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("marketing_analytics_config", None):
             self._update_marketing_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("customer_analytics_config", None):
+            self._update_customer_analytics_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -773,6 +807,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_customer_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            "activity_event": instance.customer_analytics_config.activity_event,
+            "signup_pageview_event": instance.customer_analytics_config.signup_pageview_event,
+            "signup_event": instance.customer_analytics_config.signup_event,
+            "subscription_event": instance.customer_analytics_config.subscription_event,
+            "payment_event": instance.customer_analytics_config.payment_event,
+        }
+
+        serializer = TeamCustomerAnalyticsConfigSerializer(
+            instance.customer_analytics_config, data=validated_data, partial=True
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: validated_data.get(field, {}) for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

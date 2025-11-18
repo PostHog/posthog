@@ -33,6 +33,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
@@ -170,6 +171,13 @@ class TestQueryRunner(BaseTest):
                             "subscriptionProperty": "subscription",
                         }
                     ],
+                },
+                "customer_analytics": {
+                    "activity_event": DEFAULT_ACTIVITY_EVENT,
+                    "signup_pageview_event": {},
+                    "signup_event": {},
+                    "subscription_event": {},
+                    "payment_event": {},
                 },
             },
             "limit_context": LimitContext.QUERY,
