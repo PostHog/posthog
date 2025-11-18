@@ -2,8 +2,10 @@ from typing import Optional
 
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.event.sql import SELECT_PROP_VALUES_SQL_WITH_FILTER
-from posthog.models.person.sql import SELECT_PERSON_PROP_VALUES_SQL, SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
@@ -65,18 +67,41 @@ def get_property_values_for_key(
 
 
 def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    property_field, _ = get_property_string_expr("person", key, "%(key)s", "properties")
+    placeholders: dict[str, ast.Expr] = {
+        "team_id": ast.Constant(value=team.pk),
+        "property_key": ast.Constant(value=key),
+    }
 
+    where_conditions = ["person.team_id = {team_id}"]
     if value:
-        return insight_sync_execute(
-            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-            query_type="get_person_property_values_with_value",
-            team_id=team.pk,
+        where_conditions.append("properties[{property_key}] ILIKE {search_value}")
+        placeholders["search_value"] = ast.Constant(value=f"%{value}%")
+    else:
+        where_conditions.append("properties[{property_key}] IS NOT NULL")
+        where_conditions.append("properties[{property_key}] != ''")
+    where_clause = " AND ".join(where_conditions)
+
+    hogql_query = f"""
+        SELECT
+            value,
+            count(value)
+        FROM (
+            SELECT properties[{{property_key}}] as value
+            FROM persons as person
+            WHERE {where_clause}
+            ORDER BY person.id DESC
+            LIMIT 100000
         )
-    return insight_sync_execute(
-        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field),
-        {"team_id": team.pk, "key": key},
-        query_type="get_person_property_values",
-        team_id=team.pk,
+        GROUP BY value
+        ORDER BY count(value) DESC
+        LIMIT 20
+    """
+
+    response = execute_hogql_query(
+        hogql_query,
+        team=team,
+        query_type="get_person_property_values_with_value" if value else "get_person_property_values",
+        placeholders=placeholders,
     )
+
+    return response.results or []
