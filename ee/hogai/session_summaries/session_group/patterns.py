@@ -9,8 +9,7 @@ import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import Person
-
+from posthog.models.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from ee.hogai.session_summaries import SummaryValidationError
