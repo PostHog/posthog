@@ -274,6 +274,7 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     session_ids = ArrayField(
         models.CharField(max_length=200),
         help_text="List of session replay IDs included in this group summary",
+        size=1000,  # Limit to 1000 sessions per summary for the future
     )
     # Summary content
     summary = models.JSONField(
