@@ -9,7 +9,7 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
-import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -142,7 +142,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <AppShortcutDeux
+                        <AppShortcut
                             name="NewTab"
                             keybind={keyBinds.newTab}
                             intent="New tab"
@@ -167,7 +167,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
-                        </AppShortcutDeux>
+                        </AppShortcut>
                     </div>
                 </SortableContext>
             </DndContext>
@@ -267,7 +267,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
-                    <AppShortcutDeux
+                    <AppShortcut
                         name="CloseActiveTab"
                         keybind={keyBinds.closeActiveTab}
                         intent="Close active tab"
@@ -290,7 +290,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
-                    </AppShortcutDeux>
+                    </AppShortcut>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {

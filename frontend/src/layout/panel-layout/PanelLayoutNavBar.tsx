@@ -21,7 +21,7 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
-import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
@@ -404,7 +404,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             <NavPanelAdvertisement />
 
-                            <AppShortcutDeux
+                            <AppShortcut
                                 name="Search"
                                 keybind={['command', 'k']}
                                 intent="Search"
@@ -414,9 +414,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <ButtonPrimitive className="hidden" aria-hidden="true">
                                     placeholder
                                 </ButtonPrimitive>
-                            </AppShortcutDeux>
+                            </AppShortcut>
 
-                            <AppShortcutDeux
+                            <AppShortcut
                                 name="ToggleShortcutMenu"
                                 keybind={['command', 'shift', 'k']}
                                 intent="Toggle shortcut menu"
@@ -434,7 +434,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
                                     {!isLayoutNavCollapsed && <>Shortcut menu</>}
                                 </ButtonPrimitive>
-                            </AppShortcutDeux>
+                            </AppShortcut>
 
                             <ButtonPrimitive
                                 iconOnly={isLayoutNavCollapsed}
@@ -478,7 +478,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 user?.is_impersonated ||
                                 preflight?.is_debug ||
                                 preflight?.instance_preferences?.debug_queries) && (
-                                <AppShortcutDeux
+                                <AppShortcut
                                     name="DebugClickhouseQueries"
                                     keybind={['command', 'option', 'tab']}
                                     intent="Debug clickhouse queries"
@@ -498,7 +498,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <IconDatabase />
                                         {!isLayoutNavCollapsed && 'Debug CH queries'}
                                     </ButtonPrimitive>
-                                </AppShortcutDeux>
+                                </AppShortcut>
                             )}
                             <Link
                                 buttonProps={{

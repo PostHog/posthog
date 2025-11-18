@@ -6,7 +6,6 @@ import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, Icon
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -251,7 +250,7 @@ export function DashboardHeader(): JSX.Element | null {
                         </ButtonPrimitive>
                     )}
                     {dashboard && canEditDashboard && (
-                        <AppShortcutDeux
+                        <AppShortcut
                             name="ToggleEditMode"
                             scope={Scene.Dashboard}
                             keybind={keyBinds.edit}
@@ -276,7 +275,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 <IconGridMasonry />
                                 Edit layout {useAppShortcuts ? null : <KeyboardShortcut e />}
                             </ButtonPrimitive>
-                        </AppShortcutDeux>
+                        </AppShortcut>
                     )}
 
                     {dashboard && canEditDashboard && (
@@ -489,7 +488,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             minAccessLevel={AccessControlLevel.Editor}
                                             userAccessLevel={dashboard.user_access_level}
                                         >
-                                            <AppShortcutDeux
+                                            <AppShortcut
                                                 name="AddTextTileToDashboard"
                                                 scope={Scene.Dashboard}
                                                 keybind={keyBinds.dashboardAddTextTile}
@@ -509,7 +508,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 >
                                                     Add text card
                                                 </LemonButton>
-                                            </AppShortcutDeux>
+                                            </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
                                             identifier="edit_current_dashboard"

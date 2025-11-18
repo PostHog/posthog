@@ -14,10 +14,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
-import { AppShortcutDeuxType, appShortcutDeuxLogic } from './appShortcutDeuxLogic'
+import { AppShortcutType } from './appShortcutLogic'
 import { appShortcutLogic } from './appShortcutLogic'
 
-function getShortcutIcon(shortcut: AppShortcutDeuxType): JSX.Element | null {
+function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
     switch (shortcut.interaction) {
         case 'focus':
             return (
@@ -38,13 +38,13 @@ function getShortcutIcon(shortcut: AppShortcutDeuxType): JSX.Element | null {
 export function AppShortcutMenu(): JSX.Element | null {
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
-    const { registeredAppShortcuts } = useValues(appShortcutDeuxLogic)
+    const { registeredAppShortcuts } = useValues(appShortcutLogic)
     const { activeTab } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by scope, with scene-specific first and global last
     const groupedShortcuts = React.useMemo(() => {
-        const groups: Record<string, AppShortcutDeuxType[]> = {}
+        const groups: Record<string, AppShortcutType[]> = {}
         const currentScene = activeTab?.sceneId
 
         registeredAppShortcuts.forEach((shortcut) => {
@@ -82,7 +82,7 @@ export function AppShortcutMenu(): JSX.Element | null {
     }, [setAppShortcutMenuOpen])
 
     const handleItemClick = useCallback(
-        (shortcut: AppShortcutDeuxType) => {
+        (shortcut: AppShortcutType) => {
             if (shortcut.interaction === 'click') {
                 shortcut.ref.current?.click()
             } else if (shortcut.interaction === 'focus') {

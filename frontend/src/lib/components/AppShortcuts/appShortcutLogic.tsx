@@ -1,68 +1,39 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-
-import type { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { AppShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isMac } from 'lib/utils'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
-import { openCHQueriesDebugModal } from './utils/DebugCHQueries'
+
+export interface AppShortcutType {
+    // The ref to the element to focus on
+    ref: React.RefObject<HTMLElement>
+    // The name of the shortcut used for reference
+    name: string
+    // The keybind to use for the shortcut
+    keybind: string[]
+    // Describe what the shortcut does
+    intent: string
+    // The type of interaction to trigger
+    interaction: 'click' | 'focus'
+    // The scope of the shortcut - 'global' or a specific scene key
+    scope?: string
+}
 
 export const appShortcutLogic = kea<appShortcutLogicType>([
     path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
-    connect(() => ({
-        values: [sceneLogic, ['activeTab', 'activeTabId'], featureFlagLogic, ['featureFlags']],
-        actions: [sceneLogic, ['newTab', 'removeTab']],
-    })),
-
     actions({
-        triggerCloseCurrentTab: true,
-        toggleSearchBar: true,
-        registerAppShortcut: (tabId: string, shortcut: AppShortcut) => ({ tabId, shortcut }),
-        unregisterAppShortcut: (tabId: string, shortcutId: string) => ({ tabId, shortcutId }),
-        setOptionKeyHeld: (held: boolean) => ({ held }),
-        setCommandKeyHeld: (held: boolean) => ({ held }),
+        registerAppShortcut: (appShortcut: AppShortcutType) => ({ appShortcut }),
+        unregisterAppShortcut: (name: string) => ({ name }),
         setAppShortcutMenuOpen: (open: boolean) => ({ open }),
     }),
-
     reducers({
-        appShortcuts: [
-            {} as Record<string, Record<string, AppShortcut>>,
+        registeredAppShortcuts: [
+            [] as AppShortcutType[],
             {
-                registerAppShortcut: (state, { tabId, shortcut }) => ({
-                    ...state,
-                    [tabId]: {
-                        ...state[tabId],
-                        [shortcut.id]: shortcut,
-                    },
-                }),
-                unregisterAppShortcut: (state, { tabId, shortcutId }) => {
-                    const tabShortcuts = { ...state[tabId] }
-                    delete tabShortcuts[shortcutId]
-                    return {
-                        ...state,
-                        [tabId]: tabShortcuts,
-                    }
+                registerAppShortcut: (state, { appShortcut }) => {
+                    // Remove any existing shortcut with the same name, then add the new one
+                    const filtered = state.filter((shortcut) => shortcut.name !== appShortcut.name)
+                    return [...filtered, appShortcut]
                 },
-            },
-        ],
-        optionKeyHeld: [
-            false,
-            {
-                setOptionKeyHeld: (_, { held }) => held,
-            },
-        ],
-        commandKeyHeld: [
-            false,
-            {
-                setCommandKeyHeld: (_, { held }) => held,
+                unregisterAppShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
             },
         ],
         appShortcutMenuOpen: [
@@ -72,181 +43,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             },
         ],
     }),
+    afterMount(({ values, cache }) => {
+        // register keyboard shortcuts
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            const commandKey = event.metaKey || event.ctrlKey
 
-    selectors(() => ({
-        shortcuts: [
-            (s) => [s.appShortcutMenuOpen, s.featureFlags],
-            (appShortcutMenuOpen, featureFlags): AppShortcuts => {
-                // Reserved shortcuts, please don't use them
-                // command+option+j = browser open dev tools
-                return {
-                    app: {
-                        search: {
-                            keys: ['command', 'k'],
-                            description: 'Search',
-                            onAction: () => {
-                                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
-                                    const activeTabId = sceneLogic.values.activeTabId
-
-                                    // Try to find mounted logic instances
-                                    const allMounted = newTabSceneLogic.findAllMounted()
-                                    const mountedLogic = activeTabId
-                                        ? newTabSceneLogic.findMounted({ tabId: activeTabId })
-                                        : null
-                                    if (mountedLogic) {
-                                        mountedLogic.actions.focusNewTabSearchInput()
-                                    } else if (allMounted.length > 0) {
-                                        // Use the first available mounted logic
-                                        allMounted[0].actions.focusNewTabSearchInput()
-                                    }
-                                    return
-                                }
-                                router.actions.push(urls.newTab())
-                            },
-                        },
-                        toggleShortcutMenu: {
-                            keys: ['command', 'shift', 'k'],
-                            description: appShortcutMenuOpen ? 'Close shortcut menu' : 'Open shortcut menu',
-                            onAction: () => {
-                                if (featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]) {
-                                    appShortcutLogic.actions.setAppShortcutMenuOpen(!appShortcutMenuOpen)
-                                }
-                            },
-                            order: 999,
-                        },
-                        newTab: {
-                            keys: ['command', 'option', 't'],
-                            description: 'New tab',
-                            onAction: () => {
-                                const mountedLogic = sceneLogic.findMounted()
-                                if (mountedLogic) {
-                                    mountedLogic.actions.newTab()
-                                }
-                            },
-                            order: -2,
-                        },
-                        closeCurrentTab: {
-                            keys: ['command', 'option', 'w'],
-                            description: 'Close current tab',
-                            onAction: () => {
-                                const mountedLogic = sceneLogic.findMounted()
-                                const activeTab = sceneLogic.values.activeTab
-                                if (mountedLogic && activeTab) {
-                                    mountedLogic.actions.removeTab(activeTab)
-                                }
-                            },
-                            order: -1,
-                        },
-                        debugClickhouseQueries: {
-                            keys: ['command', 'option', 'tab'],
-                            description: 'Debug ClickHouse queries',
-                            onAction: () => {
-                                openCHQueriesDebugModal()
-                            },
-                            type: 'action',
-                        },
-                    },
-                    [Scene.Dashboards]: {
-                        newDashboard: {
-                            keys: ['command', 'option', 'n'],
-                            description: 'New dashboard',
-                            sceneKey: Scene.Dashboards,
-                        },
-                    },
-                    [Scene.Dashboard]: {
-                        addTextTile: {
-                            keys: ['command', 'option', 'a'],
-                            description: 'Add text tile to dashboard',
-                            sceneKey: Scene.Dashboard,
-                        },
-                        addInsightToDashboard: {
-                            keys: ['command', 'option', 'n'],
-                            description: 'Add insight to dashboard',
-                            sceneKey: Scene.Dashboard,
-                        },
-                        toggleEditMode: {
-                            keys: ['command', 'option', 'e'],
-                            description: 'Toggle dashboard edit mode',
-                            sceneKey: Scene.Dashboard,
-                        },
-                    },
-                }
-            },
-        ],
-
-        activeAppShortcuts: [
-            (s) => [s.appShortcuts, (state, props) => sceneLogic.selectors.activeTabId(state, props)],
-            (appShortcuts: Record<string, Record<string, AppShortcut>>, activeTabId: string | null): AppShortcut[] => {
-                if (!activeTabId || !appShortcuts[activeTabId]) {
-                    return []
-                }
-                return Object.values(appShortcuts[activeTabId]).filter((shortcut) => shortcut.enabled)
-            },
-        ],
-
-        appShortcutsByScene: [
-            (s) => [s.appShortcuts, (state, props) => sceneLogic.selectors.activeTabId(state, props)],
-            (appShortcuts: Record<string, Record<string, AppShortcut>>, activeTabId: string | null) =>
-                (sceneKey?: string): AppShortcut[] => {
-                    if (!activeTabId || !appShortcuts[activeTabId]) {
-                        return []
-                    }
-                    const allShortcuts = Object.values(appShortcuts[activeTabId])
-                    return sceneKey ? allShortcuts.filter((shortcut) => shortcut.sceneKey === sceneKey) : allShortcuts
-                },
-        ],
-
-        appShortcutConflicts: [
-            (s) => [s.activeAppShortcuts],
-            (shortcuts: AppShortcut[]): string[] => {
-                const conflicts: string[] = []
-                const keyMap = new Map<string, AppShortcut[]>()
-
-                shortcuts.forEach((shortcut) => {
-                    const keyString = shortcut.keys.join('+')
-                    if (!keyMap.has(keyString)) {
-                        keyMap.set(keyString, [])
-                    }
-                    keyMap.get(keyString)!.push(shortcut)
-                })
-
-                keyMap.forEach((shortcutsForKey, keyString) => {
-                    if (shortcutsForKey.length > 1) {
-                        conflicts.push(
-                            `Shortcut conflict: ${keyString} is used by ${shortcutsForKey.map((s) => s.description).join(', ')}`
-                        )
-                    }
-                })
-
-                return conflicts
-            },
-        ],
-    })),
-
-    afterMount(({ actions, cache, values }) => {
-        cache.disposables.add(() => {
-            const onKeyDown = (event: KeyboardEvent): void => {
-                const commandKey = isMac() ? event.metaKey : event.ctrlKey
-
-                // Track option key state (but don't interfere with shortcuts)
-                if (event.altKey && !values.optionKeyHeld) {
-                    actions.setOptionKeyHeld(true)
-                }
-
-                if (commandKey) {
-                    if (!values.commandKeyHeld) {
-                        actions.setCommandKeyHeld(true)
-                    }
-                }
-
-                // Handle shortcuts - combine app shortcuts with scene shortcuts
-                const appShortcuts = Object.values(values.shortcuts.app).filter((shortcut) => shortcut.onAction)
-                const activeShortcuts = [...appShortcuts, ...values.activeAppShortcuts]
-
-                if (activeShortcuts.length === 0) {
-                    return
-                }
-
+            if (commandKey) {
                 // Build current key combination in the same order as shortcuts are defined
                 const pressedKeys: string[] = []
                 if (commandKey) {
@@ -269,61 +71,42 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     const codeMatch = event.code.match(/^Key([A-Z])$/)
                     if (codeMatch) {
                         keyToAdd = codeMatch[1].toLowerCase()
-                    } else if (event.code === 'Escape') {
-                        keyToAdd = 'escape'
+                    } else if (event.code === 'Tab') {
+                        keyToAdd = 'tab'
                     }
                     // For other keys, keep using event.key.toLowerCase()
                 }
 
                 pressedKeys.push(keyToAdd)
-
                 const pressedKeyString = pressedKeys.join('+')
 
                 // Find matching shortcut
-                const matchingShortcut = activeShortcuts.find((shortcut) => {
-                    const shortcutKeyString = shortcut.keys.map((k) => k.toLowerCase()).join('+')
+                const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
+                    const shortcutKeyString = shortcut.keybind.map((k: string) => k.toLowerCase()).join('+')
                     return shortcutKeyString === pressedKeyString
                 })
 
                 if (matchingShortcut) {
                     event.preventDefault()
                     event.stopPropagation()
-                    // Call action or onAction depending on shortcut type
-                    if ('action' in matchingShortcut && matchingShortcut.action) {
-                        matchingShortcut.action()
-                    } else if ('onAction' in matchingShortcut && matchingShortcut.onAction) {
-                        matchingShortcut.onAction()
+
+                    if (matchingShortcut.interaction === 'click') {
+                        matchingShortcut.ref.current?.click()
+                    } else if (matchingShortcut.interaction === 'focus') {
+                        matchingShortcut.ref.current?.focus()
                     }
                 }
             }
+        }
 
-            const onKeyUp = (event: KeyboardEvent): void => {
-                const commandKey = isMac() ? event.metaKey : event.ctrlKey
-
-                // Track option key release
-                if (!event.altKey && values.optionKeyHeld) {
-                    actions.setOptionKeyHeld(false)
-                }
-
-                if (!commandKey && values.commandKeyHeld) {
-                    actions.setCommandKeyHeld(false)
-                }
-            }
-
-            window.addEventListener('keydown', onKeyDown)
-            window.addEventListener('keyup', onKeyUp)
-            return () => {
-                window.removeEventListener('keydown', onKeyDown)
-                window.removeEventListener('keyup', onKeyUp)
-            }
-        }, 'keydownListener')
+        window.addEventListener('keydown', cache.onKeyDown)
+        window.addEventListener('keyup', cache.onKeyUp)
+        window.addEventListener('blur', cache.onBlur)
+    }),
+    beforeUnmount(({ cache }) => {
+        // unregister app shortcuts
+        window.removeEventListener('keydown', cache.onKeyDown)
+        window.removeEventListener('keyup', cache.onKeyUp)
+        window.removeEventListener('blur', cache.onBlur)
     }),
 ])
-
-type ShortcutDefinition = Omit<AppShortcutProps, 'children'>
-
-export type AppShortcuts = {
-    app: Record<string, ShortcutDefinition>
-} & {
-    [key in Scene]?: Record<string, ShortcutDefinition>
-}
