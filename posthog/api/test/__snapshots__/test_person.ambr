@@ -146,75 +146,141 @@
 # name: TestPerson.test_person_property_values
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), isNotNull(person.properties___random_prop), ifNull(notEquals(person.properties___random_prop, ''), 1))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPerson.test_person_property_values.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), ifNull(ilike(person.properties___random_prop, '%qw%'), 0))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPerson.test_person_property_values_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT "pmat_random_prop" as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" IS NOT NULL
-       AND "pmat_random_prop" != ''
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               nullIf(nullIf(person.pmat_random_prop, ''), 'null') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), isNotNull(person.properties___random_prop), ifNull(notEquals(person.properties___random_prop, ''), 1))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPerson.test_person_property_values_materialized.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT "pmat_random_prop" as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" ILIKE '%qw%'
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               nullIf(nullIf(person.pmat_random_prop, ''), 'null') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), ifNull(ilike(person.properties___random_prop, '%qw%'), 0))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPerson.test_properties
@@ -678,75 +744,141 @@
 # name: TestPersonFromClickhouse.test_person_property_values
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), isNotNull(person.properties___random_prop), ifNull(notEquals(person.properties___random_prop, ''), 1))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPersonFromClickhouse.test_person_property_values.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), ifNull(ilike(person.properties___random_prop, '%qw%'), 0))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPersonFromClickhouse.test_person_property_values_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT "pmat_random_prop" as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" IS NOT NULL
-       AND "pmat_random_prop" != ''
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               nullIf(nullIf(person.pmat_random_prop, ''), 'null') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), isNotNull(person.properties___random_prop), ifNull(notEquals(person.properties___random_prop, ''), 1))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPersonFromClickhouse.test_person_property_values_materialized.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT value,
-         count(value)
+  SELECT value AS value,
+         count(value) AS `count(value)`
   FROM
-    (SELECT "pmat_random_prop" as value
-     FROM person
-     WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" ILIKE '%qw%'
-     ORDER BY id DESC
+    (SELECT person.properties___random_prop AS value
+     FROM
+       (SELECT person.id AS id,
+               nullIf(nullIf(person.pmat_random_prop, ''), 'null') AS properties___random_prop,
+               person.team_id AS team_id
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS person
+     WHERE and(ifNull(equals(person.team_id, 99999), 0), ifNull(ilike(person.properties___random_prop, '%qw%'), 0))
+     ORDER BY person.id DESC
      LIMIT 100000)
   GROUP BY value
   ORDER BY count(value) DESC
-  LIMIT 20
+  LIMIT 20 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPersonFromClickhouse.test_properties
