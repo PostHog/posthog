@@ -1455,6 +1455,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "select": ["*"],
                         },
                     },
+                    "resolved_date_range": ANY,
                     "query_status": None,
                     "result": None,
                     "saved": False,
