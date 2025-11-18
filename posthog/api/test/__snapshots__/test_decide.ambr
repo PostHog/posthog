@@ -1343,6 +1343,42 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.10
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.11
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -1368,7 +1404,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.11
+# name: TestDecide.test_flag_with_behavioural_cohorts.12
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1555,6 +1591,16 @@
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.5
   '''
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_flag_with_behavioural_cohorts.6
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1645,7 +1691,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.6
+# name: TestDecide.test_flag_with_behavioural_cohorts.7
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1667,7 +1713,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.7
+# name: TestDecide.test_flag_with_behavioural_cohorts.8
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1689,7 +1735,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.8
+# name: TestDecide.test_flag_with_behavioural_cohorts.9
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -1704,42 +1750,6 @@
   WHERE ("posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.9
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."last_called_at",
-         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
-                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
-  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts
@@ -1864,6 +1874,42 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.10
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at",
+         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
+                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
+  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  GROUP BY "posthog_featureflag"."id"
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.11
+  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -1889,7 +1935,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.11
+# name: TestDecide.test_flag_with_regular_cohorts.12
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
@@ -1901,7 +1947,7 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.12
+# name: TestDecide.test_flag_with_regular_cohorts.13
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1928,7 +1974,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.13
+# name: TestDecide.test_flag_with_regular_cohorts.14
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
@@ -2100,6 +2146,16 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.5
   '''
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_flag_with_regular_cohorts.6
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2190,7 +2246,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.6
+# name: TestDecide.test_flag_with_regular_cohorts.7
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -2212,7 +2268,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.7
+# name: TestDecide.test_flag_with_regular_cohorts.8
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -2234,7 +2290,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.8
+# name: TestDecide.test_flag_with_regular_cohorts.9
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -2249,42 +2305,6 @@
   WHERE ("posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.9
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."last_called_at",
-         ARRAY_AGG(DISTINCT "posthog_tag"."name") FILTER (
-                                                          WHERE "posthog_featureflagevaluationtag"."id" IS NOT NULL) AS "evaluation_tag_names_agg"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
-  LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_featureflag"."id"
   '''
 # ---
 # name: TestDecide.test_web_app_queries
@@ -6281,6 +6301,18 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.10
   '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6364,7 +6396,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.12
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -6376,7 +6408,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.12
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.13
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -6385,7 +6417,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.13
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.14
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -6401,7 +6433,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.14
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.15
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -6521,7 +6553,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.15
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.16
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -6619,7 +6651,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.16
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.17
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -6628,7 +6660,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.17
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.18
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -6644,7 +6676,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.18
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.19
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -6762,18 +6794,6 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.19
-  '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.2
@@ -6895,6 +6915,18 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.20
   '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.21
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6985,7 +7017,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.21
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.22
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -6994,7 +7026,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.22
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.23
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7010,7 +7042,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.23
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.24
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7130,7 +7162,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.24
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -7228,7 +7260,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.26
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -7237,7 +7269,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.26
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.27
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7253,7 +7285,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.27
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.28
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7373,7 +7405,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.28
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.29
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -7407,33 +7439,6 @@
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.29
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.3
@@ -7471,6 +7476,33 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.30
   '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.31
+  '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
          "posthog_remoteconfig"."config",
@@ -7481,7 +7513,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.31
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.32
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -7573,7 +7605,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.32
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -7582,7 +7614,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.34
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7598,7 +7630,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.34
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.35
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7718,7 +7750,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.35
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.36
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -7816,7 +7848,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.36
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.37
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -7825,7 +7857,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.37
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.38
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -7841,7 +7873,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.38
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.39
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -7961,7 +7993,15 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.39
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.4
+  '''
+  SELECT "posthog_team"."id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.40
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -7988,15 +8028,17 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.4
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.5
   '''
-  SELECT "posthog_team"."id"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_team"."receive_org_level_activity_logs")
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.5
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.6
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -8088,7 +8130,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.6
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.7
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -8110,7 +8152,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.7
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.8
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -8132,7 +8174,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.8
+# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.9
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -8146,18 +8188,6 @@
   FROM "posthog_integration"
   WHERE ("posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.9
-  '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
@@ -8283,6 +8313,18 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.10
   '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8366,7 +8408,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.12
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -8378,7 +8420,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.12
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.13
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -8387,7 +8429,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.13
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.14
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -8403,7 +8445,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.14
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.15
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -8523,7 +8565,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.15
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.16
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -8621,7 +8663,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.16
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.17
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -8630,7 +8672,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.17
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.18
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -8646,7 +8688,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.18
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.19
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -8764,18 +8806,6 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.19
-  '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.2
@@ -8897,6 +8927,18 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.20
   '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.21
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8987,7 +9029,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.21
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.22
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -8996,7 +9038,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.22
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.23
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -9012,7 +9054,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.23
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.24
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -9132,7 +9174,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.24
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -9230,7 +9272,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.26
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -9239,7 +9281,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.26
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.27
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -9255,7 +9297,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.27
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.28
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -9375,7 +9417,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.28
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.29
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -9409,33 +9451,6 @@
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.29
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.3
@@ -9473,6 +9488,33 @@
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.30
   '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.31
+  '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
           AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
@@ -9483,7 +9525,7 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.31
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.32
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -9495,7 +9537,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.32
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -9587,7 +9629,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.34
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -9596,7 +9638,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.34
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.35
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -9612,7 +9654,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.35
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.36
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -9732,7 +9774,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.36
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.37
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -9830,7 +9872,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.37
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.38
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -9839,7 +9881,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.38
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.39
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -9855,7 +9897,15 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.39
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.4
+  '''
+  SELECT "posthog_team"."id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.40
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -9975,15 +10025,7 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.4
-  '''
-  SELECT "posthog_team"."id"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_team"."receive_org_level_activity_logs")
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.40
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.41
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -10010,7 +10052,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.41
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.42
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
@@ -10023,6 +10065,16 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.5
+  '''
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.6
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -10114,7 +10166,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.6
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.7
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -10136,7 +10188,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.7
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.8
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -10158,7 +10210,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.8
+# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.9
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -10172,18 +10224,6 @@
   FROM "posthog_integration"
   WHERE ("posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.9
-  '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
