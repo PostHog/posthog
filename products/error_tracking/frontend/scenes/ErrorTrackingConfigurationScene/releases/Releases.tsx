@@ -7,6 +7,8 @@ import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { GitMetadataParser } from 'products/error_tracking/frontend/components/ExceptionAttributesPreview/ReleasesPreview/gitMetadataParser'
+
 import { releasesLogic } from './releasesLogic'
 
 export function Releases(): JSX.Element {
@@ -65,7 +67,7 @@ const ReleasesTable = (): JSX.Element => {
             title: 'Commit',
             render: (_, { metadata }) => {
                 const commitId = metadata?.git?.commit_id
-                const commitLink = getCommitLink(metadata)
+                const commitLink = GitMetadataParser.getCommitLink(metadata?.git?.remote_url, commitId)
                 const content = commitId ? (
                     <code className="text-xs" title={commitId}>
                         {commitId.substring(0, 7)}
@@ -73,32 +75,27 @@ const ReleasesTable = (): JSX.Element => {
                 ) : (
                     <span className="text-muted">-</span>
                 )
-                const wrappedContent = commitLink ? (
+
+                return (
                     <Link to={commitLink} target="_blank" className="flex items-center gap-1">
                         {content}
                         <IconExternal className="text-xs" />
                     </Link>
-                ) : (
-                    content
                 )
-                return wrappedContent
             },
         },
         {
             title: 'Branch',
             render: (_, { metadata }) => {
                 const branch = metadata?.git?.branch
-                const branchLink = getBranchLink(metadata)
+                const branchLink = GitMetadataParser.getBranchLink(metadata?.git?.remote_url, metadata?.git?.branch)
                 const content = branch ? <span title={branch}>{branch}</span> : <span className="text-muted">-</span>
-                const wrappedContent = branchLink ? (
+                return (
                     <Link to={branchLink} target="_blank" className="flex items-center gap-1">
                         {content}
                         <IconExternal className="text-xs" />
                     </Link>
-                ) : (
-                    content
                 )
-                return wrappedContent
             },
         },
         {
@@ -109,12 +106,9 @@ const ReleasesTable = (): JSX.Element => {
                 if (!remoteUrl) {
                     return <span className="text-muted">-</span>
                 }
-
-                // Parse GitHub/GitLab URLs
-                let { baseUrl } = parseRemoteUrl(remoteUrl)
-
+                let repoLink = GitMetadataParser.getRepoLink(remoteUrl)
                 return (
-                    <Link to={baseUrl} target="_blank" className="flex items-center gap-1">
+                    <Link to={repoLink} target="_blank" className="flex items-center gap-1">
                         {repoName || 'View repository'}
                         <IconExternal className="text-xs" />
                     </Link>
@@ -152,76 +146,4 @@ const ReleasesTable = (): JSX.Element => {
             emptyState={!releaseResponseLoading ? emptyState : undefined}
         />
     )
-}
-
-function getCommitLink(metadata: ErrorTrackingRelease['metadata']): string | null {
-    const remoteUrl = metadata?.git?.remote_url
-    const commitId = metadata?.git?.commit_id
-
-    if (!remoteUrl || !commitId) {
-        return null
-    }
-
-    let { baseUrl, type } = parseRemoteUrl(remoteUrl)
-
-    let commitLink = null
-    switch (type) {
-        case 'github':
-            commitLink = `${baseUrl}/commit/${commitId}`
-            break
-        case 'gitlab':
-            commitLink = `${baseUrl}/-/commit/${commitId}`
-            break
-    }
-
-    return commitLink
-}
-
-function getBranchLink(metadata: ErrorTrackingRelease['metadata']): string | null {
-    const remoteUrl = metadata?.git?.remote_url
-    const branchName = metadata?.git?.branch
-
-    if (!remoteUrl || !branchName) {
-        return null
-    }
-
-    let { baseUrl, type } = parseRemoteUrl(remoteUrl)
-    let branchLink = null
-    switch (type) {
-        case 'github':
-            branchLink = `${baseUrl}/tree/${branchName}`
-            break
-        case 'gitlab':
-            branchLink = `${baseUrl}/-/tree/${branchName}`
-            break
-    }
-
-    return branchLink
-}
-
-function parseRemoteUrl(remoteUrl: string): {
-    baseUrl: string
-    type: 'github' | 'gitlab' | 'unknown'
-} {
-    if (remoteUrl.includes('github.com')) {
-        const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+)/)
-        if (match) {
-            return {
-                baseUrl: `https://github.com/${match[1]}`,
-                type: 'github',
-            }
-        }
-    } else if (remoteUrl.includes('gitlab.com')) {
-        const match = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/)
-        if (match) {
-            return {
-                baseUrl: `https://gitlab.com/${match[1]}`,
-                type: 'gitlab',
-            }
-        }
-    }
-    return {
-        baseUrl: '',
-        type: 'unknown',
-    }
 }
