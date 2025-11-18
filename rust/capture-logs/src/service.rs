@@ -128,6 +128,7 @@ pub async fn export_logs_http(
         }
     }
 
+    let row_count = rows.len();
     if let Err(e) = service.sink.write(token, rows, body.len() as u64).await {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
@@ -135,7 +136,7 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Internal server error")})),
         ));
     } else {
-        debug!("Successfully sent logs to Kafka");
+        debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
     // Return empty JSON object per OTLP spec
