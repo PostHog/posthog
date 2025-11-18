@@ -143,12 +143,12 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
             friendly_errors = [
-                friendly_error or error
+                friendly_error
                 for error, friendly_error in non_retryable_errors.items()
                 if error in internal_error_normalized
             ]
 
-            if friendly_errors:
+            if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
