@@ -46,6 +46,36 @@ class PersonQuerySet(models.QuerySet):
                 )
         return super()._fetch_all()
 
+    def delete(self):
+        """
+        Intercept delete operations to ensure team_id filter is present.
+        """
+        has_filter = self._has_team_id_filter()
+        if not has_filter:
+            sql = str(self.query)
+            raise ValueError(
+                f"Person delete query missing required team_id filter. "
+                f"Partitioned table requires team_id for efficient querying. "
+                f"Add .filter(team_id=...) or .filter(team=...) before calling delete().\n"
+                f"Query SQL: {sql[:500]}"
+            )
+        return super().delete()
+
+    def update(self, **kwargs):
+        """
+        Intercept update operations to ensure team_id filter is present.
+        """
+        has_filter = self._has_team_id_filter()
+        if not has_filter:
+            sql = str(self.query)
+            raise ValueError(
+                f"Person update query missing required team_id filter. "
+                f"Partitioned table requires team_id for efficient querying. "
+                f"Add .filter(team_id=...) or .filter(team=...) before calling update().\n"
+                f"Query SQL: {sql[:500]}"
+            )
+        return super().update(**kwargs)
+
     def _has_team_id_filter(self) -> bool:
         """
         Check if the query's WHERE clause contains a team_id filter.
@@ -161,9 +191,10 @@ class Person(models.Model):
 
             # Remove the Person instance itself from the collector
             # so it only deletes related objects
-            person_model_key = self._meta.label
-            if person_model_key in collector.data:
-                collector.data[person_model_key].discard(self)
+            if Person in collector.data:
+                person_instances = collector.data[Person]
+                if isinstance(person_instances, set):
+                    person_instances.discard(self)
 
             # Delete all related objects (PersonDistinctId, etc.)
             collector.delete()
