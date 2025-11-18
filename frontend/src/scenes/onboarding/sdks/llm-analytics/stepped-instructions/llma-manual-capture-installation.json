@@ -1,0 +1,397 @@
+{
+    "description": "Manually capture LLM analytics events using PostHog SDK or API",
+    "product": "llm_analytics",
+    "sdk": ["api"],
+    "title": "Manual capture",
+    "steps": [
+        {
+            "badge": "required",
+            "title": "Overview",
+            "content": [
+                {
+                    "content": "If you're using a different SDK or the API, you can manually capture the data by calling the `capture` method or using the [capture API](/docs/api/capture).\n",
+                    "type": "markdown"
+                }
+            ]
+        },
+        {
+            "badge": "required",
+            "title": "Event Types",
+            "type": "tabbed",
+            "tabs": [
+                {
+                    "id": "generation",
+                    "label": "Generation",
+                    "content": [
+                        {
+                            "content": "A generation is a single call to an LLM.\n\n**Event name**: `$ai_generation`\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "Core properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                [
+                                    "$ai_trace_id",
+                                    "The trace ID (a UUID to group AI events) like `conversation_id`<br/>Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>|</code> <br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761`"
+                                ],
+                                [
+                                    "$ai_session_id",
+                                    "*(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456`"
+                                ],
+                                ["$ai_span_id", "*(Optional)* Unique identifier for this generation"],
+                                [
+                                    "$ai_span_name",
+                                    "*(Optional)* Name given to this generation <br/>Example: `summarize_text`"
+                                ],
+                                ["$ai_parent_id", "*(Optional)* Parent span ID for tree view grouping"],
+                                ["$ai_model", "The model used <br/>Example: `gpt-5-mini`"],
+                                ["$ai_provider", "The LLM provider <br/>Example: `openai`, `anthropic`, `gemini`"],
+                                [
+                                    "$ai_input",
+                                    "List of messages sent to the LLM. Each message should have a `role` property with one of: `user`, `system`, or `assistant`"
+                                ],
+                                [
+                                    "$ai_input_tokens",
+                                    "The number of tokens in the input (often found in response.usage)"
+                                ],
+                                [
+                                    "$ai_output_choices",
+                                    "List of response choices from the LLM. Each choice should have a `role` property with one of: `user`, `system`, or `assistant`"
+                                ],
+                                [
+                                    "$ai_output_tokens",
+                                    "The number of tokens in the output (often found in response.usage)"
+                                ],
+                                ["$ai_latency", "*(Optional)* The latency of the LLM call in seconds"],
+                                ["$ai_http_status", "*(Optional)* The HTTP status code of the response"],
+                                [
+                                    "$ai_base_url",
+                                    "*(Optional)* The base URL of the LLM provider <br/>Example: `https://api.openai.com/v1`"
+                                ],
+                                [
+                                    "$ai_request_url",
+                                    "*(Optional)* The full URL of the request made to the LLM API <br/>Example: `https://api.openai.com/v1/chat/completions`"
+                                ],
+                                ["$ai_is_error", "*(Optional)* Boolean to indicate if the request was an error"],
+                                ["$ai_error", "*(Optional)* The error message or object"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Cost properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "Cost properties are optional as we can automatically calculate them from model and token counts. If you want, you can provide your own cost properties or custom pricing instead.\n\n#### Pre-calculated costs\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                ["$ai_input_cost_usd", "*(Optional)* The cost in USD of the input tokens"],
+                                ["$ai_output_cost_usd", "*(Optional)* The cost in USD of the output tokens"],
+                                ["$ai_request_cost_usd", "*(Optional)* The cost in USD for the requests"],
+                                ["$ai_web_search_cost_usd", "*(Optional)* The cost in USD for the web searches"],
+                                [
+                                    "$ai_total_cost_usd",
+                                    "*(Optional)* The total cost in USD (sum of all cost components)"
+                                ]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "content": "#### Custom pricing\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                [
+                                    "$ai_input_token_price",
+                                    "*(Optional)* Price per input token (used to calculate `$ai_input_cost_usd`)"
+                                ],
+                                [
+                                    "$ai_output_token_price",
+                                    "*(Optional)* Price per output token (used to calculate `$ai_output_cost_usd`)"
+                                ],
+                                ["$ai_cache_read_token_price", "*(Optional)* Price per cached token read"],
+                                ["$ai_cache_write_token_price", "*(Optional)* Price per cached token write"],
+                                ["$ai_request_price", "*(Optional)* Price per request"],
+                                [
+                                    "$ai_request_count",
+                                    "*(Optional)* Number of requests (defaults to 1 if `$ai_request_price` is set)"
+                                ],
+                                ["$ai_web_search_price", "*(Optional)* Price per web search"],
+                                ["$ai_web_search_count", "*(Optional)* Number of web searches performed"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Cache properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                ["$ai_cache_read_input_tokens", "*(Optional)* Number of tokens read from cache"],
+                                [
+                                    "$ai_cache_creation_input_tokens",
+                                    "*(Optional)* Number of tokens written to cache (Anthropic-specific)"
+                                ]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Model parameters",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                ["$ai_temperature", "*(Optional)* Temperature parameter used in the LLM request"],
+                                ["$ai_stream", "*(Optional)* Whether the response was streamed"],
+                                ["$ai_max_tokens", "*(Optional)* Maximum tokens setting for the LLM response"],
+                                ["$ai_tools", "*(Optional)* Tools/functions available to the LLM"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Example API call",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "curl -X POST \"<ph_client_api_host>/i/v0/e/\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n         \"api_key\": \"<ph_project_api_key>\",\n         \"event\": \"$ai_generation\",\n         \"properties\": {\n             \"distinct_id\": \"user_123\",\n             \"$ai_trace_id\": \"d9222e05-8708-41b8-98ea-d4a21849e761\",\n             \"$ai_session_id\": \"session-abc-123\",\n             \"$ai_model\": \"gpt-4o\",\n             \"$ai_provider\": \"openai\",\n             \"$ai_input\": [{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"Analyze this data\"}]}],\n             \"$ai_input_tokens\": 150,\n             \"$ai_output_choices\": [{\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"Here are my suggestions\"}]}],\n             \"$ai_output_tokens\": 280,\n             \"$ai_latency\": 2.45,\n             \"$ai_http_status\": 200\n         },\n         \"timestamp\": \"2025-01-30T12:00:00Z\"\n     }'\n",
+                            "language": "bash",
+                            "type": "code"
+                        }
+                    ]
+                },
+                {
+                    "id": "trace",
+                    "label": "Trace",
+                    "content": [
+                        {
+                            "content": "A trace is a group that contains multiple spans, generations, and embeddings. Traces can be manually sent as events or appear as pseudo-events automatically created from child events.\n\n**Event name**: `$ai_trace`\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "Core properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                [
+                                    "$ai_trace_id",
+                                    "The trace ID (a UUID to group related AI events together)<br/>Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>|</code><br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761`"
+                                ],
+                                [
+                                    "$ai_session_id",
+                                    "*(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456`"
+                                ],
+                                [
+                                    "$ai_input_state",
+                                    "The input of the whole trace<br/>Example: any JSON-serializable state"
+                                ],
+                                [
+                                    "$ai_output_state",
+                                    "The output of the whole trace<br/>Example: any JSON-serializable state"
+                                ],
+                                ["$ai_latency", "*(Optional)* The latency of the trace in seconds"],
+                                [
+                                    "$ai_span_name",
+                                    "*(Optional)* The name of the trace<br/>Example: `chat_completion`, `rag_pipeline`"
+                                ],
+                                ["$ai_is_error", "*(Optional)* Boolean to indicate if the trace encountered an error"],
+                                ["$ai_error", "*(Optional)* The error message or object if the trace failed"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Pseudo-trace Events",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "When you send generation (`$ai_generation`), span (`$ai_span`), or embedding (`$ai_embedding`) events with a `$ai_trace_id`, PostHog automatically creates a pseudo-trace event that appears in the dashboard as a parent grouping. These pseudo-traces:\n\n- Are not actual events in your data\n- Automatically aggregate metrics from child events (latency, tokens, costs)\n- Provide a hierarchical view of your AI operations\n- Do not require sending an explicit `$ai_trace` event\n\nThis means you can either:\n1. Send explicit `$ai_trace` events to control the trace metadata\n2. Let PostHog automatically create pseudo-traces from your generation/span events\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "Example API call",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "curl -X POST \"<ph_client_api_host>/i/v0/e/\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n         \"api_key\": \"<ph_project_api_key>\",\n         \"event\": \"$ai_trace\",\n         \"properties\": {\n             \"distinct_id\": \"user_123\",\n             \"$ai_trace_id\": \"d9222e05-8708-41b8-98ea-d4a21849e761\",\n             \"$ai_session_id\": \"session-abc-123\",\n             \"$ai_input_state\": [{\"role\": \"user\", \"content\": \"Tell me a fun fact\"}],\n             \"$ai_output_state\": [{\"role\": \"assistant\", \"content\": \"Here is a fact\"}],\n             \"$ai_latency\": 1.23,\n             \"$ai_span_name\": \"chat\",\n             \"$ai_is_error\": false\n         },\n         \"timestamp\": \"2025-01-30T12:00:00Z\"\n     }'\n",
+                            "language": "bash",
+                            "type": "code"
+                        }
+                    ]
+                },
+                {
+                    "id": "span",
+                    "label": "Span",
+                    "content": [
+                        {
+                            "content": "A span is a single action within your application, such as a function call or vector database search.\n\n**Event name**: `$ai_span`\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "Core properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                [
+                                    "$ai_trace_id",
+                                    "The trace ID (a UUID to group related AI events together)<br/>Must contain only letters, numbers, and the following characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>|</code><br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761`"
+                                ],
+                                [
+                                    "$ai_session_id",
+                                    "*(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456`"
+                                ],
+                                [
+                                    "$ai_span_id",
+                                    "*(Optional)* Unique identifier for this span<br/>Example: `bdf42359-9364-4db7-8958-c001f28c9255`"
+                                ],
+                                [
+                                    "$ai_span_name",
+                                    "*(Optional)* The name of the span<br/>Example: `vector_search`, `data_retrieval`, `tool_call`"
+                                ],
+                                [
+                                    "$ai_parent_id",
+                                    "*(Optional)* Parent ID for tree view grouping (`trace_id` or another `span_id`)<br/>Example: `537b7988-0186-494f-a313-77a5a8f7db26`"
+                                ],
+                                [
+                                    "$ai_input_state",
+                                    "The input state of the span<br/>Example: any JSON-serializable state"
+                                ],
+                                [
+                                    "$ai_output_state",
+                                    "The output state of the span<br/>Example: any JSON-serializable state"
+                                ],
+                                ["$ai_latency", "*(Optional)* The latency of the span in seconds<br/>Example: `0.361`"],
+                                ["$ai_is_error", "*(Optional)* Boolean to indicate if the span encountered an error"],
+                                ["$ai_error", "*(Optional)* The error message or object if the span failed"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Example API call",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "curl -X POST \"<ph_client_api_host>/i/v0/e/\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n         \"api_key\": \"<ph_project_api_key>\",\n         \"event\": \"$ai_span\",\n         \"properties\": {\n             \"distinct_id\": \"user_123\",\n             \"$ai_trace_id\": \"d9222e05-8708-41b8-98ea-d4a21849e761\",\n             \"$ai_session_id\": \"session-abc-123\",\n             \"$ai_input_state\": {\"query\": \"search documents\"},\n             \"$ai_output_state\": {\"results\": [\"doc1\", \"doc2\"], \"count\": 2},\n             \"$ai_latency\": 0.145,\n             \"$ai_span_name\": \"vector_search\",\n             \"$ai_span_id\": \"bdf42359-9364-4db7-8958-c001f28c9255\",\n             \"$ai_is_error\": false\n         },\n         \"timestamp\": \"2025-01-30T12:00:00Z\"\n     }'\n",
+                            "language": "bash",
+                            "type": "code"
+                        }
+                    ]
+                },
+                {
+                    "id": "embedding",
+                    "label": "Embedding",
+                    "content": [
+                        {
+                            "content": "An embedding is a single call to an embedding model to convert text into a vector representation.\n\n**Event name**: `$ai_embedding`\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "text": "Core properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                [
+                                    "$ai_trace_id",
+                                    "The trace ID (a UUID to group related AI events together). Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>|</code> <br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761`"
+                                ],
+                                [
+                                    "$ai_session_id",
+                                    "*(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456`"
+                                ],
+                                ["$ai_span_id", "*(Optional)* Unique identifier for this embedding operation"],
+                                [
+                                    "$ai_span_name",
+                                    "*(Optional)* Name given to this embedding operation <br/>Example: `embed_user_query`, `index_document`"
+                                ],
+                                ["$ai_parent_id", "*(Optional)* Parent span ID for tree-view grouping"],
+                                [
+                                    "$ai_model",
+                                    "The embedding model used<br/>Example: `text-embedding-3-small`, `text-embedding-ada-002`"
+                                ],
+                                ["$ai_provider", "The LLM provider<br/>Example: `openai`, `cohere`, `voyage`"],
+                                [
+                                    "$ai_input",
+                                    "The text to embed<br/>Example: string or array of strings for batch embeddings"
+                                ],
+                                ["$ai_input_tokens", "The number of tokens in the input"],
+                                ["$ai_latency", "*(Optional)* The latency of the embedding call in seconds"],
+                                ["$ai_http_status", "*(Optional)* The HTTP status code of the response"],
+                                [
+                                    "$ai_base_url",
+                                    "*(Optional)* The base URL of the LLM provider<br/>Example: `https://api.openai.com/v1`"
+                                ],
+                                [
+                                    "$ai_request_url",
+                                    "*(Optional)* The full URL of the request made to the embedding API<br/>Example: `https://api.openai.com/v1/embeddings`"
+                                ],
+                                ["$ai_is_error", "*(Optional)* Boolean to indicate if the request was an error"],
+                                ["$ai_error", "*(Optional)* The error message or object if the embedding failed"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Cost properties",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "Cost properties are optional as we can automatically calculate them from model and token counts. If you want, you can provide your own cost property instead.\n",
+                            "type": "markdown"
+                        },
+                        {
+                            "headers": ["Property", "Description"],
+                            "rows": [
+                                ["$ai_input_cost_usd", "*(Optional)* Cost in USD for input tokens"],
+                                [
+                                    "$ai_output_cost_usd",
+                                    "*(Optional)* Cost in USD for output tokens (usually 0 for embeddings)"
+                                ],
+                                ["$ai_total_cost_usd", "*(Optional)* Total cost in USD"]
+                            ],
+                            "type": "table"
+                        },
+                        {
+                            "text": "Example API call",
+                            "type": "section_header"
+                        },
+                        {
+                            "content": "curl -X POST \"<ph_client_api_host>/i/v0/e/\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n         \"api_key\": \"<ph_project_api_key>\",\n         \"event\": \"$ai_embedding\",\n         \"properties\": {\n             \"distinct_id\": \"user_123\",\n             \"$ai_trace_id\": \"d9222e05-8708-41b8-98ea-d4a21849e761\",\n             \"$ai_session_id\": \"session-abc-123\",\n             \"$ai_model\": \"text-embedding-3-small\",\n             \"$ai_provider\": \"openai\",\n             \"$ai_input\": \"What are the key features of PostHog?\",\n             \"$ai_input_tokens\": 12,\n             \"$ai_latency\": 0.234,\n             \"$ai_http_status\": 200,\n             \"$ai_is_error\": false,\n             \"$ai_span_name\": \"embed_search_query\"\n         },\n         \"timestamp\": \"2025-01-30T12:00:00Z\"\n     }'\n",
+                            "language": "bash",
+                            "type": "code"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "dependencies": {
+        "api": []
+    },
+    "platforms": {
+        "primary_owner": "docs",
+        "supported": ["docs", "app"]
+    },
+    "testing": {
+        "test_events": ["$ai_generation", "$ai_trace", "$ai_span", "$ai_embedding"],
+        "test_properties": ["$ai_trace_id", "$ai_model", "$ai_latency", "$ai_input_tokens", "$ai_output_tokens"]
+    },
+    "validation": {
+        "checkpoint_steps": [],
+        "optional_steps": [],
+        "required_steps": ["Overview", "Event Types"]
+    }
+}
