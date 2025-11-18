@@ -215,6 +215,9 @@ async def fetch_session_batch_events_activity(
     return fetched_session_ids
 
 
+MAX_STATUS_HISTORY = 50
+
+
 @temporalio.workflow.defn(name="summarize-session-group")
 class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -231,6 +234,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     @temporalio.workflow.query
     def get_current_status(self) -> list[str]:
         """Query handler to get the current progress of summary processing."""
+        if len(self._current_status) > MAX_STATUS_HISTORY:
+            # Ensure the status doesn't grow too large
+            self._current_status = self._current_status[-MAX_STATUS_HISTORY:]
         return self._current_status
 
     @temporalio.workflow.query
