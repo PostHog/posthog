@@ -744,8 +744,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         # Guarantee timezone is stable
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
-        # Fully-nullable column let's turn into `Nullable(String)` since ArrayFormat doesn't support `Nullable(Nothing)`
-        "Nullable(Nothing)": ("accurateCastOrNull", (ast.Constant(value="Nullable(String)"),)),
+        # If Clickhouse detects this is a constant `NULL` column let's turn into `Nullable(String)` since ArrayFormat doesn't support `Nullable(Nothing)`
+        "Nullable(Nothing)": ("toNullableString", ()),
         # A bunch of non-supported fields, just treat them as strings
         "FIXED_SIZE_BINARY": ("toString", ()),
         "JSON": ("toString", ()),

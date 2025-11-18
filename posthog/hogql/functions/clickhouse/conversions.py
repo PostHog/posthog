@@ -81,6 +81,9 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((DateTimeType(), StringType()), StringType()),
         ],
     ),
+    "toNullableString": HogQLFunctionMeta(
+        "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
+    ),
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
@@ -88,8 +91,6 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
-    # Expose the raw function, this is slightly safer than `cast` but should solve most problems
-    "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
 }
 
 # Date conversion functions (that overlap with type conversions)
