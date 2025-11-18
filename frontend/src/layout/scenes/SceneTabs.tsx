@@ -156,6 +156,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                     e.preventDefault()
                                     newTab()
                                 }}
+                                tooltip="New tab"
+                                tooltipCloseDelayMs={0}
                                 buttonProps={{
                                     size: 'sm',
                                     className:
@@ -271,6 +273,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         intent="Close active tab"
                         interaction="click"
                         asChild
+                        disabled={!tab.active}
                     >
                         <ButtonPrimitive
                             onClick={(e) => {
@@ -278,7 +281,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                                 e.preventDefault()
                                 removeTab(tab)
                             }}
-                            tooltip={!tab.active ? 'Close tab' : undefined}
+                            tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
                             isSideActionRight
                             iconOnly

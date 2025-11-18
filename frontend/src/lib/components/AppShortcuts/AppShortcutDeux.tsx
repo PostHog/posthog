@@ -13,19 +13,39 @@ import React, {
 import { isMac } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { AppShortcutDeuxType, appShortcutDeuxLogic } from './appShortcutDeuxLogic'
 
 const IS_MAC = isMac()
+
+// Helper function to convert keybind array to KeyboardShortcut props
+function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boolean> {
+    const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
+    return Object.fromEntries(platformAgnosticKeybind.map((key) => [key, true]))
+}
 
 interface AppShortcutDeuxProps extends React.HTMLAttributes<HTMLElement>, Omit<AppShortcutDeuxType, 'ref'> {
     children: ReactNode
     asChild?: boolean
     className?: string
+    disabled?: boolean
 }
 
 export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
     (
-        { children, asChild = false, name, keybind, intent, interaction, scope = 'global', className, ...props },
+        {
+            children,
+            asChild = false,
+            name,
+            keybind,
+            intent,
+            interaction,
+            scope = 'global',
+            className,
+            disabled = false,
+            ...props
+        },
         forwardedRef
     ): JSX.Element => {
         const internalRef = useRef<HTMLElement>(null)
@@ -51,7 +71,7 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
 
         // Register shortcut when ref is ready
         useEffect(() => {
-            if (isRefReady && internalRef.current) {
+            if (isRefReady && internalRef.current && !disabled) {
                 // Replace 'command' with 'ctrl' when not on Mac
                 const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
                 registerAppShortcut({
@@ -63,7 +83,7 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
                     scope,
                 })
             }
-        }, [isRefReady, name, keybind, intent, interaction, scope, registerAppShortcut])
+        }, [isRefReady, name, keybind, intent, interaction, scope, disabled, registerAppShortcut])
 
         // Clean up on unmount
         useEffect(() => {
@@ -83,9 +103,29 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
         }
 
         if (asChild && isValidElement(children)) {
+            const childProps = children.props as any
+            let finalTooltip = undefined
+
+            // If the child has a tooltip prop and not disabled, append the keyboard shortcut to it
+            if (childProps.tooltip && !disabled) {
+                finalTooltip = (
+                    <>
+                        {childProps.tooltip}{' '}
+                        <KeyboardShortcut
+                            {...keybindToKeyboardShortcutProps(keybind)}
+                            className="relative text-xs -top-px"
+                        />
+                    </>
+                )
+            } else if (childProps.tooltip) {
+                // If disabled, just use the original tooltip without keyboard shortcut
+                finalTooltip = childProps.tooltip
+            }
+
             return cloneElement(children as React.ReactElement, {
                 ...children.props,
                 ...elementProps,
+                tooltip: finalTooltip,
                 className: cn(children.props.className, className),
             })
         }

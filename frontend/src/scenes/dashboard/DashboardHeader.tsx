@@ -125,6 +125,7 @@ export function DashboardHeader(): JSX.Element | null {
     }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -269,9 +270,11 @@ export function DashboardHeader(): JSX.Element | null {
                                 menuItem
                                 active={dashboardMode === DashboardMode.Edit}
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                                tooltip={useAppShortcuts ? 'Toggle edit mode' : null}
+                                tooltipPlacement="left"
                             >
                                 <IconGridMasonry />
-                                Edit layout <KeyboardShortcut e />
+                                Edit layout {useAppShortcuts ? null : <KeyboardShortcut e />}
                             </ButtonPrimitive>
                         </AppShortcutDeux>
                     )}
@@ -501,6 +504,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="add-text-tile-to-dashboard"
                                                     type="secondary"
                                                     size="small"
+                                                    tooltip={useAppShortcuts ? 'Add text card' : null}
+                                                    tooltipPlacement="top"
                                                 >
                                                     Add text card
                                                 </LemonButton>
