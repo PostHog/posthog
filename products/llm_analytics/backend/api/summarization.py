@@ -235,9 +235,9 @@ The response includes the summary text and optional metadata.
 
         try:
             summarize_type = serializer.validated_data["summarize_type"]
-            mode = serializer.validated_data.get("mode", "detailed")
+            mode = serializer.validated_data["mode"]
             data = serializer.validated_data["data"]
-            force_refresh = serializer.validated_data.get("force_refresh", False)
+            force_refresh = serializer.validated_data["force_refresh"]
 
             # Extract entity_id for cache key generation
             if summarize_type == "trace":
