@@ -13,6 +13,7 @@ import { AttributionSettings } from './AttributionSettings'
 import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
+import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 
 export function MarketingAnalyticsSettings({
