@@ -877,18 +877,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         return f"uuid IN {unique_uuids_subquery}"
 
     def _get_archived_responses_filter(self, survey_id: str | None = None) -> str:
-        if survey_id:
-            archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
-        else:
-            archived_uuids = set(
-                SurveyResponseArchive.objects.filter(team_id=self.team_id).values_list("response_uuid", flat=True)
-            )
+        archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
 
         if not archived_uuids:
             return ""
 
         uuid_list = ", ".join(f"'{uuid}'" for uuid in archived_uuids)
-        return f"AND uuid NOT IN ({uuid_list})"
+        return f"uuid NOT IN ({uuid_list})"
 
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
@@ -929,7 +924,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
-                {archived_filter}
+                AND {archived_filter}
             GROUP BY survey_id
         """
 
@@ -1100,10 +1095,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             date_filter += " AND timestamp <= %(date_to)s"
             params["date_to"] = parsed_to
 
-        # Add archive filter if needed (only for specific survey queries)
+        # Add archive filter if needed
         archive_filter = ""
         if survey_id and exclude_archived:
-            archive_filter = self._get_archived_responses_filter(survey_id)
+            archive_filter = f"AND {self._get_archived_responses_filter(survey_id)}"
 
         # Add survey filter if specific survey
         survey_filter = ""
@@ -1281,13 +1276,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         """Archive a single survey response."""
         survey = self.get_object()
 
-        # Validate UUID format
         try:
             UUID(response_uuid)
         except ValueError:
             return Response({"detail": "Invalid UUID format"}, status=400)
 
-        # Create archive record (idempotent - won't error if already archived)
         archive, created = SurveyResponseArchive.objects.get_or_create(
             team_id=self.team_id,
             survey=survey,
@@ -1295,9 +1288,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             defaults={"archived_by": cast(User, request.user)},
         )
 
-        return Response(
-            {"success": True, "archived": True, "response_uuid": response_uuid, "already_archived": not created}
-        )
+        return Response(status.HTTP_200_OK)
 
     @action(
         methods=["POST"],
@@ -1309,20 +1300,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         """Unarchive a single survey response."""
         survey = self.get_object()
 
-        # Validate UUID format
         try:
             UUID(response_uuid)
         except ValueError:
             return Response({"detail": "Invalid UUID format"}, status=400)
 
-        # Delete archive record
         deleted_count, _ = SurveyResponseArchive.objects.filter(
             team_id=self.team_id, survey=survey, response_uuid=response_uuid
         ).delete()
 
-        return Response(
-            {"success": True, "archived": False, "response_uuid": response_uuid, "was_archived": deleted_count > 0}
-        )
+        return Response(status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])
     def archived_response_uuids(self, request: request.Request, **kwargs) -> Response:

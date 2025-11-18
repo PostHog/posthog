@@ -1022,7 +1022,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
             setShowArchivedResponses: () => {
-                // Reload results when toggling archived responses visibility
                 reloadAllSurveyResults()
             },
             archiveResponse: async ({ responseUuid }) => {
@@ -1353,11 +1352,13 @@ export const surveyLogic = kea<surveyLogicType>([
         archivedResponsesFilter: [
             (s) => [s.showArchivedResponses, s.archivedResponseUuids],
             (showArchivedResponses: boolean, archivedUuids: Set<string>): string => {
-                // If showing archived responses or there are no archived UUIDs, don't filter
-                if (showArchivedResponses || archivedUuids.size === 0) {
+                if (showArchivedResponses) {
                     return ''
                 }
-                // Generate HogQL filter to exclude archived response UUIDs
+                if (!archivedUuids || archivedUuids.size === 0) {
+                    return ''
+                }
+
                 const uuidList = Array.from(archivedUuids)
                     .map((uuid) => `'${uuid}'`)
                     .join(', ')
