@@ -75,11 +75,17 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
-    private getTableName(personId?: string): string {
+    private getTableName(personId?: string, person?: InternalPerson): string {
         if (!this.options.tableCutoverEnabled || !this.options.newTableName || !this.options.newTableIdOffset) {
             return 'posthog_person'
         }
 
+        // If person object provided with routing decision, use it
+        if (person?.__useNewTable !== undefined) {
+            return person.__useNewTable ? this.options.newTableName : 'posthog_person'
+        }
+
+        // Fall back to ID-based routing
         if (!personId) {
             return 'posthog_person'
         }
@@ -98,7 +104,7 @@ export class PostgresPersonRepository
         update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const currentSize = await this.personPropertiesSize(person.id, person.team_id)
+        const currentSize = await this.personPropertiesSize(person.id, person.team_id, person)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
@@ -269,10 +275,11 @@ export class PostgresPersonRepository
             }
 
             const personId = distinctIdRows[0].person_id
-            const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
             const forUpdateClause = options.forUpdate ? ' FOR UPDATE' : ''
 
-            const personQuery = `
+            // Check new table first (by existence, not by ID threshold)
+            const newTableName = sanitizeSqlIdentifier(this.options.newTableName)
+            const personQueryNew = `
                 SELECT
                     id,
                     uuid,
@@ -284,18 +291,106 @@ export class PostgresPersonRepository
                     is_user_id,
                     version,
                     is_identified
-                FROM ${tableName}
+                FROM ${newTableName}
                 WHERE team_id = $1 AND id = $2${forUpdateClause}`
 
-            const { rows } = await this.postgres.query<RawPerson>(
+            const { rows: newTableRows } = await this.postgres.query<RawPerson>(
                 options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
-                personQuery,
+                personQueryNew,
                 [teamId, personId],
-                'fetchPerson'
+                'fetchPersonFromNewTable'
             )
 
-            if (rows.length > 0) {
-                return this.toPerson(rows[0])
+            if (newTableRows.length > 0) {
+                const person = this.toPerson(newTableRows[0])
+                // Mark that this person exists in the new table
+                ;(person as any).__useNewTable = true
+                return person
+            }
+
+            // Fall back to old table
+            const personQueryOld = `
+                SELECT
+                    id,
+                    uuid,
+                    created_at,
+                    team_id,
+                    properties,
+                    properties_last_updated_at,
+                    properties_last_operation,
+                    is_user_id,
+                    version,
+                    is_identified
+                FROM posthog_person
+                WHERE team_id = $1 AND id = $2${forUpdateClause}`
+
+            const { rows: oldTableRows } = await this.postgres.query<RawPerson>(
+                options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
+                personQueryOld,
+                [teamId, personId],
+                'fetchPersonFromOldTable'
+            )
+
+            if (oldTableRows.length > 0) {
+                const person = this.toPerson(oldTableRows[0])
+
+                // Opportunistically copy person to new table
+                // This allows all future operations to go directly to new table (avoiding slow triggers)
+                // Skip copy when using read replica to maintain read-only intent
+                if (!options.useReadReplica) {
+                    try {
+                        const copyQuery = `
+                            INSERT INTO ${newTableName} (
+                                id,
+                                uuid,
+                                created_at,
+                                team_id,
+                                properties,
+                                properties_last_updated_at,
+                                properties_last_operation,
+                                is_user_id,
+                                version,
+                                is_identified
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            ON CONFLICT (team_id, id) DO NOTHING
+                            RETURNING id`
+
+                        await this.postgres.query(
+                            PostgresUse.PERSONS_WRITE,
+                            copyQuery,
+                            [
+                                person.id,
+                                person.uuid,
+                                person.created_at.toISO(),
+                                person.team_id,
+                                sanitizeJsonbValue(person.properties),
+                                sanitizeJsonbValue(person.properties_last_updated_at),
+                                sanitizeJsonbValue(person.properties_last_operation),
+                                person.is_user_id,
+                                person.version,
+                                person.is_identified,
+                            ],
+                            'copyPersonToNewTable'
+                        )
+
+                        // Person is now in new table, future operations can use it
+                        ;(person as any).__useNewTable = true
+                    } catch (error) {
+                        // If copy fails for any reason, log but continue with old table routing
+                        logger.warn('Failed to copy person to new table', {
+                            error: error instanceof Error ? error.message : String(error),
+                            person_id: person.id,
+                            team_id: person.team_id,
+                        })
+                        ;(person as any).__useNewTable = false
+                    }
+                } else {
+                    // When using read replica, don't attempt write operation
+                    ;(person as any).__useNewTable = false
+                }
+
+                return person
             }
         } else {
             const forUpdateClause = options.forUpdate ? ' FOR UPDATE' : ''
@@ -364,7 +459,7 @@ export class PostgresPersonRepository
                 return []
             }
 
-            // Group person IDs by table
+            // Group person IDs by table using ID-based routing
             const oldTablePersonIds: string[] = []
             const newTablePersonIds: string[] = []
             const personIdToDistinctId = new Map<string, { distinct_id: string; team_id: number }>()
@@ -386,7 +481,20 @@ export class PostgresPersonRepository
 
             // Fetch from old table if needed
             if (oldTablePersonIds.length > 0) {
-                const oldTableConditions = oldTablePersonIds.map((_, index) => `$${index + 1}`).join(', ')
+                // Build conditions matching both person_id and team_id to avoid full table scans
+                const oldTableConditions = oldTablePersonIds
+                    .map((_personId, index) => {
+                        const idParam = index * 2 + 1
+                        const teamIdParam = index * 2 + 2
+                        return `(id = $${idParam} AND team_id = $${teamIdParam})`
+                    })
+                    .join(' OR ')
+
+                const oldTableParams = oldTablePersonIds.flatMap((personId) => {
+                    const mapping = personIdToDistinctId.get(personId)!
+                    return [personId, mapping.team_id]
+                })
+
                 const oldTableQuery = `
                     SELECT
                         id,
@@ -400,12 +508,12 @@ export class PostgresPersonRepository
                         version,
                         is_identified
                     FROM posthog_person
-                    WHERE id IN (${oldTableConditions})`
+                    WHERE ${oldTableConditions}`
 
                 const { rows: oldTableRows } = await this.postgres.query<RawPerson>(
                     PostgresUse.PERSONS_READ,
                     oldTableQuery,
-                    oldTablePersonIds,
+                    oldTableParams,
                     'fetchPersonsFromOldTable'
                 )
 
@@ -419,7 +527,20 @@ export class PostgresPersonRepository
 
             // Fetch from new table if needed
             if (newTablePersonIds.length > 0) {
-                const newTableConditions = newTablePersonIds.map((_, index) => `$${index + 1}`).join(', ')
+                // Build conditions matching both person_id and team_id to avoid full table scans
+                const newTableConditions = newTablePersonIds
+                    .map((_personId, index) => {
+                        const idParam = index * 2 + 1
+                        const teamIdParam = index * 2 + 2
+                        return `(id = $${idParam} AND team_id = $${teamIdParam})`
+                    })
+                    .join(' OR ')
+
+                const newTableParams = newTablePersonIds.flatMap((personId) => {
+                    const mapping = personIdToDistinctId.get(personId)!
+                    return [personId, mapping.team_id]
+                })
+
                 const safeNewTableName = sanitizeSqlIdentifier(this.options.newTableName)
                 const newTableQuery = `
                     SELECT
@@ -434,12 +555,12 @@ export class PostgresPersonRepository
                         version,
                         is_identified
                     FROM ${safeNewTableName}
-                    WHERE id IN (${newTableConditions})`
+                    WHERE ${newTableConditions}`
 
                 const { rows: newTableRows } = await this.postgres.query<RawPerson>(
                     PostgresUse.PERSONS_READ,
                     newTableQuery,
-                    newTablePersonIds,
+                    newTableParams,
                     'fetchPersonsFromNewTable'
                 )
 
@@ -477,7 +598,7 @@ export class PostgresPersonRepository
                     posthog_person.is_identified,
                     posthog_persondistinctid.distinct_id
                 FROM posthog_person
-                JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+                JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id AND posthog_persondistinctid.team_id = posthog_person.team_id)
                 WHERE ${conditions}`
 
             const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
@@ -709,7 +830,7 @@ export class PostgresPersonRepository
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         let rows: { version: string }[] = []
         try {
-            const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
+            const tableName = sanitizeSqlIdentifier(this.getTableName(person.id, person))
             const result = await this.postgres.query<{ version: string }>(
                 tx ?? PostgresUse.PERSONS_WRITE,
                 `DELETE FROM ${tableName} WHERE team_id = $1 AND id = $2 RETURNING version`,
@@ -963,8 +1084,8 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
-    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
-        const tableName = sanitizeSqlIdentifier(this.getTableName(personId))
+    async personPropertiesSize(personId: string, teamId: number, person?: InternalPerson): Promise<number> {
+        const tableName = sanitizeSqlIdentifier(this.getTableName(personId, person))
 
         // For partitioned tables, we need team_id for efficient querying
         const queryString = `
@@ -1024,7 +1145,7 @@ export class PostgresPersonRepository
         }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
-        const tableName = sanitizeSqlIdentifier(this.getTableName(person.id))
+        const tableName = sanitizeSqlIdentifier(this.getTableName(person.id, person))
 
         // Add team_id and person_id to values for WHERE clause (for partitioning)
         const allValues = [...values, person.team_id, person.id]
@@ -1121,7 +1242,7 @@ export class PostgresPersonRepository
                 personUpdate.version,
             ]
 
-            const tableName = sanitizeSqlIdentifier(this.getTableName(personUpdate.id))
+            const tableName = sanitizeSqlIdentifier(this.getTableName(personUpdate.id, personUpdate))
             const queryString = `
                 UPDATE ${tableName} SET
                     properties = $1,
