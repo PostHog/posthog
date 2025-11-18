@@ -333,15 +333,22 @@ async def test_assign_events_to_patterns_activity_standalone(
 
     # Store session summaries in DB for each session (following the new approach)
     for session_id in session_ids:
+        # Create a copy of the mock data with the correct session_id for each session
+        modified_data = deepcopy(mock_session_summary_serializer.data)
+        for segment_actions in modified_data.get("key_actions", []):
+            for event in segment_actions.get("events", []):
+                event["session_id"] = session_id
+        modified_serializer = SessionSummarySerializer(data=modified_data)
+        modified_serializer.is_valid(raise_exception=True)
+
         await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=session_id,
-            summary=mock_session_summary_serializer,
+            summary=modified_serializer,
             exception_event_ids=[],
             extra_summary_context=activity_input.extra_summary_context,
             created_by=auser,
         )
-
     # Verify summaries exist in DB before the activity
     summaries_before = await database_sync_to_async(
         SingleSessionSummary.objects.summaries_exist, thread_sensitive=False
@@ -352,7 +359,6 @@ async def test_assign_events_to_patterns_activity_standalone(
     )
     for session_id in session_ids:
         assert summaries_before.get(session_id), f"Summary should exist in DB for session {session_id}"
-
     # Store extracted patterns in Redis to be able to assign events to them
     mock_patterns = RawSessionGroupSummaryPatternsList.model_validate_json(
         '{"patterns": [{"pattern_id": 1, "pattern_name": "Mock Pattern", "pattern_description": "A test pattern", "severity": "medium", "indicators": ["test indicator"]}]}'
@@ -369,11 +375,9 @@ async def test_assign_events_to_patterns_activity_standalone(
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
     )
     redis_test_setup.keys_to_cleanup.append(patterns_key)
-
     # Set up spies to track Redis operations
     spy_get = mocker.spy(redis_client, "get")
     spy_setex = mocker.spy(redis_client, "setex")
-
     # Execute the activity
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
@@ -382,7 +386,6 @@ async def test_assign_events_to_patterns_activity_standalone(
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
         mock_activity_info.return_value.workflow_run_id = "test_run_id"
-
         # Mock the workflow handle with signal method
         mock_workflow_handle = MagicMock()
         mock_workflow_handle.signal = AsyncMock()
@@ -407,18 +410,17 @@ async def test_assign_events_to_patterns_activity_standalone(
             ],
         )
         mock_call_llm.return_value = mock_llm_response
-        result = await assign_events_to_patterns_activity(activity_input)
+        result, _ = await assign_events_to_patterns_activity(activity_input)
         # Verify the activity completed successfully
         assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
         assert len(result.patterns) >= 1  # Should have at least one pattern
         # Verify LLM was called (for pattern assignment)
         mock_call_llm.assert_called()  # May be called multiple times for chunks
         # Verify Redis operations:
-        # - 1 get to check if patterns assignments already cached
         # - 1 get to retrieve extracted patterns
-        # - 1 setex to store the final patterns with events
-        assert spy_get.call_count == 2
-        assert spy_setex.call_count == 1
+        # (results are stored in DB, not Redis)
+        assert spy_get.call_count == 1
+        assert spy_setex.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -442,10 +444,18 @@ async def test_assign_events_to_patterns_threshold_check(
 
     # Store session summaries in DB for each session (following the new approach)
     for session_id in session_ids:
+        # Create a copy of the mock data with the correct session_id for each session
+        modified_data = deepcopy(mock_session_summary_serializer.data)
+        for segment_actions in modified_data.get("key_actions", []):
+            for event in segment_actions.get("events", []):
+                event["session_id"] = session_id
+        modified_serializer = SessionSummarySerializer(data=modified_data)
+        modified_serializer.is_valid(raise_exception=True)
+
         await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
             team_id=ateam.id,
             session_id=session_id,
-            summary=mock_session_summary_serializer,
+            summary=modified_serializer,
             exception_event_ids=[],
             extra_summary_context=activity_input.extra_summary_context,
             created_by=auser,
@@ -573,7 +583,7 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_call_llm.return_value = mock_llm_response
 
         # Should succeed
-        result = await assign_events_to_patterns_activity(activity_input)
+        result, _ = await assign_events_to_patterns_activity(activity_input)
         assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
         assert len(result.patterns) == 3  # Should have 3 patterns with events
 
@@ -696,7 +706,7 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
         # Mock LLM call for pattern assignment
         mock_call_llm.return_value = mock_llm_response
         # Execute activity
-        result = await assign_events_to_patterns_activity(activity_input)
+        result, _ = await assign_events_to_patterns_activity(activity_input)
     # Assertions
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
     # Pattern 1 should only have mnop3456 (blocking, should be included), not xyz98765 (non-blocking, should be skipped)
@@ -877,7 +887,7 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         mock_call_llm.return_value = mock_llm_response
         # We provide 3 patters, it should fail if less than 75% of the patterns were successful
         # It would return just 2, but one pattern is empty through non-blocking exception removal - so, it should not fail
-        result = await assign_events_to_patterns_activity(activity_input)
+        result, _ = await assign_events_to_patterns_activity(activity_input)
     # Assertions
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
     # Pattern 1 should be removed (only non-blocking)
@@ -1101,10 +1111,18 @@ class TestSummarizeSessionGroupWorkflow:
 
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
+            # Create a copy of the mock data with the correct session_id for each session
+            modified_data = deepcopy(mock_session_summary_serializer.data)
+            for segment_actions in modified_data.get("key_actions", []):
+                for event in segment_actions.get("events", []):
+                    event["session_id"] = session_id
+            modified_serializer = SessionSummarySerializer(data=modified_data)
+            modified_serializer.is_valid(raise_exception=True)
+
             await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
-                summary=mock_session_summary_serializer,
+                summary=modified_serializer,
                 exception_event_ids=[],
                 extra_summary_context=workflow_input.extra_summary_context,
                 created_by=auser,
@@ -1134,18 +1152,20 @@ class TestSummarizeSessionGroupWorkflow:
                 id=workflow_id,
                 task_queue=worker.task_queue,
             )
-            # Verify the result is of the correct type
-            assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+            # Verify the result is of the correct type (now returns tuple of patterns and summary_id)
+            assert isinstance(result, tuple)
+            patterns_result, summary_id = result
+            assert isinstance(patterns_result, EnrichedSessionGroupSummaryPatternsList)
+            assert isinstance(summary_id, str)
             # Verify Redis operations
             # Since summaries are pre-stored in DB, only pattern-related Redis operations occur:
-            # setex operations: pattern extraction (1) + pattern assignment (1)
-            assert spy_setex.call_count == 2
+            # setex operations: pattern extraction (1) (pattern assignment now stores to DB)
+            assert spy_setex.call_count == 1
             # get operations:
             # - check if patterns already cached (1) - extract_session_group_patterns_activity
-            # - check if pattern assignments already cached (1) - assign_events_to_patterns_activity
             # - get extracted patterns for assignment (1) - assign_events_to_patterns_activity
             # - get patterns for progress tracking (2) - from workflow status queries
-            assert spy_get.call_count == 5
+            assert spy_get.call_count == 4
             # Verify DB operations
             # summaries_exist checks:
             # - check which sessions have summaries as batch (1) - fetch_session_batch_events_activity
@@ -1184,10 +1204,18 @@ class TestSummarizeSessionGroupWorkflow:
 
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
+            # Create a copy of the mock data with the correct session_id for each session
+            modified_data = deepcopy(mock_session_summary_serializer.data)
+            for segment_actions in modified_data.get("key_actions", []):
+                for event in segment_actions.get("events", []):
+                    event["session_id"] = session_id
+            modified_serializer = SessionSummarySerializer(data=modified_data)
+            modified_serializer.is_valid(raise_exception=True)
+
             await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
-                summary=mock_session_summary_serializer,
+                summary=modified_serializer,
                 exception_event_ids=[],
                 extra_summary_context=workflow_input.extra_summary_context,
                 created_by=auser,
@@ -1236,7 +1264,9 @@ class TestSummarizeSessionGroupWorkflow:
                     poll_count += 1
             # Get the final result
             result = await workflow_handle.result()
-            assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+            assert isinstance(result, tuple)
+            patterns_result, _ = result
+            assert isinstance(patterns_result, EnrichedSessionGroupSummaryPatternsList)
             # Verify we captured some status updates
             assert len(status_updates) > 0
             # Verify the types of status messages we received
@@ -1293,10 +1323,18 @@ class TestSummarizeSessionGroupWorkflow:
         )
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
+            # Create a copy of the mock data with the correct session_id for each session
+            modified_data = deepcopy(mock_session_summary_serializer.data)
+            for segment_actions in modified_data.get("key_actions", []):
+                for event in segment_actions.get("events", []):
+                    event["session_id"] = session_id
+            modified_serializer = SessionSummarySerializer(data=modified_data)
+            modified_serializer.is_valid(raise_exception=True)
+
             await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
                 team_id=ateam.id,
                 session_id=session_id,
-                summary=mock_session_summary_serializer,
+                summary=modified_serializer,
                 exception_event_ids=[],
                 extra_summary_context=workflow_input.extra_summary_context,
                 created_by=auser,
