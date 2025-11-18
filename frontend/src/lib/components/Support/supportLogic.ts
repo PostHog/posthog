@@ -266,6 +266,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Surveys',
             },
             {
+                value: 'tasks',
+                'data-attr': `support-form-target-area-tasks`,
+                label: 'Tasks',
+            },
+            {
                 value: 'toolbar',
                 'data-attr': `support-form-target-area-toolbar`,
                 label: 'Toolbar (incl. heatmaps)',
