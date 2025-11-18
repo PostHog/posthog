@@ -107,6 +107,11 @@ TRUST_SCORE_KEYS = {
     QuotaResource.AI_CREDITS: "ai_credits",
 }
 
+# These resources are exempt from any grace periods, whether trust-based or never_drop_data
+TRUST_EXEMPT_RESOURCES: set[QuotaResource] = {
+    QuotaResource.AI_CREDITS,
+}
+
 
 class UsageCounters(TypedDict):
     events: int
@@ -174,8 +179,8 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
 
 
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
-    limited_team_tokens_rows_synced = list_limited_team_attributes(resource, cache_key)
-    return team_api_token in limited_team_tokens_rows_synced
+    limited_team_attributes = list_limited_team_attributes(resource, cache_key)
+    return team_api_token in limited_team_attributes
 
 
 # -------------------------------------------------------------------------------------------------
@@ -205,9 +210,13 @@ def org_quota_limited_until(
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
-    # should be removed once all existing customers have this field set.
+    # should be removed once all existing customers have this field set. Negative score = resource is fully trust-exempt.
     trust_score = (
-        organization.customer_trust_scores.get(TRUST_SCORE_KEYS[resource]) if organization.customer_trust_scores else 0
+        -1
+        if resource in TRUST_EXEMPT_RESOURCES
+        else organization.customer_trust_scores.get(TRUST_SCORE_KEYS[resource])
+        if organization.customer_trust_scores
+        else 0
     )
 
     # Flow for checking quota limits:
@@ -241,28 +250,8 @@ def org_quota_limited_until(
             )
         return None
 
-    # 1b. AI credits have no grace period and ignore never_drop_data - immediately limit
-    if resource == QuotaResource.AI_CREDITS_USED:
-        report_organization_action(
-            organization,
-            "org_quota_limited_until",
-            properties={
-                "event": "suspended",
-                "current_usage": usage + todays_usage,
-                "resource": resource.value,
-                "trust_score": trust_score,
-            },
-        )
-        update_organization_usage_fields(
-            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
-        )
-        return {
-            "quota_limited_until": billing_period_end,
-            "quota_limiting_suspended_until": None,
-        }
-
     # 1c. never drop
-    if organization.never_drop_data:
+    if trust_score >= 0 and organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -304,9 +293,9 @@ def org_quota_limited_until(
             "quota_limiting_suspended_until": None,
         }
 
-    # 1c. feature flag to retain data past quota limit
+    # 1d. feature flag to retain data past quota limit
     # Note: this is rarely used but we want to keep it around for now and this is after check if they are already being limited
-    if posthoganalytics.feature_enabled(
+    if trust_score >= 0 and posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
         str(organization.id),
         groups={"organization": str(organization.id)},
@@ -340,7 +329,7 @@ def org_quota_limited_until(
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score and minimum_grace_period == 0:
+    if (trust_score is None or trust_score <= 0) and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
