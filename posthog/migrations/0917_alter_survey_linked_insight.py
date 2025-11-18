@@ -6,6 +6,8 @@ from django.db import migrations, models
 
 # manually updated to pass CI checks, using SeparateDatabaseAndState
 class Migration(migrations.Migration):
+    atomic = False  # Required for CREATE INDEX CONCURRENTLY
+
     dependencies = [
         ("posthog", "0916_alter_userproductlist_reason"),
     ]
@@ -29,7 +31,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     """
-                    CREATE INDEX IF NOT EXISTS "posthog_survey_linked_insight_id_586524f3" ON "posthog_survey" ("linked_insight_id"); -- existing-table-constraint-ignore
+                    CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_survey_linked_insight_id_586524f3" ON "posthog_survey" ("linked_insight_id"); -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         DROP INDEX IF EXISTS "posthog_survey_linked_insight_id_586524f3";

@@ -6,11 +6,12 @@ import { IconMessage } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { formatPercentage } from 'lib/utils'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, QueryBasedInsightModel } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { QueryBasedInsightModel } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { captureMaxAISurveyCreationException } from '../utils'

@@ -94,6 +94,8 @@ export interface InsightCardProps extends Resizeable {
     style?: React.CSSProperties
     children?: React.ReactNode
     tile?: DashboardTile<QueryBasedInsightModel>
+    /** survey opportunity for this insight */
+    surveyOpportunity?: boolean
 }
 
 function InsightCardInternal(
@@ -131,6 +133,7 @@ function InsightCardInternal(
         children,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
+        surveyOpportunity,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -251,6 +254,7 @@ function InsightCardInternal(
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
                             placement={placement}
+                            surveyOpportunity={surveyOpportunity}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
