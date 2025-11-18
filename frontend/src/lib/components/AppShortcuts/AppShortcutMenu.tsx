@@ -14,8 +14,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
-import { AppShortcutType } from './appShortcutLogic'
-import { appShortcutLogic } from './appShortcutLogic'
+import { AppShortcutType, appShortcutLogic } from './appShortcutLogic'
 
 function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
     switch (shortcut.interaction) {
