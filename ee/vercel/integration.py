@@ -334,7 +334,6 @@ class VercelIntegration:
                     code="unique",
                 )
 
-        # Create billing customer outside the transaction to prevent orphaned resources
         license = get_cached_instance_license()
         if license:
             try:
