@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -103,8 +103,13 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
     return surveys.map((s) => (s.id === id ? updatedSurvey : s))
 }
 
+export interface SurveysLogicProps {
+    trackIntentOnLoad?: boolean
+}
+
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
+    props({} as SurveysLogicProps),
     connect(() => ({
         values: [
             userLogic,
@@ -286,7 +291,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         deleteSurveySuccess: (_, __, action) => {
             lemonToast.success('Survey deleted')
             router.actions.push(urls.surveys())
@@ -309,13 +314,15 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEYS_VIEWED,
-                metadata: {
-                    surveys_count: values.data.surveysCount,
-                },
-            })
+            if (props.trackIntentOnLoad !== false) {
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEYS_VIEWED,
+                    metadata: {
+                        surveys_count: values.data.surveysCount,
+                    },
+                })
+            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
