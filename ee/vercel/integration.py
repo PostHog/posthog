@@ -356,10 +356,7 @@ class VercelIntegration:
                     )
                     capture_exception(cleanup_error)
 
-                raise exceptions.ValidationError(
-                    {"validation_error": "Failed to initialize billing. Please try again."},
-                    code="billing_error",
-                )
+                raise exceptions.APIException("Failed to initialize billing. Please try again.")
 
         if user_created:
             report_user_signed_up(
