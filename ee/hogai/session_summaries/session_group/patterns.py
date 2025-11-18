@@ -306,10 +306,10 @@ def _get_segment_name_and_outcome_from_session_summary(
 def _enrich_pattern_assigned_event_with_session_summary_data(
     pattern_assigned_event: PatternAssignedEvent,
     db_summary: SingleSessionSummary,
+    session_summary: SessionSummarySerializer,
     person: Person | None,
 ) -> PatternAssignedEventSegmentContext:
     """Attach session summary context to a pattern-assigned event."""
-    session_summary = session_summary_to_serializer(db_summary.summary)
     key_actions = session_summary.data["key_actions"]
     for segment_key_actions in key_actions:
         for event_index, event in enumerate(segment_key_actions["events"]):
@@ -376,6 +376,11 @@ def combine_patterns_ids_with_events_context(
     """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
     patterns_with_removed_non_blocking_exceptions = set()
+    # Creating mapping to avoid serializing the sessions on every event
+    session_id_to_serialized_summary_mapping = {
+        session_id: session_summary_to_serializer(db_summary.summary)
+        for session_id, db_summary in session_id_to_ready_summaries_mapping.items()
+    }
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
         for event_id in event_ids:
@@ -393,7 +398,8 @@ def combine_patterns_ids_with_events_context(
                 event_id=event_id, event_uuid=event_uuid, session_id=session_id
             )
             db_summary = session_id_to_ready_summaries_mapping.get(session_id)
-            if not db_summary:
+            session_summary = session_id_to_serialized_summary_mapping.get(session_id)
+            if not db_summary or not session_summary:
                 logger.exception(
                     f"Session summary not found in the DB for session id {session_id} when combining patterns with event ids "
                     f"for pattern_id {pattern_id}"
@@ -403,6 +409,7 @@ def combine_patterns_ids_with_events_context(
             event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
                 pattern_assigned_event=pattern_assigned_event,
                 db_summary=db_summary,
+                session_summary=session_summary,
                 person=session_id_to_person_mapping.get(session_id),
             )
             # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
