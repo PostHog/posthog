@@ -254,7 +254,9 @@ export function SessionGroupSummary(): JSX.Element {
     const [sortBy, setSortBy] = useState<'severity' | 'session_count'>('severity')
     const [searchValue, setSearchValue] = useState('')
     const [debouncedSearchValue, setDebouncedSearchValue] = useState('')
-    const summary = JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
+    const summary = useMemo(() => {
+        return JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
+    }, [sessionGroupSummary?.summary])
 
     const debouncedSetSearch = useRef(debounce((value: string) => setDebouncedSearchValue(value), 100)).current
 
