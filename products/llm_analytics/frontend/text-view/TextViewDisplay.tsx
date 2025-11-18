@@ -61,7 +61,7 @@ export function TextViewDisplay({
             if (popoutSegment !== null) {
                 const target = event.target as HTMLElement
                 if (!target.closest('[data-popout-content]') && !target.closest('[data-popout-button]')) {
-                    setPopoutSegment(null) // oxlint-disable-line react-hooks/exhaustive-deps
+                    setPopoutSegment(null)
                 }
             }
         }
@@ -72,7 +72,7 @@ export function TextViewDisplay({
                 document.removeEventListener('mousedown', handleClickOutside)
             }
         }
-    }, [popoutSegment])
+    }, [popoutSegment, setPopoutSegment])
 
     const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])
     const lineNumberPadding = useMemo(() => calculateLineNumberPadding(textRepr || ''), [textRepr])
