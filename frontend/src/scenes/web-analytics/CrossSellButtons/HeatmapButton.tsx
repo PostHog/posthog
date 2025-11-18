@@ -26,7 +26,7 @@ const VALID_BREAKDOWN_VALUES = new Set([
 ])
 
 export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.Element => {
-    const { domainFilter: webAnalyticsSelectedDomain } = useValues(webAnalyticsLogic)
+    const { domainFilter: webAnalyticsSelectedDomains } = useValues(webAnalyticsLogic)
 
     // Doesn't make sense to show the button if there's no value
     if (value === '') {
@@ -40,7 +40,7 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
     }
 
     // When there's no domain filter selected, display a disabled button with a tooltip
-    if (!webAnalyticsSelectedDomain || webAnalyticsSelectedDomain === 'all') {
+    if (!webAnalyticsSelectedDomains || webAnalyticsSelectedDomains.length === 0) {
         return (
             <LemonButton
                 disabledReason="Select a domain to view heatmaps"
@@ -53,10 +53,23 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
         )
     }
 
+    // When multiple domains are selected, display a disabled button with a tooltip
+    if (webAnalyticsSelectedDomains.length > 1) {
+        return (
+            <LemonButton
+                disabledReason="Select a single domain to view heatmaps"
+                icon={<IconHeatmap />}
+                type="tertiary"
+                size="xsmall"
+                tooltip="View heatmap for this page"
+                className="no-underline"
+            />
+        )
+    }
+
     // Normalize domain and path then join with a slash
-    const domain = webAnalyticsSelectedDomain.endsWith('/')
-        ? webAnalyticsSelectedDomain.slice(0, -1)
-        : webAnalyticsSelectedDomain
+    const selectedDomain = webAnalyticsSelectedDomains[0]
+    const domain = selectedDomain.endsWith('/') ? selectedDomain.slice(0, -1) : selectedDomain
     const path = value.startsWith('/') ? value.slice(1) : value
     const url = `${domain}/${path}`
 

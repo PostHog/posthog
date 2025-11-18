@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconGlobe, IconPhone } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconExternal, IconGear, IconGlobe, IconPhone } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconBranch, IconMonitor } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -171,53 +172,102 @@ const PathCleaningToggle = (): JSX.Element | null => {
     )
 }
 
-const DomainSettingsLink = (): JSX.Element => (
-    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
-)
-
 const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
+    if (hasHostFilter) {
+        return (
+            <LemonButton
+                className="grow md:grow-0"
+                size="small"
+                icon={<IconGlobe />}
+                type="secondary"
+                disabledReason="Host filter is active from property filters"
+            >
+                All domains (host filter active)
+            </LemonButton>
+        )
+    }
+
+    const isAllDomainsSelected = !domainFilter || domainFilter.length === 0
+    const selectedCount = domainFilter?.length ?? 0
+
+    const handleToggleDomain = (domain: string): void => {
+        if (!domainFilter || domainFilter.length === 0) {
+            // If "All domains" is selected, selecting a domain switches to that domain only
+            setDomainFilter([domain])
+        } else if (domainFilter.includes(domain)) {
+            // If domain is already selected, remove it
+            const newFilter = domainFilter.filter((d) => d !== domain)
+            setDomainFilter(newFilter.length > 0 ? newFilter : null)
+        } else {
+            // Add domain to selection
+            setDomainFilter([...domainFilter, domain])
+        }
+    }
+
+    const handleToggleAllDomains = (): void => {
+        setDomainFilter(null)
+    }
+
+    const isDisabled = authorizedDomains.length === 0
+
     return (
-        <LemonSelect
-            className="grow md:grow-0"
-            size="small"
-            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
-            icon={<IconGlobe />}
-            onChange={(value) => setDomainFilter(value)}
-            disabledReason={
-                authorizedDomains.length === 0 ? (
-                    <span>
-                        No authorized domains, authorize them on <DomainSettingsLink />
-                    </span>
-                ) : undefined
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="space-y-px p-1" style={{ minWidth: 200 }}>
+                    {/* "All domains" option */}
+                    <LemonButton
+                        fullWidth
+                        type="tertiary"
+                        size="small"
+                        onClick={handleToggleAllDomains}
+                        icon={<LemonCheckbox checked={isAllDomainsSelected} className="pointer-events-none" />}
+                    >
+                        All domains
+                    </LemonButton>
+
+                    {/* Individual domain options */}
+                    {authorizedDomains.map((domain) => {
+                        const isSelected = domainFilter?.includes(domain) ?? false
+                        return (
+                            <LemonButton
+                                key={domain}
+                                fullWidth
+                                type="tertiary"
+                                size="small"
+                                onClick={() => handleToggleDomain(domain)}
+                                icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
+                                sideAction={{
+                                    icon: <IconExternal />,
+                                    tooltip: 'Open domain',
+                                    onClick: (e) => {
+                                        e.stopPropagation()
+                                        window.open(domain, '_blank', 'noopener,noreferrer')
+                                    },
+                                }}
+                            >
+                                {domain}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
             }
-            options={[
-                {
-                    options: [
-                        {
-                            label: 'All domains',
-                            value: 'all',
-                        },
-                        ...(hasHostFilter
-                            ? [
-                                  {
-                                      label: 'All domains (host filter active)',
-                                      value: 'host',
-                                  },
-                              ]
-                            : []),
-                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
-                    ],
-                    footer: (
-                        <span className="text-xs px-2">
-                            Have more domains? Go to <DomainSettingsLink />
-                        </span>
-                    ),
-                },
-            ]}
-        />
+        >
+            <LemonButton
+                className="grow md:grow-0"
+                size="small"
+                icon={<IconGlobe />}
+                type="secondary"
+                disabled={isDisabled}
+                disabledReason={isDisabled ? 'No authorized domains. Configure them in settings.' : undefined}
+                data-attr="web-analytics-domain-selector"
+            >
+                {isAllDomainsSelected ? 'All domains' : `${selectedCount} selected`}
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
