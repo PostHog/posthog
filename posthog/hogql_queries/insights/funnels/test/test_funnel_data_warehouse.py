@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse
 from posthog.schema import (
     DataWarehouseNode,
     DateRange,
+    EventsNode,
     FunnelsQuery,
 )
 
@@ -18,7 +19,7 @@ TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel
 
 
 class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
-    def teardown_method(self) -> None:
+    def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
 
@@ -75,6 +76,56 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     distinct_id_field="user_id",
                     timestamp_field="created",
                 ),
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            result = runner.calculate()
+
+        # self.assertTrue(result.results.isUdf)
+
+        # assert response.columns is not None
+        # assert set(response.columns).issubset({"date", "total"})
+        # assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_and_regular_nodes(self):
+        table_name = self.setup_data_warehouse()
+        # events = [
+        #     {
+        #         "event": "step one",
+        #         "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+        #     },
+        #     # Exclusion happens after time expires
+        #     {
+        #         "event": "exclusion",
+        #         "timestamp": datetime(2021, 5, 1, 0, 0, 11),
+        #     },
+        #     {
+        #         "event": "step two",
+        #         "timestamp": datetime(2021, 5, 1, 0, 0, 12),
+        #     },
+        # ]
+        # journeys_for(
+        #     {
+        #         "user_one": events,
+        #     },
+        #     self.team,
+        # )
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                EventsNode(event="$pageview"),
                 DataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
