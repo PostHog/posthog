@@ -13,6 +13,7 @@ BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
 IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", False, type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
+ENABLE_SQL_QUERY_COMMENTS: bool = get_from_env("ENABLE_SQL_QUERY_COMMENTS", False, type_cast=str_to_bool)
 TEST = get_from_env(
     "TEST",
     "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),

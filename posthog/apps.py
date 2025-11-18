@@ -22,7 +22,8 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         self._setup_lazy_admin()
-        self._setup_commented_query()
+        if settings.ENABLE_SQL_QUERY_COMMENTS:
+            self._setup_commented_query()
 
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
