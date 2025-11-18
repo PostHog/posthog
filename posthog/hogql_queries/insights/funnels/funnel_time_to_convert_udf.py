@@ -10,21 +10,9 @@ from posthog.hogql.parser import parse_select
 from posthog.constants import FUNNEL_TO_STEP
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 
 
 class FunnelTimeToConvertUDF(FunnelBase):
-    def __init__(
-        self,
-        context: FunnelQueryContext,
-    ):
-        super().__init__(context)
-
-        self.funnel_order: FunnelUDF = get_funnel_order_class(self.context.funnelsFilter, use_udf=True)(
-            context=self.context
-        )
-
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(
             bins=[[bin_from_seconds, person_count] for bin_from_seconds, person_count, _ in results],
@@ -57,7 +45,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
                 f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(query.series))))} for time to convert!'
             )
 
-        inner_select = self.funnel_order._inner_aggregation_query()
+        inner_select = FunnelUDF(context=self.context)._inner_aggregation_query()
 
         timings = parse_select(
             f"""

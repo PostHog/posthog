@@ -12,8 +12,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
@@ -65,7 +64,6 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         super().__init__(context)
 
         self.just_summarize = just_summarize
-        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
 
         # In base, these fields only get added if you're running an actors query
         if "uuid" not in self._extra_event_fields:
@@ -449,7 +447,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
     ) -> ast.SelectQuery:
         team, interval, max_steps = self.context.team, self.context.interval, self.context.max_steps
 
-        steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
+        steps_per_person_query = FunnelUDF(context=self.context).get_step_counts_without_aggregation_query()
 
         event_select_clause: list[ast.Expr] = []
         if (
