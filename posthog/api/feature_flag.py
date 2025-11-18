@@ -1088,6 +1088,7 @@ def _proxy_to_flags_service(
     logger = logging.getLogger(__name__)
 
     flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+    proxy_timeout = getattr(settings, "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT", 3)
 
     payload: dict[str, Any] = {
         "token": token,
@@ -1104,7 +1105,7 @@ def _proxy_to_flags_service(
             f"{flags_service_url}/flags",
             params=params,
             json=payload,
-            timeout=3,
+            timeout=proxy_timeout,
         )
         response.raise_for_status()
         return response.json()
