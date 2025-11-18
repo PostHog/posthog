@@ -227,6 +227,10 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
         return None
 
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
+
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
