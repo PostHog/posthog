@@ -28,6 +28,21 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class _NoOpPostHogClient:
+    """
+    A no-op PostHog client that doesn't track events.
+
+    Used to disable tracking for LLM summarization calls to avoid noise in the central
+    PostHog project. The AsyncOpenAI wrapper checks for the presence of a 'capture'
+    method before tracking, so by not implementing it, we disable tracking entirely.
+
+    TODO: Re-evaluate this decision after v1. We may want to track summarization LLM
+    calls separately or with specific properties to distinguish them from other AI usage.
+    """
+
+    pass
+
+
 def _get_default_posthog_client():
     """Return the default analytics client after validating the environment."""
     if not settings.DEBUG and not is_cloud():
@@ -44,10 +59,18 @@ def _get_default_posthog_client():
 
 
 def _get_async_openai_client() -> AsyncOpenAI:
-    """Get configured OpenAI client with PostHog analytics tracking."""
-    client = _get_default_posthog_client()
+    """
+    Get configured OpenAI client with PostHog analytics tracking disabled.
+
+    We use a no-op client to disable tracking for v1 to avoid adding noise to the
+    central PostHog project, which already tracks all PostHog AI usage.
+    """
+    # Validate environment but don't use the client for tracking
+    _get_default_posthog_client()
+
+    # Use no-op client to disable tracking
     return AsyncOpenAI(
-        posthog_client=client,
+        posthog_client=_NoOpPostHogClient(),  # type: ignore[arg-type]
         timeout=SUMMARIZATION_TIMEOUT,
         base_url=getattr(settings, "OPENAI_BASE_URL", None),
     )
