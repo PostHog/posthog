@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.metrics import get_data_import_finished_metri
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -281,9 +282,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 is_resumable_source = isinstance(source, ResumableSource)
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=9)}
+                {
+                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
                 if incremental or is_resumable_source
-                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                else {
+                    "start_to_close_timeout": dt.timedelta(hours=24),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                    ),
+                }
             )
 
             await workflow.execute_activity(
@@ -326,6 +337,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             ):
                 # Check if this is a BillingLimitsWillBeReachedException - update the job status
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+            elif isinstance(e.cause, NonRetryableException):
+                update_inputs.status = ExternalDataJob.Status.FAILED
+                update_inputs.internal_error = str(e.cause.cause)
+                update_inputs.latest_error = str(e.cause.cause)
+                raise
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
