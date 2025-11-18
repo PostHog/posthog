@@ -20,11 +20,7 @@ REPORT_TIMEOUT_MS = 360000
 
 
 def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
-    """Parse Bing Ads CSV report data into list of dictionaries.
-
-    Bing Ads CSV reports include metadata headers and footers that need to be stripped.
-    The actual data starts after the column header line and ends before the copyright footer.
-    """
+    """Parse Bing Ads CSV report data into list of dictionaries."""
     if not csv_data or not csv_data.strip():
         return []
 
@@ -32,45 +28,10 @@ def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
     if csv_data.startswith("\ufeff"):
         csv_data = csv_data[1:]
 
-    lines = csv_data.strip().split("\n")
-
-    # Find the header line (contains column names without colons)
-    header_line_index = None
-    for i, line in enumerate(lines):
-        if "TimePeriod" in line and ":" not in line:
-            header_line_index = i
-            break
-
-    if header_line_index is None:
-        for i, line in enumerate(lines):
-            if any(col in line for col in ["CampaignName", "CampaignId", "Impressions"]) and ":" not in line:
-                header_line_index = i
-                break
-
-    if header_line_index is None:
-        logger.warning("Could not find header line in CSV data")
-        return []
-
-    # Extract data lines (from header to copyright footer)
-    data_lines = []
-    for i in range(header_line_index, len(lines)):
-        line = lines[i]
-        if line.startswith("©") or line.startswith('"©'):
-            break
-        data_lines.append(line)
-
-    if not data_lines:
-        return []
-
-    reader = csv.DictReader(data_lines)
-    result = []
+    reader = csv.DictReader(csv_data.strip().split("\n"))
 
     # Convert "--" and empty strings to None
-    for row in reader:
-        cleaned_row = {key: None if value in ("--", "") else value for key, value in row.items()}
-        result.append(cleaned_row)
-
-    return result
+    return [{key: None if value in ("--", "") else value for key, value in row.items()} for row in reader]
 
 
 def fetch_data_in_yearly_chunks(
@@ -142,8 +103,8 @@ def build_report_request(
     report_request = service_factory.create(report_config["report_type"])
     report_request.Aggregation = "Daily"
     report_request.ExcludeColumnHeaders = False
-    report_request.ExcludeReportFooter = False
-    report_request.ExcludeReportHeader = False
+    report_request.ExcludeReportFooter = True
+    report_request.ExcludeReportHeader = True
     report_request.Format = "Csv"
     report_request.ReturnOnlyCompleteData = False
     report_request.ReportName = report_config["report_name"]

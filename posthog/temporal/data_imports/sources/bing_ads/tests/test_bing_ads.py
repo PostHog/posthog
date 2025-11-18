@@ -17,12 +17,9 @@ class TestBingAdsHelperFunctions:
 
     def test_parse_csv_to_dicts_valid_data(self):
         """Test parsing valid CSV report data."""
-        csv_data = """Report Name: Campaign Performance Report
-Report Time: 1/1/2024-1/31/2024
-TimePeriod,CampaignId,CampaignName,Impressions,Clicks
+        csv_data = """TimePeriod,CampaignId,CampaignName,Impressions,Clicks
 2024-01-01,123,Test Campaign,1000,50
-2024-01-02,123,Test Campaign,1200,60
-© 2024 Microsoft Corporation"""
+2024-01-02,123,Test Campaign,1200,60"""
 
         result = parse_csv_to_dicts(csv_data)
 
