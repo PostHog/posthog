@@ -326,7 +326,6 @@ print(tokens)
 
 - **Authorization**: `/oauth/authorize/`
 - **Token Exchange**: `/oauth/token/`
-- **Token Revocation**: `/oauth/revoke/`
 - **Token Introspection**: `/oauth/introspect/`
 - **User Info**: `/oauth/userinfo/`
 - **JWKS (Public Keys)**: `/oauth/.well-known/jwks.json`
