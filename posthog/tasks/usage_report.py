@@ -969,10 +969,10 @@ def get_teams_with_ai_credits_used_in_period(
         "EU": 1,
         "US": 2,
     }
-    region = get_instance_region()  # "EU", "US", or None
-    # Default to US (team 2) if region is not set (e.g., in test environments)
-    team_to_query = cloud_region_to_team_id.get(region, 2)
-    region_value = region or "US"
+    region = get_instance_region()
+    assert region is not None, "Region must be set in production infrastructure"
+    team_to_query = cloud_region_to_team_id[region]
+    region_value = region
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
         results = sync_execute(
@@ -980,29 +980,32 @@ def get_teams_with_ai_credits_used_in_period(
             WITH trace_analysis AS (
                 SELECT
                     trace_id,
-                    tool_names,
-                    -- mark traces that contain ONLY docs search tool calls
                     multiIf(
-                        length(tool_names) > 0
-                            AND arrayAll(x -> x IN ['search'], tool_names),
-                        1,  -- has tool calls and ALL are 'search' -> we want to discard these
-                        0   -- no tool calls OR has at least one non-search tool
+                        length(tool_calls) > 0
+                            AND arrayAll(
+                                tc ->
+                                    JSONExtractString(tc, 'name') = 'search'
+                                    AND JSONExtractString(
+                                        JSONExtractRaw(tc, 'args'),
+                                        'kind'
+                                    ) = 'docs',
+                                tool_calls
+                            ),
+                        0,  -- all tool calls are docs-search → NOT billable
+                        1   -- everything else (no tools OR any non-docs-search tool) → billable
                     ) AS is_billable
                 FROM (
                     SELECT
                         JSONExtractString(properties, '$ai_trace_id') AS trace_id,
-                        arrayMap(
-                            x -> JSONExtractString(x, 'name'),
-                            arrayFlatten(
-                                arrayMap(
-                                    msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
-                                    JSONExtractArrayRaw(
-                                        JSONExtractRaw(properties, '$ai_output_state'),
-                                        'messages'
-                                    )
+                        arrayFlatten(
+                            arrayMap(
+                                msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
+                                JSONExtractArrayRaw(
+                                    JSONExtractRaw(properties, '$ai_output_state'),
+                                    'messages'
                                 )
                             )
-                        ) AS tool_names
+                        ) AS tool_calls
                     FROM events
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
@@ -1050,9 +1053,8 @@ def get_teams_with_ai_credits_used_in_period(
             FROM costs c
             LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
             WHERE
-                -- keep rows where trace is NOT search-only
-                -- (no tools OR has non-search tools) OR there's no trace at all
-                t.is_billable = 0 OR t.trace_id IS NULL
+                -- keep rows that are billable OR have no trace metadata
+                t.is_billable = 1 OR t.trace_id IS NULL
             GROUP BY
                 c.customer_team_id
             HAVING
@@ -1071,7 +1073,7 @@ def get_teams_with_ai_credits_used_in_period(
             settings=CH_BILLING_SETTINGS,
         )
 
-        return results
+    return results
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)

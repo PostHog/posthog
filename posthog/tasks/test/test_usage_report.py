@@ -2570,10 +2570,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
-    def test_ai_credits_with_billable_tools(self) -> None:
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:
         """Test that generations with non-search tools are billed correctly."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
+        mock_region.return_value = "US"
         self._setup_teams()
         # Create analytics team (team_id=2 for billing)
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -2628,10 +2630,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 120)
 
-    def test_ai_credits_with_only_search_tools(self) -> None:
-        """Test that generations with only search tools are NOT billed."""
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_only_search_tools(self, mock_region: MagicMock) -> None:
+        """Test that generations with only search tools with kind='docs' are NOT billed."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
+        mock_region.return_value = "US"
         self._setup_teams()
         # Create analytics team (team_id=2 for billing)
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -2640,7 +2644,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # Create a trace with only search tools
+        # Create a trace with only search tools with kind='docs'
         _create_event(
             event="$ai_trace",
             team=analytics_team,
@@ -2652,8 +2656,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                     "messages": [
                         {
                             "tool_calls": [
-                                {"name": "search"},
-                                {"name": "search"},
+                                {"name": "search", "args": {"kind": "docs"}},
+                                {"name": "search", "args": {"kind": "docs"}},
                             ]
                         }
                     ]
@@ -2681,13 +2685,76 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
-        # Expected: No charges for search-only traces
+        # Expected: No charges for search-only traces with kind='docs'
         self.assertEqual(len(result), 0)
 
-    def test_ai_credits_filters_non_billable(self) -> None:
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_search_non_docs_kind(self, mock_region: MagicMock) -> None:
+        """Test that generations with only search tools but kind != 'docs' ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with only search tools but kind='web' (not 'docs')
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable_search",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search", "args": {"kind": "web"}},
+                                {"name": "search", "args": {"kind": "web"}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for this trace (should be billed)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable_search",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 0.5 USD * 100 * 1.2 = 60 credits
+        # Search with kind='web' should be billable
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_filters_non_billable(self, mock_region: MagicMock) -> None:
         """Test that non-billable generations and invalid costs are filtered out."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
+        mock_region.return_value = "US"
         self._setup_teams()
         # Create analytics team (team_id=2 for billing)
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -2778,10 +2845,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 60)
 
-    def test_ai_credits_with_no_tool_calls(self) -> None:
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_no_tool_calls(self, mock_region: MagicMock) -> None:
         """Test that generations with no tool calls ARE billed."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
+        mock_region.return_value = "US"
         self._setup_teams()
         # Create analytics team (team_id=2 for billing)
         analytics_org = Organization.objects.create(name="PostHog Analytics")
@@ -2833,43 +2902,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 60)
-
-    def test_ai_credits_without_trace_event(self) -> None:
-        """Test that generations without a corresponding trace event ARE billed."""
-        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
-
-        self._setup_teams()
-        # Create analytics team (team_id=2 for billing)
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        # Create billable generation WITHOUT a corresponding trace event
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_no_event",
-                "$ai_total_cost_usd": 1.5,
-                "$ai_billable": True,
-                "region": "US",
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
-
-        # Expected: 1.5 USD * 100 * 1.2 = 180 credits
-        # Generations without trace events should be billed
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], self.org_1_team_1.id)
-        self.assertEqual(result[0][1], 180)
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_uses_correct_team_for_us_region(self, mock_region: MagicMock) -> None:
