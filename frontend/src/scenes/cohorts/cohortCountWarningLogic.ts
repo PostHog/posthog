@@ -1,7 +1,7 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActorsQuery, DataTableNode } from '~/queries/schema/schema-general'
+import { ActorsQuery, ActorsQueryResponse, DataTableNode } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
 
 import type { cohortCountWarningLogicType } from './cohortCountWarningLogicType'
@@ -24,7 +24,7 @@ export const cohortCountWarningLogic = kea<cohortCountWarningLogicType>([
     selectors(({ props }) => ({
         shouldShowCountWarning: [
             (s, p) => [s.response, p.query],
-            (response: any, query: DataTableNode): boolean => {
+            (response: ActorsQueryResponse, query: DataTableNode): boolean => {
                 const { cohort } = props
 
                 if (!cohort.count || cohort.is_calculating || cohort.id === 'new' || cohort.is_static) {
@@ -35,7 +35,7 @@ export const cohortCountWarningLogic = kea<cohortCountWarningLogicType>([
                     return false
                 }
 
-                if ((response as any)?.hasMore) {
+                if (response.hasMore) {
                     return false
                 }
 
