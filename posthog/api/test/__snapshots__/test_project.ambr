@@ -3,18 +3,18 @@
   '''
   DELETE
   FROM "posthog_persondistinctid"
-  WHERE ("id",
-         "team_id") IN ((1,
-                         2)/* ... */)
+  WHERE ("team_id",
+         "id") IN ((1,
+                    2)/* ... */)
   '''
 # ---
 # name: TestProjectAPI.test_delete_bulky_postgres_data.1
   '''
   DELETE
   FROM "posthog_person"
-  WHERE ("id",
-         "team_id") IN ((1,
-                         2)/* ... */)
+  WHERE ("team_id",
+         "id") IN ((1,
+                    2)/* ... */)
   '''
 # ---
 # name: TestProjectAPI.test_delete_bulky_postgres_data.2
