@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from bingads.v13.reporting import ReportingDownloadParameters
 
 from .schemas import BingAdsResource
 
@@ -154,8 +155,6 @@ def download_and_extract_report_csv(
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         filename = f"{report_type}_{account_id}_{uuid.uuid4()}.zip"
-
-        from bingads.v13.reporting import ReportingDownloadParameters
 
         download_params = ReportingDownloadParameters(
             report_request=report_request,
