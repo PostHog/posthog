@@ -137,7 +137,11 @@ export const sessionGroupSummarySceneLogic = kea<sessionGroupSummarySceneLogicTy
             const patternId = hashParams.patternId ? Number(hashParams.patternId) : null
             const targetEventId = hashParams.targetEventId || null
 
-            if (patternId !== null && targetEventId && values.selectedEventUuid !== targetEventId) {
+            if (
+                patternId !== null &&
+                targetEventId &&
+                (values.selectedEventUuid !== targetEventId || values.selectedPatternId !== patternId)
+            ) {
                 actions.openSessionDetails(patternId, targetEventId)
             } else if (!patternId && !targetEventId && values.selectedEventUuid) {
                 actions.closeSessionDetails()
