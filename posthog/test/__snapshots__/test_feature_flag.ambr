@@ -125,6 +125,16 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type
   '''
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -215,42 +225,16 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.1
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.10
   '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginconfig"."web_token",
-         "posthog_plugin"."config_schema",
-         "posthog_pluginconfig"."config"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
+  SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 99999
+         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.11
@@ -729,19 +713,24 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.2
   '''
-  SELECT "posthog_integration"."id",
-         "posthog_integration"."team_id",
-         "posthog_integration"."kind",
-         "posthog_integration"."integration_id",
-         "posthog_integration"."config",
-         "posthog_integration"."sensitive_config",
-         "posthog_integration"."errors",
-         "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
-  FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.20
@@ -1099,28 +1088,45 @@
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.3
   '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  SELECT "posthog_integration"."id",
+         "posthog_integration"."team_id",
+         "posthog_integration"."kind",
+         "posthog_integration"."integration_id",
+         "posthog_integration"."config",
+         "posthog_integration"."sensitive_config",
+         "posthog_integration"."errors",
+         "posthog_integration"."created_at",
+         "posthog_integration"."created_by_id"
+  FROM "posthog_integration"
+  WHERE ("posthog_integration"."kind" = 'vercel'
+         AND "posthog_integration"."team_id" = 99999)
+  LIMIT 21
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.4
   '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
+  '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
          "posthog_integration"."kind",
@@ -1136,7 +1142,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.5
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1158,7 +1164,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.6
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.7
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -1175,7 +1181,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.7
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.8
   '''
   SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"'::jsonb)
            OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb))
@@ -1188,7 +1194,7 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.8
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.9
   '''
   SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb)
           AND "posthog_person"."properties" ? 'Distinct Id'
@@ -1200,19 +1206,17 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.9
+# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag
   '''
-  SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb
-          AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
+  SELECT "posthog_person"."uuid"
   FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 99999
+  WHERE ("posthog_person"."id" = 99999
          AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag
+# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.1
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1302,28 +1306,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.1
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.10
@@ -1482,6 +1464,28 @@
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.2
   '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.3
+  '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
          "posthog_integration"."kind",
@@ -1497,7 +1501,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.3
+# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.4
   '''
   SELECT (("posthog_person"."properties" ->> 'email')::text ~ '["neil@x.com"]'
           AND "posthog_person"."properties" ? 'email'
@@ -1509,7 +1513,7 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.4
+# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.5
   '''
   SELECT (("posthog_person"."properties" ->> 'email')::text ~ '["neil@x.com"]'
           AND "posthog_person"."properties" ? 'email'
@@ -1519,15 +1523,6 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
          AND "posthog_persondistinctid"."team_id" = 99999
          AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.5
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.6
@@ -2001,6 +1996,16 @@
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases
   '''
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."id" = 99999
+         AND "posthog_person"."team_id" = 99999)
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.1
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2089,28 +2094,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.1
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.10
@@ -2333,12 +2316,34 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.3
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.4
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -2355,7 +2360,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.4
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.5
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -2382,7 +2387,7 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.5
+# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.6
   '''
   SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
@@ -2417,15 +2422,6 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'
          AND "posthog_persondistinctid"."team_id" = 99999
          AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.6
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.7
