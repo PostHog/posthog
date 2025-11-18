@@ -11,7 +11,7 @@ from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_tr
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
 from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_summary_activity
-from posthog.temporal.llm_analytics.trace_summarization.workflows import BatchTraceSummarizationWorkflow
+from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 
 @pytest.fixture

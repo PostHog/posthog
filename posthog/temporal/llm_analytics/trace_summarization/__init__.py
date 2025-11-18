@@ -19,7 +19,7 @@ from posthog.temporal.llm_analytics.trace_summarization.sampling import query_tr
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_summary_activity
 
 # Export workflow
-from posthog.temporal.llm_analytics.trace_summarization.workflows import BatchTraceSummarizationWorkflow
+from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 __all__ = [
     # Activities

@@ -298,7 +298,7 @@ After this workflow is in production:
 Run tests:
 
 ```bash
-pytest posthog/temporal/llm_analytics/trace_summarization/test_workflows.py -v
+pytest posthog/temporal/llm_analytics/trace_summarization/test_workflow.py -v
 ```
 
 Test coverage:
@@ -315,7 +315,7 @@ The implementation is split into focused, single-responsibility modules:
 
 **Core workflow:**
 
-- `workflows.py` - Workflow orchestration (~180 lines)
+- `workflow.py` - Workflow orchestration (~180 lines)
 - `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`
 - `constants.py` - Configuration constants (timeouts, defaults, property names)
 
