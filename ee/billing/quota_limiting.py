@@ -295,7 +295,7 @@ def org_quota_limited_until(
 
     # 1d. feature flag to retain data past quota limit
     # Note: this is rarely used but we want to keep it around for now and this is after check if they are already being limited
-    if trust_score >= 0 and posthoganalytics.feature_enabled(
+    if posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
         str(organization.id),
         groups={"organization": str(organization.id)},
