@@ -405,6 +405,10 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Feature flags service URL
+# This is used to proxy flag evaluation requests to the Rust feature flags service
+FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
 
 CACHES = {
     "default": {
