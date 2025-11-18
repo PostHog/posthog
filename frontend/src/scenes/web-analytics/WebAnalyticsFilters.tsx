@@ -273,7 +273,11 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                 disabledReason={isDisabled ? 'No authorized domains. Configure them in settings.' : undefined}
                 data-attr="web-analytics-domain-selector"
             >
-                {isAllDomainsSelected ? 'All domains' : `${selectedCount} selected`}
+                {isAllDomainsSelected
+                    ? 'All domains'
+                    : selectedCount === 1
+                      ? domainFilter![0]
+                      : `${selectedCount} selected`}
             </LemonButton>
         </LemonDropdown>
     )
