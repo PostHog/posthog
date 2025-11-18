@@ -72,6 +72,10 @@ class TestCompositeCommandExecution:
     @patch("hogli.core.command_types._run")
     def test_executes_all_steps_in_sequence(self, mock_run: MagicMock) -> None:
         """Test all steps are executed in order."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
         cmd = CompositeCommand(
             "reset",
             {"steps": ["docker:services:down", "docker:services:up", "migrations:run"]},
@@ -82,9 +86,9 @@ class TestCompositeCommandExecution:
         assert mock_run.call_count == 3
         calls = [call[0][0] for call in mock_run.call_args_list]
         assert calls == [
-            ["hogli", "docker:services:down"],
-            ["hogli", "docker:services:up"],
-            ["hogli", "migrations:run"],
+            [bin_hogli, "docker:services:down"],
+            [bin_hogli, "docker:services:up"],
+            [bin_hogli, "migrations:run"],
         ]
 
     @patch("hogli.core.command_types._run")

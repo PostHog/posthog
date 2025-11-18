@@ -4,7 +4,6 @@ from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
@@ -18,6 +17,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
@@ -39,7 +39,6 @@ class UpdateIssueQueryArgs(BaseModel):
 class ErrorTrackingIssueFilteringTool(MaxTool):
     name: str = "filter_error_tracking_issues"
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
-    thinking_message: str = "Updating your error tracking filters..."
     context_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
@@ -83,7 +82,15 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        )
 
     def _parse_output(self, output: str) -> ErrorTrackingIssueFilteringToolOutput:
         match = re.search(r"<output>(.*?)</output>", output, re.DOTALL)
@@ -173,7 +180,6 @@ class IssueImpactQueryArgs(BaseModel):
 class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_impactful_issue_event_list"
     description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
-    thinking_message: str = "Finding related issues"
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 

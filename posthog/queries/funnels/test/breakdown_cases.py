@@ -150,7 +150,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = funnel.run()
 
             self._assert_funnel_breakdown_result_is_correct(
-                result[0],
+                result[2],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Safari", "14"], count=1),
                     FunnelStepResult(name="play movie", breakdown=["Safari", "14"], count=0),
@@ -188,7 +188,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             self._assert_funnel_breakdown_result_is_correct(
-                result[2],
+                result[0],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Chrome", "95"], count=1),
                     FunnelStepResult(
@@ -306,6 +306,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 self._get_actor_ids_at_step(filter, 2, "Chrome"),
                 [people["person1"].uuid],
             )
+
             self._assert_funnel_breakdown_result_is_correct(
                 result[1],
                 [
@@ -1082,7 +1083,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertEqual(len(result), 2)
 
             self._assert_funnel_breakdown_result_is_correct(
-                result[0],
+                result[1],
                 [
                     FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
                     FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
@@ -1096,7 +1097,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Chrome"), [])
 
             self._assert_funnel_breakdown_result_is_correct(
-                result[1],
+                result[0],
                 [
                     FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
                     FunnelStepResult(

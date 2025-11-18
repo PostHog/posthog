@@ -392,7 +392,7 @@ class AssistantContextManager(AssistantContextMixin):
         return self._deduplicate_context_messages(state, prompts)
 
     def _get_contextual_tools_prompt(self) -> str | None:
-        from ee.hogai.tool import get_contextual_tool_class
+        from ee.hogai.registry import get_contextual_tool_class
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
@@ -414,8 +414,6 @@ class AssistantContextManager(AssistantContextMixin):
     def _inject_context_messages(
         self, state: BaseStateWithMessages, context_prompts: list[str]
     ) -> list[AssistantMessageUnion]:
-        context_messages = [
-            ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
-        ]
+        context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)

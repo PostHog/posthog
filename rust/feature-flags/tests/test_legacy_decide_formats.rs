@@ -20,7 +20,7 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Insert test flags - one enabled, one with variant, one disabled
     let flags_json = json!([
@@ -90,7 +90,7 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -169,7 +169,7 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     // Insert test flags
     let flags_json = json!([
@@ -222,7 +222,7 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;
@@ -291,7 +291,7 @@ async fn test_decide_header_changes_version_interpretation() -> Result<()> {
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
+    let token = team.api_token.clone();
 
     let flags_json = json!([
         {
@@ -316,7 +316,7 @@ async fn test_decide_header_changes_version_interpretation() -> Result<()> {
     insert_flags_for_team_in_redis(
         client,
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json.to_string()),
     )
     .await?;

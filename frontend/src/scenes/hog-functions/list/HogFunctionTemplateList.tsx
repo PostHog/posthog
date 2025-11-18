@@ -53,7 +53,13 @@ export function HogFunctionTemplateList({
                         title: '',
                         width: 0,
                         render: function RenderIcon(_, template) {
-                            return <HogFunctionIcon src={template.icon_url} size="small" />
+                            return (
+                                <HogFunctionIcon
+                                    src={template.icon_url}
+                                    className={template.icon_class_name}
+                                    size="small"
+                                />
+                            )
                         },
                     },
                     {

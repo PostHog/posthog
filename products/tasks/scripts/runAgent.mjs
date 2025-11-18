@@ -14,11 +14,29 @@ function parseArgs() {
     return parsed
 }
 
-export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns) {
+export async function runAgent(
+    taskId,
+    repositoryPath,
+    posthogApiUrl,
+    posthogApiKey,
+    posthogProjectId,
+    prompt,
+    maxTurns
+) {
+    const envOverrides = {
+        POSTHOG_API_KEY: posthogApiKey,
+        POSTHOG_API_HOST: posthogApiUrl,
+        POSTHOG_AUTH_HEADER: `Bearer ${posthogApiKey}`,
+        ANTHROPIC_API_KEY: posthogApiKey,
+        ANTHROPIC_AUTH_TOKEN: posthogApiKey,
+        ANTHROPIC_BASE_URL: `${posthogApiUrl}/api/projects/${parseInt(posthogProjectId, 10)}/llm_gateway`,
+    }
+
     const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
+        debug: true,
         onEvent: (event) => {
             if (event.type !== 'token') {
                 console.info(JSON.stringify({ type: 'event', data: event }))
@@ -30,6 +48,7 @@ export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApi
         const options = {
             repositoryPath,
             permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
         }
 
         if (maxTurns) {
@@ -43,7 +62,12 @@ export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApi
         await agent.runTask(taskId, {
             repositoryPath,
             permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
+            createPR: true,
             autoProgress: true,
+            queryOverrides: {
+                env: envOverrides,
+            },
         })
     }
 }
@@ -68,6 +92,7 @@ async function main() {
 
     const posthogApiUrl = process.env.POSTHOG_API_URL
     const posthogApiKey = process.env.POSTHOG_PERSONAL_API_KEY
+    const posthogProjectId = process.env.POSTHOG_PROJECT_ID
 
     if (!posthogApiUrl) {
         console.error('Missing required environment variables: POSTHOG_API_URL')
@@ -79,8 +104,13 @@ async function main() {
         process.exit(1)
     }
 
+    if (!prompt && !posthogProjectId) {
+        console.error('Missing required environment variables: POSTHOG_PROJECT_ID')
+        process.exit(1)
+    }
+
     try {
-        await runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns)
+        await runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, posthogProjectId, prompt, maxTurns)
         process.exit(0)
     } catch (error) {
         console.error(

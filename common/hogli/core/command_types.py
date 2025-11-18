@@ -202,10 +202,15 @@ class CompositeCommand(Command):
 
     def execute(self, *args: str) -> None:
         """Execute each step in sequence."""
+        from hogli.core.manifest import REPO_ROOT
+
         steps = self.config.get("steps", [])
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
         for step in steps:
             click.echo(f"✨ Executing: {step}")
             try:
-                _run(["hogli", step])
+                # Use bin/hogli for both Flox and non-Flox compatibility
+                _run([bin_hogli, step])
             except SystemExit:
                 raise

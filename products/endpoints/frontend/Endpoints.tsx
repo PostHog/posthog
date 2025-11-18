@@ -14,6 +14,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { EndpointType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
@@ -199,7 +200,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
     ]
 
     return (
-        <>
+        <SceneContent>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
                     type="search"
@@ -232,6 +233,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 emptyState="No endpoints matching your filters!"
                 nouns={['endpoint', 'endpoints']}
             />
-        </>
+        </SceneContent>
     )
 }

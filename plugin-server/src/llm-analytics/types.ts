@@ -7,7 +7,10 @@ export interface Evaluation {
     name: string
     description?: string
     enabled: boolean
-    prompt: string
+    evaluation_type: string
+    evaluation_config: Record<string, any>
+    output_type: string
+    output_config: Record<string, any>
     conditions: EvaluationConditionSet[]
     created_at: string
     updated_at: string

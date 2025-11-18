@@ -8,6 +8,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import {
     IconCursor,
     IconFunnels,
+    IconGraph,
     IconHogQL,
     IconLifecycle,
     IconPeople,
@@ -32,6 +33,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
+import { addInsightsToNotebookModalLogic } from '../AddInsightsToNotebookModal/addInsightsToNotebookModalLogic'
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeType } from '../types'
@@ -286,6 +288,15 @@ order by count() desc
                     },
                 })
             ),
+    },
+    {
+        title: 'Insight',
+        search: 'insight saved existing browse',
+        icon: <IconGraph color="currentColor" />,
+        command: (chain) => {
+            addInsightsToNotebookModalLogic.actions.toggleIsAddInsightsToNotebookModalOpen()
+            return chain
+        },
     },
     {
         title: 'People',

@@ -99,8 +99,8 @@ Track research progress:
 ```json
 {{
     "todos": [{{
-        "id": int,
-        "description": string,
+        "id": string,
+        "content": string,
         "status": "pending" | "in_progress" | "completed",
         "priority": "low" | "medium" | "high"
     }}]
@@ -119,7 +119,6 @@ Batch execute parallel tasks by assigning them to AI assistants:
         "id": string, // a memorable id for the task e.g. "trend_signups_last_90_days"
         "description": string,  // Brief task summary shown to user
         "prompt": string,  // Detailed instructions for the assistant (e.g., "Analyze user signups trend for the last 30 days, break down by device type")
-        "status": Literal["pending"], // Always set to pending
         "artifact_ids": Optional[list[string]]  // Reference previous artifacts to build upon
         "type": Literal["create_insight"]
     }}]

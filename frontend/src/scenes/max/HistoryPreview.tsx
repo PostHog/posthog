@@ -17,13 +17,12 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
     const { toggleConversationHistory, openConversation } = useActions(maxLogic)
 
-    // No need to render if we do not have any conversations to show.
-    if (!conversationHistory.length) {
+    if (!conversationHistory.length && !conversationHistoryLoading) {
         return null
     }
 
     return (
-        <div className="max-w-120 w-full self-center flex flex-col gap-2 min-h-[6rem]">
+        <div className="max-w-120 w-full self-center flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2 -mr-2">
                 <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
                 <LemonButton
@@ -35,7 +34,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     View all
                 </LemonButton>
             </div>
-            {conversationHistoryLoading ? (
+            {conversationHistoryLoading && !conversationHistory.length ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
                     <LemonSkeleton className="h-5 w-full" />

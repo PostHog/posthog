@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
@@ -17,7 +18,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
@@ -26,7 +26,11 @@ import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { ERROR_TRACKING_SCENE_LOGIC_KEY, errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import {
+    ERROR_TRACKING_SCENE_LOGIC_KEY,
+    ErrorTrackingSceneActiveTab,
+    errorTrackingSceneLogic,
+} from './errorTrackingSceneLogic'
 import { ImpactFilters } from './tabs/impact/ImpactFilters'
 import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
@@ -43,6 +47,11 @@ export function ErrorTrackingScene(): JSX.Element {
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
+    useEffect(() => {
+        posthog.capture('error_tracking_issues_list_viewed', { active_tab: activeTab })
+        // oxlint-disable-next-line exhaustive-deps we only want to fire when the page is first loaded
+    }, [])
+
     return (
         <SceneContent>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
@@ -58,7 +67,7 @@ export function ErrorTrackingScene(): JSX.Element {
                             <div>
                                 <TabsPrimitive
                                     value={activeTab}
-                                    onValueChange={setActiveTab}
+                                    onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
                                     className="border rounded bg-surface-primary"
                                 >
                                     <TabsPrimitiveList className="border-b">
@@ -146,7 +155,6 @@ const Header = (): JSX.Element => {
                     </>
                 }
             />
-            <SceneDivider />
         </>
     )
 }

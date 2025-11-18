@@ -1,4 +1,4 @@
 #!/bin/sh
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
-exec "$SCRIPT_DIR/migrate-all" behavioral-cohorts
+exec "$SCRIPT_DIR/migrate-entry" behavioral-cohorts

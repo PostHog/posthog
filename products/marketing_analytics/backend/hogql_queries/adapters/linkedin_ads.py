@@ -59,7 +59,22 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "cost_in_usd"])])
+        base_currency = self.context.base_currency
+
+        # Get cost
+        cost_field = ast.Field(chain=[stats_table_name, "cost_in_usd"])
+        cost_float = ast.Call(name="toFloat", args=[cost_field])
+        sum = ast.Call(name="SUM", args=[cost_float])
+
+        # LinkedIn Ads costs are already in USD, convert to base currency if not USD
+        if base_currency.upper() != "USD":
+            usd_currency = ast.Constant(value="USD")
+            convert_currency = ast.Call(
+                name="convertCurrency", args=[usd_currency, ast.Constant(value=base_currency), sum]
+            )
+            return ast.Call(name="toFloat", args=[convert_currency])
+
+        # Base currency is already USD, no conversion needed
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_field(self) -> ast.Expr:

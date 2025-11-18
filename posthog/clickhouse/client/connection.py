@@ -165,6 +165,7 @@ def get_kwargs_for_client(
     if workload == Workload.LOGS:
         return {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
             "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
             "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,

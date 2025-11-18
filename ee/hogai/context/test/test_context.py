@@ -377,9 +377,9 @@ Query results: 42 events
         state = AssistantState(
             messages=[
                 HumanMessage(content="User message 1"),
-                ContextMessage(content="Existing context 1", id="1", visible=False),
+                ContextMessage(content="Existing context 1", id="1"),
                 AssistantMessage(content="Response"),
-                ContextMessage(content="Existing context 2", id="2", visible=False),
+                ContextMessage(content="Existing context 2", id="2"),
                 HumanMessage(content="User message 2"),
             ]
         )
@@ -453,18 +453,15 @@ Query results: 42 events
             configurable={
                 "contextual_tools": {
                     "search_session_recordings": {"current_filters": {}},
-                    "navigate": {"page_key": "insights"},
                 }
             }
         )
         context_manager = AssistantContextManager(self.team, self.user, config)
         tools = context_manager.get_contextual_tools()
 
-        self.assertEqual(len(tools), 2)
+        self.assertEqual(len(tools), 1)
         self.assertIn("search_session_recordings", tools)
-        self.assertIn("navigate", tools)
         self.assertEqual(tools["search_session_recordings"], {"current_filters": {}})
-        self.assertEqual(tools["navigate"], {"page_key": "insights"})
 
     def test_get_contextual_tools_empty(self):
         """Test extraction of contextual tools returns empty dict when no tools"""
@@ -501,7 +498,7 @@ Query results: 42 events
         result = self.context_manager._format_entity_context([], "events", "Event")
         self.assertEqual(result, "")
 
-    @patch("ee.hogai.tool.get_contextual_tool_class")
+    @patch("ee.hogai.registry.get_contextual_tool_class")
     def test_get_contextual_tools_prompt(self, mock_get_contextual_tool_class):
         """Test generation of contextual tools prompt"""
         # Mock the tool class
@@ -563,8 +560,6 @@ Query results: 42 events
         assert isinstance(result[3], ContextMessage)
         self.assertEqual(result[2].content, "Context 1")
         self.assertEqual(result[3].content, "Context 2")
-        self.assertFalse(result[2].visible)
-        self.assertFalse(result[3].visible)
 
     async def test_get_state_messages_with_context(self):
         """Test that context messages are properly added to state"""

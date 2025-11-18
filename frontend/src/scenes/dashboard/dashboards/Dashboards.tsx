@@ -15,7 +15,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -77,7 +76,6 @@ export function Dashboards(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(newKey) => setCurrentTab(newKey)}

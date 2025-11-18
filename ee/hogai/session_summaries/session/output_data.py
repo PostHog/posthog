@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 import structlog
@@ -12,11 +13,24 @@ from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 logger = structlog.get_logger(__name__)
 
 
+class SessionSummaryIssueTypes(str, Enum):
+    ABANDONMENT = "abandonment"
+    CONFUSION = "confusion"
+    EXCEPTION = "exception"
+
+
+class SessionSummaryExceptionTypes(str, Enum):
+    BLOCKING = "blocking"
+    NON_BLOCKING = "non-blocking"
+
+
 class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
     abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
     confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
-    exception = serializers.ChoiceField(choices=["blocking", "non-blocking"], required=False, allow_null=True)
+    exception = serializers.ChoiceField(
+        choices=[e.value for e in SessionSummaryExceptionTypes], required=False, allow_null=True
+    )
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
@@ -430,9 +444,9 @@ def _calculate_segment_meta(
     confusion_count = 0
     exception_count = 0
     for key_action_event in key_group_events:
-        abandonment = key_action_event.get("abandonment")
-        confusion = key_action_event.get("confusion")
-        exception = key_action_event.get("exception")
+        abandonment = key_action_event.get(SessionSummaryIssueTypes.ABANDONMENT.value)
+        confusion = key_action_event.get(SessionSummaryIssueTypes.CONFUSION.value)
+        exception = key_action_event.get(SessionSummaryIssueTypes.EXCEPTION.value)
         # Count each type of issue
         if abandonment:
             abandonment_count += 1

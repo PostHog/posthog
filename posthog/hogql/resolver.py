@@ -330,7 +330,7 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table_by_chain(table_name_chain)
+            database_table = self.database.get_table(table_name_chain)  # type: ignore
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -828,6 +828,13 @@ class Resolver(CloningVisitor):
 
     def visit_dict(self, node: ast.Dict):
         return self.visit(convert_to_hx(node))
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        node = super().visit_between_expr(node)
+        if node is None:
+            return None
+        node.type = ast.BooleanType(nullable=False)
+        return node
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)

@@ -17,7 +17,7 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.file_system.file_system_view_log import annotate_file_system_with_view_logs
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -103,6 +103,33 @@ class FileSystemViewLogSerializer(serializers.Serializer):
     viewed_at = serializers.DateTimeField(required=False)
 
 
+class FileSystemViewLogListQuerySerializer(serializers.Serializer):
+    type = serializers.CharField(required=False, allow_blank=True)
+    limit = serializers.IntegerField(required=False, min_value=1)
+
+
+def tokenize_search(search: str) -> list[str]:
+    """Tokenize the search query while tolerating unmatched single quotes."""
+
+    def _build_lexer(allow_single_quotes: bool) -> shlex.shlex:
+        lexer = shlex.shlex(search, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        if not allow_single_quotes:
+            lexer.quotes = '"'
+            if "'" not in lexer.wordchars:
+                lexer.wordchars += "'"
+        return lexer
+
+    try:
+        return list(_build_lexer(allow_single_quotes=True))
+    except ValueError:
+        try:
+            return list(_build_lexer(allow_single_quotes=False))
+        except ValueError:
+            return search.split()
+
+
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -129,7 +156,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         -------
         search='name:report type:file -author:"Paul D" draft'
         """
-        tokens: list[str] = shlex.split(search)
+        tokens = tokenize_search(search)
         if not tokens:
             return queryset
 
@@ -141,6 +168,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
                 token = token[1:-1]
+
+            if not token:
+                continue
 
             # field-qualified token?
             if ":" in token:
@@ -197,8 +227,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         q = Q(type=value)
                 elif field == "ref":
                     q = Q(ref=value)
-                else:  # unknown prefix → search for the full token in path
-                    q = Q(path__icontains=token)
+                else:  # unknown prefix → search for the full token in path and type
+                    q = Q(path__icontains=token) | Q(type__icontains=token)
             elif "/" in token:
                 # ────────────────────────────────────────────────────────────
                 # Plain free-text token
@@ -214,10 +244,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # ────────────────────────────────────────────────────────────
                 sep_pattern = r"(?:/|\\/)"
                 regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
-                q = Q(path__iregex=regex)
+                q = Q(path__iregex=regex) | Q(type__iregex=regex)
             else:
-                # plain free-text token: search in path
-                q = Q(path__icontains=token)
+                # plain free-text token: search in path or type
+                q = Q(path__icontains=token) | Q(type__icontains=token)
 
             combined_q &= ~q if negated else q
 
@@ -498,8 +528,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="log_view")
+    @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "GET":
+            return self._list_log_views(request)
+
         if is_impersonated_session(request):
             return Response(
                 {"detail": "Impersonated sessions cannot log file system views."},
@@ -527,6 +560,28 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _list_log_views(self, request: Request) -> Response:
+        if not request.user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        serializer = FileSystemViewLogListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        validated = serializer.validated_data
+
+        queryset = FileSystemViewLog.objects.filter(team=self.team, user=request.user)
+        log_type = validated.get("type")
+        if log_type:
+            queryset = queryset.filter(type=log_type)
+
+        queryset = queryset.order_by("-viewed_at")
+
+        limit = validated.get("limit")
+        if limit is not None:
+            queryset = queryset[:limit]
+
+        return Response(FileSystemViewLogSerializer(queryset, many=True).data)
 
     @action(methods=["POST"], detail=False)
     def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:

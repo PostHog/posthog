@@ -212,13 +212,13 @@ describe('relatedFeatureFlagsLogic', () => {
             setupMocks()
             await expectLogic(logic).toFinishAllListeners()
 
-            const loadRelatedFeatureFlagsSpy = jest.spyOn(logic.actions, 'loadRelatedFeatureFlags')
-
-            flagsLogic.actions.loadFeatureFlagsSuccess({ results: MOCK_FLAGS, count: MOCK_FLAGS.length })
+            await expectLogic(flagsLogic, () => {
+                logic.actions.loadRelatedFeatureFlags()
+            })
+                .toDispatchActions(['loadFeatureFlags'])
+                .toFinishAllListeners()
 
             await expectLogic(logic).toFinishAllListeners()
-
-            expect(loadRelatedFeatureFlagsSpy).toHaveBeenCalled()
         })
     })
 })

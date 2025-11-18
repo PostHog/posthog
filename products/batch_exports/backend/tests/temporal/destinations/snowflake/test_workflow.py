@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 import unittest.mock
 
+from django.conf import settings
 from django.test import override_settings
 
 from temporalio import activity
@@ -20,7 +21,6 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
@@ -65,7 +65,7 @@ async def _run_workflow(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -81,7 +81,7 @@ async def _run_workflow(
             inputs,
             id=workflow_id,
             execution_timeout=dt.timedelta(seconds=10),
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
@@ -163,17 +163,19 @@ async def test_snowflake_export_workflow_exports_events(
         for call in cursor._execute_async_calls:
             execute_async_calls.append(call["query"].strip())
 
-    assert execute_async_calls[0:3] == [
+    warehouse = snowflake_batch_export.destination.config["warehouse"]
+    assert execute_async_calls[0:4] == [
         f'USE DATABASE "{database}"',
         f'USE SCHEMA "{schema}"',
+        f'USE WAREHOUSE "{warehouse}"',
         "SET ABORT_DETACHED_QUERY = FALSE",
     ]
 
     assert all(query.startswith("PUT") for query in execute_calls[0:9])
 
-    assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-    assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
-    assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
+    assert execute_async_calls[4].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+    assert execute_async_calls[5].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+    assert execute_async_calls[6].startswith(f'COPY INTO "{table_name}"')
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -372,7 +374,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -387,7 +389,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             SnowflakeBatchExportWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         await asyncio.sleep(5)

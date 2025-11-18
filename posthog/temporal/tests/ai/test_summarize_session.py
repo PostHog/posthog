@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
 from openai.types.completion_usage import CompletionUsage
 from pytest_mock import MockerFixture
@@ -17,7 +19,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -298,7 +299,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
         try:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.MAX_AI_TASK_QUEUE,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
                 workflows=WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),

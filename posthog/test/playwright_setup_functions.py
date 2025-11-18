@@ -50,6 +50,8 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         "verbosity": 0,
         "skip_materialization": True,
         "skip_dagster": True,
+        "say_on_complete": False,
+        "skip_flag_sync": True,
     }
 
     # Call the handle method directly - this creates org, team, user, and demo data

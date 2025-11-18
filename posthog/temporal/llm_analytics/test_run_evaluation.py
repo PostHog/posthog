@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import datetime
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -11,23 +12,39 @@ from products.llm_analytics.backend.models.evaluations import Evaluation
 
 from .run_evaluation import (
     RunEvaluationInputs,
+    RunEvaluationWorkflow,
     emit_evaluation_event_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
-    fetch_target_event_activity,
+    fetch_legacy_event_activity,
 )
 
 
+def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
+    """Helper to create mock event data for tests"""
+    defaults = {
+        "uuid": str(uuid.uuid4()),
+        "event": "$ai_generation",
+        "properties": {"$ai_input": "test input", "$ai_output": "test output"},
+        "timestamp": datetime.now().isoformat(),
+        "team_id": team_id,
+        "distinct_id": "test-user",
+    }
+    return {**defaults, **overrides}
+
+
 @pytest.fixture
-@pytest.mark.django_db
-def setup_data(db):
+def setup_data():
     """Create test organization, team, and evaluation"""
     organization = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=organization, name="Test Team")
     evaluation = Evaluation.objects.create(
         team=team,
         name="Test Evaluation",
-        prompt="Is this response factually accurate?",
+        evaluation_type="llm_judge",
+        evaluation_config={"prompt": "Is this response factually accurate?"},
+        output_type="boolean",
+        output_config={},
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
@@ -36,55 +53,24 @@ def setup_data(db):
 class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_fetch_target_event_activity(self, setup_data):
-        """Test fetching target event from ClickHouse"""
-        evaluation = setup_data["evaluation"]
-        team = setup_data["team"]
-
-        # Create a test event
-        event_id = str(uuid.uuid4())
-
-        with patch("posthog.temporal.llm_analytics.run_evaluation.sync_execute") as mock_execute:
-            person_id = uuid.uuid4()
-            mock_execute.return_value = [
-                (
-                    event_id,
-                    "$ai_generation",
-                    json.dumps({"$ai_input": "test input", "$ai_output": "test output"}),
-                    datetime.now(),
-                    team.id,
-                    "test-user",
-                    person_id,
-                )
-            ]
-
-            inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=event_id)
-
-            result = await fetch_target_event_activity(inputs, team.id)
-
-            assert result["uuid"] == event_id
-            assert result["event"] == "$ai_generation"
-            assert result["team_id"] == team.id
-
-            # Verify team_id was passed to the query
-            mock_execute.assert_called_once()
-            call_args = mock_execute.call_args
-            assert call_args[0][1]["team_id"] == team.id
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
     async def test_fetch_evaluation_activity(self, setup_data):
         """Test fetching evaluation from database"""
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()))
+        inputs = RunEvaluationInputs(
+            evaluation_id=str(evaluation.id),
+            event_data=create_mock_event_data(team.id),
+        )
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Evaluation.objects.get") as mock_get:
             mock_evaluation = MagicMock()
             mock_evaluation.id = evaluation.id
             mock_evaluation.name = "Test Evaluation"
-            mock_evaluation.prompt = "Is this response factually accurate?"
+            mock_evaluation.evaluation_type = "llm_judge"
+            mock_evaluation.evaluation_config = {"prompt": "Is this response factually accurate?"}
+            mock_evaluation.output_type = "boolean"
+            mock_evaluation.output_config = {}
             mock_evaluation.team_id = team.id
             mock_get.return_value = mock_evaluation
 
@@ -92,7 +78,10 @@ class TestRunEvaluationWorkflow:
 
             assert result["id"] == str(evaluation.id)
             assert result["name"] == "Test Evaluation"
-            assert result["prompt"] == "Is this response factually accurate?"
+            assert result["evaluation_type"] == "llm_judge"
+            assert result["evaluation_config"] == {"prompt": "Is this response factually accurate?"}
+            assert result["output_type"] == "boolean"
+            assert result["output_config"] == {}
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -104,36 +93,40 @@ class TestRunEvaluationWorkflow:
         evaluation = {
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
-            "prompt": "Is this response factually accurate?",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
             "team_id": team.id,
         }
 
-        # Use realistic message array format like actual LLM events
-        event_data = {
-            "uuid": str(uuid.uuid4()),
-            "event": "$ai_generation",
-            "properties": {
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
                 "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
                 "$ai_output_choices": [{"role": "assistant", "content": "4"}],
             },
-            "team_id": team.id,
-        }
+        )
 
         # Mock OpenAI response
         with patch("openai.OpenAI") as mock_openai:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = True
+            mock_parsed.reasoning = "The answer is correct"
+
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.content = '{"verdict": true, "reasoning": "The answer is correct"}'
-            mock_client.chat.completions.create.return_value = mock_response
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
-            mock_client.chat.completions.create.assert_called_once()
+            mock_client.beta.chat.completions.parse.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -147,14 +140,11 @@ class TestRunEvaluationWorkflow:
             "name": "Test Evaluation",
         }
 
-        event_data = {
-            "uuid": str(uuid.uuid4()),
-            "event": "$ai_generation",
-            "team_id": team.id,
-            "distinct_id": "test-user",
-            "properties": {},
-            "person_id": str(uuid.uuid4()),
-        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={},
+            person_id=str(uuid.uuid4()),
+        )
 
         result = {"verdict": True, "reasoning": "Test passed"}
 
@@ -168,3 +158,55 @@ class TestRunEvaluationWorkflow:
                 call_kwargs = mock_create.call_args[1]
                 assert call_kwargs["event"] == "$ai_evaluation"
                 assert call_kwargs["properties"]["$ai_evaluation_result"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_fetch_legacy_event_activity(self, setup_data):
+        """Test backward compatibility with legacy event fetching"""
+        team = setup_data["team"]
+        event_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.sync_execute") as mock_execute:
+            person_id = uuid.uuid4()
+            mock_execute.return_value = [
+                (
+                    event_id,
+                    "$ai_generation",
+                    '{"$ai_input": "test", "$ai_output": "response"}',
+                    timestamp,
+                    team.id,
+                    "test-user",
+                    person_id,
+                )
+            ]
+
+            result = await fetch_legacy_event_activity(event_id, team.id, timestamp)
+
+            assert result["uuid"] == event_id
+            assert result["event"] == "$ai_generation"
+            assert result["team_id"] == team.id
+            assert result["properties"]["$ai_input"] == "test"
+
+    def test_parse_inputs_legacy_format(self):
+        """Test that parse_inputs handles legacy 3-argument format"""
+        legacy_inputs = ["eval-123", "event-456", "2024-01-01T00:00:00Z"]
+
+        parsed = RunEvaluationWorkflow.parse_inputs(legacy_inputs)
+
+        assert parsed.evaluation_id == "eval-123"
+        assert parsed.target_event_id == "event-456"
+        assert parsed.timestamp == "2024-01-01T00:00:00Z"
+        assert parsed.event_data is None
+
+    def test_parse_inputs_new_format(self):
+        """Test that parse_inputs handles new 2-argument format"""
+        event_data = {"uuid": "event-456", "event": "$ai_generation", "team_id": 1}
+        new_inputs = ["eval-123", json.dumps(event_data)]
+
+        parsed = RunEvaluationWorkflow.parse_inputs(new_inputs)
+
+        assert parsed.evaluation_id == "eval-123"
+        assert parsed.event_data == event_data
+        assert parsed.target_event_id is None
+        assert parsed.timestamp is None

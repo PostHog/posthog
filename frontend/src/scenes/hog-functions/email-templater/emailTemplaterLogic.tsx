@@ -6,6 +6,7 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -52,9 +53,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
+        setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
+        saveAsTemplate: (name: string, description: string) => ({ name, description }),
     }),
     reducers({
         emailEditorRef: [
@@ -74,6 +77,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsModalOpen: (_, { isModalOpen }) => isModalOpen,
+            },
+        ],
+        isSaveTemplateModalOpen: [
+            false,
+            {
+                setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         appliedTemplate: [
@@ -216,6 +225,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
+
+            // Load the design into the editor if it's ready and has a design
+            if (values.isEmailEditorReady && emailTemplateContent.design) {
+                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            }
         },
 
         closeWithConfirmation: () => {
@@ -236,6 +250,46 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
             } else {
                 actions.setIsModalOpen(false)
+            }
+        },
+
+        saveAsTemplate: async ({ name, description }) => {
+            const editor = values.emailEditorRef?.editor
+            if (!editor || !values.isEmailEditorReady) {
+                lemonToast.error('Editor not ready')
+                return
+            }
+
+            try {
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        new Promise<any>((res) => editor.exportHtml(res)),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
+
+                const currentValues = values.emailTemplate
+
+                const templateData: Partial<MessageTemplate> = {
+                    name,
+                    description,
+                    content: {
+                        templating: values.templatingEngine,
+                        email: {
+                            ...currentValues,
+                            html: escapeHTMLStringCurlies(htmlData.html),
+                            text: textData.text,
+                            design: htmlData.design,
+                        },
+                    },
+                }
+
+                await api.messaging.createTemplate(templateData)
+                lemonToast.success('Template saved successfully')
+                actions.loadTemplates()
+                actions.setIsSaveTemplateModalOpen(false)
+            } catch (error) {
+                lemonToast.error('Failed to save template')
+                console.error(error)
             }
         },
     })),

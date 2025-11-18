@@ -2259,3 +2259,221 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
         self.assertEqual(test_variant.sum, 6)
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+
+    @parameterized.expand(
+        [
+            ("disable_new_query_builder_ordered", False, StepOrderValue.ORDERED),
+            ("enable_new_query_builder_ordered", True, StepOrderValue.ORDERED),
+            ("disable_new_query_builder_unordered", False, StepOrderValue.UNORDERED),
+            ("enable_new_query_builder_unordered", True, StepOrderValue.UNORDERED),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_events_after_exposure(self, name, use_new_query_builder, funnel_order_type):
+        """Test that funnel metric events are only counted if they occur AFTER experiment exposure"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Control group (13 users):
+        # - 8 users: events AFTER exposure → SUCCESS
+        # - 3 users: events BEFORE exposure → FAILURE (events should be ignored)
+        # - 2 users: incomplete funnel after exposure → FAILURE
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            if i < 8:  # First 8: exposure, then complete funnel (SUCCESS)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+            elif i < 11:  # Next 3: complete funnel BEFORE exposure (FAILURE - should be ignored)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T11:58:00Z",  # Before exposure
+                    properties={ff_property: "control"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T11:59:00Z",  # Before exposure
+                    properties={ff_property: "control"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+            else:  # Last 2: exposure, then incomplete funnel (FAILURE)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "control",
+                        ff_property: "control",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+                # No purchase event = incomplete funnel
+
+        # Test group (13 users):
+        # - 6 users: events AFTER exposure → SUCCESS
+        # - 4 users: events BEFORE exposure → FAILURE (events should be ignored)
+        # - 3 users: incomplete funnel after exposure → FAILURE
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            if i < 6:  # First 6: exposure, then complete funnel (SUCCESS)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
+            elif i < 10:  # Next 4: complete funnel BEFORE exposure (FAILURE - should be ignored)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T11:58:00Z",  # Before exposure
+                    properties={ff_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T11:59:00Z",  # Before exposure
+                    properties={ff_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+            else:  # Last 3: exposure, then incomplete funnel (FAILURE)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag_response": "test",
+                        ff_property: "test",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
+                # No purchase event = incomplete funnel
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            funnel_order_type=funnel_order_type,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Only events AFTER exposure should count
+        # Control: 8 successes (events after exposure), 5 failures (3 before exposure + 2 incomplete)
+        self.assertEqual(control_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
+
+        # Test: 6 successes (events after exposure), 7 failures (4 before exposure + 3 incomplete)
+        self.assertEqual(test_variant.sum, 6)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)

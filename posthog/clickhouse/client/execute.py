@@ -200,7 +200,6 @@ def sync_execute(
         settings = {
             **core_settings,
             "log_comment": tags.to_json(),
-            "query_id": query_id,
         }
         if workload == Workload.OFFLINE:
             # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

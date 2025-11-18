@@ -2,6 +2,7 @@ import {
     DataTableNode,
     DateRange,
     DocumentSimilarityQuery,
+    ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     ErrorTrackingSimilarIssuesQuery,
@@ -40,6 +41,8 @@ export const errorTrackingQuery = ({
     columns,
     orderDirection,
     personId,
+    groupKey,
+    groupTypeIndex,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
@@ -52,6 +55,8 @@ export const errorTrackingQuery = ({
     | 'searchQuery'
     | 'orderDirection'
     | 'personId'
+    | 'groupKey'
+    | 'groupTypeIndex'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
@@ -74,6 +79,8 @@ export const errorTrackingQuery = ({
             withAggregations: true,
             withFirstEvent: false,
             personId,
+            groupKey,
+            groupTypeIndex,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
@@ -288,4 +295,30 @@ export const errorTrackingIssueBreakdownQuery = ({
     }
 
     return query
+}
+
+export const errorTrackingBreakdownsQuery = ({
+    issueId,
+    breakdownProperties,
+    dateRange,
+    filterTestAccounts,
+    maxValuesPerProperty = LIMIT_ITEMS,
+}: {
+    issueId: string
+    breakdownProperties: string[]
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    maxValuesPerProperty?: number
+}): ErrorTrackingBreakdownsQuery => {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.ErrorTrackingBreakdownsQuery,
+        issueId,
+        breakdownProperties,
+        dateRange,
+        filterTestAccounts,
+        maxValuesPerProperty,
+        tags: {
+            productKey: ProductKey.ERROR_TRACKING,
+        },
+    })
 }

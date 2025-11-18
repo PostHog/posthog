@@ -128,7 +128,7 @@ export function copyIndexHtml(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
-            `   <script type="application/javascript">
+            `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
                     // NOTE: the link for the stylesheet will be added just
                     // after this script block. The react code will need the
                     // body to have been parsed before it is able to interact
@@ -206,6 +206,7 @@ export const commonConfig = {
         '.woff2': 'file',
         '.mp3': 'file',
         '.lottie': 'file',
+        '.sql': 'text',
     },
     metafile: true,
 }

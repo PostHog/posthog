@@ -1,8 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconExternal } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -193,15 +191,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: 'Lifecycle',
                         type: InsightType.LIFECYCLE,
                         dataAttr: 'insight-lifecycle-tab',
-                    },
-                    {
-                        label: (
-                            <>
-                                SQL <IconExternal />
-                            </>
-                        ),
-                        type: InsightType.SQL,
-                        dataAttr: 'insight-sql-tab',
                     },
                 ]
 

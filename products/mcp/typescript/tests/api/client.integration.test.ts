@@ -1,6 +1,7 @@
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import { ApiClient } from '@/api/client'
 import type { CreateInsightInput } from '@/schema/insights'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY
@@ -163,31 +164,28 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             }
         })
 
-        it.each(['event', 'person'] as const)(
-            'should get property definitions for %s type',
-            async (type) => {
-                const result = await client.projects().propertyDefinitions({
-                    projectId: testProjectId,
-                    type,
-                    eventNames: type === 'event' ? ['$pageview'] : undefined,
-                    excludeCoreProperties: false,
-                    filterByEventNames: type === 'event',
-                    isFeatureFlag: false,
-                    limit: 100,
-                })
+        it.each(['event', 'person'] as const)('should get property definitions for %s type', async (type) => {
+            const result = await client.projects().propertyDefinitions({
+                projectId: testProjectId,
+                type,
+                eventNames: type === 'event' ? ['$pageview'] : undefined,
+                excludeCoreProperties: false,
+                filterByEventNames: type === 'event',
+                isFeatureFlag: false,
+                limit: 100,
+            })
 
-                expect(result.success).toBe(true)
+            expect(result.success).toBe(true)
 
-                if (result.success) {
-                    expect(Array.isArray(result.data)).toBe(true)
-                    if (result.data.length > 0) {
-                        const propDef = result.data[0]
-                        expect(propDef).toHaveProperty('id')
-                        expect(propDef).toHaveProperty('name')
-                    }
+            if (result.success) {
+                expect(Array.isArray(result.data)).toBe(true)
+                if (result.data.length > 0) {
+                    const propDef = result.data[0]
+                    expect(propDef).toHaveProperty('id')
+                    expect(propDef).toHaveProperty('name')
                 }
             }
-        )
+        })
 
         it('should get event definitions', async () => {
             const result = await client.projects().eventDefinitions({ projectId: testProjectId })
@@ -268,7 +266,14 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     name: 'Test Flag',
                     description: 'Test feature flag',
                     active: true,
-                    filters: { groups: [] },
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
                 },
             })
 
@@ -279,9 +284,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 createdResources.featureFlags.push(flagId)
 
                 // Get by ID
-                const getResult = await client
-                    .featureFlags({ projectId: testProjectId })
-                    .get({ flagId })
+                const getResult = await client.featureFlags({ projectId: testProjectId }).get({ flagId })
                 expect(getResult.success).toBe(true)
 
                 if (getResult.success) {
@@ -290,9 +293,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 }
 
                 // Find by key
-                const findResult = await client
-                    .featureFlags({ projectId: testProjectId })
-                    .findByKey({ key: testKey })
+                const findResult = await client.featureFlags({ projectId: testProjectId }).findByKey({ key: testKey })
                 expect(findResult.success).toBe(true)
 
                 if (findResult.success && findResult.data) {
@@ -301,21 +302,17 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 }
 
                 // Update
-                const updateResult = await client
-                    .featureFlags({ projectId: testProjectId })
-                    .update({
-                        key: testKey,
-                        data: {
-                            name: 'Updated Test Flag',
-                            active: false,
-                        },
-                    })
+                const updateResult = await client.featureFlags({ projectId: testProjectId }).update({
+                    key: testKey,
+                    data: {
+                        name: 'Updated Test Flag',
+                        active: false,
+                    },
+                })
                 expect(updateResult.success).toBe(true)
 
                 // Verify update
-                const updatedGetResult = await client
-                    .featureFlags({ projectId: testProjectId })
-                    .get({ flagId })
+                const updatedGetResult = await client.featureFlags({ projectId: testProjectId }).get({ flagId })
                 if (updatedGetResult.success) {
                     expect(updatedGetResult.data.name).toBe('Updated Test Flag')
                     expect(updatedGetResult.data.active).toBe(false)
@@ -344,9 +341,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
         })
 
         it.skip('should execute SQL insight query', async () => {
-            const result = await client
-                .insights({ projectId: testProjectId })
-                .sqlInsight({ query: 'SELECT 1 as test' })
+            const result = await client.insights({ projectId: testProjectId }).sqlInsight({ query: 'SELECT 1 as test' })
 
             if (!result.success) {
                 console.error('Failed to execute SQL insight:', (result as any).error)
@@ -523,8 +518,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                                 ],
                                 breakdownFilter: {
                                     breakdown_type: breakdownType,
-                                    breakdown:
-                                        breakdownType === 'event' ? '$current_url' : '$browser',
+                                    breakdown: breakdownType === 'event' ? '$current_url' : '$browser',
                                     breakdown_limit: 10,
                                 },
                                 properties: [],
@@ -828,8 +822,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                                     },
                                 ],
                                 funnelsFilter: {
-                                    funnelWindowInterval:
-                                        unit === 'minute' ? 30 : unit === 'hour' ? 2 : 7,
+                                    funnelWindowInterval: unit === 'minute' ? 30 : unit === 'hour' ? 2 : 7,
                                     funnelWindowIntervalUnit: unit,
                                 },
                                 properties: [],
@@ -1005,9 +998,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 createdResources.dashboards.push(dashboardId)
 
                 // Get
-                const getResult = await client
-                    .dashboards({ projectId: testProjectId })
-                    .get({ dashboardId })
+                const getResult = await client.dashboards({ projectId: testProjectId }).get({ dashboardId })
                 expect(getResult.success).toBe(true)
 
                 if (getResult.success) {
@@ -1043,9 +1034,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 status: 'active',
             }
 
-            const result = await client
-                .query({ projectId: testProjectId })
-                .execute({ queryBody: errorQuery })
+            const result = await client.query({ projectId: testProjectId }).execute({ queryBody: errorQuery })
 
             if (!result.success) {
                 console.error('Failed to execute error query:', (result as any).error)
@@ -1082,9 +1071,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 },
             }
 
-            const result = await client
-                .query({ projectId: testProjectId })
-                .execute({ queryBody: trendsQuery })
+            const result = await client.query({ projectId: testProjectId }).execute({ queryBody: trendsQuery })
 
             expect(result.success).toBe(true)
 
@@ -1126,7 +1113,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     description?: string
                 }>
             } = {}
-        ) => {
+        ): Promise<any> => {
             const timestamp = Date.now()
             const createResult = await client.experiments({ projectId: testProjectId }).create({
                 name: options.name || `Test Experiment ${timestamp}`,
@@ -1160,9 +1147,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 return createResult.data
             }
 
-            throw new Error(
-                `Failed to create test experiment: ${(createResult as any).error?.message}`
-            )
+            throw new Error(`Failed to create test experiment: ${(createResult as any).error?.message}`)
         }
 
         it.skip('should list experiments', async () => {
@@ -1344,19 +1329,17 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             })
 
             // Try to get exposures (may not have data immediately)
-            const exposureResult = await client
-                .experiments({ projectId: testProjectId })
-                .getExposures({
-                    experimentId: experiment.id,
-                    refresh: true,
-                })
+            const exposureResult = await client.experiments({ projectId: testProjectId }).getExposures({
+                experimentId: experiment.id,
+                refresh: true,
+            })
 
             // Should succeed even if no exposure data yet
             expect(exposureResult.success).toBe(true)
 
             if (exposureResult.success) {
                 expect(exposureResult.data).toHaveProperty('exposures')
-                expect(exposureResult.data.exposures).toBeDefined()
+                expect(exposureResult.data.exposures).toBeTruthy()
             }
         })
 
@@ -1366,12 +1349,10 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 draft: true,
             })
 
-            const exposureResult = await client
-                .experiments({ projectId: testProjectId })
-                .getExposures({
-                    experimentId: experiment.id,
-                    refresh: false,
-                })
+            const exposureResult = await client.experiments({ projectId: testProjectId }).getExposures({
+                experimentId: experiment.id,
+                refresh: false,
+            })
 
             expect(exposureResult.success).toBe(false)
             expect((exposureResult as any).error.message).toContain('has not started yet')
@@ -1393,12 +1374,10 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             })
 
             // Try to get metric results
-            const metricsResult = await client
-                .experiments({ projectId: testProjectId })
-                .getMetricResults({
-                    experimentId: experiment.id,
-                    refresh: true,
-                })
+            const metricsResult = await client.experiments({ projectId: testProjectId }).getMetricResults({
+                experimentId: experiment.id,
+                refresh: true,
+            })
 
             expect(metricsResult.success).toBe(true)
 
@@ -1417,12 +1396,10 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 draft: true,
             })
 
-            const metricsResult = await client
-                .experiments({ projectId: testProjectId })
-                .getMetricResults({
-                    experimentId: experiment.id,
-                    refresh: false,
-                })
+            const metricsResult = await client.experiments({ projectId: testProjectId }).getMetricResults({
+                experimentId: experiment.id,
+                refresh: false,
+            })
 
             expect(metricsResult.success).toBe(false)
             expect((metricsResult as any).error.message).toContain('has not started yet')
@@ -1466,12 +1443,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             if (updateResult.success) {
                 expect(updateResult.data.parameters?.feature_flag_variants).toHaveLength(4)
                 const variants = updateResult.data.parameters?.feature_flag_variants || []
-                expect(variants.map((v) => v.key)).toEqual([
-                    'control',
-                    'variant_a',
-                    'variant_b',
-                    'variant_c',
-                ])
+                expect(variants.map((v) => v.key)).toEqual(['control', 'variant_a', 'variant_b', 'variant_c'])
             }
         })
 
@@ -1563,9 +1535,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             createdResources.experiments.push(experimentId)
 
             // READ
-            const getResult = await client
-                .experiments({ projectId: testProjectId })
-                .get({ experimentId })
+            const getResult = await client.experiments({ projectId: testProjectId }).get({ experimentId })
 
             expect(getResult.success).toBe(true)
 
@@ -1592,9 +1562,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             }
 
             // DELETE
-            const deleteResult = await client
-                .experiments({ projectId: testProjectId })
-                .delete({ experimentId })
+            const deleteResult = await client.experiments({ projectId: testProjectId }).delete({ experimentId })
 
             expect(deleteResult.success).toBe(true)
             if (deleteResult.success) {
@@ -1603,9 +1571,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             }
 
             // Verify deletion worked
-            const getAfterDeleteResult = await client
-                .experiments({ projectId: testProjectId })
-                .get({ experimentId })
+            const getAfterDeleteResult = await client.experiments({ projectId: testProjectId }).get({ experimentId })
 
             expect(getAfterDeleteResult.success).toBe(false)
 

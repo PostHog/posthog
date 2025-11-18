@@ -1,4 +1,4 @@
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = (
     "Customers",
