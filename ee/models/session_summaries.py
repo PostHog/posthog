@@ -297,7 +297,7 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
             # Not indexing session ids or extra summary context, as the input for group summaries is highly volatile
             # (even a single session could change the meaning of the patterns).
             # Creating Manager for rare cases of `exact 300 ids + context input match` seems excessive.
-            models.Index(fields=["team", "id"]),
+            models.Index(fields=["team", "-created_at"]),
         ]
 
     def __str__(self):
