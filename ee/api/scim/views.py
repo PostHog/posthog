@@ -131,7 +131,10 @@ class SCIMUsersView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid user data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
 class SCIMUserDetailView(SCIMBaseView):
@@ -144,7 +147,9 @@ class SCIMUserDetailView(SCIMBaseView):
 
     def handle_exception(self, exc):
         if isinstance(exc, User.DoesNotExist):
-            return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "User not found"}, status=status.HTTP_404_NOT_FOUND
+            )
         return super().handle_exception(exc)
 
     def get(self, request: Request, domain_id: str, user_id: int) -> Response:
@@ -167,7 +172,10 @@ class SCIMUserDetailView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid user data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
@@ -186,7 +194,10 @@ class SCIMUserDetailView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Failed to update user"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Failed to update user"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
@@ -242,7 +253,10 @@ class SCIMGroupsView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid group data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
 class SCIMGroupDetailView(SCIMBaseView):
@@ -255,7 +269,9 @@ class SCIMGroupDetailView(SCIMBaseView):
 
     def handle_exception(self, exc):
         if isinstance(exc, Role.DoesNotExist):
-            return Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND
+            )
         return super().handle_exception(exc)
 
     def get(self, request: Request, domain_id: str, group_id: str) -> Response:
@@ -278,7 +294,10 @@ class SCIMGroupDetailView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid group data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def patch(self, request: Request, domain_id: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
@@ -297,7 +316,10 @@ class SCIMGroupDetailView(SCIMBaseView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Failed to update group"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "detail": "Failed to update group"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
