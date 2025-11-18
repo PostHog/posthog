@@ -63,7 +63,7 @@ class BaseAssistant(ABC):
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantMaxGraphState]
-    _callback_handlers: Optional[list[BaseCallbackHandler]]
+    _callback_handlers: list[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
