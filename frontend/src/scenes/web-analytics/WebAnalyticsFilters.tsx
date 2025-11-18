@@ -217,42 +217,50 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
         <LemonDropdown
             closeOnClickInside={false}
             overlay={
-                <div className="space-y-px p-1" style={{ minWidth: 200 }}>
-                    {/* "All domains" option */}
-                    <LemonButton
-                        fullWidth
-                        type="tertiary"
-                        size="small"
-                        onClick={handleToggleAllDomains}
-                        icon={<LemonCheckbox checked={isAllDomainsSelected} className="pointer-events-none" />}
-                    >
-                        All domains
-                    </LemonButton>
+                <div style={{ minWidth: 200 }}>
+                    <div className="space-y-px p-1">
+                        {/* "All domains" option */}
+                        <LemonButton
+                            fullWidth
+                            type="tertiary"
+                            size="small"
+                            onClick={handleToggleAllDomains}
+                            icon={<LemonCheckbox checked={isAllDomainsSelected} className="pointer-events-none" />}
+                        >
+                            All domains
+                        </LemonButton>
 
-                    {/* Individual domain options */}
-                    {authorizedDomains.map((domain) => {
-                        const isSelected = domainFilter?.includes(domain) ?? false
-                        return (
-                            <LemonButton
-                                key={domain}
-                                fullWidth
-                                type="tertiary"
-                                size="small"
-                                onClick={() => handleToggleDomain(domain)}
-                                icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
-                                sideAction={{
-                                    icon: <IconExternal />,
-                                    tooltip: 'Open domain',
-                                    onClick: (e) => {
-                                        e.stopPropagation()
-                                        window.open(domain, '_blank', 'noopener,noreferrer')
-                                    },
-                                }}
-                            >
-                                {domain}
-                            </LemonButton>
-                        )
-                    })}
+                        {/* Individual domain options */}
+                        {authorizedDomains.map((domain) => {
+                            const isSelected = domainFilter?.includes(domain) ?? false
+                            return (
+                                <LemonButton
+                                    key={domain}
+                                    fullWidth
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => handleToggleDomain(domain)}
+                                    icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
+                                    sideAction={{
+                                        icon: <IconExternal />,
+                                        tooltip: 'Open domain',
+                                        onClick: (e) => {
+                                            e.stopPropagation()
+                                            window.open(domain, '_blank', 'noopener,noreferrer')
+                                        },
+                                    }}
+                                >
+                                    {domain}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
+
+                    {/* Footer with settings link */}
+                    <div className="text-xs px-2 py-1.5 text-muted border-t">
+                        Have more domains? Go to{' '}
+                        <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
+                    </div>
                 </div>
             }
         >
