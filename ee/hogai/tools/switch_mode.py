@@ -44,9 +44,6 @@ SWITCH_MODE_TOOL_PROMPT = """
 Successfully switched to {{{new_mode}}} mode. You now have access to this mode's specialized tools.
 """.strip()
 
-SWITCH_MODE_ALREADY_IN_MODE_PROMPT = """
-You are already in {{{new_mode}}} mode. No switch needed – proceed with using the available tools.
-""".strip()
 
 SWITCH_MODE_FAILURE_PROMPT = """
 Failed to switch to {{{new_mode}}} mode. This mode does not exist. Available modes: {{{available_modes}}}.
@@ -112,13 +109,6 @@ class SwitchModeTool(MaxTool):
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:
         from ee.hogai.mode_registry import MODE_REGISTRY
-
-        if (
-            not self._state.agent_mode and new_mode == AgentMode.PRODUCT_ANALYTICS
-        ) or self._state.agent_mode == new_mode:
-            return format_prompt_string(SWITCH_MODE_ALREADY_IN_MODE_PROMPT, new_mode=new_mode), cast(
-                AgentMode, new_mode
-            )
 
         if new_mode not in MODE_REGISTRY:
             available = ", ".join(MODE_REGISTRY.keys())
