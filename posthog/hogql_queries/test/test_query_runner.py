@@ -209,7 +209,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_db05113c9937a0e206afcc48c43e0a87"
+        assert cache_key == "cache_c4703f06a15b578567a681d01f5a63cc"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -223,7 +223,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_6369d6d904d6ce9dea56120059bdceba"
+        assert cache_key == "cache_559d7f88353a23dc6b1aa69fe5afef87"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -234,7 +234,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_ee3b91f6f3800eba3e0420c65bbe082c"
+        assert cache_key == "cache_6157b47affc8c1d502b7f53b9a3279d3"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
