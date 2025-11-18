@@ -89,6 +89,9 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
+
+    // Try to decode as Protobuf, if this fails, try JSON.
+    // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.
     let export_request = match ExportLogsServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
         Err(proto_err) => match serde_json::from_slice(&body) {
