@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { IconAI, IconWarning } from '@posthog/icons'
+import { IconAI, IconArchive, IconWarning } from '@posthog/icons'
 
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -43,6 +43,16 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Create action from event
                         </LemonButton>
                     )}
+                    {event.event === 'survey sent' && event.properties.$survey_id ? (
+                        <LemonButton
+                            onClick={() => {}}
+                            fullWidth
+                            sideIcon={<IconArchive />}
+                            data-attr="events-table-archive-survey"
+                        >
+                            Archive response
+                        </LemonButton>
+                    ) : null}
                     {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
                     <ViewRecordingButton
                         fullWidth

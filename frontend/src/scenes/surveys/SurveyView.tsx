@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -349,8 +349,15 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        showArchivedResponses,
+    } = useValues(surveyLogic)
+    const { setShowArchivedResponses } = useActions(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
@@ -360,15 +367,22 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
                     <SurveyResponsesByQuestionV2 />
-                    <LemonButton
-                        type="primary"
-                        data-attr="survey-results-explore"
-                        icon={<IconGraph />}
-                        to={surveyAsInsightURL}
-                        className="max-w-40"
-                    >
-                        Explore results
-                    </LemonButton>
+                    <div className="flex justify-between">
+                        <LemonButton
+                            type="primary"
+                            data-attr="survey-results-explore"
+                            icon={<IconGraph />}
+                            to={surveyAsInsightURL}
+                            className="max-w-40"
+                        >
+                            Explore results
+                        </LemonButton>
+                        <LemonSwitch
+                            checked={showArchivedResponses}
+                            onChange={setShowArchivedResponses}
+                            label="Show archived responses"
+                        />
+                    </div>
                     {!disableEventsTable &&
                         (surveyLoading ? (
                             <LemonSkeleton />
