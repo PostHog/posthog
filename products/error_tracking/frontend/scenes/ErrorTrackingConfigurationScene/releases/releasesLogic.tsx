@@ -37,6 +37,19 @@ export const releasesLogic = kea<releasesLogicType>([
         setPage: () => actions.loadReleases(),
     })),
 
+    loaders(({ values }) => ({
+        releaseResponse: {
+            loadReleases: async (_, breakpoint) => {
+                await breakpoint(100)
+                const res = await api.errorTracking.releases.list({
+                    limit: RESULTS_PER_PAGE,
+                    offset: (values.page - 1) * RESULTS_PER_PAGE,
+                })
+                return res
+            },
+        },
+    })),
+
     selectors(({ actions }) => ({
         breadcrumbs: [
             () => [],
@@ -73,18 +86,5 @@ export const releasesLogic = kea<releasesLogicType>([
                 }
             },
         ],
-    })),
-
-    loaders(({ values }) => ({
-        releaseResponse: {
-            loadReleases: async (_, breakpoint) => {
-                await breakpoint(100)
-                const res = await api.errorTracking.releases.list({
-                    limit: RESULTS_PER_PAGE,
-                    offset: (values.page - 1) * RESULTS_PER_PAGE,
-                })
-                return res
-            },
-        },
     })),
 ])
