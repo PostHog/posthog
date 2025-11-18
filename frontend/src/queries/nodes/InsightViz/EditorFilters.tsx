@@ -23,6 +23,7 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { SessionLevelAggregationFilter } from 'scenes/insights/EditorFilters/SessionLevelAggregationFilter'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -393,6 +394,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                       {
                           key: 'sampling',
                           component: SamplingFilter,
+                      },
+                      {
+                          key: 'session-level-aggregation',
+                          component: SessionLevelAggregationFilter,
                       },
                       displayGoalLines && {
                           key: 'goal-lines',

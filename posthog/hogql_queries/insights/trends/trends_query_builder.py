@@ -441,7 +441,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if (
             not self.breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
-            and not self._aggregation_operation.aggregating_on_session_duration()
+            and not self._aggregation_operation.aggregating_on_session_property()
         ):
             return default_query
         # Both breakdowns and complex series aggregation
@@ -479,14 +479,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator.parent_query_builder.extend_select(self.breakdown.alias_exprs)
             orchestrator.parent_query_builder.extend_group_by(self.breakdown.field_exprs)
             return orchestrator.build()
-        # Breakdowns and session duration math property
-        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                ),
-            ]
+        # Breakdowns and session property math
+        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_property():
+            # For $session_duration, use special alias for backwards compatibility
+            if self.series.math_property == "$session_duration":
+                default_query.select = [
+                    ast.Alias(
+                        alias="session_duration",
+                        expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
+                    ),
+                ]
+            else:
+                # For other session properties, select from session table
+                default_query.select = [
+                    ast.Alias(
+                        alias="session_property",
+                        expr=ast.Call(name="any", args=[ast.Field(chain=["session", self.series.math_property])]),
+                    ),
+                ]
 
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
@@ -516,14 +526,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             default_query.select.extend(self.breakdown.column_exprs)
             default_query.group_by.extend(self.breakdown.field_exprs)
 
-        # Just session duration math property
-        elif self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                )
-            ]
+        # Just session property math
+        elif self._aggregation_operation.aggregating_on_session_property():
+            # For $session_duration, use special alias for backwards compatibility
+            if self.series.math_property == "$session_duration":
+                default_query.select = [
+                    ast.Alias(
+                        alias="session_duration",
+                        expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
+                    )
+                ]
+            else:
+                # For other session properties, select from session table
+                default_query.select = [
+                    ast.Alias(
+                        alias="session_property",
+                        expr=ast.Call(name="any", args=[ast.Field(chain=["session", self.series.math_property])]),
+                    )
+                ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query, self.breakdown)
@@ -929,6 +949,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             self._trends_display.display_type,
             self.query_date_range,
             self._trends_display.is_total_value(),
+            self.query,
         )
 
     @cached_property

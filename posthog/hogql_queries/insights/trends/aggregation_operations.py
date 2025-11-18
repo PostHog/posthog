@@ -1,6 +1,6 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, TrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -29,6 +29,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
+    query: Optional[TrendsQuery]
 
     def __init__(
         self,
@@ -37,12 +38,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
+        query: Optional[TrendsQuery] = None,
     ) -> None:
         self.team = team
         self.series = series
         self.chart_display_type = chart_display_type
         self.query_date_range = query_date_range
         self.is_total_value = is_total_value
+        self.query = query
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
@@ -123,8 +126,28 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
+    def aggregating_on_session_property(self) -> bool:
+        """
+        Check if we need session-level aggregation.
+        Returns True if:
+        1. Using $session_duration (backwards compatibility - always uses session-level aggregation)
+        2. Using a session property as math_property AND sessionLevelAggregation flag is enabled
+        """
+        if self.series.math_property == "$session_duration":
+            return True
+
+        # Check if opt-in flag is enabled AND using session property
+        if self.series.math_property_type == "session_properties":
+            return (
+                self.query is not None
+                and self.query.trendsFilter is not None
+                and self.query.trendsFilter.sessionLevelAggregation is True
+            )
+
+        return False
+
     def aggregating_on_session_duration(self) -> bool:
-        return self.series.math_property == "$session_duration"
+        return self.aggregating_on_session_property()
 
     def is_count_per_actor_variant(self):
         return self.series.math in [
@@ -151,7 +174,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         if not self.series.math_property:
             raise ValueError("No math property set")
         if self.series.math_property == "$session_duration":
+            # Special alias for backwards compatibility
+            # The wrapper query creates an alias called "session_duration"
             return ["session_duration"]
+        elif self.series.math_property_type == "session_properties" and self.aggregating_on_session_property():
+            # When session-level aggregation is enabled, the wrapper query creates
+            # an alias called "session_property" that contains the aggregated session property value
+            return ["session_property"]
         elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties":
@@ -182,9 +211,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None
-                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                if self.series.math_property_revenue_currency.property is not None
-                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                else (
+                    ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                    if self.series.math_property_revenue_currency.property is not None
+                    else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                )
             )
             base_currency = (
                 ast.Constant(value=self.team.base_currency)
