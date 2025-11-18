@@ -26,7 +26,11 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 
 from products.llm_analytics.backend.summarization.constants import SUMMARIZATION_FEATURE_FLAG
 from products.llm_analytics.backend.summarization.llm import summarize
-from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr, format_trace_text_repr
+from products.llm_analytics.backend.text_repr.formatters import (
+    FormatterOptions,
+    format_event_text_repr,
+    format_trace_text_repr,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -165,7 +169,7 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         Returns:
             Line-numbered text representation
         """
-        options = {
+        options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
             "include_markers": False,
@@ -176,10 +180,10 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             return format_trace_text_repr(
                 trace=entity_data["trace"],
                 hierarchy=entity_data["hierarchy"],
-                options=options,  # type: ignore[arg-type]
+                options=options,
             )
         else:  # event
-            return format_event_text_repr(event=entity_data["event"], options=options)  # type: ignore[arg-type]
+            return format_event_text_repr(event=entity_data["event"], options=options)
 
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.
