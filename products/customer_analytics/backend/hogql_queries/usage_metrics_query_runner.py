@@ -78,7 +78,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         """
         with self.timings.measure("get_usage_metrics"):
             return list(
-                GroupUsageMetric.objects.filter(team=self.team).only("name", "format", "interval", "display", "filters")
+                GroupUsageMetric.objects.filter(team=self.team).only(
+                    "id", "name", "format", "interval", "display", "filters"
+                )
             )
 
     def _get_metric_query(self, metric: GroupUsageMetric) -> ast.SelectQuery | ast.SelectSetQuery | None:
@@ -153,3 +155,13 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 right=ast.Constant(value=date_to),
             ),
         ]
+
+    def get_cache_payload(self) -> dict:
+        """
+        Override to include metric IDs in cache key.
+        This ensures cache is invalidated when metrics are created/deleted.
+        """
+        payload = super().get_cache_payload()
+        metric_ids = sorted(str(metric.id) for metric in self._get_usage_metrics())
+        payload["usage_metric_ids"] = metric_ids
+        return payload

@@ -56,23 +56,37 @@ class SessionSummarizationNode(AssistantNode):
         self._session_search = _SessionSearch(self)
         self._session_summarizer = _SessionSummarizer(self)
 
-    async def _stream_progress(self, progress_message: str) -> None:
+    def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
             self.dispatcher.update(content)
 
+    def _stream_filters(self, filters: MaxRecordingUniversalFilters) -> None:
+        """Stream filters to the user"""
+        self.dispatcher.message(
+            AssistantToolCallMessage(
+                content="",
+                ui_payload={"search_session_recordings": filters.model_dump(exclude_none=True)},
+                # Randomized tool call ID, as we don't want this to be THE result of the actual session summarization tool call
+                # - it's OK because this is only dispatched ephemerally, so the tool message doesn't get added to the state
+                tool_call_id=str(uuid4()),
+            )
+        )
+
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return True
+        # TODO: Revert after testing
+        # return posthoganalytics.feature_enabled(
+        #     "max-session-summarization-video-validation",
+        #     str(self._user.distinct_id),
+        #     groups={"organization": str(self._team.organization_id)},
+        #     group_properties={"organization": {"id": str(self._team.organization_id)}},
+        #     send_feature_flag_events=False,
+        # )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -412,13 +426,13 @@ class _SessionSummarizer:
             )
             completed += 1
             # Update the user on the progress
-            await self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
+            self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
         # Run all tasks concurrently
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-        await self._node._stream_progress(progress_message=f"Generating a summary, almost there")
+        self._node._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
@@ -454,7 +468,7 @@ class _SessionSummarizer:
                         f"(expected: str)"
                     )
                 # Status message - stream to user
-                await self._node._stream_progress(progress_message=data)
+                self._node._stream_progress(progress_message=data)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:
@@ -494,13 +508,13 @@ class _SessionSummarizer:
         base_message = f"Found sessions ({len(session_ids)})"
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            await self._node._stream_progress(
+            self._node._stream_progress(
                 progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
         # For large groups, process in detail, searching for patterns
-        await self._node._stream_progress(
+        self._node._stream_progress(
             progress_message=f"{base_message}. We will analyze in detail, and store the report",
         )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(

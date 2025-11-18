@@ -36,7 +36,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         key: mode,
     }))
 
-    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '24rem'
+    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '25rem'
 
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
