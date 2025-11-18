@@ -1,0 +1,211 @@
+{
+    "description": "Step-by-step guide to install PostHog SDK for LangChain LLM analytics",
+    "product": "llm_analytics",
+    "sdk": ["python", "node"],
+    "title": "LangChain LLM analytics installation",
+    "steps": [
+        {
+            "badge": "required",
+            "title": "Install the PostHog SDK",
+            "content": [
+                {
+                    "content": "Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.\n",
+                    "type": "markdown"
+                },
+                {
+                    "languages": ["python", "node"],
+                    "type": "multi_code",
+                    "code_blocks": [
+                        {
+                            "content": "pip install posthog\n",
+                            "label": "Python",
+                            "language": "bash",
+                            "tab": "python"
+                        },
+                        {
+                            "content": "npm install @posthog/ai posthog-node\n",
+                            "label": "Node",
+                            "language": "bash",
+                            "tab": "node"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "badge": "required",
+            "title": "Install LangChain and OpenAI SDKs",
+            "content": [
+                {
+                    "content": "Install the LangChain and OpenAI Python SDKs:\n",
+                    "type": "markdown"
+                },
+                {
+                    "languages": ["python", "node"],
+                    "type": "multi_code",
+                    "code_blocks": [
+                        {
+                            "content": "pip install langchain openai langchain-openai\n",
+                            "label": "Python",
+                            "language": "bash",
+                            "tab": "python"
+                        },
+                        {
+                            "content": "npm install langchain @langchain/core @posthog/ai\n",
+                            "label": "Node",
+                            "language": "bash",
+                            "tab": "node"
+                        }
+                    ]
+                },
+                {
+                    "callout_type": "fyi",
+                    "content": "These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.\n\nYou can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](/docs/llm-analytics/installation/manual-capture) for more details.\n",
+                    "icon": "IconInfo",
+                    "title": "Proxy note",
+                    "type": "callout"
+                }
+            ]
+        },
+        {
+            "badge": "required",
+            "title": "Initialize PostHog and LangChain",
+            "content": [
+                {
+                    "content": "Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to the LangChain `CallbackHandler` wrapper.\n\nOptionally, you can provide a user distinct ID, trace ID, PostHog properties, [groups](/docs/product-analytics/group-analytics), and privacy mode.\n",
+                    "type": "markdown"
+                },
+                {
+                    "languages": ["python", "node"],
+                    "type": "multi_code",
+                    "code_blocks": [
+                        {
+                            "content": "from posthog.ai.langchain import CallbackHandler\nfrom langchain_openai import ChatOpenAI\nfrom langchain_core.prompts import ChatPromptTemplate\nfrom posthog import Posthog\n\nposthog = Posthog(\n    \"<ph_project_api_key>\",\n    host=\"<ph_client_api_host>\"\n)\n\ncallback_handler = CallbackHandler(\n    client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.\n    distinct_id=\"user_123\", # optional\n    trace_id=\"trace_456\", # optional\n    properties={\"conversation_id\": \"abc123\"} # optional\n    groups={\"company\": \"company_id_in_your_db\"} # optional\n    privacy_mode=False # optional\n)\n",
+                            "label": "Python",
+                            "language": "python",
+                            "tab": "python"
+                        },
+                        {
+                            "content": "import { PostHog } from 'posthog-node';\nimport { LangChainCallbackHandler } from '@posthog/ai';\nimport { ChatOpenAI } from '@langchain/openai';\nimport { ChatPromptTemplate } from '@langchain/core/prompts';\n\nconst phClient = new PostHog(\n  '<ph_project_api_key>',\n  { host: '<ph_client_api_host>' }\n);\n\nconst callbackHandler = new LangChainCallbackHandler({\n  client: phClient,\n  distinctId: 'user_123', // optional\n  traceId: 'trace_456', // optional\n  properties: { conversationId: 'abc123' }, // optional\n  groups: { company: 'company_id_in_your_db' }, // optional\n  privacyMode: false, // optional\n  debug: false // optional - when true, logs all events to console\n});\n",
+                            "label": "Node",
+                            "language": "typescript",
+                            "tab": "node"
+                        }
+                    ]
+                },
+                {
+                    "content": "**Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the `CallbackHandler`. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.\n",
+                    "type": "note"
+                }
+            ]
+        },
+        {
+            "badge": "required",
+            "title": "Call LangChain",
+            "content": [
+                {
+                    "content": "When you invoke your chain, pass the `callback_handler` in the `config` as part of your `callbacks`:\n",
+                    "type": "markdown"
+                },
+                {
+                    "languages": ["python", "node"],
+                    "type": "multi_code",
+                    "code_blocks": [
+                        {
+                            "content": "prompt = ChatPromptTemplate.from_messages([\n    (\"system\", \"You are a helpful assistant.\"),\n    (\"user\", \"{input}\")\n])\n\nmodel = ChatOpenAI(openai_api_key=\"your_openai_api_key\")\nchain = prompt | model\n\n# Execute the chain with the callback handler\nresponse = chain.invoke(\n    {\"input\": \"Tell me a joke about programming\"},\n    config={\"callbacks\": [callback_handler]}\n)\n\nprint(response.content)\n",
+                            "label": "Python",
+                            "language": "python",
+                            "tab": "python"
+                        },
+                        {
+                            "content": "const prompt = ChatPromptTemplate.fromMessages([\n  [\"system\", \"You are a helpful assistant.\"],\n  [\"user\", \"{input}\"]\n]);\n\nconst model = new ChatOpenAI({\n  apiKey: \"your_openai_api_key\"\n});\n\nconst chain = prompt.pipe(model);\n\n// Execute the chain with the callback handler\nconst response = await chain.invoke(\n  { input: \"Tell me a joke about programming\" },\n  { callbacks: [callbackHandler] }\n);\n\nconsole.log(response.content);\nphClient.shutdown();\n",
+                            "label": "Node",
+                            "language": "typescript",
+                            "tab": "node"
+                        }
+                    ]
+                },
+                {
+                    "content": "PostHog automatically captures an `$ai_generation` event along with these properties:\n",
+                    "type": "markdown"
+                },
+                {
+                    "headers": ["Property", "Description"],
+                    "rows": [
+                        ["$ai_model", "The specific model, like `gpt-5-mini` or `claude-4-sonnet`"],
+                        ["$ai_latency", "The latency of the LLM call in seconds"],
+                        ["$ai_tools", "Tools and functions available to the LLM"],
+                        ["$ai_input", "List of messages sent to the LLM"],
+                        ["$ai_input_tokens", "The number of tokens in the input (often found in response.usage)"],
+                        ["$ai_output_choices", "List of response choices from the LLM"],
+                        ["$ai_output_tokens", "The number of tokens in the output (often found in `response.usage`)"],
+                        ["$ai_total_cost_usd", "The total cost in USD (input + output)"],
+                        ["[...]", "See [full list](/docs/llm-analytics/generations#event-properties) of properties"]
+                    ],
+                    "type": "table"
+                },
+                {
+                    "content": "It also automatically creates a trace hierarchy based on how LangChain components are nested.\n",
+                    "type": "markdown"
+                }
+            ]
+        },
+        {
+            "badge": "checkpoint",
+            "subtitle": "Confirm LLM events are being sent to PostHog",
+            "title": "Verify traces and generations",
+            "type": "checkpoint",
+            "content": {
+                "app": [
+                    {
+                        "content": "Make some LLM calls, PostHog should now receive your LLM traces. Once your captures are ingested, you'll see the `Waiting for events` widget below update in realtime.\n\nIf PostHog receives LLM traces, the widget below will say `Installation Complete`.\n",
+                        "type": "markdown"
+                    }
+                ],
+                "docs": [
+                    {
+                        "content": "Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.\n",
+                        "type": "markdown"
+                    },
+                    {
+                        "alt": "LLM generations in PostHog",
+                        "caption": "LLM generations in PostHog",
+                        "imageDark": "https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syjm_5baab36590.png",
+                        "imageLight": "https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syne_ecd0801880.png",
+                        "type": "screenshot"
+                    },
+                    {
+                        "external": true,
+                        "size": "sm",
+                        "text": "Check for LLM events in PostHog",
+                        "type": "button",
+                        "url": "https://app.posthog.com/llm-analytics/generations",
+                        "variant": "secondary"
+                    }
+                ]
+            }
+        }
+    ],
+    "dependencies": {
+        "node": ["@posthog/ai", "posthog-node", "langchain", "@langchain/core", "@langchain/openai"],
+        "python": ["posthog", "langchain", "openai", "langchain-openai"]
+    },
+    "platforms": {
+        "primary_owner": "docs",
+        "supported": ["docs", "app"]
+    },
+    "testing": {
+        "test_events": ["$ai_generation"],
+        "test_properties": ["$ai_model", "$ai_latency", "$ai_input_tokens", "$ai_output_tokens"]
+    },
+    "validation": {
+        "checkpoint_steps": ["Verify traces and generations"],
+        "optional_steps": [],
+        "required_steps": [
+            "Install the PostHog SDK",
+            "Install LangChain and OpenAI SDKs",
+            "Initialize PostHog and LangChain",
+            "Call LangChain"
+        ]
+    }
+}
