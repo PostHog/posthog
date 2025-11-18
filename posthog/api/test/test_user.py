@@ -1250,9 +1250,7 @@ class TestUserAPI(APIBaseTest):
         self.assertIsNotNone(cached_data)
         self.assertIn("feature_flags", cached_data)
         self.assertIn("team_id", cached_data)
-        self.assertIn("user_id", cached_data)
         self.assertEqual(cached_data["team_id"], self.team.id)
-        self.assertEqual(cached_data["user_id"], self.user.id)
         self.assertIn("test-flag-1", cached_data["feature_flags"])
         self.assertIn("test-flag-2", cached_data["feature_flags"])
 
@@ -1262,7 +1260,7 @@ class TestUserAPI(APIBaseTest):
 
         # Set up cached flags with metadata
         test_flags = {"flag1": True, "flag2": "variant-a", "flag3": False}
-        cache_data = {"feature_flags": test_flags, "team_id": self.team.id, "user_id": self.user.id}
+        cache_data = {"feature_flags": test_flags, "team_id": self.team.id}
         cache_key = "toolbar_flags_test-key-456"
         cache.set(cache_key, cache_data, timeout=300)
 
@@ -1286,7 +1284,7 @@ class TestUserAPI(APIBaseTest):
         # Create flags for a different team
         other_team = Team.objects.create(name="Other Team", organization=self.organization)
         test_flags = {"secret-flag": True}
-        cache_data = {"feature_flags": test_flags, "team_id": other_team.id, "user_id": self.user.id}
+        cache_data = {"feature_flags": test_flags, "team_id": other_team.id}
         cache_key = "toolbar_flags_test-key-789"
         cache.set(cache_key, cache_data, timeout=300)
 

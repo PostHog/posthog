@@ -737,14 +737,9 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        # Evaluate all feature flags for this user
         flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
-
-        # Generate a unique key and store in cache for 5 minutes
         key = secrets.token_urlsafe(16)
         cache_key = f"toolbar_flags_{key}"
-
-        # Store flags and team ID to verify ownership on retrieval
         cache_data = {
             "feature_flags": flags,
             "team_id": team.id,
