@@ -178,8 +178,14 @@ where
             "/flags/definitions/",
             any(flag_definitions::flags_definitions),
         )
-        .route("/flags/stream", get(sse_endpoint::feature_flags_stream))
-        .route("/flags/stream/", get(sse_endpoint::feature_flags_stream))
+        .route(
+            "/flags/definitions/stream",
+            get(sse_endpoint::feature_flags_stream),
+        )
+        .route(
+            "/flags/definitions/stream/",
+            get(sse_endpoint::feature_flags_stream),
+        )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));

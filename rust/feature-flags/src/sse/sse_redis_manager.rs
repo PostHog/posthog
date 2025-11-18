@@ -81,15 +81,13 @@ impl SseRedisSubscriptionManager {
                 }
             };
 
-            let conn = match redis_client.get_async_connection().await {
+            let mut pubsub_conn = match redis_client.get_async_pubsub().await {
                 Ok(c) => c,
                 Err(e) => {
-                    error!("Failed to get async connection: {}", e);
+                    error!("Failed to get pub/sub connection: {}", e);
                     return;
                 }
             };
-
-            let mut pubsub_conn = conn.into_pubsub();
 
             // Subscribe to the global channel
             if let Err(e) = pubsub_conn.subscribe(channel).await {
@@ -110,7 +108,7 @@ impl SseRedisSubscriptionManager {
                         // Parse the message payload
                         match msg.get_payload::<String>() {
                             Ok(payload) => {
-                                print!("# message {payload}");
+                                info!("Received message: {}", payload);
 
                                 match serde_json::from_str::<FeatureFlagEvent>(&payload) {
                                     Ok(event) => {
