@@ -91,6 +91,9 @@ FEATURE_FLAG_EVALUATION_FALLBACK_COUNTER = Counter(
     labelnames=["team_id"],
 )
 
+# Reusable session for proxying to the flags service with connection pooling
+_FLAGS_SERVICE_SESSION = requests.Session()
+
 
 class LocalEvaluationThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
@@ -1099,7 +1102,7 @@ def _proxy_to_flags_service(
     params: dict[str, str] = {"v": "2"}
 
     try:
-        response = requests.post(
+        response = _FLAGS_SERVICE_SESSION.post(
             f"{flags_service_url}/flags",
             params=params,
             json=payload,
