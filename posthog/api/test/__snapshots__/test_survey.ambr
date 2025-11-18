@@ -22,6 +22,76 @@
   GROUP BY survey_id
   '''
 # ---
+# name: TestResponsesCount.test_responses_count_excludes_archived_responses
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE team_id = 99999
+    AND event = 'survey sent'
+    AND timestamp >= '2024-04-26 14:40:09'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-04-26 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
+  GROUP BY survey_id
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count_excludes_archived_responses.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE team_id = 99999
+    AND event = 'survey sent'
+    AND timestamp >= '2024-04-26 14:40:09'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-04-26 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
+  GROUP BY survey_id
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count_excludes_archived_responses.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE team_id = 99999
+    AND event = 'survey sent'
+    AND timestamp >= '2024-04-26 14:40:09'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-04-26 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
+    AND uuid NOT IN ('2ffba37c-c5f2-4215-9b1b-f2d2d181fa38')
+  GROUP BY survey_id
+  '''
+# ---
 # name: TestResponsesCount.test_responses_count_only_after_first_survey_started
   '''
   /* user_id:0 request:_snapshot_ */

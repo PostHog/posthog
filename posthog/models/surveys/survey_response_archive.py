@@ -1,7 +1,9 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
 
-class SurveyResponseArchive(models.Model):
+
+class SurveyResponseArchive(UUIDModel):
     """
     Separate table to track archived survey responses, since survey results are
     stored as ClickHouse events
@@ -21,14 +23,6 @@ class SurveyResponseArchive(models.Model):
     )
     response_uuid = models.UUIDField(help_text="UUID of the ClickHouse event representing the survey response")
     archived_at = models.DateTimeField(auto_now_add=True)
-    archived_by = models.ForeignKey(
-        "posthog.User",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="archived_survey_responses",
-        related_query_name="archived_survey_response",
-    )
 
     class Meta:
         constraints = [

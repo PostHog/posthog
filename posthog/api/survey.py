@@ -912,7 +912,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             ],
         )
 
-        archived_filter = self._get_archived_responses_filter() if exclude_archived else ""
+        archived_filter = f"AND {self._get_archived_responses_filter()}" if exclude_archived else ""
 
         query = f"""
             SELECT
@@ -924,7 +924,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
-                AND {archived_filter}
+                {archived_filter}
             GROUP BY survey_id
         """
 
@@ -1285,8 +1285,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             team_id=self.team_id,
             survey=survey,
             response_uuid=response_uuid,
-            defaults={"archived_by": cast(User, request.user)},
         )
+
+        if created:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_archived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
 
         return Response(status.HTTP_200_OK)
 
@@ -1308,6 +1319,18 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         deleted_count, _ = SurveyResponseArchive.objects.filter(
             team_id=self.team_id, survey=survey, response_uuid=response_uuid
         ).delete()
+
+        if deleted_count > 0:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_unarchived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
 
         return Response(status.HTTP_200_OK)
 
