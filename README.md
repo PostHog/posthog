@@ -19,7 +19,7 @@
   </a>
 </p>
 
-## PostHog is an all-in-one, open source platform for building successful products
+## PostHog is an all-in-one, open-source platform for building successful products
 
 [PostHog](https://posthog.com/) provides every tool you need to build a successful product including:
 
@@ -38,7 +38,7 @@ Best of all, all of this is free to use with a [generous monthly free tier](http
 
 ## Table of Contents
 
-- [PostHog is an all-in-one, open source platform for building successful products](#posthog-is-an-all-in-one-open-source-platform-for-building-successful-products)
+- [PostHog is an all-in-one, open-source platform for building successful products](#posthog-is-an-all-in-one-open-source-platform-for-building-successful-products)
 - [Table of Contents](#table-of-contents)
 - [Getting started with PostHog](#getting-started-with-posthog)
   - [PostHog Cloud (Recommended)](#posthog-cloud-recommended)
@@ -63,9 +63,9 @@ If you want to self-host PostHog, you can deploy a hobby instance in one line on
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)"
 ```
 
-Open source deployments should scale to approximately 100k events per month, after which we recommend [migrating to a PostHog Cloud](https://posthog.com/docs/migrate/migrate-to-cloud).
+open-source deployments should scale to approximately 100k events per month, after which we recommend [migrating to a PostHog Cloud](https://posthog.com/docs/migrate/migrate-to-cloud).
 
-We _do not_ provide customer support or offer guarantees for open source deployments. See our [self-hosting docs](https://posthog.com/docs/self-host), [troubleshooting guide](https://posthog.com/docs/self-host/deploy/troubleshooting), and [disclaimer](https://posthog.com/docs/self-host/open-source/disclaimer) for more info.
+We _do not_ provide customer support or offer guarantees for open-source deployments. See our [self-hosting docs](https://posthog.com/docs/self-host), [troubleshooting guide](https://posthog.com/docs/self-host/deploy/troubleshooting), and [disclaimer](https://posthog.com/docs/self-host/open-source/disclaimer) for more info.
 
 ## Setting up PostHog
 
@@ -86,7 +86,7 @@ Once you've installed PostHog, see our [product docs](https://posthog.com/docs/p
 
 ## Learning more about PostHog
 
-Our code isn't the only thing that's open source 😳. We also open source our [company handbook](https://posthog.com/handbook) which details our [strategy](https://posthog.com/handbook/why-does-posthog-exist), [ways of working](https://posthog.com/handbook/company/culture), and [processes](https://posthog.com/handbook/team-structure).
+Our code isn't the only thing that's open-source 😳. We also open-source our [company handbook](https://posthog.com/handbook) which details our [strategy](https://posthog.com/handbook/why-does-posthog-exist), [ways of working](https://posthog.com/handbook/company/culture), and [processes](https://posthog.com/handbook/team-structure).
 
 Curious about how to make the most of PostHog? We wrote a guide to [winning with PostHog](https://posthog.com/docs/new-to-posthog/getting-hogpilled) which walks you through the basics of [measuring activation](https://posthog.com/docs/new-to-posthog/activation), [tracking retention](https://posthog.com/docs/new-to-posthog/retention), and [capturing revenue](https://posthog.com/docs/new-to-posthog/revenue).
 
@@ -102,7 +102,7 @@ We <3 contributions big and small:
 
 This repo is available under the [MIT expat license](https://github.com/PostHog/posthog/blob/master/LICENSE), except for the `ee` directory (which has its [license here](https://github.com/PostHog/posthog/blob/master/ee/LICENSE)) if applicable.
 
-Need _absolutely 💯% FOSS_? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
+Need **_absolutely 💯% FOSS_**? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 
 The pricing for our paid plan is completely transparent and available on [our pricing page](https://posthog.com/pricing).
 
