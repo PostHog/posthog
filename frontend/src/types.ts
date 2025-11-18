@@ -284,11 +284,13 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type LoginMethod = SSOProvider | 'password' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -4790,6 +4792,18 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+
+export interface DataWarehouseSavedQueryRunHistory {
+    status: DataModelingJobStatus
+    timestamp?: string
+}
+
+export interface DataWarehouseSavedQueryDependencies {
+    upstream_count: number
+    downstream_count: number
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -4803,6 +4817,10 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    upstream_dependency_count?: number
+    downstream_dependency_count?: number
+    created_at?: string
+    run_history?: DataWarehouseSavedQueryRunHistory[]
 }
 
 export interface DataWarehouseSavedQueryDraft {

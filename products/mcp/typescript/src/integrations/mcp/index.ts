@@ -242,7 +242,7 @@ export class MyMCP extends McpAgent<Env> {
 
         // Register prompts and resources
         await registerPrompts(this.server, context)
-        registerResources(this.server, context)
+        await registerResources(this.server, context)
 
         // Register tools
         const features = this.requestProperties.features

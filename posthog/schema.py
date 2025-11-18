@@ -284,7 +284,9 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
+    CREATE_EXPERIMENT = "create_experiment"
 
 
 class AssistantToolCall(BaseModel):
@@ -4663,6 +4665,17 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
+
+
+class WebAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    doPathCleaning: Optional[bool] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -13332,6 +13345,13 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    session_recording_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the"
+            " filters"
+        ),
+    )
     tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")

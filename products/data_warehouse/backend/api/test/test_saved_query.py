@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 from posthog.models import ActivityLog
 
-from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models import (
+    DataModelingJob,
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+)
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
@@ -1118,3 +1123,227 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(
                 response.json()["detail"], "Cannot revert materialization of a query from a managed viewset."
             )
+
+    def test_dependencies_no_dependencies(self):
+        """Test dependencies endpoint returns zero counts for a view with no dependencies"""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "simple_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query_id = response.json()["id"]
+
+        # Test dependencies endpoint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/dependencies",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["upstream_count"], 1)  # events
+        self.assertEqual(data["downstream_count"], 0)  # No downstream dependencies
+
+    def test_dependencies_with_upstream_and_downstream(self):
+        """Test dependencies endpoint correctly counts immediate dependencies"""
+        # Create parent view
+        response_parent = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "parent_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response_parent.status_code, 201)
+        parent_id = response_parent.json()["id"]
+
+        # Create child view that depends on parent
+        response_child = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "child_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event as event from parent_view LIMIT 50",
+                },
+            },
+        )
+        self.assertEqual(response_child.status_code, 201)
+        child_id = response_child.json()["id"]
+
+        # Create grandchild view that depends on child
+        response_grandchild = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "grandchild_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event as event from child_view LIMIT 25",
+                },
+            },
+        )
+        self.assertEqual(response_grandchild.status_code, 201)
+        grandchild_id = response_grandchild.json()["id"]
+
+        # Test parent dependencies (should have downstream but no upstream saved queries)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["upstream_count"], 1)  # events table
+        self.assertEqual(data["downstream_count"], 1)  # child_view
+
+        # Test child dependencies (should have both upstream and downstream)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{child_id}/dependencies",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["upstream_count"], 1)  # parent_view (only immediate parent)
+        self.assertEqual(data["downstream_count"], 1)  # grandchild_view
+
+        # Test grandchild dependencies (should have upstream but no downstream)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{grandchild_id}/dependencies",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["upstream_count"], 1)  # child_view (only immediate parent)
+        self.assertEqual(data["downstream_count"], 0)  # No downstream
+
+    def test_run_history_no_runs(self):
+        """Test run_history endpoint returns empty array for a view with no runs"""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "view_no_runs",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query_id = response.json()["id"]
+
+        # Test run_history endpoint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["run_history"], [])
+
+    def test_run_history_with_runs(self):
+        """Test run_history endpoint returns correct run history"""
+        # Create a materialized view
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "materialized_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query_id = response.json()["id"]
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+        # Create multiple runs with different statuses
+        from django.utils import timezone
+
+        now = timezone.now()
+
+        # Create 7 runs to test the limit of 5
+        runs = []
+        for i in range(7):
+            status = DataModelingJob.Status.COMPLETED if i % 2 == 0 else DataModelingJob.Status.FAILED
+            run = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=status,
+                last_run_at=now - timedelta(hours=i),
+            )
+            runs.append(run)
+
+        # Test run_history endpoint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # Should return only the 5 most recent runs
+        self.assertEqual(len(data["run_history"]), 5)
+
+        # Verify they are ordered by most recent first
+        for i in range(len(data["run_history"])):
+            expected_status = DataModelingJob.Status.COMPLETED if i % 2 == 0 else DataModelingJob.Status.FAILED
+            self.assertEqual(data["run_history"][i]["status"], expected_status)
+            self.assertIsNotNone(data["run_history"][i]["timestamp"])
+
+        # Verify the most recent run is first
+        most_recent_run = runs[0]
+        self.assertEqual(data["run_history"][0]["status"], most_recent_run.status)
+
+    def test_run_history_mixed_statuses(self):
+        """Test run_history endpoint with various run statuses"""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "mixed_status_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query_id = response.json()["id"]
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+        from django.utils import timezone
+
+        now = timezone.now()
+
+        # Create runs with different statuses
+        statuses = [
+            DataModelingJob.Status.COMPLETED,
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            DataModelingJob.Status.CANCELLED,
+        ]
+
+        for i, status in enumerate(statuses):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=status,
+                last_run_at=now - timedelta(hours=i),
+            )
+
+        # Test run_history endpoint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertEqual(len(data["run_history"]), 4)
+
+        # Verify all different statuses are present
+        returned_statuses = [run["status"] for run in data["run_history"]]
+        self.assertIn("Completed", returned_statuses)
+        self.assertIn("Failed", returned_statuses)
+        self.assertIn("Running", returned_statuses)
+        self.assertIn("Cancelled", returned_statuses)
