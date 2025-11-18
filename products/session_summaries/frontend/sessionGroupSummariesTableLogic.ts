@@ -93,7 +93,7 @@ export const sessionGroupSummariesTableLogic = kea<sessionGroupSummariesTableLog
         setFilters: () => actions.loadSessionGroupSummaries(),
         tableSortingChanged: () => actions.loadSessionGroupSummaries(),
         setPage: () => actions.loadSessionGroupSummaries(),
-        deleteSessionGroupSummary: () => actions.loadSessionGroupSummaries(),
+        deleteSessionGroupSummarySuccess: () => actions.loadSessionGroupSummaries(),
     })),
     selectors(({ actions }) => ({
         sessionGroupSummaries: [
