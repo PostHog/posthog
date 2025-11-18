@@ -54,14 +54,12 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const params = {
                         groups: getGroups(values.posthog),
                     }
-
                     const response = await toolbarFetch(
                         `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`
                     )
 
                     breakpoint()
                     if (!response.ok) {
-                        console.warn('[Flags Toolbar Logic] Failed to fetch user flags:', response.status)
                         return []
                     }
                     return await response.json()
@@ -198,7 +196,6 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
                     const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
-
                     actions.storeLocalOverrides(locallyOverrideFeatureFlags)
                 }
             },

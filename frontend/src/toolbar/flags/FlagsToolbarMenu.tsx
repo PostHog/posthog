@@ -56,7 +56,6 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     <LemonInput
                         autoFocus
                         placeholder="Search"
-                        //    className="flex-1"
                         fullWidth
                         type="search"
                         value={searchTerm}

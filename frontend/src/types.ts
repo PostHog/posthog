@@ -791,7 +791,6 @@ export interface ToolbarParams {
     distinctId?: string
     userEmail?: string
     dataAttributes?: string[]
-    featureFlags?: Record<string, string | boolean>
     toolbarFlagsKey?: string
 }
 

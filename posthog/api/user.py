@@ -691,7 +691,7 @@ class UserViewSet(
 
 @authenticate_secondarily
 def get_toolbar_preloaded_flags(request):
-    """Retrieve cached feature flags for toolbar using a session key."""
+    """Retrieve cached feature flags for toolbar"""
     toolbar_flags_key = request.GET.get("key")
 
     if not toolbar_flags_key:
@@ -706,7 +706,6 @@ def get_toolbar_preloaded_flags(request):
         return JsonResponse({"error": "Flags not found or expired"}, status=404)
 
     # Security: Verify the requesting user has access to this team's flags
-    # This prevents users from accessing flags for other teams if they intercept a key
     if cache_data.get("team_id") != request.user.team.id:
         logger.warning(
             f"[Toolbar Flags] User {request.user.id} attempted to access toolbar flags for team {cache_data.get('team_id')}"
@@ -714,10 +713,8 @@ def get_toolbar_preloaded_flags(request):
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
     feature_flags = cache_data.get("feature_flags", {})
-    distinct_id = cache_data.get("distinct_id")
 
-    # Don't delete - allow multiple retrievals during the 5-minute window
-    return JsonResponse({"featureFlags": feature_flags, "distinctId": distinct_id})
+    return JsonResponse({"featureFlags": feature_flags})
 
 
 @authenticate_secondarily
@@ -741,30 +738,21 @@ def prepare_toolbar_preloaded_flags(request):
             return JsonResponse({"error": "No team found"}, status=400)
 
         # Evaluate all feature flags for this user
-        flags, reasons, _, _ = get_all_feature_flags(team, distinct_id, groups={})
-
-        # Filter to only enabled flags (exclude false/undefined values)
-        feature_flags = {}
-        for flag_key, flag_value in flags.items():
-            if flag_value is not None and flag_value is not False:
-                feature_flags[flag_key] = flag_value
+        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
 
         # Generate a unique key and store in cache for 5 minutes
         key = secrets.token_urlsafe(16)
         cache_key = f"toolbar_flags_{key}"
 
-        # Store both flags and metadata to verify ownership on retrieval
+        # Store flags and team ID to verify ownership on retrieval
         cache_data = {
-            "feature_flags": feature_flags,
-            "distinct_id": distinct_id,  # Include the person's distinct_id
+            "feature_flags": flags,
             "team_id": team.id,
-            "user_id": request.user.id,
         }
 
-        # Store in cache
         cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
 
-        return JsonResponse({"key": key, "flag_count": len(feature_flags)})
+        return JsonResponse({"key": key, "flag_count": len(flags)})
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         logger.exception("Error preparing toolbar launch", error=str(e))
         return JsonResponse({"error": "Invalid request"}, status=400)
@@ -799,8 +787,6 @@ def redirect_to_site(request):
         "dataAttributes": team.data_attributes,
     }
 
-    # Support passing feature flags for toolbar launch
-    # Pass the key to the toolbar instead of expanding flags (avoids URL length limits)
     toolbar_flags_key = request.GET.get("toolbarFlagsKey")
     if toolbar_flags_key:
         params["toolbarFlagsKey"] = toolbar_flags_key

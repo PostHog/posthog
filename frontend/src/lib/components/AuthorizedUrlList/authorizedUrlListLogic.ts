@@ -103,7 +103,6 @@ function buildToolbarParams(options?: {
     actionId?: number | null
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
-    featureFlags?: Record<string, string | boolean>
     toolbarFlagsKey?: string
 }): ToolbarParams {
     return {
@@ -117,7 +116,6 @@ function buildToolbarParams(options?: {
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
-        ...(options?.featureFlags ? { featureFlags: options.featureFlags } : {}),
         ...(options?.toolbarFlagsKey ? { toolbarFlagsKey: options.toolbarFlagsKey } : {}),
     }
 }
@@ -130,7 +128,6 @@ export function appEditorUrl(
         experimentId?: ExperimentIdType
         userIntent?: ToolbarUserIntent
         generateOnly?: boolean
-        featureFlags?: Record<string, string | boolean>
         toolbarFlagsKey?: string
     }
 ): string {
@@ -139,10 +136,6 @@ export function appEditorUrl(
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     params['appUrl'] = appUrl
     params['generateOnly'] = options?.generateOnly
-    // Feature flags need to be JSON stringified for the backend (unless using session key)
-    if (options?.featureFlags && !options?.toolbarFlagsKey) {
-        params['featureFlags'] = JSON.stringify(options.featureFlags)
-    }
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 

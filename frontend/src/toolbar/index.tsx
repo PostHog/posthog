@@ -86,25 +86,10 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: 
                 if (posthog && data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
                 }
-                // Also store in toolbarParams for backward compatibility
-                toolbarParams.featureFlags = data.featureFlags
-            } else {
-                const errorText = await response.text()
-                console.error('[Toolbar Flags] Failed to fetch toolbar feature flags:', response.statusText)
-                console.error('[Toolbar Flags] Status code:', response.status)
-                console.error('[Toolbar Flags] Error response:', errorText)
-                console.error('[Toolbar Flags] Request URL:', url)
-                console.error('[Toolbar Flags] This likely means:')
-                console.error(
-                    '[Toolbar Flags]   1. prepare_toolbar_preloaded_flags was not called before launching toolbar'
-                )
-                console.error('[Toolbar Flags]   2. The cache key expired (5 min TTL)')
-                console.error('[Toolbar Flags]   3. The cache key does not match')
             }
         } catch (error) {
             console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
         }
-    } else {
     }
 
     initKeaInToolbar()
