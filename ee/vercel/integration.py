@@ -177,6 +177,24 @@ class VercelIntegration:
         return resource, installation
 
     @staticmethod
+    def _cleanup_failed_installation(organization: Organization, installation_id: str) -> None:
+        """Clean up organization and integration after a failed installation."""
+        try:
+            organization.delete()
+            logger.info(
+                "Cleaned up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+        except Exception as cleanup_error:
+            logger.exception(
+                "Failed to clean up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+            capture_exception(cleanup_error)
+
+    @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
         # TODO: Retrieve through billing service instead.
         return [
@@ -316,14 +334,11 @@ class VercelIntegration:
                     code="unique",
                 )
 
-        # Create Stripe customer + subscription outside the transaction
-        # This prevents orphaned Stripe customers if the DB transaction rolls back
+        # Create billing customer outside the transaction to prevent orphaned resources
         license = get_cached_instance_license()
         if license:
             try:
                 billing_manager = BillingManager(license)
-                # Calls POST /api/activate/authorize with billing_provider="vercel"
-                # Billing Service will create Stripe customer with email=None (prevents Stripe emails)
                 billing_manager.authorize(organization, billing_provider="vercel")
                 logger.info(
                     "Created Stripe customer for Vercel installation",
@@ -331,31 +346,13 @@ class VercelIntegration:
                     organization_id=str(organization.id),
                 )
             except Exception as e:
-                # If Stripe customer creation fails after DB commit, clean up the organization and integration
-                # Rationale: Free tier still requires Stripe for usage tracking and limits
                 logger.exception(
-                    "Failed to create Stripe customer for Vercel installation, cleaning up organization",
+                    "Failed to create Stripe customer for Vercel installation",
                     installation_id=installation_id,
                     organization_id=str(organization.id),
                 )
                 capture_exception(e)
-
-                # Clean up the organization and integration
-                try:
-                    organization.delete()
-                    logger.info(
-                        "Cleaned up organization after billing failure",
-                        installation_id=installation_id,
-                        organization_id=str(organization.id),
-                    )
-                except Exception as cleanup_error:
-                    logger.exception(
-                        "Failed to clean up organization after billing failure",
-                        installation_id=installation_id,
-                        organization_id=str(organization.id),
-                    )
-                    capture_exception(cleanup_error)
-
+                VercelIntegration._cleanup_failed_installation(organization, installation_id)
                 raise exceptions.APIException("Failed to initialize billing. Please try again.")
 
         if user_created:
