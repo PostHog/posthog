@@ -338,6 +338,8 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.filter(team=self.team)
         queryset = queryset.select_related("created_by", "team")
         if self.action == "list":
+            # Defer large fields not needed for list view
+            queryset = queryset.defer("summary", "extra_summary_context", "run_metadata")
             # Annotate with session_count for sorting
             queryset = queryset.annotate(
                 session_count=Func("session_ids", function="CARDINALITY", output_field=IntegerField())
