@@ -7,7 +7,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
     dependencies = [
-        ("posthog", "0905_survey_add_linked_insight"),
+        ("posthog", "0906_survey_add_linked_insight_constraint"),
     ]
 
     operations = [
