@@ -420,8 +420,9 @@ async def assign_events_to_patterns_activity(
         user_id=inputs.user_id,
     )
     # Store data in DB to be able to display in the UI
-    user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
-    if not user:
+    try:
+        user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
+    except User.DoesNotExist:
         raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
     session_group_summary = await SessionGroupSummary.objects.acreate(
         team_id=inputs.team_id,
