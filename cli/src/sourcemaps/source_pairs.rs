@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 // Source pairs are the fundamental unit of a frontend symbol set
 pub struct SourcePair {
@@ -103,6 +103,7 @@ pub fn read_pairs(selection: FileSelection, prefix: &Option<String>) -> Result<V
                 .context("failed to read sourcemap")
                 .map_err(|e| warn!("skip: {e:?}"))
                 .ok()?;
+            debug!("adding pair for {}", entry_path.display());
             Some(SourcePair { source, sourcemap })
         })
         .collect::<Vec<SourcePair>>();
