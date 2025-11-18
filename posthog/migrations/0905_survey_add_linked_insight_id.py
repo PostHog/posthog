@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="survey",
-            name="linked_insight",
+            name="linked_insight_id",
             field=models.IntegerField(blank=True, null=True),
         ),
     ]
