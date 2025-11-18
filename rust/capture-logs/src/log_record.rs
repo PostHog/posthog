@@ -16,7 +16,6 @@ use opentelemetry_proto::tonic::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use sha2::{Digest, Sha512};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -30,20 +29,14 @@ pub struct KafkaLogRow {
     pub timestamp: DateTime<Utc>,
     #[serde(with = "ts_microseconds")]
     pub observed_timestamp: DateTime<Utc>,
-    #[serde(with = "ts_microseconds")]
-    pub created_at: DateTime<Utc>,
     pub body: String,
     pub severity_text: String,
     pub severity_number: i32,
     pub service_name: String,
     pub resource_attributes: HashMap<String, String>,
-    pub resource_id: String,
     pub instrumentation_scope: String,
     pub event_name: String,
     pub attributes: HashMap<String, String>,
-    pub attributes_map_str: HashMap<String, String>,
-    pub attributes_map_float: HashMap<String, f64>,
-    pub attributes_map_datetime: HashMap<String, f64>,
 }
 
 impl KafkaLogRow {
@@ -81,7 +74,6 @@ impl KafkaLogRow {
             severity_number = convert_severity_text_to_number(&severity_text);
         }
 
-        let resource_id = extract_resource_id(&resource);
         let resource_attributes = extract_resource_attributes(resource);
 
         let mut attributes: HashMap<String, String> = record
@@ -123,29 +115,14 @@ impl KafkaLogRow {
             trace_flags,
             timestamp,
             observed_timestamp,
-            created_at: observed_timestamp,
             body,
             severity_text,
             severity_number,
             resource_attributes: resource_attributes.into_iter().collect(),
             instrumentation_scope,
             event_name,
-            resource_id,
             service_name,
-            attributes: attributes.clone(),
-            attributes_map_str: attributes
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k + "__str", extract_json_string(v)))
-                .collect(),
-            attributes_map_float: attributes
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (k, extract_json_float(v)))
-                .filter(|(_, v)| v.is_some())
-                .map(|(k, v)| (k + "__float", v.unwrap()))
-                .collect(),
-            attributes_map_datetime: HashMap::new(),
+            attributes,
         };
         debug!("log: {:?}", log_row);
 
@@ -163,20 +140,6 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
         }
     } else {
         "".to_string()
-    }
-}
-
-fn extract_json_string(value: String) -> String {
-    match serde_json::from_str::<JsonValue>(&value) {
-        Ok(JsonValue::String(value)) => value,
-        _ => value,
-    }
-}
-
-fn extract_json_float(value: String) -> Option<f64> {
-    match serde_json::from_str::<JsonValue>(&value) {
-        Ok(JsonValue::Number(value)) => value.as_f64(),
-        _ => None,
     }
 }
 
@@ -272,26 +235,6 @@ fn extract_resource_attributes(resource: Option<Resource>) -> Vec<(String, Strin
             )
         })
         .collect()
-}
-
-fn extract_resource_id(resource: &Option<Resource>) -> String {
-    let Some(resource) = resource else {
-        return "".to_string();
-    };
-
-    let mut hasher = Sha512::new();
-    for pair in resource.attributes.iter() {
-        hasher.update(pair.key.as_bytes());
-        hasher.update(
-            pair.value
-                .clone()
-                .map(any_value_to_json)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-        );
-    }
-
-    format!("{:x}", hasher.finalize())
 }
 
 // TODO - pull this from PG

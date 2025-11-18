@@ -4,9 +4,10 @@ import { router } from 'kea-router'
 
 import api, { ApiConfig } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -43,6 +44,9 @@ export const organizationLogic = kea<organizationLogicType>([
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: true,
+    }),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     connect([userLogic]),
     reducers({
@@ -137,7 +141,7 @@ export const organizationLogic = kea<organizationLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
@@ -145,7 +149,8 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = urls.products()
+            const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+            window.location.href = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')

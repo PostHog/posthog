@@ -67,6 +67,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -121,6 +122,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltip,
             tooltipDocLink,
             tooltipPlacement,
+            tooltipCloseDelayMs,
             role,
             tabIndex,
             ...props
@@ -230,7 +232,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
         if ((tooltip && to) || tooltipDocLink) {
             element = (
-                <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
+                <Tooltip
+                    title={tooltip}
+                    docLink={tooltipDocLink}
+                    placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
+                >
                     {element}
                 </Tooltip>
             )
@@ -241,6 +248,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <Tooltip
                     title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
                     placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
                 >
                     <span>
                         <button

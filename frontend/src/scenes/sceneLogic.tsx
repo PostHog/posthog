@@ -9,12 +9,12 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman, isMac } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -45,6 +45,7 @@ import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { newTabSceneLogic } from './new-tab/newTabSceneLogic'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -270,6 +271,7 @@ const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WARE
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
+    urls.useCaseSelection(),
     urls.products(),
     '/settings',
     urls.organizationBilling(),
@@ -429,8 +431,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         pathname: addProjectIdIfMissing(pathname),
                         search,
                         hash,
-                        title: 'New tab',
-                        iconType: 'blank',
+                        title: 'Search',
+                        iconType: 'search',
                         pinned: false,
                     }
                     return sortTabsPinnedFirst([...baseTabs, newTab])
@@ -453,8 +455,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             pathname: '/new',
                             search: '',
                             hash: '',
-                            title: 'New tab',
-                            iconType: 'blank',
+                            title: 'Search',
+                            iconType: 'search',
                             pinned: false,
                         })
                     }
@@ -812,6 +814,12 @@ export const sceneLogic = kea<sceneLogicType>([
             (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
         ],
+        firstTabIsActive: [
+            (s) => [s.activeTabId, s.tabs],
+            (activeTabId, tabs): boolean => {
+                return activeTabId === tabs[0]?.id
+            },
+        ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {
@@ -1115,13 +1123,22 @@ export const sceneLogic = kea<sceneLogicType>([
                                 ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                console.warn('No onboarding completed, redirecting to /products')
-
                                 const nextUrl =
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Default to false (products page) if feature flags haven't loaded yet
+                                const useUseCaseSelection =
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+
+                                if (useUseCaseSelection) {
+                                    router.actions.replace(
+                                        urls.useCaseSelection(),
+                                        nextUrl ? { next: nextUrl } : undefined
+                                    )
+                                } else {
+                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                }
                                 return
                             }
 
@@ -1539,21 +1556,60 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
-                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                const commandKey = isMac() ? event.metaKey : event.ctrlKey
+                const optionKey = event.altKey
+                const keyCode = event.code?.toLowerCase()
+                const key = event.key?.toLowerCase()
+                const activeTab = values.activeTab
+
+                // Handle both physical key and typed character (cross-layout support).
+                const isTKey = keyCode === 'keyt' || key === 't'
+                const isWKey = keyCode === 'keyw' || key === 'w'
+                const isKKey = keyCode === 'keyk' || key === 'k'
+
+                // New shortcuts: Command+Option+T for new tab, Command+Option+W for close tab
+                if (commandKey && optionKey) {
                     const element = event.target as HTMLElement
                     if (element?.closest('.NotebookEditor')) {
                         return
                     }
 
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.shiftKey) {
-                        if (values.activeTab) {
-                            actions.removeTab(values.activeTab)
-                        }
-                    } else {
+                    if (isTKey) {
+                        event.preventDefault()
+                        event.stopPropagation()
                         actions.newTab()
+                        return
                     }
+
+                    if (isWKey) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (activeTab) {
+                            actions.removeTab(activeTab)
+                        }
+                        return
+                    }
+                }
+
+                // If cmd k, open current page new tab page / if already on the new tab page focus the search input
+                if (commandKey && isKKey) {
+                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
+                        const activeTabId = values.activeTabId
+                        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
+                        if (mountedLogic) {
+                            mountedLogic.actions.focusNewTabSearchInput()
+                        } else {
+                            // If no mounted logic found, try with default key
+                            const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
+                            if (defaultLogic) {
+                                defaultLogic.actions.focusNewTabSearchInput()
+                            }
+                        }
+                        return
+                    }
+                    router.actions.push(urls.newTab())
+
+                    return
                 }
             }
             window.addEventListener('keydown', onKeyDown)

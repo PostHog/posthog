@@ -290,7 +290,7 @@ export function UsageMetricsConfig(): JSX.Element {
             </p>
             <div className="flex flex-col gap-2 items-start">
                 {!isEditing && (
-                    <LemonButton onClick={handleAddMetric} icon={<IconPlusSmall />}>
+                    <LemonButton type="primary" onClick={handleAddMetric} icon={<IconPlusSmall />}>
                         Add metric
                     </LemonButton>
                 )}

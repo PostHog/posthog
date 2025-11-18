@@ -393,6 +393,13 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent): void => {
+            const isModKeyPressed = e.metaKey || e.ctrlKey
+
+            // Allow native browser functionality with modifier keys
+            if (isModKeyPressed) {
+                return
+            }
+
             if (!containerRef.current?.contains(document.activeElement)) {
                 return
             }
