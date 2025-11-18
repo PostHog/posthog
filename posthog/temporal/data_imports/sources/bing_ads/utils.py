@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 from bingads.v13.reporting import ReportingDownloadParameters
+from dateutil.relativedelta import relativedelta
 
 from .schemas import BingAdsResource
 
@@ -52,7 +53,7 @@ def fetch_data_in_yearly_chunks(
 
     while current_start < end_date:
         chunk_end = min(
-            dt.date(current_start.year + 1, current_start.month, current_start.day),
+            current_start + relativedelta(years=1),
             end_date,
         )
 
