@@ -277,6 +277,9 @@ class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_session_count(self, obj: SessionGroupSummary) -> int:
+        # Use annotated value if available (from list action), otherwise calculate
+        if hasattr(obj, "session_count"):
+            return obj.session_count or 0
         return len(obj.session_ids) if obj.session_ids else 0
 
 
