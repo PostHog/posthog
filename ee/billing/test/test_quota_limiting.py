@@ -61,7 +61,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
-        self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits_used")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
         materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
@@ -689,7 +689,7 @@ class TestQuotaLimiting(BaseTest):
             "api_queries_read_bytes": {"usage": 99, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             "survey_responses": {"usage": 10, "limit": 100},
-            "ai_credits_used": {"usage": 10, "limit": 100},
+            "ai_credits": {"usage": 10, "limit": 100},
         }
 
         # Not over quota
@@ -808,7 +808,7 @@ class TestQuotaLimiting(BaseTest):
         )
 
         # Over quota
-        self.organization.usage["ai_credits_used"]["usage"] = 101
+        self.organization.usage["ai_credits"]["usage"] = 101
         assert org_quota_limited_until(
             self.organization, QuotaResource.AI_CREDITS, previously_quota_limited_team_tokens_ai_credits
         ) == {
@@ -838,7 +838,7 @@ class TestQuotaLimiting(BaseTest):
                 "api_queries_read_bytes": {"usage": 101, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
                 "survey_responses": {"usage": 101, "limit": 100},
-                "ai_credits_used": {"usage": 101, "limit": 100},
+                "ai_credits": {"usage": 101, "limit": 100},
             }
 
             # All resources over quota
@@ -921,7 +921,7 @@ class TestQuotaLimiting(BaseTest):
             "feature_flag_requests": {"usage": 100, "limit": 90},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             "survey_responses": {"usage": 10, "limit": 100},
-            "ai_credits_used": {"usage": 100, "limit": 90},
+            "ai_credits": {"usage": 100, "limit": 90},
         }
         self.organization.never_drop_data = True
 
@@ -1354,7 +1354,7 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
 
-    def test_ai_credits_used_quota_limiting(self):
+    def test_ai_credits_quota_limiting(self):
         """Test that AI credits have no grace period and immediately limit regardless of trust score."""
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
             self.organization.usage = {
@@ -1362,7 +1362,7 @@ class TestQuotaLimiting(BaseTest):
                 "recordings": {"usage": 10, "limit": 100},
                 "rows_synced": {"usage": 10, "limit": 100},
                 "feature_flag_requests": {"usage": 10, "limit": 100},
-                "ai_credits_used": {"usage": 1100, "limit": 1000},
+                "ai_credits": {"usage": 1100, "limit": 1000},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
             trust_key = TRUST_SCORE_KEYS[QuotaResource.AI_CREDITS]
@@ -1379,47 +1379,47 @@ class TestQuotaLimiting(BaseTest):
             self.organization.save()
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["ai_credits_used"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["ai_credits_used"] == {}
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/ai_credits", 0, -1
             )
 
             # Test medium trust score (7) - should STILL immediately limit, NO grace period
             self.organization.customer_trust_scores[trust_key] = 7
-            self.organization.usage["ai_credits_used"] = {"usage": 1100, "limit": 1000}
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
             self.organization.save()
             self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["ai_credits_used"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["ai_credits_used"] == {}
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/ai_credits", 0, -1
             )
 
             # Test medium-high trust score (10) - should STILL immediately limit, NO grace period
             self.organization.customer_trust_scores[trust_key] = 10
-            self.organization.usage["ai_credits_used"] = {"usage": 1100, "limit": 1000}
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
             self.organization.save()
             self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["ai_credits_used"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["ai_credits_used"] == {}
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/ai_credits", 0, -1
             )
 
             # Test high trust score (15) - should STILL immediately limit, NO grace period
             self.organization.customer_trust_scores[trust_key] = 15
-            self.organization.usage["ai_credits_used"] = {"usage": 1100, "limit": 1000}
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
             self.organization.save()
             self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["ai_credits_used"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["ai_credits_used"] == {}
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/ai_credits", 0, -1
             )
@@ -1431,8 +1431,8 @@ class TestQuotaLimiting(BaseTest):
             self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
 
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["ai_credits_used"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["ai_credits_used"] == {}
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/ai_credits", 0, -1
             )

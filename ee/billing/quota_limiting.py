@@ -70,7 +70,7 @@ class QuotaResource(Enum):
     LLM_EVENTS = "llm_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
-    AI_CREDITS = "ai_credits_used"
+    AI_CREDITS = "ai_credits"
 
 
 class QuotaLimitingCaches(Enum):
@@ -124,7 +124,7 @@ class UsageCounters(TypedDict):
     llm_events: int
     cdp_trigger_events: int
     rows_exported: int
-    ai_credits_used: int
+    ai_credits: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -687,9 +687,7 @@ def update_all_orgs_billing_quotas(
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
-            ai_credits_used=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0)
-            if is_ai_billing_enabled
-            else 0,
+            ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0) if is_ai_billing_enabled else 0,
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         )
