@@ -1116,7 +1116,7 @@ def _proxy_to_flags_service(
 def _evaluate_flags_with_fallback(
     team: Any,
     distinct_id: str,
-    groups: dict,
+    groups: dict[str, Any] | None,
     api_version: Optional[int] = None,
 ) -> dict | tuple:
     """
