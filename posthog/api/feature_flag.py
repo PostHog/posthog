@@ -1541,9 +1541,13 @@ class FeatureFlagViewSet(
 
         groups = json.loads(request.GET.get("groups", "{}"))
 
+        distinct_id = request.user.distinct_id
+        if not distinct_id:
+            raise exceptions.ValidationError("User distinct_id is required")
+
         result = _evaluate_flags_with_fallback(
             team=self.team,
-            distinct_id=request.user.distinct_id,
+            distinct_id=distinct_id,
             groups=groups,
         )
 
