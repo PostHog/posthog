@@ -1120,7 +1120,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                             },
                             canOpenInsight: true,
-                            canOpenModal: false,
                         }
                     }
 
