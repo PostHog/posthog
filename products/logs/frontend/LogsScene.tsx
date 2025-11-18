@@ -26,7 +26,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage } from '~/queries/schema/schema-general'
-import { ProductKey, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { ProductKey, PropertyOperator } from '~/types'
 
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
@@ -166,24 +166,11 @@ export function LogsScene(): JSX.Element {
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { filterGroup, expandedAttributeBreaksdowns } = useValues(logsLogic)
-    const { setFilterGroup, toggleAttributeBreakdown } = useActions(logsLogic)
+    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
-
-    const addFilter = (key: string, value: string, operator = PropertyOperator.Exact): void => {
-        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
-
-        newGroup.values.push({
-            key,
-            value: [value],
-            operator: operator,
-            type: PropertyFilterType.Log,
-        })
-
-        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
-    }
 
     return (
         <LemonTable

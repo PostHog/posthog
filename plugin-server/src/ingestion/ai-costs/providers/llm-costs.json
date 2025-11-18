@@ -4547,6 +4547,70 @@
         }
     },
     {
+        "model": "openai/gpt-5.1",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai-default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.1-chat",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.1-codex",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-5.1-codex-mini",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000006,
+                "cache_read_token": 3.75e-7
+            },
+            "openai": {
+                "prompt_token": 0.0000015,
+                "completion_token": 0.000006,
+                "cache_read_token": 3.75e-7
+            }
+        }
+    },
+    {
         "model": "openai/gpt-oss-120b",
         "cost": {
             "default": {
@@ -4963,19 +5027,6 @@
         "model": "openrouter/auto",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
-        "model": "openrouter/polaris-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
@@ -5956,8 +6007,8 @@
                 "completion_token": 8e-7
             },
             "alibaba": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.000002
+                "prompt_token": 1.5e-7,
+                "completion_token": 0.0000012
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 1.5e-7,
