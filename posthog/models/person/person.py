@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db import connection, connections, models, router, transaction
+from django.db import connections, models, router, transaction
 from django.db.models import F, Q
 from django.db.models.deletion import Collector
 
@@ -117,7 +117,11 @@ class Person(models.Model):
             collector.delete()
 
             # Now delete the Person itself with explicit team_id for partition pruning
-            with connection.cursor() as cursor:
+            # Use the correct database connection
+            from django.db import connections
+
+            db_connection = connections[using]
+            with db_connection.cursor() as cursor:
                 cursor.execute(
                     f"DELETE FROM {self._meta.db_table} WHERE team_id = %s AND id = %s", [person_team_id, person_pk]
                 )
