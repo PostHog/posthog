@@ -33,6 +33,7 @@ from posthog.utils import absolute_uri
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
+from ee.billing.billing_manager import BillingManager
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -263,6 +264,7 @@ class VercelIntegration:
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
+        # Create organization and integration in a DB transaction
         with transaction.atomic():
             # Through Vercel we can only create new organizations, not use existing ones.
             # Note: We won't create a team here, that's done during Vercel resource creation.
@@ -303,36 +305,6 @@ class VercelIntegration:
                 if user_created:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
-                # Create Stripe customer + subscription for Vercel installations
-                # This enables billing tracking even for free tier customers
-                from ee.billing.billing_manager import BillingManager
-
-                license = get_cached_instance_license()
-                if license:
-                    try:
-                        billing_manager = BillingManager(license)
-                        # Calls POST /api/activate/authorize with billing_provider="vercel"
-                        # Billing Service will create Stripe customer with email=None (prevents Stripe emails)
-                        billing_manager.authorize(organization, billing_provider="vercel")
-                        logger.info(
-                            "Created Stripe customer for Vercel installation",
-                            installation_id=installation_id,
-                            organization_id=str(organization.id),
-                        )
-                    except Exception as e:
-                        # If Stripe customer creation fails, rollback the installation
-                        # Rationale: Free tier still requires Stripe for usage tracking and limits
-                        logger.exception(
-                            "Failed to create Stripe customer for Vercel installation",
-                            installation_id=installation_id,
-                            organization_id=str(organization.id),
-                        )
-                        capture_exception(e)
-                        raise exceptions.ValidationError(
-                            {"validation_error": "Failed to initialize billing. Please try again."},
-                            code="billing_error",
-                        )
-
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
             except IntegrityError as e:
                 capture_exception(e)
@@ -342,6 +314,51 @@ class VercelIntegration:
                 raise exceptions.ValidationError(
                     {"validation_error": "Something went wrong."},
                     code="unique",
+                )
+
+        # Create Stripe customer + subscription outside the transaction
+        # This prevents orphaned Stripe customers if the DB transaction rolls back
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                # Calls POST /api/activate/authorize with billing_provider="vercel"
+                # Billing Service will create Stripe customer with email=None (prevents Stripe emails)
+                billing_manager.authorize(organization, billing_provider="vercel")
+                logger.info(
+                    "Created Stripe customer for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                # If Stripe customer creation fails after DB commit, clean up the organization and integration
+                # Rationale: Free tier still requires Stripe for usage tracking and limits
+                logger.exception(
+                    "Failed to create Stripe customer for Vercel installation, cleaning up organization",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+
+                # Clean up the organization and integration
+                try:
+                    organization.delete()
+                    logger.info(
+                        "Cleaned up organization after billing failure",
+                        installation_id=installation_id,
+                        organization_id=str(organization.id),
+                    )
+                except Exception as cleanup_error:
+                    logger.exception(
+                        "Failed to clean up organization after billing failure",
+                        installation_id=installation_id,
+                        organization_id=str(organization.id),
+                    )
+                    capture_exception(cleanup_error)
+
+                raise exceptions.ValidationError(
+                    {"validation_error": "Failed to initialize billing. Please try again."},
+                    code="billing_error",
                 )
 
         if user_created:
