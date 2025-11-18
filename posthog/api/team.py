@@ -827,7 +827,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         serializer.save()
 
         new_config = {
-            field: validated_data.get(field, {}) for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
+            field: getattr(instance.customer_analytics_config, field)
+            for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
         return instance
