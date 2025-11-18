@@ -521,6 +521,9 @@ def get_persons_for_sessions_from_distinct_ids(
             distinct_id_to_session_id_mapping[summary.distinct_id] = []
         distinct_id_to_session_id_mapping[summary.distinct_id].append(session_id)
     distinct_ids = list(distinct_id_to_session_id_mapping.keys())
+    if not distinct_ids:
+        # No ids to search for persons - return empty mapping
+        return {}
     persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
     persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     session_id_to_person_mapping: dict[str, Person | None] = {}
