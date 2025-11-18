@@ -71,8 +71,8 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
-        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-        #     raise exceptions.ValidationError("Session summaries are not enabled for this user")
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("Session summaries are not enabled for this user")
         return user
 
     def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
