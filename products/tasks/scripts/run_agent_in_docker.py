@@ -100,9 +100,7 @@ def create_test_task(repository=None):
         print(f"  - API Key: {api_key_value}")
         print(f"  - GitHub token: {'✓' if github_token else '✗ (not configured)'}")
 
-        task.api_key_value = api_key_value  # Store for later use
-        task.github_token = github_token  # Store for later use
-        return task, api_key.id
+        return task, api_key.id, api_key_value, github_token
 
 
 def cleanup_test_data(task_id, api_key_id):
@@ -125,9 +123,9 @@ def run_agent_in_docker(
     container_repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
     # Build image if needed
-    result = subprocess.run(["docker", "images", "-q", image_name], capture_output=True, text=True)
+    check_result = subprocess.run(["docker", "images", "-q", image_name], capture_output=True, text=True)
 
-    if not result.stdout.strip():
+    if not check_result.stdout.strip():
         print("Building sandbox-base image...")
         subprocess.run(
             [
@@ -221,10 +219,10 @@ def main():
 
     args = parser.parse_args()
 
-    task, api_key_id = create_test_task(args.repository)
+    task, api_key_id, api_key_value, github_token_from_integration = create_test_task(args.repository)
     task_id = str(task.id)
-    api_key = task.api_key_value  # Get the value we saved earlier
-    github_token = args.github_token or task.github_token
+    api_key = api_key_value
+    github_token = args.github_token or github_token_from_integration
     team_id = 1  # Hardcoded to hedgebox team
     repository = f"{task.repository_config['organization']}/{task.repository_config['repository']}"
 
