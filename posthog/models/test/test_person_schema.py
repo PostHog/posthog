@@ -41,3 +41,28 @@ class TestPersonSchemaConsistency(TestCase):
             f"Person model db_table '{Person._meta.db_table}' "
             f"does not match configured PERSON_TABLE_NAME '{settings.PERSON_TABLE_NAME}'",
         )
+
+    def test_person_queryset_enforces_team_id(self):
+        """Verify Person queries raise ValueError when team_id filter is missing."""
+        with self.assertRaises(ValueError) as cm:
+            # This should raise because no team_id filter
+            list(Person.objects.all())
+
+        self.assertIn("team_id filter", str(cm.exception))
+        self.assertIn("Partitioned table", str(cm.exception))
+
+    def test_person_delete_enforces_team_id(self):
+        """Verify Person.delete() raises ValueError when team_id filter is missing."""
+        with self.assertRaises(ValueError) as cm:
+            Person.objects.all().delete()
+
+        self.assertIn("delete query missing required team_id filter", str(cm.exception))
+        self.assertIn("Partitioned table", str(cm.exception))
+
+    def test_person_update_enforces_team_id(self):
+        """Verify Person.update() raises ValueError when team_id filter is missing."""
+        with self.assertRaises(ValueError) as cm:
+            Person.objects.all().update(properties={})
+
+        self.assertIn("update query missing required team_id filter", str(cm.exception))
+        self.assertIn("Partitioned table", str(cm.exception))
