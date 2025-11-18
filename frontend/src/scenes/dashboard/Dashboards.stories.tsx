@@ -94,8 +94,6 @@ const meta: Meta = {
                 '/api/environments/:team_id/warehouse/variables/': [],
                 // Add team endpoint
                 '/api/environments/:team_id/': { id: BASE_DASHBOARD_ID, name: 'Test Team' },
-                // Add surveys endpoint mock
-                '/api/environments/:team_id/surveys/': { count: 0, next: null, previous: null, results: [] },
             },
             post: {
                 '/api/environments/:team_id/insights/cancel/': [201],
