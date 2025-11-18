@@ -23,9 +23,18 @@ def split_person(
     # where second arg would be a string (distinct_id) or None
     if isinstance(team_id, str) or (team_id is None and main_distinct_id is None):
         # Old signature: split_person(person_id, main_distinct_id, max_splits)
+        # Get team_id from PersonDistinctId to avoid scanning all partitions
+        from posthog.models import PersonDistinctId
+
         old_main_distinct_id: Optional[str] = team_id if isinstance(team_id, str) else None
         old_max_splits: Optional[int] = main_distinct_id  # type: ignore[assignment]
-        person = Person.objects.get(pk=person_id)
+
+        # Lookup team_id via PersonDistinctId which has person_id FK
+        pdi = PersonDistinctId.objects.filter(person_id=person_id).only("team_id").first()
+        if not pdi:
+            raise ValueError(f"Cannot find team_id for person_id={person_id}")
+
+        person = Person.objects.get(team_id=pdi.team_id, pk=person_id)
         person.split_person(old_main_distinct_id, old_max_splits)
     else:
         # New signature: split_person(person_id, team_id, main_distinct_id, max_splits)
