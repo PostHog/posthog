@@ -85,8 +85,6 @@ class PersonQuerySet(models.QuerySet):
         if not self.query.where:
             return False
 
-        # Convert full query to SQL to inspect it
-        # Check both the WHERE clause and the full SQL
         try:
             sql = str(self.query)
         except EmptyResultSet:
@@ -94,11 +92,24 @@ class PersonQuerySet(models.QuerySet):
             # This is safe - won't scan partitions. Allow it through.
             return True
 
-        # Check for team_id in the SQL
-        # Handles: team_id=X, team_id IN (...), etc.
-        # Note: We check the full SQL not just WHERE clause because
-        # Django might have team_id in the column list or joins
-        return "team_id" in sql.lower()
+        # Extract the WHERE clause portion to check for team_id
+        # Split on WHERE and check the portion after it
+        sql_lower = sql.lower()
+        if "where" not in sql_lower:
+            return False
+
+        # Get everything after WHERE keyword
+        where_index = sql_lower.index("where")
+        where_clause = sql_lower[where_index:]
+
+        # Remove ORDER BY, LIMIT, etc. that come after WHERE
+        for keyword in [" order by", " limit", " offset", " for update", " group by", " having"]:
+            if keyword in where_clause:
+                where_clause = where_clause[: where_clause.index(keyword)]
+
+        # Check if team_id appears in the WHERE clause
+        # This catches: team_id = X, team_id IN (...), team.id = X, etc.
+        return "team_id" in where_clause or "team.id" in where_clause
 
 
 class PersonManager(models.Manager):
