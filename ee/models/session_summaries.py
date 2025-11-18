@@ -272,7 +272,7 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     title = models.CharField(max_length=2048, help_text="Title of the group session summary", default="Group summary")
     # List of session IDs that were analyzed together in this group
     session_ids = ArrayField(
-        models.CharField(max_length=10000),
+        models.CharField(max_length=200),
         help_text="List of session replay IDs included in this group summary",
     )
     # Summary content
