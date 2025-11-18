@@ -1764,7 +1764,7 @@ class FeatureFlagViewSet(
         )
 
         if isinstance(result, dict):
-            # Rust response: parse flags_response
+            # A result of a Rust evaluation is a dictionary with a "flags" key. Parse it to get the flags data.
             flags_data = result.get("flags", {})
             flags_with_evaluation_reasons = {}
 
@@ -1784,7 +1784,7 @@ class FeatureFlagViewSet(
                     },
                 }
         else:
-            # Python fallback: result is (flags, reasons, payloads, errors)
+            # Python fallback result is (flags, reasons, payloads, errors)
             flags, reasons = result[0], result[1]
             flags_with_evaluation_reasons = {
                 flag_key: {
@@ -1794,7 +1794,6 @@ class FeatureFlagViewSet(
                 for flag_key in reasons
             }
 
-        # Add disabled flags
         disabled_flags = FeatureFlag.objects.filter(
             team__project_id=self.project_id, active=False, deleted=False
         ).values_list("key", flat=True)
