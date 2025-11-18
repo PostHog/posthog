@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { compress } from 'snappy'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
@@ -8,6 +9,8 @@ import { HealthCheckResult, Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { serializeInvocation } from '../services/job-queue/job-queue-kafka'
+import { cdpJobSizeKb } from '../services/job-queue/shared'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -15,9 +18,11 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpBackfillConsumer extends CdpConsumerBase {
     protected name = 'CdpBackfillConsumer'
     private kafkaConsumer: KafkaConsumer
+    private topic: string
 
     constructor(hub: Hub, topic: string = KAFKA_CDP_BACKFILL_EVENTS, groupId: string = 'cdp-backfill-consumer') {
         super(hub)
+        this.topic = topic
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
@@ -97,28 +102,74 @@ export class CdpBackfillConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
-        logger.info('🔁', `${this.name} - handling batch`, {
-            size: invocations.length,
-        })
-
         const invocationResults = await this.processInvocations(invocations)
 
-        // Queue results and publish metrics in background
-        const backgroundTask = Promise.allSettled([
-            this.hogFunctionMonitoringService
-                .queueInvocationResults(invocationResults)
-                .then(() => this.hogFunctionMonitoringService.flush())
-                .catch((err) => {
+        // NOTE: We queue results back for retries and async operations, then publish metrics in background
+        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
+            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            return Promise.allSettled([
+                this.hogFunctionMonitoringService
+                    .queueInvocationResults(invocationResults)
+                    .then(() => this.hogFunctionMonitoringService.flush())
+                    .catch((err) => {
+                        captureException(err)
+                        logger.error('Error processing invocation results', { err })
+                    }),
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
                     captureException(err)
-                    logger.error('Error processing invocation results', { err })
+                    logger.error('Error observing results', { err })
                 }),
-            this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
-                captureException(err)
-                logger.error('Error observing results', { err })
-            }),
-        ])
+            ])
+        })
 
         return { backgroundTask, invocationResults }
+    }
+
+    protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
+        // Queue unfinished invocations back to the backfill topic for retries
+        const unfinishedInvocations = invocations.filter((x) => !x.finished)
+
+        if (unfinishedInvocations.length === 0 || !this.kafkaProducer) {
+            return
+        }
+
+        await Promise.all(
+            unfinishedInvocations.map(async (result) => {
+                const invocation = result.invocation
+                const serialized = serializeInvocation(invocation)
+
+                const value = this.hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                    ? await compress(JSON.stringify(serialized))
+                    : JSON.stringify(serialized)
+
+                cdpJobSizeKb.observe(value.length / 1024)
+
+                const headers: Record<string, string> = {
+                    functionId: invocation.functionId,
+                    teamId: invocation.teamId.toString(),
+                }
+
+                if (invocation.queueScheduledAt) {
+                    headers.queueScheduledAt = invocation.queueScheduledAt.toString()
+                }
+
+                await this.kafkaProducer!.produce({
+                    value: Buffer.from(value),
+                    key: Buffer.from(invocation.id),
+                    topic: this.topic,
+                    headers,
+                }).catch((e) => {
+                    logger.error('🔄', 'Error producing backfill kafka message', {
+                        error: String(e),
+                        teamId: invocation.teamId,
+                        functionId: invocation.functionId,
+                        payloadSizeKb: value.length / 1024,
+                    })
+
+                    throw e
+                })
+            })
+        )
     }
 
     public async start(): Promise<void> {
