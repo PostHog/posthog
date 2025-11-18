@@ -513,6 +513,9 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-session-summaries':
+        specifier: workspace:*
+        version: link:../products/session_summaries
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
@@ -18967,8 +18970,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.321.0:
-    resolution: {integrity: sha512-adYyL6xIL6xPr/fydSuj41XjvgAbZNOt+tASQKc8Ea+HrBcF0POILkfNOv4TVRFFLqvP3VTVYuZCdRSgEhmUXA==}
+  unlayer-types@1.325.0:
+    resolution: {integrity: sha512-GJZb61v2/0p+RhvsZUUp+hPAeqjnr3oW5hZBA3Mo2j01SQGx4lCT15KsmHY9foE+uR+CZUaJut40rkM41EfArA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -39106,7 +39109,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.321.0
+      unlayer-types: 1.325.0
 
   react-error-overlay@6.0.9: {}
 
@@ -41310,7 +41313,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.321.0: {}
+  unlayer-types@1.325.0: {}
 
   unpipe@1.0.0: {}
 
