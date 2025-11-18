@@ -1068,7 +1068,6 @@ def _proxy_to_flags_service(
     token: str,
     distinct_id: str,
     groups: dict[str, Any] | None = None,
-    api_version: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -1077,7 +1076,6 @@ def _proxy_to_flags_service(
         token: The project API token (the public token) for the user
         distinct_id: The distinct ID for the user
         groups: Optional groups for group-based flags
-        api_version: Optional API version to use (defaults to v2)
 
     Returns:
         The response from the flags service
@@ -1098,7 +1096,7 @@ def _proxy_to_flags_service(
     if groups:
         payload["groups"] = groups
 
-    params: dict[str, str] = {"v": str(api_version or 2)}
+    params: dict[str, str] = {"v": "2"}
 
     try:
         response = requests.post(
@@ -1118,7 +1116,6 @@ def _evaluate_flags_with_fallback(
     team: Any,
     distinct_id: str,
     groups: dict[str, Any] | None,
-    api_version: Optional[int] = None,
 ) -> dict | tuple:
     """
     Proxy to the Rust flags service instead of using get_all_feature_flags, falling back to Python if the request fails.
@@ -1139,7 +1136,6 @@ def _evaluate_flags_with_fallback(
             token=team.api_token,
             distinct_id=distinct_id,
             groups=groups,
-            api_version=api_version,
         )
     except Exception as e:
         # The metric we're capturing here is a "tombstone" metric; i.e. we shouldn't ever expect this to happen in production.
@@ -1768,7 +1764,6 @@ class FeatureFlagViewSet(
             team=self.team,
             distinct_id=distinct_id,
             groups=groups,
-            api_version=2,
         )
 
         if isinstance(result, dict):
