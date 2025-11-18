@@ -91,9 +91,9 @@ export function Login(): JSX.Element {
             passwordInputRef.current?.focus()
         } else {
             // clear form when password field becomes hidden
-            resetLogin() // oxlint-disable-line react-hooks/exhaustive-deps
+            resetLogin()
         }
-    }, [isPasswordHidden])
+    }, [isPasswordHidden, resetLogin])
 
     return (
         <BridgePage
