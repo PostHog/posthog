@@ -4,6 +4,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
+
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
@@ -28,6 +30,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
             />
             <div className="space-y-2">
                 <ActiveUsersInsights />
+                <SessionInsights />
             </div>
         </SceneContent>
     )

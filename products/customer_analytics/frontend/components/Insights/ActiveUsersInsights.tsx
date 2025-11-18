@@ -23,7 +23,7 @@ export function ActiveUsersInsights(): JSX.Element {
     const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
 
     return (
-        <div className="space-y-2 mb-0">
+        <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
                     You are currently using the pageview event to define user activity. Consider using a more specific
@@ -92,16 +92,9 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 ml-1">
-                <h2 className="-mb-2">Power Users</h2>
-                <LemonButton
-                    size="small"
-                    noPadding
-                    targetBlank
-                    to={urls.persons()}
-                    tooltip="Open people list"
-                    className="-mb-2"
-                />
+            <div className="flex items-center gap-2 -mb-2">
+                <h2 className="mb-0 ml-1">Power Users</h2>
+                <LemonButton size="small" noPadding targetBlank to={urls.persons()} tooltip="Open people list" />
             </div>
             <Query
                 uniqueKey={`power-users-${tabId}`}
