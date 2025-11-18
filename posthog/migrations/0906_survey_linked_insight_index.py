@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             """
-            CREATE INDEX CONCURRENTLY "posthog_survey_linked_insight_id_586524f3" ON "posthog_survey" ("linked_insight_id");
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_survey_linked_insight_id_586524f3" ON "posthog_survey" ("linked_insight_id");
             """,
             reverse_sql="""
                 DROP INDEX IF EXISTS "posthog_survey_linked_insight_id_586524f3";
