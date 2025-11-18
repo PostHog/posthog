@@ -27,6 +27,29 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2025-11-12")
+    def test_funnel_event_query_only_dwh(self):
+        dwh_node = DataWarehouseNode(
+            distinct_id_field="user_id",
+            timestamp_field="created_at",
+            table_name="payments",
+            id="payments",
+            id_field="id",
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+
+        self.assertEqual(
+            str(funnel_event_query),
+            "sql("
+            + "SELECT e.created_at AS timestamp, e.user_id AS aggregation_target "
+            + "FROM payments AS e "
+            + "WHERE and(greaterOrEquals(e.created_at, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.created_at, toDateTime('2025-11-12 23:59:59.999999')))"
+            ")",
+        )
+
+    @freeze_time("2025-11-12")
     def test_funnel_event_query_with_dwh(self):
         dwh_node = DataWarehouseNode(
             distinct_id_field="user_id",
@@ -57,5 +80,5 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2025-11-12")
-    def test_funnel_event_query_only_dwh(self):
+    def test_funnel_event_query_multiple_tables(self):
         pass
