@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types.base import AssistantState, InsightQuery, PartialAssistantState
 
 CREATE_DASHBOARD_TOOL_PROMPT = """
@@ -49,5 +50,8 @@ class CreateDashboardTool(MaxTool):
         )
         result = await chain.ainvoke(copied_state)
         if not result or not result.messages:
-            return "Dashboard creation failed", None
+            raise MaxToolFatalError(
+                "Dashboard creation failed: The dashboard creation node did not return any results. "
+                "This indicates an internal system error."
+            )
         return "", ToolMessagesArtifact(messages=result.messages)

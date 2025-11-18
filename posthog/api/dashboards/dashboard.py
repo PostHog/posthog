@@ -934,7 +934,7 @@ class DashboardsViewSet(
                 creation_mode="unlisted",
             )
 
-            create_from_template(dashboard, template, cast(User, request.user))
+            create_from_template(dashboard, template, cast(User, request.user), force_system_tags=True)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
