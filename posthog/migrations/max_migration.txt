@@ -1,1 +1,1 @@
-0905_survey_add_linked_insight
+0905_survey_add_linked_insight_id
