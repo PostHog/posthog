@@ -21,7 +21,6 @@ from posthog.temporal.data_imports.metrics import get_data_import_finished_metri
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
-from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -337,7 +336,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             ):
                 # Check if this is a BillingLimitsWillBeReachedException - update the job status
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
-            elif isinstance(e.cause, NonRetryableException):
+            elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause.cause)
                 update_inputs.latest_error = str(e.cause.cause)
