@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import React, {
     ReactNode,
     cloneElement,
@@ -13,8 +13,7 @@ import React, {
 import { isMac } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { appShortcutDeuxLogic } from './appShortcutDeuxLogic'
-import { AppShortcutDeuxType } from './appShortcutDeuxLogic'
+import { AppShortcutDeuxType, appShortcutDeuxLogic } from './appShortcutDeuxLogic'
 
 const IS_MAC = isMac()
 
@@ -31,7 +30,6 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
     ): JSX.Element => {
         const internalRef = useRef<HTMLElement>(null)
         const [isRefReady, setIsRefReady] = useState(false)
-        const { registeredAppShortcuts } = useValues(appShortcutDeuxLogic)
         const { registerAppShortcut, unregisterAppShortcut } = useActions(appShortcutDeuxLogic)
 
         // Use callback ref to track when element is ready
@@ -54,22 +52,18 @@ export const AppShortcutDeux = forwardRef<HTMLElement, AppShortcutDeuxProps>(
         // Register shortcut when ref is ready
         useEffect(() => {
             if (isRefReady && internalRef.current) {
-                // Check if already registered to prevent duplicates
-                const isAlreadyRegistered = registeredAppShortcuts.some((shortcut) => shortcut.name === name)
-                if (!isAlreadyRegistered) {
-                    // Replace 'command' with 'ctrl' when not on Mac
-                    const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
-                    registerAppShortcut({
-                        name,
-                        keybind: platformAgnosticKeybind,
-                        ref: internalRef,
-                        intent,
-                        interaction,
-                        scope,
-                    })
-                }
+                // Replace 'command' with 'ctrl' when not on Mac
+                const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
+                registerAppShortcut({
+                    name,
+                    keybind: platformAgnosticKeybind,
+                    ref: internalRef,
+                    intent,
+                    interaction,
+                    scope,
+                })
             }
-        }, [isRefReady, name, keybind, intent, interaction, scope, registeredAppShortcuts, registerAppShortcut])
+        }, [isRefReady, name, keybind, intent, interaction, scope, registerAppShortcut])
 
         // Clean up on unmount
         useEffect(() => {

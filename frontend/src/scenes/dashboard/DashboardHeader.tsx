@@ -7,7 +7,7 @@ import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, Icon
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { AppShortcutDeux } from 'lib/components/AppShortcuts/AppShortcutDeux'
-import { baseModifier, keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
@@ -489,7 +489,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             <AppShortcutDeux
                                                 name="AddTextTileToDashboard"
                                                 scope={Scene.Dashboard}
-                                                keybind={[...baseModifier, 'c']}
+                                                keybind={keyBinds.dashboardAddTextTile}
                                                 intent="Add text card"
                                                 interaction="click"
                                                 asChild

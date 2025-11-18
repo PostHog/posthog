@@ -27,7 +27,11 @@ export const appShortcutDeuxLogic = kea<appShortcutDeuxLogicType>([
         registeredAppShortcuts: [
             [] as AppShortcutDeuxType[],
             {
-                registerAppShortcut: (state, { appShortcut }) => [...state, appShortcut],
+                registerAppShortcut: (state, { appShortcut }) => {
+                    // Remove any existing shortcut with the same name, then add the new one
+                    const filtered = state.filter((shortcut) => shortcut.name !== appShortcut.name)
+                    return [...filtered, appShortcut]
+                },
                 unregisterAppShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
             },
         ],
@@ -35,22 +39,54 @@ export const appShortcutDeuxLogic = kea<appShortcutDeuxLogicType>([
     afterMount(({ values, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (event.shiftKey && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault()
+            const commandKey = event.metaKey || event.ctrlKey
 
-                // We use & store 'command' instead of 'meta'/'ctrl' because it's more consistent with the rest of the app
-                // 'ctrl' is supported as functional keybind, just not here for comparison purposes
-                const keybind = [`command`, `shift`, `${event.key}`]
+            if (commandKey) {
+                // Build current key combination in the same order as shortcuts are defined
+                const pressedKeys: string[] = []
+                if (commandKey) {
+                    pressedKeys.push('command')
+                }
+                if (event.shiftKey) {
+                    pressedKeys.push('shift')
+                }
+                if (event.altKey) {
+                    pressedKeys.push('option')
+                }
 
-                const thisRegisteredAppShortcut = values.registeredAppShortcuts.find(
-                    (shortcut) => shortcut.keybind.join('+') === keybind.join('+')
-                )
+                // Handle special key mappings
+                let keyToAdd = event.key.toLowerCase()
 
-                if (thisRegisteredAppShortcut) {
-                    if (thisRegisteredAppShortcut.interaction === 'click') {
-                        thisRegisteredAppShortcut.ref.current?.click()
-                    } else if (thisRegisteredAppShortcut.interaction === 'focus') {
-                        thisRegisteredAppShortcut.ref.current?.focus()
+                // Handle Alt key combinations - sometimes event.key changes with Alt
+                if (event.altKey) {
+                    // For Alt+letter combinations, the event.key might be different
+                    // Use event.code instead for more reliable detection
+                    const codeMatch = event.code.match(/^Key([A-Z])$/)
+                    if (codeMatch) {
+                        keyToAdd = codeMatch[1].toLowerCase()
+                    } else if (event.code === 'Tab') {
+                        keyToAdd = 'tab'
+                    }
+                    // For other keys, keep using event.key.toLowerCase()
+                }
+
+                pressedKeys.push(keyToAdd)
+                const pressedKeyString = pressedKeys.join('+')
+
+                // Find matching shortcut
+                const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
+                    const shortcutKeyString = shortcut.keybind.map((k: string) => k.toLowerCase()).join('+')
+                    return shortcutKeyString === pressedKeyString
+                })
+
+                if (matchingShortcut) {
+                    event.preventDefault()
+                    event.stopPropagation()
+
+                    if (matchingShortcut.interaction === 'click') {
+                        matchingShortcut.ref.current?.click()
+                    } else if (matchingShortcut.interaction === 'focus') {
+                        matchingShortcut.ref.current?.focus()
                     }
                 }
             }
