@@ -576,7 +576,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.filter(team_id=self.team.id).order_by("id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
@@ -880,7 +880,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
         self.assertTrue(response["success"])
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.filter(team_id=self.team.id).order_by("id")
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
