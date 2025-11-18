@@ -106,28 +106,15 @@ const ReleasesTable = (): JSX.Element => {
             render: (_, { metadata }) => {
                 const remoteUrl = metadata?.git?.remote_url
                 const repoName = metadata?.git?.repo_name
-
                 if (!remoteUrl) {
                     return <span className="text-muted">-</span>
                 }
 
                 // Parse GitHub/GitLab URLs
-                let repoLink = remoteUrl
-                if (remoteUrl.includes('github.com')) {
-                    // Convert git@github.com:org/repo.git or https://github.com/org/repo.git to https://github.com/org/repo
-                    const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+)/)
-                    if (match) {
-                        repoLink = `https://github.com/${match[1]}`
-                    }
-                } else if (remoteUrl.includes('gitlab.com')) {
-                    const match = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/)
-                    if (match) {
-                        repoLink = `https://gitlab.com/${match[1]}`
-                    }
-                }
+                let { baseUrl } = parseRemoteUrl(remoteUrl)
 
                 return (
-                    <Link to={repoLink} target="_blank" className="flex items-center gap-1">
+                    <Link to={baseUrl} target="_blank" className="flex items-center gap-1">
                         {repoName || 'View repository'}
                         <IconExternal className="text-xs" />
                     </Link>
@@ -175,18 +162,16 @@ function getCommitLink(metadata: ErrorTrackingRelease['metadata']): string | nul
         return null
     }
 
-    // Generate link to commit
-    let commitLink = remoteUrl
-    if (remoteUrl.includes('github.com')) {
-        const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+)/)
-        if (match) {
-            commitLink = `https://github.com/${match[1]}/commit/${commitId}`
-        }
-    } else if (remoteUrl.includes('gitlab.com')) {
-        const match = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/)
-        if (match) {
-            commitLink = `https://gitlab.com/${match[1]}/-/commit/${commitId}`
-        }
+    let { baseUrl, type } = parseRemoteUrl(remoteUrl)
+
+    let commitLink = null
+    switch (type) {
+        case 'github':
+            commitLink = `${baseUrl}/commit/${commitId}`
+            break
+        case 'gitlab':
+            commitLink = `${baseUrl}/-/commit/${commitId}`
+            break
     }
 
     return commitLink
@@ -200,19 +185,43 @@ function getBranchLink(metadata: ErrorTrackingRelease['metadata']): string | nul
         return null
     }
 
-    // Generate link to branch
-    let branchLink = remoteUrl
+    let { baseUrl, type } = parseRemoteUrl(remoteUrl)
+    let branchLink = null
+    switch (type) {
+        case 'github':
+            branchLink = `${baseUrl}/tree/${branchName}`
+            break
+        case 'gitlab':
+            branchLink = `${baseUrl}/-/tree/${branchName}`
+            break
+    }
+
+    return branchLink
+}
+
+function parseRemoteUrl(remoteUrl: string): {
+    baseUrl: string
+    type: 'github' | 'gitlab' | 'unknown'
+} {
     if (remoteUrl.includes('github.com')) {
         const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+)/)
         if (match) {
-            branchLink = `https://github.com/${match[1]}/tree/${branchName}`
+            return {
+                baseUrl: `https://github.com/${match[1]}`,
+                type: 'github',
+            }
         }
     } else if (remoteUrl.includes('gitlab.com')) {
         const match = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/)
         if (match) {
-            branchLink = `https://gitlab.com/${match[1]}/-/tree/${branchName}`
+            return {
+                baseUrl: `https://gitlab.com/${match[1]}`,
+                type: 'gitlab',
+            }
         }
     }
-
-    return branchLink
+    return {
+        baseUrl: '',
+        type: 'unknown',
+    }
 }
