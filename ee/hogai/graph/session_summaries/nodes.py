@@ -498,7 +498,7 @@ class _SessionSummarizer:
     ) -> tuple[str, str | None]:
         """
         Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
-        session_group_summary_id is None for individual summaries (< 6 sessions).
+        session_group_summary_id is None for individual summaries (<= GROUP_SUMMARIES_MIN_SESSIONS).
         """
         # Process sessions based on count
         base_message = f"Found sessions ({len(session_ids)})"
