@@ -1541,25 +1541,21 @@ class FeatureFlagViewSet(
 
         groups = json.loads(request.GET.get("groups", "{}"))
 
-        distinct_id = request.user.distinct_id
-        if not distinct_id:
-            raise exceptions.ValidationError("User distinct_id is required")
-
         result = _evaluate_flags_with_fallback(
             team=self.team,
-            distinct_id=distinct_id,
+            distinct_id=request.user.distinct_id,
             groups=groups,
         )
 
         if isinstance(result, dict):
-            # Rust response: parse flags_response
+            # A result of a Rust evaluation is a dictionary. Parse it to get the flags data.
             flags_data = result.get("flags", {})
             matches = {
                 flag_key: flag_data.get("enabled", False) or flag_data.get("variant")
                 for flag_key, flag_data in flags_data.items()
             }
         else:
-            # Python fallback: result is (matches, reasons, payloads, errors)
+            # A result of a Python evaluation is a tuple. The first element is the matches dictionary.
             matches = result[0]
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
