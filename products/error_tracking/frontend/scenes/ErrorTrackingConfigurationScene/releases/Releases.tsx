@@ -68,18 +68,10 @@ const ReleasesTable = (): JSX.Element => {
             render: (_, { metadata }) => {
                 const commitId = metadata?.git?.commit_id
                 const commitLink = GitMetadataParser.getCommitLink(metadata?.git?.remote_url, commitId)
-                const content = commitId ? (
-                    <code className="text-xs" title={commitId}>
-                        {commitId.substring(0, 7)}
-                    </code>
-                ) : (
-                    <span className="text-muted">-</span>
-                )
-
                 return (
-                    <Link to={commitLink} target="_blank" className="flex items-center gap-1">
-                        {content}
-                        <IconExternal className="text-xs" />
+                    <Link to={commitLink} target="_blank" className="flex items-center gap-1" tooltip="Open commit">
+                        {commitId ? commitId.substring(0, 7) : '-'}
+                        {commitLink && <IconExternal className="text-xs" />}
                     </Link>
                 )
             },
@@ -89,11 +81,10 @@ const ReleasesTable = (): JSX.Element => {
             render: (_, { metadata }) => {
                 const branch = metadata?.git?.branch
                 const branchLink = GitMetadataParser.getBranchLink(metadata?.git?.remote_url, metadata?.git?.branch)
-                const content = branch ? <span title={branch}>{branch}</span> : <span className="text-muted">-</span>
                 return (
-                    <Link to={branchLink} target="_blank" className="flex items-center gap-1">
-                        {content}
-                        <IconExternal className="text-xs" />
+                    <Link to={branchLink} target="_blank" className="flex items-center gap-1" tooltip="Open branch">
+                        {branch ?? '-'}
+                        {branchLink && <IconExternal className="text-xs" />}
                     </Link>
                 )
             },
@@ -103,14 +94,11 @@ const ReleasesTable = (): JSX.Element => {
             render: (_, { metadata }) => {
                 const remoteUrl = metadata?.git?.remote_url
                 const repoName = metadata?.git?.repo_name
-                if (!remoteUrl) {
-                    return <span className="text-muted">-</span>
-                }
                 let repoLink = GitMetadataParser.getRepoLink(remoteUrl)
                 return (
-                    <Link to={repoLink} target="_blank" className="flex items-center gap-1">
-                        {repoName || 'View repository'}
-                        <IconExternal className="text-xs" />
+                    <Link to={repoLink} target="_blank" className="flex items-center gap-1" tooltip="Open repository">
+                        {repoName ?? '-'}
+                        {repoLink && <IconExternal className="text-xs" />}
                     </Link>
                 )
             },
