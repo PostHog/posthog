@@ -1,6 +1,4 @@
-import { urls } from 'scenes/urls'
-
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Session summaries',
@@ -29,31 +27,4 @@ export const manifest: ProductManifest = {
         sessionSummaries: (): string => '/session-summaries',
         sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     },
-    fileSystemTypes: {
-        session_summaries: {
-            name: 'Session summary',
-            iconType: 'insight/hog',
-            href: () => urls.sessionSummaries(),
-            iconColor: [
-                'var(--color-product-session-replay-light)',
-                'var(--color-product-session-replay-dark)',
-            ] as FileSystemIconColor,
-            filterKey: 'session_summaries',
-        },
-    },
-    treeItemsProducts: [
-        {
-            path: 'Session summaries',
-            category: 'Behavior',
-            href: urls.sessionSummaries(),
-            type: 'session_summaries',
-            iconType: 'insight/hog',
-            iconColor: [
-                'var(--color-product-session-replay-light)',
-                'var(--color-product-session-replay-dark)',
-            ] as FileSystemIconColor,
-            tags: ['beta'],
-            sceneKey: 'SessionSummaries',
-        },
-    ],
 }

@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import {
-    IconBinary,
     IconChat,
     IconCursorClick,
     IconDashboard,
@@ -516,12 +515,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                     placement: 'bottom-end',
                                 },
                             },
-                        },
-                        {
-                            identifier: Scene.SessionGroupSummariesTable,
-                            label: 'Session summaries',
-                            icon: <IconBinary />,
-                            to: urls.sessionSummaries(),
                         },
                         {
                             identifier: Scene.FeatureFlags,
