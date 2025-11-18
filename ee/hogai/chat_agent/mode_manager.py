@@ -35,8 +35,8 @@ from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agen
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.core.mixins import AssistantContextMixin
+from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool

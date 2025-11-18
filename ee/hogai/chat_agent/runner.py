@@ -6,10 +6,10 @@ from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, Vi
 
 from posthog.models import Team, User
 
-from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,

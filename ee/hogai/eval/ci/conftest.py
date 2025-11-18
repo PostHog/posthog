@@ -15,7 +15,7 @@ from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
-from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 # We want the PostHog set_up_evals fixture here

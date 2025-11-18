@@ -1,8 +1,7 @@
 from collections.abc import Callable
 
 from ee.hogai.chat_agent.loop_graph.graph import ChatAgentLoopGraph
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.memory.nodes import (
+from ee.hogai.chat_agent.memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
     MemoryInitializerInterruptNode,
@@ -12,8 +11,9 @@ from ee.hogai.graph.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.graph.usage.nodes import UsageNode
+from ee.hogai.chat_agent.usage.nodes import UsageNode
+from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 

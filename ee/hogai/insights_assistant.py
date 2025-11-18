@@ -6,9 +6,9 @@ from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, Vi
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.models import Conversation

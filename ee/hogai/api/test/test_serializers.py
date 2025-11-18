@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage
 
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 

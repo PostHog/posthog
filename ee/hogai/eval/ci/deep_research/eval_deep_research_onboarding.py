@@ -12,8 +12,8 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
+from ee.hogai.research_agent.graph import DeepResearchAssistantGraph
+from ee.hogai.research_agent.types import DeepResearchNodeName, DeepResearchState
 from ee.models.assistant import Conversation
 
 from ...base import MaxPublicEval
