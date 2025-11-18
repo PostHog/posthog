@@ -104,7 +104,7 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 }
 
 export interface SurveysLogicProps {
-    trackIntentOnLoad?: boolean
+    readOnly?: boolean
 }
 
 export const surveysLogic = kea<surveysLogicType>([
@@ -312,9 +312,9 @@ export const surveysLogic = kea<surveysLogicType>([
             actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
-            actions.loadCurrentTeam()
+            if (props.readOnly !== true) {
+                actions.loadCurrentTeam()
 
-            if (props.trackIntentOnLoad !== false) {
                 actions.addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEYS_VIEWED,
@@ -322,10 +322,10 @@ export const surveysLogic = kea<surveysLogicType>([
                         surveys_count: values.data.surveysCount,
                     },
                 })
-            }
 
-            if (values.data.surveys.some((survey) => survey.start_date)) {
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                if (values.data.surveys.some((survey) => survey.start_date)) {
+                    activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                }
             }
         },
         loadResponsesCountSuccess: () => {
