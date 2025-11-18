@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import psycopg2.errors
+import psycopg2
 from dagster import build_op_context
 
 from dags.persons_without_distinct_ids_cleanup import (
@@ -10,6 +10,25 @@ from dags.persons_without_distinct_ids_cleanup import (
     create_chunks,
     scan_delete_chunk,
 )
+
+
+class MockPsycopg2Error(psycopg2.Error):
+    """Mock psycopg2.Error that allows setting pgcode."""
+
+    def __init__(self, message: str, pgcode: str):
+        super().__init__(message)
+        # Store pgcode in a private attribute
+        self._pgcode = pgcode
+
+    @property
+    def pgcode(self) -> str:
+        """Override pgcode property to return our custom value."""
+        return self._pgcode
+
+
+def create_mock_psycopg2_error(message: str, pgcode: str) -> Exception:
+    """Create a mock psycopg2.Error with a specific pgcode."""
+    return MockPsycopg2Error(message, pgcode)
 
 
 class TestCreateChunks:
@@ -314,8 +333,8 @@ class TestCopyChunk:
         insert_calls = [call for call in execute_calls if "DELETE FROM" in call]
         assert len(insert_calls) == 3
 
-    def test_scan_delete_chunk_duplicate_key_violation_retry(self):
-        """Test that duplicate key violation triggers retry."""
+    def test_scan_delete_chunk_serialization_failure_retry(self):
+        """Test that serialization failure triggers retry."""
         config = PersonsNoDistinctIdsCleanupConfig(
             chunk_size=1000,
             batch_size=100,
@@ -330,15 +349,15 @@ class TestCopyChunk:
         # Track DELETE attempts
         scan_delete_attempts = [0]
 
-        # First DELETE raises UniqueViolation, second succeeds
-        # TODO(eli): FIX THIS TO TEST NEW ERRORS WE CARE ABOUT
+        # First DELETE raises SerializationFailure, second succeeds
         def execute_side_effect(query, *args):
             if "DELETE FROM" in query:
                 scan_delete_attempts[0] += 1
                 if scan_delete_attempts[0] == 1:
                     # First DELETE attempt raises error
-                    # Use real UniqueViolation - pgcode is readonly but isinstance check will pass
-                    raise psycopg2.errors.UniqueViolation("duplicate key value violates unique constraint")
+                    # Create a mock error with pgcode 40001 for serialization failure
+                    error = create_mock_psycopg2_error("could not serialize access due to concurrent update", "40001")
+                    raise error
                 # Subsequent calls succeed
                 cursor.rowcount = 50  # Success on retry
 
@@ -352,7 +371,7 @@ class TestCopyChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.persons_new_backfill.time.sleep"),
+            patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
             scan_delete_chunk(context, config, chunk)
@@ -361,7 +380,58 @@ class TestCopyChunk:
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have INSERT called twice, COMMIT once)
+        # Verify retry succeeded (should have DELETE called twice, COMMIT once)
+        scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
+        assert len(scan_delete_calls) >= 1  # At least one successful DELETE
+
+    def test_scan_delete_chunk_deadlock_retry(self):
+        """Test that deadlock triggers retry."""
+        config = PersonsNoDistinctIdsCleanupConfig(
+            chunk_size=1000,
+            batch_size=100,
+        )
+        chunk = (1, 100)
+
+        mock_db = create_mock_database_resource()
+        mock_cluster = create_mock_cluster_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        # Track DELETE attempts
+        scan_delete_attempts = [0]
+
+        # First DELETE raises deadlock, second succeeds
+        def execute_side_effect(query, *args):
+            if "DELETE FROM" in query:
+                scan_delete_attempts[0] += 1
+                if scan_delete_attempts[0] == 1:
+                    # First DELETE attempt raises error
+                    # Create a mock error with pgcode 40P01 for deadlock
+                    error = create_mock_psycopg2_error("deadlock detected", "40P01")
+                    raise error
+                # Subsequent calls succeed
+                cursor.rowcount = 50  # Success on retry
+
+        cursor.execute.side_effect = execute_side_effect
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+        # Need to patch time.sleep and run.job_name
+        from unittest.mock import PropertyMock
+
+        mock_run = MagicMock(job_name="test_job")
+        with (
+            patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
+            patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
+        ):
+            scan_delete_chunk(context, config, chunk)
+
+        # Verify ROLLBACK was called on error
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        assert "ROLLBACK" in execute_calls
+
+        # Verify retry succeeded (should have DELETE called twice, COMMIT once)
         scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
         assert len(scan_delete_calls) >= 1  # At least one successful DELETE
 

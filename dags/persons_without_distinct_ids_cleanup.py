@@ -258,16 +258,16 @@ ORDER BY p.id DESC
                         )
                         pass  # Ignore rollback errors
 
-                    # TODO(eli): FIX THIS TO TEST NEW ERRORS WE CARE ABOUT
-                    # Check if error is a duplicate key violation, pause and retry if so
-                    is_unique_violation = isinstance(batch_error, psycopg2.errors.UniqueViolation) or (
-                        isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "23505"
-                    )
-                    if is_unique_violation:
+                    # Check if error is a serialization failure, pause and retry if so
+                    serialization_failure_class = getattr(psycopg2.errors, "SerializationFailure", None)
+                    is_serialization_failure = (
+                        serialization_failure_class is not None and isinstance(batch_error, serialization_failure_class)
+                    ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40001")
+                    if is_serialization_failure:
                         error_msg = (
-                            f"Duplicate key violation detected for batch starting at ID {batch_start_id} "
+                            f"Serialization failure detected for batch starting at ID {batch_start_id} "
                             f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. "
-                            "This is expected if records already exist in destination table. "
+                            "This is expected due to concurrent transactions. "
                         )
                         context.log.warning(error_msg)
                         if retry_attempt < 3:
@@ -276,6 +276,25 @@ ORDER BY p.id DESC
                             time.sleep(1)
                             continue
 
+                    # Check if error is a deadlock, pause and retry if so
+                    deadlock_detected_class = getattr(psycopg2.errors, "DeadlockDetected", None)
+                    is_deadlock = (
+                        deadlock_detected_class is not None and isinstance(batch_error, deadlock_detected_class)
+                    ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40P01")
+                    if is_deadlock:
+                        error_msg = (
+                            f"Deadlock detected for batch starting at ID {batch_start_id} "
+                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. "
+                            "This is expected due to concurrent transactions. "
+                        )
+                        context.log.warning(error_msg)
+                        if retry_attempt < 3:
+                            retry_attempt += 1
+                            context.log.info(f"Retrying batch {retry_attempt} of 3...")
+                            time.sleep(1)
+                            continue
+
+                    # Handle unexpected errors by bubbling up to dagster.Failure
                     failed_batch_start_id = batch_start_id
                     error_msg = (
                         f"Failed to scan and delete rows in batch starting at ID {batch_start_id} "
