@@ -1,7 +1,10 @@
 """Smoke test that Rust sqlx migrations ran and created posthog_person_new table."""
 
+from django.conf import settings
 from django.db import connection
 from django.test import TestCase
+
+from posthog.models.person import Person
 
 
 def table_exists(table_name: str) -> bool:
@@ -28,4 +31,13 @@ class TestPersonSchemaConsistency(TestCase):
             table_exists("posthog_person_new"),
             "posthog_person_new table does not exist. "
             "Rust sqlx migrations from rust/persons_migrations/ should have created it.",
+        )
+
+    def test_person_table_configuration(self):
+        """Verify Person model uses the configured table name."""
+        self.assertEqual(
+            Person._meta.db_table,
+            settings.PERSON_TABLE_NAME,
+            f"Person model db_table '{Person._meta.db_table}' "
+            f"does not match configured PERSON_TABLE_NAME '{settings.PERSON_TABLE_NAME}'",
         )

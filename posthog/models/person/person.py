@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
 
@@ -57,6 +58,7 @@ class Person(models.Model):
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
+        db_table = settings.PERSON_TABLE_NAME
 
     @property
     def distinct_ids(self) -> list[str]:
