@@ -386,7 +386,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(0, len(response.cookies))
 
     def test_logged_in_client(self):
-        self.client.force_login(self.user)
+        self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
         response = self.client.get("/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -423,8 +423,19 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
 
+        ph_last_login_method_cookie = response.cookies["ph_last_login_method"]
+        self.assertEqual(ph_last_login_method_cookie.key, "ph_last_login_method")
+        self.assertEqual(ph_last_login_method_cookie.value, "password")
+        self.assertEqual(ph_last_login_method_cookie["path"], "/")
+        self.assertEqual(ph_last_login_method_cookie["samesite"], "Strict")
+        self.assertEqual(ph_last_login_method_cookie["httponly"], "")
+        self.assertEqual(ph_last_login_method_cookie["domain"], "posthog.com")
+        self.assertEqual(ph_last_login_method_cookie["comment"], "")
+        self.assertEqual(ph_last_login_method_cookie["secure"], True)
+        self.assertEqual(ph_last_login_method_cookie["max-age"], 31536000)
+
     def test_logout(self):
-        self.client.force_login(self.user)
+        self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
         response = self.client.get("/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -439,6 +450,10 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
         self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
+
+        self.assertEqual(response.cookies["ph_last_login_method"].key, "ph_last_login_method")
+        self.assertEqual(response.cookies["ph_last_login_method"].value, "password")
+        self.assertEqual(response.cookies["ph_last_login_method"]["max-age"], 31536000)
 
         response = self.client.get("/logout")
 
