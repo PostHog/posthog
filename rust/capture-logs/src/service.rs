@@ -89,13 +89,21 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
-    let export_request = ExportLogsServiceRequest::decode(body.as_ref()).map_err(|e| {
-        error!("Failed to decode protobuf: {}", e);
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to decode protobuf: {}", e)})),
-        )
-    })?;
+    let export_request = match ExportLogsServiceRequest::decode(body.as_ref()) {
+        Ok(request) => request,
+        Err(proto_err) => {
+            match serde_json::from_slice(&body) {
+                Ok(request) => request,
+                Err(json_err) => {
+                    error!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err);
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)})),
+                    ));
+                }
+            }
+        }
+    };
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
     for resource_logs in export_request.resource_logs {
