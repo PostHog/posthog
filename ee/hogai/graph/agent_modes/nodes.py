@@ -37,6 +37,7 @@ from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
@@ -69,7 +70,6 @@ from .prompts import (
     TOOL_USAGE_POLICY_PROMPT,
     WRITING_STYLE_PROMPT,
 )
-from .utils import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -82,7 +82,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 logger = structlog.get_logger(__name__)
 
 # Remove with the full modes release
-LAGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
+LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
@@ -133,7 +133,7 @@ class AgentToolkit:
     def default_tools(self) -> list[type["MaxTool"]]:
         if has_agent_modes_feature_flag(self._team, self._user):
             return DEFAULT_TOOLS.copy()
-        return LAGACY_DEFAULT_TOOLS.copy()
+        return LEGACY_DEFAULT_TOOLS.copy()
 
     @property
     def custom_tools(self) -> list[type["MaxTool"]]:

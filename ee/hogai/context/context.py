@@ -3,7 +3,6 @@ from collections.abc import Sequence
 from typing import Any, Optional, cast
 from uuid import uuid4
 
-import posthoganalytics
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
@@ -37,6 +36,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
@@ -386,11 +386,11 @@ class AssistantContextManager(AssistantContextMixin):
         ).to_string()
 
     async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
-        has_agent_modes_feature_flag = self._has_agent_modes_feature_flag()
+        are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
 
         prompts: list[str] = []
         if (
-            has_agent_modes_feature_flag
+            are_modes_enabled
             and find_start_message_idx(state.messages, state.start_id) == 0
             and (mode_prompt := self._get_mode_prompt(state.agent_mode))
         ):
@@ -432,12 +432,3 @@ class AssistantContextManager(AssistantContextMixin):
 
     def _get_mode_prompt(self, mode: AgentMode | None) -> str:
         return format_prompt_string(CONTEXT_MODE_PROMPT, mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value)
-
-    def _has_agent_modes_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "phai-agent-modes",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )

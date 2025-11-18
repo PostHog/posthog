@@ -5,10 +5,10 @@ import posthoganalytics
 from posthog.schema import AgentMode
 
 from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool, SessionSummarizationTool
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 
 from ..factory import AgentModeDefinition
 from ..nodes import AgentToolkit
-from ..utils import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool

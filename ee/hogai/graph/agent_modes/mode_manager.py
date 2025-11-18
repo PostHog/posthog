@@ -6,9 +6,8 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.types.base import NodePath
-
-from .utils import has_agent_modes_feature_flag
 
 if TYPE_CHECKING:
     from .nodes import AgentExecutable, AgentToolsExecutable

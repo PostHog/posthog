@@ -642,7 +642,7 @@ Query results: 42 events
 
     async def test_get_context_prompts_with_agent_mode_at_start(self):
         """Test that mode prompt is added when feature flag is enabled and message is at start"""
-        with patch.object(AssistantContextManager, "_has_agent_modes_feature_flag", return_value=True):
+        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
             state = AssistantState(
                 messages=[HumanMessage(content="Test", id="1")],
                 start_id="1",

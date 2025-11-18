@@ -4,9 +4,6 @@ from posthog.models import Team, User
 
 
 def has_agent_modes_feature_flag(team: Team, user: User) -> bool:
-    """
-    Check if the user has the agent modes feature flag enabled.
-    """
     return posthoganalytics.feature_enabled(
         "phai-agent-modes",
         str(user.distinct_id),
