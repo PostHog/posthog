@@ -28,6 +28,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -238,8 +239,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
-        was_sync_frequency_updated = False
-
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():
@@ -263,13 +262,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
-                validated_data["is_materialized"] = True
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
-                was_sync_frequency_updated = True
                 locked_instance.sync_frequency_interval = sync_frequency_interval
-                validated_data["is_materialized"] = True
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -302,7 +298,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             try:
                 view.setup_model_paths()
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
@@ -333,11 +330,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             if sync_frequency and sync_frequency != "never":
                 recreate_model_paths(view)
-
-        if was_sync_frequency_updated:
-            view.enable_materialization(
-                unpause=before_update is not None and before_update.sync_frequency_interval is None
-            )
 
         return view
 
@@ -522,6 +514,33 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
 
         saved_query.revert_materialization()
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Enable materialization for this saved query with a 24-hour sync frequency.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
+
+        sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
+
+        should_unpause = saved_query.sync_frequency_interval is None
+
+        saved_query.sync_frequency_interval = sync_frequency_interval
+        saved_query.save(update_fields=["sync_frequency_interval"])
+
+        # Enable materialization - this handles model path setup and schedule creation
+        # If this fails, it will set is_materialized = False
+        saved_query.enable_materialization(unpause=should_unpause)
+
+        # Mark as materialized after successful enable_materialization
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["is_materialized"])
 
         return response.Response(status=status.HTTP_200_OK)
 

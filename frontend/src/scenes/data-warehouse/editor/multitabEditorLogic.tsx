@@ -142,6 +142,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
+                'materializeDataWarehouseSavedQuery',
                 'resetDataModelingJobs',
                 'loadDataModelingJobs',
                 'updateDataWarehouseSavedQuerySuccess',
@@ -729,12 +730,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
 
                 if (materializeAfterSave && savedQuery) {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        id: savedQuery.id,
-                        sync_frequency: '24hour',
-                        types: [[]],
-                        lifecycle: 'create',
-                    })
+                    await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
                 }
 
                 if (fromDraft) {
