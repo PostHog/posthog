@@ -18,7 +18,12 @@ Usage:
 import asyncio
 from datetime import UTC, datetime
 
+from django.conf import settings
+
+from asgiref.sync import async_to_sync
+
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
 
 def find_teams_with_traces():
@@ -54,11 +59,12 @@ def find_teams_with_traces():
 
 def trigger_batch_summarization(
     team_id: int,
-    sample_size: int | None = None,
+    max_traces: int | None = None,
     batch_size: int | None = None,
     mode: str = "minimal",
-    start_date: str | None = None,
-    end_date: str | None = None,
+    window_minutes: int | None = None,
+    window_start: str | None = None,
+    window_end: str | None = None,
     wait: bool = True,
 ):
     """
@@ -66,11 +72,12 @@ def trigger_batch_summarization(
 
     Args:
         team_id: Team ID to process traces for
-        sample_size: Number of traces to sample (default: 1000)
-        batch_size: Batch size for processing (default: 100)
+        max_traces: Maximum traces to process in window (default: 100)
+        batch_size: Batch size for processing (default: 10)
         mode: Summary detail level - "minimal" or "detailed" (default: "minimal")
-        start_date: Start of date range in RFC3339 format (optional)
-        end_date: End of date range in RFC3339 format (optional)
+        window_minutes: Time window to query in minutes (default: 60)
+        window_start: Start of explicit time window in RFC3339 format (optional)
+        window_end: End of explicit time window in RFC3339 format (optional)
         wait: Wait for workflow to complete (default: True)
 
     Returns:
@@ -78,18 +85,16 @@ def trigger_batch_summarization(
     """
     client = sync_connect()
 
-    # Build arguments list
-    args = [str(team_id)]
-    if sample_size is not None:
-        args.append(str(sample_size))
-    if batch_size is not None:
-        args.append(str(batch_size))
-    if mode != "minimal":
-        args.append(mode)
-    if start_date:
-        args.append(start_date)
-    if end_date:
-        args.append(end_date)
+    # Build inputs object
+    inputs = BatchSummarizationInputs(
+        team_id=team_id,
+        max_traces=max_traces if max_traces is not None else 100,
+        batch_size=batch_size if batch_size is not None else 10,
+        mode=mode,
+        window_minutes=window_minutes if window_minutes is not None else 60,
+        window_start=window_start,
+        window_end=window_end,
+    )
 
     workflow_id = f"batch-summarization-team-{team_id}-{datetime.now(UTC).isoformat()}"
 
@@ -98,25 +103,26 @@ def trigger_batch_summarization(
     print(f"{'='*60}")
     print(f"Workflow ID: {workflow_id}")
     print(f"Team ID: {team_id}")
-    print(f"Sample size: {sample_size or 'default (1000)'}")
-    print(f"Batch size: {batch_size or 'default (100)'}")
+    print(f"Max traces: {max_traces or 'default (100)'}")
+    print(f"Batch size: {batch_size or 'default (10)'}")
     print(f"Mode: {mode}")
+    print(f"Window: {window_minutes or 60} minutes")
     print(f"{'='*60}\n")
 
     if wait:
         print("⏳ Executing workflow (this may take a while)...\n")
-        result = client.execute_workflow(
+        result = async_to_sync(client.execute_workflow)(
             "batch-trace-summarization",
-            args,
+            inputs,
             id=workflow_id,
-            task_queue="llm-analytics-queue",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
         print(f"\n{'='*60}")
         print("✅ Workflow completed!")
         print(f"{'='*60}")
         print(f"Batch run ID: {result.get('batch_run_id', 'N/A')}")
-        print(f"Traces sampled: {result.get('traces_sampled', 0)}")
+        print(f"Traces queried: {result.get('traces_queried', 0)}")
         print(f"Summaries generated: {result.get('summaries_generated', 0)}")
         print(f"Events emitted: {result.get('events_emitted', 0)}")
         print(f"Duration: {result.get('duration_seconds', 0):.2f}s")
@@ -128,7 +134,7 @@ def trigger_batch_summarization(
         handle = asyncio.run(
             _start_workflow_async(
                 client,
-                args,
+                inputs,
                 workflow_id,
             )
         )
@@ -143,23 +149,24 @@ def trigger_batch_summarization(
         return handle
 
 
-async def _start_workflow_async(client, args, workflow_id):
+async def _start_workflow_async(client, inputs, workflow_id):
     """Helper to start workflow asynchronously."""
     return await client.start_workflow(
         "batch-trace-summarization",
-        args,
+        inputs,
         id=workflow_id,
-        task_queue="llm-analytics-queue",
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
     )
 
 
 async def trigger_batch_summarization_async(
     team_id: int,
-    sample_size: int | None = None,
+    max_traces: int | None = None,
     batch_size: int | None = None,
     mode: str = "minimal",
-    start_date: str | None = None,
-    end_date: str | None = None,
+    window_minutes: int | None = None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ):
     """
     Trigger batch trace summarization workflow asynchronously.
@@ -169,18 +176,16 @@ async def trigger_batch_summarization_async(
     """
     client = await async_connect()
 
-    # Build arguments list
-    args = [str(team_id)]
-    if sample_size is not None:
-        args.append(str(sample_size))
-    if batch_size is not None:
-        args.append(str(batch_size))
-    if mode != "minimal":
-        args.append(mode)
-    if start_date:
-        args.append(start_date)
-    if end_date:
-        args.append(end_date)
+    # Build inputs object
+    inputs = BatchSummarizationInputs(
+        team_id=team_id,
+        max_traces=max_traces if max_traces is not None else 100,
+        batch_size=batch_size if batch_size is not None else 10,
+        mode=mode,
+        window_minutes=window_minutes if window_minutes is not None else 60,
+        window_start=window_start,
+        window_end=window_end,
+    )
 
     workflow_id = f"batch-summarization-team-{team_id}-{datetime.now(UTC).isoformat()}"
 
@@ -193,9 +198,9 @@ async def trigger_batch_summarization_async(
 
     result = await client.execute_workflow(
         "batch-trace-summarization",
-        args,
+        inputs,
         id=workflow_id,
-        task_queue="llm-analytics-queue",
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
     )
 
     print(f"\n{'='*60}")
@@ -222,7 +227,8 @@ if __name__ == "__main__":
         print("-" * 60)
         team_id = teams[0][0]
         print(f"trigger_batch_summarization(team_id={team_id})")
-        print(f"trigger_batch_summarization(team_id={team_id}, sample_size=500)")
+        print(f"trigger_batch_summarization(team_id={team_id}, max_traces=50)")
+        print(f"trigger_batch_summarization(team_id={team_id}, window_minutes=30)")
         print(f"trigger_batch_summarization(team_id={team_id}, mode='detailed')")
         print("-" * 60)
 

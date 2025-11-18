@@ -1,4 +1,4 @@
-"""Activity for sampling traces from ClickHouse."""
+"""Activity for querying traces from a time window."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -11,38 +11,41 @@ from posthog.schema import DateRange, TracesQuery
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.llm_analytics.trace_summarization.constants import MIN_SAMPLE_SIZE, SAMPLE_LOOKBACK_DAYS
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
 logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
-async def sample_recent_traces_activity(inputs: BatchSummarizationInputs) -> list[dict[str, Any]]:
+async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> list[dict[str, Any]]:
     """
-    Sample N recent traces using TracesQueryRunner.
+    Query traces from a time window using TracesQueryRunner.
 
-    Uses the existing TracesQueryRunner to get traces from the past SAMPLE_LOOKBACK_DAYS.
-    Returns trace metadata (id, timestamp) for further processing.
+    Queries up to max_traces from the specified time window (or last N minutes if not specified).
+    Returns trace metadata (id, timestamp) ordered by creation time (oldest first).
+
+    This approach is idempotent - rerunning on the same window will return the same traces.
     """
-    # Determine date range
-    if inputs.start_date and inputs.end_date:
-        date_from = inputs.start_date
-        date_to = inputs.end_date
+    # Determine date range for the window
+    if inputs.window_start and inputs.window_end:
+        date_from = inputs.window_start
+        date_to = inputs.window_end
     else:
+        # Use window_minutes from now (e.g., last 60 minutes)
         now = datetime.now(UTC)
         date_to = now.isoformat()
-        date_from = (now - timedelta(days=SAMPLE_LOOKBACK_DAYS)).isoformat()
+        date_from = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
 
-    # Use TracesQueryRunner to sample traces
+    # Use TracesQueryRunner to query traces
     def _execute_traces_query():
         # Get team object
         team = Team.objects.get(id=inputs.team_id)
 
         # Build query using TracesQueryRunner
+        # Limit to max_traces to enforce hard upper bound
         query = TracesQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
-            limit=inputs.sample_size,
+            limit=inputs.max_traces,
         )
 
         # Execute query
@@ -62,24 +65,14 @@ async def sample_recent_traces_activity(inputs: BatchSummarizationInputs) -> lis
     # Execute the query (wrapped for async)
     traces = await database_sync_to_async(_execute_traces_query, thread_sensitive=False)()
 
-    # Validate minimum threshold
-    if len(traces) < MIN_SAMPLE_SIZE:
-        logger.warning(
-            "Insufficient traces found",
-            team_id=inputs.team_id,
-            found=len(traces),
-            min_required=MIN_SAMPLE_SIZE,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        return []
-
     logger.info(
-        "Trace sampling completed",
+        "Trace window query completed",
         team_id=inputs.team_id,
-        sampled_count=len(traces),
+        trace_count=len(traces),
+        max_traces=inputs.max_traces,
         date_from=date_from,
         date_to=date_to,
+        window_minutes=inputs.window_minutes,
     )
 
     return traces

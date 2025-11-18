@@ -1,11 +1,10 @@
 """Constants for batch trace summarization workflows."""
 
-# Sampling configuration
-DEFAULT_SAMPLE_SIZE = 1000  # Target number of traces to sample per batch run (upper bound)
-MIN_SAMPLE_SIZE = 100  # Minimum number of traces required to proceed with batch
-DEFAULT_BATCH_SIZE = 100  # Number of traces to process in parallel per batch
+# Window processing configuration
+DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (start conservative)
+DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
 DEFAULT_MODE = "minimal"  # Summary detail level: 'minimal' or 'detailed'
-SAMPLE_LOOKBACK_DAYS = 7  # Sample from traces over the last N days for representative distribution
+DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query

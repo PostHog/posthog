@@ -1,14 +1,16 @@
 # Batch Trace Summarization
 
-Automated daily job for generating summaries of N recent LLM traces, which will serve as inputs for embedding and clustering workflows.
+Automated workflow for generating summaries of recent LLM traces from time windows (e.g., hourly), which will serve as inputs for embedding and clustering workflows.
 
 ## Overview
 
 This workflow implements **Phase 2** of the clustering MVP (see [issue #40787](https://github.com/PostHog/posthog/issues/40787)):
 
-1. **Sample N recent traces daily** - Use TracesQueryRunner to fetch traces from the past 7 days, reusing the same query logic as the frontend
+1. **Query traces from time window** - Process all traces from the last N minutes (default: 60), up to a maximum count (default: 100)
 2. **Summarize them** - Use text repr and LLM summarization to generate concise summaries
 3. **Save as events** - Store generated summaries as `$ai_trace_summary` events in ClickHouse
+
+The workflow is designed to run on a schedule (e.g., hourly) and is **idempotent** - rerunning on the same time window will regenerate the same summaries.
 
 The summaries will then be used as input for:
 
@@ -20,8 +22,8 @@ The summaries will then be used as input for:
 
 ```mermaid
 graph TB
-    subgraph "Daily Batch Job"
-        A[Sample N Traces] --> B[Fetch Trace Hierarchies]
+    subgraph "Hourly Batch Job (Per Team)"
+        A[Query Traces from Window] --> B[Fetch Trace Hierarchies]
         B --> C[Generate Text Repr]
         C --> D[Generate LLM Summary]
         D --> E[Emit $ai_trace_summary Events]
@@ -51,24 +53,24 @@ graph TB
 
 **Name**: `batch-trace-summarization`
 
-**Inputs**:
+**Inputs** (`BatchSummarizationInputs`):
 
 - `team_id` (required): Team ID to process traces for
-- `sample_size` (optional): Number of traces to sample (default: 1000)
-- `batch_size` (optional): Batch size for processing (default: 100)
+- `max_traces` (optional): Maximum traces to process in window (default: 100)
+- `batch_size` (optional): Batch size for processing (default: 10)
 - `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `minimal`)
-- `start_date` (optional): Start of date range in RFC3339 format
-- `end_date` (optional): End of date range in RFC3339 format
+- `window_minutes` (optional): Time window to query in minutes (default: 60)
+- `window_start` (optional): Explicit window start in RFC3339 format (overrides window_minutes)
+- `window_end` (optional): Explicit window end in RFC3339 format (overrides window_minutes)
 
 ### Activities
 
-1. **`sample_recent_traces_activity`**
-   - Uses `TracesQueryRunner` to fetch recent traces (reuses frontend query logic)
-   - Filters by date range (past 7 days by default, configurable via `SAMPLE_LOOKBACK_DAYS`)
-   - Validates minimum threshold (100 traces required by default)
-   - Returns empty list if insufficient traces (workflow handles gracefully)
+1. **`query_traces_in_window_activity`**
+   - Uses `TracesQueryRunner` to fetch traces from time window (reuses frontend query logic)
+   - Queries from last N minutes (default: 60) or explicit window if provided
+   - Enforces hard limit via `max_traces` parameter (default: 100)
    - Returns list of trace metadata (trace_id, timestamp, team_id)
-   - Targets up to `sample_size` traces (default: 1000)
+   - Idempotent - same window returns same traces
 
 2. **`fetch_trace_hierarchy_activity`**
    - Uses `TraceQueryRunner` to fetch full trace data (reuses frontend query logic)
@@ -127,8 +129,8 @@ python manage.py shell
 # Or with custom parameters
 >>> trigger_batch_summarization(
 ...     team_id=1,
-...     sample_size=500,
-...     batch_size=50,
+...     max_traces=50,
+...     window_minutes=30,
 ...     mode="detailed"
 ... )
 ```
@@ -155,23 +157,29 @@ print(f"Summarized {result['summaries_generated']} traces")
 
 See `trigger_workflow.py` for more examples and helper functions.
 
-### Scheduled Daily Job
+### Scheduled Execution (Recommended)
 
-Set up a Temporal Schedule to run daily:
+Set up a Temporal Schedule to run hourly per team:
 
 ```python
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleIntervalSpec
 from datetime import timedelta
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
+# Create schedule for a team
 schedule = Schedule(
     action=ScheduleActionStartWorkflow(
         "batch-trace-summarization",
-        ["123"],  # team_id
+        BatchSummarizationInputs(
+            team_id=123,
+            max_traces=100,  # Process up to 100 traces per hour
+            window_minutes=60,  # Last 60 minutes
+        ),
         id="batch-summarization-team-123",
-        task_queue="llm-analytics-queue",
+        task_queue="general-purpose-queue",
     ),
     spec=ScheduleSpec(
-        intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]
+        intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]
     ),
 )
 
@@ -181,22 +189,26 @@ await client.create_schedule(
 )
 ```
 
+The workflow is idempotent, so rerunning on the same window is safe.
+
 ### Configuration
 
 Key constants in `constants.py`:
 
-- `DEFAULT_SAMPLE_SIZE = 1000` - Number of traces to sample per day
-- `DEFAULT_BATCH_SIZE = 100` - Batch size for parallel processing
+- `DEFAULT_MAX_TRACES_PER_WINDOW = 100` - Max traces to process per window (start conservative)
+- `DEFAULT_BATCH_SIZE = 10` - Batch size for processing
 - `DEFAULT_MODE = "minimal"` - Summary detail level
+- `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
 
 ## Processing Flow
 
-1. **Sampling** (< 5 min)
-   - Query ClickHouse for N most recent traces with generations
-   - Filter by date range (past 24 hours by default)
+1. **Query Window** (< 5 min)
+   - Query ClickHouse for traces in time window (last N minutes)
+   - Up to `max_traces` limit (default: 100)
+   - Idempotent - same window returns same traces
 
-2. **Batch Processing** (variable, depends on N and LLM latency)
-   - Process traces in batches of 100 (configurable)
+2. **Batch Processing** (variable, depends on trace count and LLM latency)
+   - Process traces in batches of 10 (configurable)
    - For each trace:
      - Fetch full hierarchy from ClickHouse (~30s timeout)
      - Generate text representation (instant)
@@ -206,6 +218,7 @@ Key constants in `constants.py`:
 3. **Storage** (< 1 min per batch)
    - Emit `$ai_trace_summary` events to ClickHouse
    - Batch writes for efficiency
+   - Events include `$ai_batch_run_id` for idempotency tracking
 
 ## Error Handling
 
@@ -224,10 +237,10 @@ Workflow outputs:
 ```json
 {
   "batch_run_id": "team_123_2025-01-15T12:00:00Z",
-  "traces_sampled": 1000,
-  "summaries_generated": 987,  // Some may fail
-  "events_emitted": 987,
-  "duration_seconds": 1234.56
+  "traces_queried": 100,
+  "summaries_generated": 97,  // Some may fail
+  "events_emitted": 97,
+  "duration_seconds": 123.45
 }
 ```
 
@@ -240,20 +253,20 @@ Check logs for:
 
 ## Cost Estimation
 
-For `DEFAULT_SAMPLE_SIZE = 1000` traces per day:
+For `DEFAULT_MAX_TRACES_PER_WINDOW = 100` traces per hour (2400/day):
 
-- **LLM Calls**: 1000 summarization calls
-- **Model**: `gpt-4-1106-preview` (from `SUMMARIZATION_MODEL`)
+- **LLM Calls**: 100 traces/hour × 24 hours = 2400 calls/day
+- **Model**: `gpt-4o-mini` (from `SUMMARIZATION_MODEL`)
 - **Token Usage** (estimated):
   - Input: ~2000 tokens/trace (text repr + prompt)
   - Output: ~500 tokens/trace (summary)
-  - Total: ~2500 tokens/trace = 2.5M tokens/day
-- **Cost** (at $0.01/1K input, $0.03/1K output):
-  - Input: 2M tokens × $0.01/1K = $20/day
-  - Output: 0.5M tokens × $0.03/1K = $15/day
-  - **Total: ~$35/day per 1000 traces**
+  - Total: ~2500 tokens/trace = 6M tokens/day
+- **Cost** (at $0.15/1M input, $0.60/1M output):
+  - Input: 4.8M tokens × $0.15/1M = $0.72/day
+  - Output: 1.2M tokens × $0.60/1M = $0.72/day
+  - **Total: ~$1.44/day per team (100 traces/hour)**
 
-Adjust `sample_size` based on budget and data volume needs.
+Adjust `max_traces` and schedule frequency based on budget and data volume needs. Start conservative (100/hour) and scale up as needed.
 
 ## Next Steps
 
@@ -284,7 +297,7 @@ pytest posthog/temporal/llm_analytics/trace_summarization/test_workflows.py -v
 
 Test coverage:
 
-- ✅ Trace sampling with various scenarios
+- ✅ Trace window querying with various scenarios
 - ✅ Hierarchy fetching and error handling
 - ✅ Summary generation with mocked LLM calls
 - ✅ Event emission and team validation
@@ -296,16 +309,16 @@ The implementation is split into focused, single-responsibility modules:
 
 **Core workflow:**
 
-- `workflows.py` - Workflow orchestration (173 lines)
+- `workflows.py` - Workflow orchestration (~180 lines)
 - `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`
 - `constants.py` - Configuration constants (timeouts, defaults, property names)
 
 **Activity modules:**
 
-- `sampling.py` - Trace sampling using `TracesQueryRunner` (85 lines)
-- `fetching.py` - Trace fetching using `TraceQueryRunner` (79 lines)
-- `summarization.py` - Text repr generation and LLM summarization (59 lines)
-- `events.py` - Event emission to ClickHouse (82 lines)
+- `sampling.py` - Window-based trace querying using `TracesQueryRunner` (~80 lines)
+- `fetching.py` - Trace hierarchy fetching using `TraceQueryRunner` (~80 lines)
+- `summarization.py` - Text repr generation and LLM summarization (~60 lines)
+- `events.py` - Event emission to ClickHouse (~80 lines)
 
 **Dependencies (reused code):**
 

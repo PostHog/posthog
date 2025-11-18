@@ -9,7 +9,7 @@ from unittest.mock import patch
 from posthog.temporal.llm_analytics.trace_summarization.events import emit_trace_summary_events_activity
 from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_trace_hierarchy_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
-from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_recent_traces_activity
+from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_summary_activity
 from posthog.temporal.llm_analytics.trace_summarization.workflows import BatchTraceSummarizationWorkflow
 
@@ -72,14 +72,14 @@ def sample_trace_hierarchy(sample_trace_data):
     }
 
 
-class TestSampleRecentTracesActivity:
-    """Tests for sample_recent_traces_activity."""
+class TestQueryTracesInWindowActivity:
+    """Tests for query_traces_in_window_activity."""
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_sample_traces_success(self, mock_team):
-        """Test successful trace sampling."""
-        inputs = BatchSummarizationInputs(team_id=mock_team.id, sample_size=10)
+    async def test_query_traces_success(self, mock_team):
+        """Test successful trace querying from window."""
+        inputs = BatchSummarizationInputs(team_id=mock_team.id, max_traces=100, window_minutes=60)
 
         with patch(
             "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
@@ -94,25 +94,25 @@ class TestSampleRecentTracesActivity:
             )
 
             mock_runner = mock_runner_class.return_value
-            # Create 100+ traces to satisfy MIN_SAMPLE_SIZE threshold
+            # Create traces from window
             mock_traces = [
                 LLMTrace(id=f"trace_{i}", createdAt=datetime.now(UTC).isoformat(), events=[], person=mock_person)
-                for i in range(150)
+                for i in range(50)
             ]
             mock_runner.calculate.return_value.results = mock_traces
 
-            result = await sample_recent_traces_activity(inputs)
+            result = await query_traces_in_window_activity(inputs)
 
-            assert len(result) == 150
+            assert len(result) == 50
             assert result[0]["trace_id"] == "trace_0"
             assert result[0]["team_id"] == mock_team.id
             assert "trace_timestamp" in result[0]
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_sample_traces_empty(self, mock_team):
-        """Test sampling when no traces found."""
-        inputs = BatchSummarizationInputs(team_id=mock_team.id, sample_size=10)
+    async def test_query_traces_empty(self, mock_team):
+        """Test querying when no traces found in window."""
+        inputs = BatchSummarizationInputs(team_id=mock_team.id, max_traces=100, window_minutes=60)
 
         with patch(
             "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
@@ -120,7 +120,7 @@ class TestSampleRecentTracesActivity:
             mock_runner = mock_runner_class.return_value
             mock_runner.calculate.return_value.results = []
 
-            result = await sample_recent_traces_activity(inputs)
+            result = await query_traces_in_window_activity(inputs)
 
             assert len(result) == 0
 
@@ -291,19 +291,21 @@ class TestBatchTraceSummarizationWorkflow:
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(["123"])
 
         assert inputs.team_id == 123
-        assert inputs.sample_size == 1000
-        assert inputs.batch_size == 100
+        assert inputs.max_traces == 100
+        assert inputs.batch_size == 10
         assert inputs.mode == "minimal"
+        assert inputs.window_minutes == 60
 
     def test_parse_inputs_full(self):
         """Test parsing full inputs."""
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(
-            ["123", "500", "50", "detailed", "2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]
+            ["123", "200", "20", "detailed", "30", "2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z"]
         )
 
         assert inputs.team_id == 123
-        assert inputs.sample_size == 500
-        assert inputs.batch_size == 50
+        assert inputs.max_traces == 200
+        assert inputs.batch_size == 20
         assert inputs.mode == "detailed"
-        assert inputs.start_date == "2025-01-01T00:00:00Z"
-        assert inputs.end_date == "2025-01-02T00:00:00Z"
+        assert inputs.window_minutes == 30
+        assert inputs.window_start == "2025-01-01T00:00:00Z"
+        assert inputs.window_end == "2025-01-02T00:00:00Z"

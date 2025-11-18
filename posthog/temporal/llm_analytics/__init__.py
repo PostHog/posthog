@@ -9,7 +9,7 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     emit_trace_summary_events_activity,
     fetch_trace_hierarchy_activity,
     generate_summary_activity,
-    sample_recent_traces_activity,
+    query_traces_in_window_activity,
 )
 
 WORKFLOWS = [
@@ -21,7 +21,7 @@ ACTIVITIES = [
     fetch_evaluation_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
-    sample_recent_traces_activity,
+    query_traces_in_window_activity,
     fetch_trace_hierarchy_activity,
     generate_summary_activity,
     emit_trace_summary_events_activity,

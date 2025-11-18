@@ -19,8 +19,9 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
-    DEFAULT_SAMPLE_SIZE,
+    DEFAULT_WINDOW_MINUTES,
     EMIT_EVENTS_TIMEOUT_SECONDS,
     FETCH_HIERARCHY_TIMEOUT_SECONDS,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
@@ -30,7 +31,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.events import emit_trace_summary_events_activity
 from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_trace_hierarchy_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
-from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_recent_traces_activity
+from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_summary_activity
 
 logger = structlog.get_logger(__name__)
@@ -41,20 +42,23 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
     """
     Workflow for batch summarization of traces.
 
-    Runs daily to sample and summarize N recent traces, storing results as
-    $ai_trace_summary events for downstream embedding and clustering.
+    Processes traces from a time window (e.g., last 60 minutes) up to a maximum count.
+    Designed to run on a schedule (hourly) to keep summaries up to date.
+
+    The workflow is idempotent - rerunning on the same window regenerates the same summaries.
     """
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BatchSummarizationInputs:
-        """Parse workflow inputs from string list."""
+        """Parse workflow inputs from string list (for backward compatibility)."""
         return BatchSummarizationInputs(
             team_id=int(inputs[0]),
-            sample_size=int(inputs[1]) if len(inputs) > 1 else DEFAULT_SAMPLE_SIZE,
+            max_traces=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_TRACES_PER_WINDOW,
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
             mode=inputs[3] if len(inputs) > 3 else DEFAULT_MODE,
-            start_date=inputs[4] if len(inputs) > 4 else None,
-            end_date=inputs[5] if len(inputs) > 5 else None,
+            window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
+            window_start=inputs[5] if len(inputs) > 5 else None,
+            window_end=inputs[6] if len(inputs) > 6 else None,
         )
 
     @temporalio.workflow.run
@@ -66,25 +70,31 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         logger.info(
             "Starting batch trace summarization",
             team_id=inputs.team_id,
-            sample_size=inputs.sample_size,
+            max_traces=inputs.max_traces,
             batch_size=inputs.batch_size,
             mode=inputs.mode,
+            window_minutes=inputs.window_minutes,
             batch_run_id=batch_run_id,
         )
 
-        # Step 1: Sample traces
+        # Step 1: Query traces from window
         traces = await temporalio.workflow.execute_activity(
-            sample_recent_traces_activity,
+            query_traces_in_window_activity,
             inputs,
             schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
         if not traces:
-            logger.info("No traces found to summarize", team_id=inputs.team_id)
+            logger.info(
+                "No traces found in window",
+                team_id=inputs.team_id,
+                window_minutes=inputs.window_minutes,
+                batch_run_id=batch_run_id,
+            )
             return {
                 "batch_run_id": batch_run_id,
-                "traces_sampled": 0,
+                "traces_queried": 0,
                 "summaries_generated": 0,
                 "events_emitted": 0,
             }
@@ -158,7 +168,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             "Batch trace summarization completed",
             team_id=inputs.team_id,
             batch_run_id=batch_run_id,
-            traces_sampled=len(traces),
+            traces_queried=len(traces),
             summaries_generated=total_summaries,
             events_emitted=total_events,
             duration_seconds=duration,
@@ -166,7 +176,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
 
         return {
             "batch_run_id": batch_run_id,
-            "traces_sampled": len(traces),
+            "traces_queried": len(traces),
             "summaries_generated": total_summaries,
             "events_emitted": total_events,
             "duration_seconds": duration,
