@@ -2479,6 +2479,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         materialize("events", "$exception_values")
+        materialize("events", "region")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2541,6 +2542,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_input_cost_usd": 0.01,
                 "$ai_output_cost_usd": 0.01,
                 "$ai_total_cost_usd": 0.02,
+                "region": "US",
             },
             timestamp=now() - relativedelta(days=2),
             team=self.org_1_team_1,
@@ -2598,6 +2600,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
+                "region": "US",
             },
         )
 
@@ -2612,6 +2615,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
+                "region": "US",
             },
         )
 
@@ -2654,6 +2658,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
+                "region": "US",
             },
         )
 
@@ -2668,6 +2673,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_free",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
+                "region": "US",
             },
         )
 
@@ -2699,6 +2705,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_billable",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
             },
         )
 
@@ -2713,6 +2720,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
+                "region": "US",
             },
         )
 
@@ -2727,6 +2735,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": False,
+                "region": "US",
             },
         )
 
@@ -2741,6 +2750,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.0,
                 "$ai_billable": True,
+                "region": "US",
             },
         )
 
@@ -2755,6 +2765,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": -1.0,
                 "$ai_billable": True,
+                "region": "US",
             },
         )
 
@@ -2766,6 +2777,268 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 60)
+
+    def test_ai_credits_with_no_tool_calls(self) -> None:
+        """Test that generations with no tool calls ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with no tool calls (empty messages or no tool_calls field)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_no_tools",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            # No tool_calls field at all
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for this trace (should be billed now)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_no_tools",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 0.5 USD * 100 * 1.2 = 60 credits
+        # Traces with no tool calls should now be billed
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
+    def test_ai_credits_without_trace_event(self) -> None:
+        """Test that generations without a corresponding trace event ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create billable generation WITHOUT a corresponding trace event
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_no_event",
+                "$ai_total_cost_usd": 1.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 1.5 USD * 100 * 1.2 = 180 credits
+        # Generations without trace events should be billed
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 180)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_uses_correct_team_for_us_region(self, mock_region: MagicMock) -> None:
+        """Test that US region uses team_id=2 and filters only US events.
+
+        In US deployment, team_id=2 contains BOTH US and EU traces, so region filtering is critical.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        # Mock US region
+        mock_region.return_value = "US"
+
+        self._setup_teams()
+        # Create analytics team for US (team_id=2)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team_us = Team.objects.create(pk=2, organization=analytics_org, name="Analytics US")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create US trace with billable tools (should be counted)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_us,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_us",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
+            },
+        )
+
+        # Create EU trace in same team (should NOT be counted - wrong region)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_us,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_eu_in_us",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "EU",
+            },
+        )
+
+        # Create billable generation for US trace (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_us,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_us",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for EU trace (should NOT count - wrong region)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_us,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_eu_in_us",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "region": "EU",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only US trace should count: 1.0 USD * 100 * 1.2 = 120 credits
+        # EU trace should be filtered out despite being in team_id=2
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_uses_correct_team_for_eu_region(self, mock_region: MagicMock) -> None:
+        """Test that EU region uses team_id=1 and filters only EU events.
+
+        In EU deployment, team_id=1 should only contain EU traces.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        # Mock EU region
+        mock_region.return_value = "EU"
+
+        self._setup_teams()
+        # Create analytics team for EU (team_id=1)
+        analytics_org = Organization.objects.create(name="PostHog Analytics EU")
+        analytics_team_eu = Team.objects.create(pk=1, organization=analytics_org, name="Analytics EU")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create EU trace with billable tools (should be counted)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_eu,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_eu",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "EU",
+            },
+        )
+
+        # Create US trace in EU team (should NOT be counted - wrong region, shouldn't happen in prod)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_eu,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_us_in_eu",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for EU trace (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_eu,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_eu",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "region": "EU",
+            },
+        )
+
+        # Create billable generation for US trace (should NOT count - wrong region)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_eu,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_us_in_eu",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only EU trace should count: 2.0 USD * 100 * 1.2 = 240 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 240)
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

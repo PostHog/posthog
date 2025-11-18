@@ -950,102 +950,119 @@ def get_teams_with_ai_credits_used_in_period(
 
     Billing is performed at the trace level. Traces are billable only if they contain
     tool calls that include at least one non-search tool. Free (non-billable) traces:
-    - Traces with no tool calls
     - Traces that only contain 'search' tool calls
 
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
     2. Filter out negative or zero costs (defensive)
-    3. Exclude generations from traces with no tool calls or only search tool calls
+    3. Exclude generations from traces with only search docs tool calls
     4. Convert to cents (multiply by 100)
     5. Add markup
     6. Convert 1:1 to credits
 
-    Only counts generations where $ai_billable is true and cost > 0.
-    Events are stored in team 2, with the actual team (on which we group by) in properties.
+    Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
+    At time of writing, events in the US have a materialized region but nothing present in EU.
+    Using the field from properties to filter events instead.
     """
+    # Depending on the region, events are stored in different teams
+    cloud_region_to_team_id = {
+        "EU": 1,
+        "US": 2,
+    }
+    region = get_instance_region()  # "EU", "US", or None
+    # Default to US (team 2) if region is not set (e.g., in test environments)
+    team_to_query = cloud_region_to_team_id.get(region, 2)
+    region_value = region or "US"
+
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
         results = sync_execute(
             """
             WITH trace_analysis AS (
-            SELECT
-                trace_id,
-                -- Only billable if trace has tool calls and not all are search
-                multiIf(
-                    length(tool_names) > 0 AND NOT arrayAll(x -> x IN ['search'], tool_names),
-                    1,  -- billable: has tool calls with at least one non-search tool
-                    0   -- not billed: no tool calls OR only search tools
-                ) AS is_billable
-            FROM (
                 SELECT
-                    JSONExtractString(properties, '$ai_trace_id') AS trace_id,
-                    arrayMap(
-                        x -> JSONExtractString(x, 'name'),
-                        arrayFlatten(
-                            arrayMap(
-                                msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
-                                JSONExtractArrayRaw(
-                                    JSONExtractRaw(properties, '$ai_output_state'),
-                                    'messages'
+                    trace_id,
+                    tool_names,
+                    -- mark traces that contain ONLY docs search tool calls
+                    multiIf(
+                        length(tool_names) > 0
+                            AND arrayAll(x -> x IN ['search'], tool_names),
+                        1,  -- has tool calls and ALL are 'search' -> we want to discard these
+                        0   -- no tool calls OR has at least one non-search tool
+                    ) AS is_billable
+                FROM (
+                    SELECT
+                        JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        arrayMap(
+                            x -> JSONExtractString(x, 'name'),
+                            arrayFlatten(
+                                arrayMap(
+                                    msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
+                                    JSONExtractArrayRaw(
+                                        JSONExtractRaw(properties, '$ai_output_state'),
+                                        'messages'
+                                    )
                                 )
                             )
-                        )
-                    ) AS tool_names
-                FROM events
-                PREWHERE
-                    -- hardcoding data inside PostHog project used as ground truth for billing
-                    team_id = 2
-                    AND timestamp >= %(begin)s
-                    AND timestamp < %(end)s
-                    AND event = '$ai_trace'
-            )
-        ),
-        costs AS (
-            SELECT
-                customer_team_id,
-                trace_id,
-                cost_usd
-            FROM (
-                SELECT
-                    JSONExtractInt(properties, 'team_id') AS customer_team_id,
-                    JSONExtractString(properties, '$ai_trace_id') AS trace_id,
-                    toDecimal32OrNull(
-                        JSONExtractString(properties, '$ai_total_cost_usd'),
-                        5
-                    ) AS cost_usd,
-                    JSONExtractBool(properties, '$ai_billable') AS ai_billable
-                FROM events
-                PREWHERE
-                    -- hardcoding data inside PostHog project used as ground truth for billing
-                    team_id = 2
-                    AND timestamp >= %(begin)s
-                    AND timestamp < %(end)s
-                    AND event = '$ai_generation'
-            )
-            WHERE
-                ai_billable = 1
-                AND cost_usd > 0
-                AND cost_usd IS NOT NULL
-        )
-        SELECT
-            c.customer_team_id AS team,
-            toInt64(
-                roundBankers(
-                    sum(c.cost_usd * 100 * %(markup_multiplier)s)
+                        ) AS tool_names
+                    FROM events
+                    PREWHERE
+                        -- data inside PostHog project used as ground truth for billing (depends on region)
+                        team_id = %(team_to_query)s
+                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND timestamp >= %(begin)s
+                        AND timestamp < %(end)s
+                        AND event = '$ai_trace'
                 )
-            ) AS ai_credits
-        FROM costs c
-        LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
-        WHERE
-            t.is_billable = 1 OR t.trace_id IS NULL
-        GROUP BY
-            c.customer_team_id
-        HAVING
-            ai_credits > 0
-        ORDER BY
-            ai_credits DESC
-        """,
+            ),
+            costs AS (
+                SELECT
+                    customer_team_id,
+                    trace_id,
+                    cost_usd
+                FROM (
+                    SELECT
+                        JSONExtractInt(properties, 'team_id') AS customer_team_id,
+                        JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        toDecimal32OrNull(
+                            JSONExtractString(properties, '$ai_total_cost_usd'),
+                            5
+                        ) AS cost_usd,
+                        JSONExtractBool(properties, '$ai_billable') AS ai_billable
+                    FROM events
+                    PREWHERE
+                        -- data inside PostHog project used as ground truth for billing (depends on region)
+                        team_id = %(team_to_query)s
+                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND timestamp >= %(begin)s
+                        AND timestamp < %(end)s
+                        AND event = '$ai_generation'
+                )
+                WHERE
+                    ai_billable = 1
+                    AND cost_usd > 0
+            )
+            SELECT
+                c.customer_team_id AS team,
+                toInt64(
+                    roundBankers(
+                        sum(c.cost_usd * 100 * %(markup_multiplier)s)
+                    )
+                ) AS ai_credits
+            FROM costs c
+            LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
+            WHERE
+                -- keep rows where trace is NOT search-only
+                -- (no tools OR has non-search tools) OR there's no trace at all
+                t.is_billable = 0 OR t.trace_id IS NULL
+            GROUP BY
+                c.customer_team_id
+            HAVING
+                ai_credits > 0
+            ORDER BY
+                ai_credits DESC
+            """,
             {
+                "team_to_query": team_to_query,
+                "region": region_value,
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
