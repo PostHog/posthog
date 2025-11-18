@@ -301,16 +301,12 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         return events, skewed_totals, hogql, response
 
     def _date_range(self) -> QueryDateRange:
-        team, query, now = self.context.team, self.context.query, self.context.now
-
-        date_range = QueryDateRange(
-            date_range=query.dateRange,
-            team=team,
-            interval=query.interval,
-            now=now,
+        return QueryDateRange(
+            date_range=self.context.query.dateRange,
+            team=self.context.team,
+            interval=self.context.query.interval,
+            now=self.context.now,
         )
-
-        return date_range
 
     def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
