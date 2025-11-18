@@ -39,14 +39,6 @@ class Migration(migrations.Migration):
                         ALTER TABLE "posthog_survey" DROP COLUMN IF EXISTS "linked_insight_id";
                     """,
                 ),
-                migrations.RunSQL(
-                    """
-                    CREATE INDEX CONCURRENTLY "posthog_survey_linked_insight_id_586524f3" ON "posthog_survey" ("linked_insight_id");
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "posthog_survey_linked_insight_id_586524f3";
-                    """,
-                ),
             ],
         ),
     ]
