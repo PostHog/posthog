@@ -85,12 +85,8 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
-    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_success(
         self,
-        mock_generate_content: Mock,
-        mock_create_notebook: Mock,
         mock_execute: Mock,
         mock_find_sessions: Mock,
         mock_feature_enabled: Mock,
@@ -134,22 +130,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
-
-        # Verify generate_notebook_content_from_summary was called
-        mock_generate_content.assert_called_once_with(
-            summary=mock_result,
-            session_ids=["session1", "session2"],
-            project_name=self.team.name,
-            team_id=self.team.id,
-            summary_title="API generated",
-        )
-        # Verify create_notebook_from_summary_content was called
-        mock_create_notebook.assert_called_once_with(
-            user=self.user,
-            team=self.team,
-            summary_content=mock_generate_content.return_value,
-            summary_title="API generated",
-        )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     def test_create_summaries_missing_session_ids(self, mock_feature_enabled: Mock) -> None:
@@ -213,9 +193,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     def test_create_summaries_feature_disabled(self, mock_feature_enabled: Mock) -> None:
         """Test error when ai-session-summary feature is disabled"""
         mock_feature_enabled.return_value = False
-
         response = self._make_api_request(session_ids=["session1"])
-
         self.assertEqual(response.status_code, 400)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Session summaries are not enabled", str(error))
@@ -260,12 +238,8 @@ class TestSessionSummariesAPI(APIBaseTest):
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
-    @patch("ee.api.session_summaries.create_notebook_from_summary_content")
-    @patch("ee.api.session_summaries.generate_notebook_content_from_summary")
     def test_create_summaries_execution_failure(
         self,
-        mock_generate_content: Mock,
-        mock_create_notebook: Mock,
         mock_execute: Mock,
         mock_find_sessions: Mock,
         mock_feature_enabled: Mock,
