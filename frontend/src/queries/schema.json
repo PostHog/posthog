@@ -27082,6 +27082,9 @@
                 "linked_flag_id": {
                     "type": "number"
                 },
+                "linked_insight_id": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
