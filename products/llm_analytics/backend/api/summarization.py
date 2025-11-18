@@ -8,6 +8,7 @@ Endpoint:
 - POST /api/projects/:id/llm_analytics/summarize/ - Summarize trace or event
 """
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -100,9 +101,6 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         """Validate that the user has access to the summarization feature."""
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-
-        # In development/debug mode, allow access by default
-        from django.conf import settings
 
         if settings.DEBUG:
             return
