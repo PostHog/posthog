@@ -40,7 +40,7 @@ class _NoOpPostHogClient:
     calls separately or with specific properties to distinguish them from other AI usage.
     """
 
-    pass
+    privacy_mode = False
 
 
 def _get_default_posthog_client():
