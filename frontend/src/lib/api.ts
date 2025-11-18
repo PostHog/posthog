@@ -181,7 +181,6 @@ import {
     UserType,
 } from '~/types'
 
-import { CustomerAnalyticsConfigType } from 'products/customer_analytics/frontend/types'
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -3025,15 +3024,6 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
-        },
-    },
-
-    customerAnalyticsConfig: {
-        async get_or_create(): Promise<CustomerAnalyticsConfigType> {
-            return await new ApiRequest().customerAnalyticsConfig().get()
-        },
-        async update(data: Partial<CustomerAnalyticsConfigType>): Promise<CustomerAnalyticsConfigType> {
-            return await new ApiRequest().customerAnalyticsConfig().create({ data })
         },
     },
 
