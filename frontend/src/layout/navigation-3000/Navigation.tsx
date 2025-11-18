@@ -111,7 +111,6 @@ export function Navigation({
                         {children}
                     </SceneLayout>
                 </main>
-
                 <SidePanel />
                 <CommandBar />
             </FloatingContainerContext.Provider>
