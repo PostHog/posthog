@@ -108,9 +108,10 @@ class Person(models.Model):
 
             # Remove the Person instance itself from the collector
             # so it only deletes related objects
-            person_model_key = self._meta.label
-            if person_model_key in collector.data:
-                collector.data[person_model_key].discard(self)
+            if Person in collector.data:
+                person_instances = collector.data[Person]
+                if isinstance(person_instances, set):
+                    person_instances.discard(self)
 
             # Delete all related objects (PersonDistinctId, etc.)
             collector.delete()
