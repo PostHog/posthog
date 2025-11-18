@@ -257,6 +257,7 @@ export function DashboardHeader(): JSX.Element | null {
                             intent="Toggle edit mode"
                             interaction="click"
                             asChild
+                            disabled={!useAppShortcuts}
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -427,13 +428,13 @@ export function DashboardHeader(): JSX.Element | null {
                                     Cancel
                                 </LemonButton>
                                 <AppShortcut
-                                    keys={['command', 'option', 's']}
-                                    description="Save dashboard"
-                                    sceneKey={Scene.Dashboard}
-                                    enabled={canEditDashboard}
-                                    onAction={() =>
-                                        setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
-                                    }
+                                    name="SaveDashboard"
+                                    keybind={keyBinds.save}
+                                    intent="Save dashboard"
+                                    interaction="click"
+                                    scope={Scene.Dashboard}
+                                    asChild
+                                    disabled={!useAppShortcuts}
                                 >
                                     <LemonButton
                                         data-attr="dashboard-edit-mode-save"
@@ -495,6 +496,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 intent="Add text card"
                                                 interaction="click"
                                                 asChild
+                                                disabled={!useAppShortcuts}
                                             >
                                                 <LemonButton
                                                     onClick={() => {

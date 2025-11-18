@@ -5,5 +5,6 @@ export const keyBinds: Record<string, string[]> = {
     closeActiveTab: [...baseModifier, 'w'],
     new: [...baseModifier, 'n'],
     edit: [...baseModifier, 'e'],
+    save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
 }

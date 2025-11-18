@@ -9,6 +9,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -76,6 +77,8 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
+
     // Set layout config
     useEffect(() => {
         if (sceneConfig) {
@@ -182,7 +185,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 </>
             )}
 
-            <AppShortcutMenu />
+            {useAppShortcuts && <AppShortcutMenu />}
         </>
     )
 }

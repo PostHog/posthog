@@ -422,6 +422,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 intent="Toggle shortcut menu"
                                 interaction="click"
                                 asChild
+                                disabled={!useAppShortcuts}
                             >
                                 <ButtonPrimitive
                                     iconOnly={isLayoutNavCollapsed}
@@ -429,11 +430,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement="right"
                                     onClick={() => setAppShortcutMenuOpen(true)}
                                     menuItem={!isLayoutNavCollapsed}
-                                    className={cn('hidden', { flex: useAppShortcuts })}
-                                >
-                                    <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
-                                    {!isLayoutNavCollapsed && <>Shortcut menu</>}
-                                </ButtonPrimitive>
+                                    className="hidden"
+                                />
                             </AppShortcut>
 
                             <ButtonPrimitive
