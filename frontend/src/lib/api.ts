@@ -593,11 +593,6 @@ export class ApiRequest {
         return this.links(teamId).addPathComponent(id)
     }
 
-    // # Customer Analytics Config
-    public customerAnalyticsConfig(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('customer_analytics_config')
-    }
-
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
