@@ -73,6 +73,7 @@ dependencies = [
     "lxml==5.2.1",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
+    "maturin>=1.0,<2.0",
     "mimesis==5.2.1",
     "mistralai==1.6.0",
     "more-itertools==9.0.0",

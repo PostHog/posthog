@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "posthog-feature-flags-rs"
+version = "0.1.0"
+description = "Rust implementation of PostHog feature flag evaluation"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+features = ["python"]
+module-name = "posthog_feature_flags_rs"

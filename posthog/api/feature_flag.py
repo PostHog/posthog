@@ -51,9 +51,12 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     FeatureFlagEvaluationTag,
-    get_all_feature_flags,
     get_user_blast_radius,
     set_feature_flags_for_team_in_cache,
+)
+from posthog.models.feature_flag.flag_matching_rust import (
+    get_all_feature_flags,
+    get_all_feature_flags_with_details_rust,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
@@ -1450,7 +1453,7 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+        matches, *_ = get_all_feature_flags_with_details_rust(self.team, request.user.distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()

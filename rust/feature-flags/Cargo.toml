@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+name = "feature_flags"
+crate-type = ["rlib", "cdylib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -61,6 +65,12 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py38"], optional = true }
+pythonize = { version = "0.22", optional = true }
+
+[features]
+default = []
+python = ["pyo3", "pythonize"]
 
 [lints]
 workspace = true

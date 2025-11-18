@@ -22,3 +22,7 @@ pub mod team;
 // and then use this feature only in tests.
 // For now, ok to just include in binary
 pub mod utils;
+
+// Python bindings module (only compiled when python feature is enabled)
+#[cfg(feature = "python")]
+pub mod python_bindings;
