@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+
 from django.conf import settings
+
 from temporalio import activity
 
 from posthog.models import PersonalAPIKey

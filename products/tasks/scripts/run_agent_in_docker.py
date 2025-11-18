@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
 Wrapper script that creates a task locally, then runs the agent in Docker.
-
-This combines the benefits of both approaches:
-- Creates task/API key on host (fast, has all dependencies)
-- Runs agent in Docker container (has @posthog/agent package)
 """
+# ruff: noqa: T201, E402
 
 import os
 import sys
@@ -39,7 +36,6 @@ def create_test_task(repository=None):
         # Use existing hedgebox demo team
         team = Team.objects.get(id=1)
         user = User.objects.get(email="test@posthog.com")
-        organization = team.organization
 
         # Parse repository argument or use default
         if repository:
