@@ -113,9 +113,10 @@ class PersonQuerySet(models.QuerySet):
 
 
 class PersonManager(models.Manager):
-    def get_queryset(self):
-        """Return PersonQuerySet with team_id enforcement."""
-        return PersonQuerySet(self.model, using=self._db)
+    # Comment out the below to add our detector for queries not using the team_id filter
+    # def get_queryset(self):
+    #     """Return PersonQuerySet with team_id enforcement."""
+    #     return PersonQuerySet(self.model, using=self._db)
 
     def create(self, *args: Any, **kwargs: Any):
         with transaction.atomic(using=self.db):
