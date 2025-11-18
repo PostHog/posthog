@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0904_alter_dashboard_creation_mode"),
+        ("posthog", "0910_userproductlist_reason_text"),
     ]
 
     operations = [

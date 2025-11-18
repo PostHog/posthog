@@ -876,14 +876,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return f"uuid IN {unique_uuids_subquery}"
 
-    def _get_archived_responses_filter(self, survey_id: str | None = None) -> str:
+    def _get_archived_responses_filter(self, survey_id: str | None = None) -> tuple[str, dict]:
         archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
 
         if not archived_uuids:
-            return ""
+            return "", {}
 
-        uuid_list = ", ".join(f"'{uuid}'" for uuid in archived_uuids)
-        return f"uuid NOT IN ({uuid_list})"
+        params = {"archived_uuids": list(archived_uuids)}
+        return "uuid NOT IN %(archived_uuids)s", params
 
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
@@ -905,6 +905,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
+        params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
+
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
@@ -912,7 +914,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             ],
         )
 
-        archived_filter = f"AND {self._get_archived_responses_filter()}" if exclude_archived else ""
+        archived_filter = ""
+        if exclude_archived:
+            archived_filter_sql, archived_params = self._get_archived_responses_filter()
+            if archived_filter_sql:
+                archived_filter = f"AND {archived_filter_sql}"
+                params.update(archived_params)
 
         query = f"""
             SELECT
@@ -928,10 +935,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             GROUP BY survey_id
         """
 
-        data = sync_execute(
-            query,
-            {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
-        )
+        data = sync_execute(query, params)
 
         counts = {}
         for survey_id, count in data:
@@ -1098,7 +1102,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Add archive filter if needed
         archive_filter = ""
         if survey_id and exclude_archived:
-            archive_filter = f"AND {self._get_archived_responses_filter(survey_id)}"
+            archive_filter_sql, archive_params = self._get_archived_responses_filter(survey_id)
+            if archive_filter_sql:
+                archive_filter = f"AND {archive_filter_sql}"
+                params.update(archive_params)
 
         # Add survey filter if specific survey
         survey_filter = ""
