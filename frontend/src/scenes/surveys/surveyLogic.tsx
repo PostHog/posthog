@@ -897,11 +897,12 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         archivedResponseUuids: {
-            loadArchivedResponseUuids: async (): Promise<string[]> => {
+            loadArchivedResponseUuids: async (): Promise<Set<string>> => {
                 if (props.id === NEW_SURVEY.id) {
-                    return []
+                    return new Set()
                 }
-                return await api.surveys.getArchivedResponseUuids(props.id)
+                const uuids = await api.surveys.getArchivedResponseUuids(props.id)
+                return new Set(uuids)
             },
         },
     })),
@@ -1027,25 +1028,39 @@ export const surveyLogic = kea<surveyLogicType>([
             archiveResponse: async ({ responseUuid }) => {
                 try {
                     await api.surveys.archiveResponse(values.survey.id, responseUuid)
+
+                    const updatedUuids = new Set<string>(values.archivedResponseUuids)
+                    updatedUuids.add(responseUuid)
+                    actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+
                     lemonToast.success('Response archived')
-                    // Reload archived UUIDs and refresh results
-                    actions.loadArchivedResponseUuids()
-                    reloadAllSurveyResults()
                 } catch (error) {
                     lemonToast.error('Failed to archive response')
-                    console.error('Error archiving response:', error)
+                    posthog.captureException(error, {
+                        action: 'archive-survey-response',
+                        survey: values.survey.id,
+                        response: responseUuid,
+                    })
+                    actions.loadArchivedResponseUuids()
                 }
             },
             unarchiveResponse: async ({ responseUuid }) => {
                 try {
                     await api.surveys.unarchiveResponse(values.survey.id, responseUuid)
+
+                    const updatedUuids = new Set<string>(values.archivedResponseUuids)
+                    updatedUuids.delete(responseUuid)
+                    actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+
                     lemonToast.success('Response unarchived')
-                    // Reload archived UUIDs and refresh results
-                    actions.loadArchivedResponseUuids()
-                    reloadAllSurveyResults()
                 } catch (error) {
                     lemonToast.error('Failed to unarchive response')
-                    console.error('Error unarchiving response:', error)
+                    posthog.captureException(error, {
+                        action: 'unarchive-survey-response',
+                        survey: values.survey.id,
+                        response: responseUuid,
+                    })
+                    actions.loadArchivedResponseUuids()
                 }
             },
         }
@@ -1337,13 +1352,15 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         archivedResponsesFilter: [
             (s) => [s.showArchivedResponses, s.archivedResponseUuids],
-            (showArchivedResponses: boolean, archivedUuids: string[]): string => {
+            (showArchivedResponses: boolean, archivedUuids: Set<string>): string => {
                 // If showing archived responses or there are no archived UUIDs, don't filter
-                if (showArchivedResponses || !archivedUuids || archivedUuids.length === 0) {
+                if (showArchivedResponses || archivedUuids.size === 0) {
                     return ''
                 }
                 // Generate HogQL filter to exclude archived response UUIDs
-                const uuidList = archivedUuids.map((uuid) => `'${uuid}'`).join(', ')
+                const uuidList = Array.from(archivedUuids)
+                    .map((uuid) => `'${uuid}'`)
+                    .join(', ')
                 return `AND uuid NOT IN (${uuidList})`
             },
         ],
@@ -1492,6 +1509,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.partialResponsesFilter,
                 s.archivedResponsesFilter,
                 s.dateRange,
+                s.archivedResponseUuids,
+                s.showArchivedResponses,
             ],
             (
                 survey: Survey,

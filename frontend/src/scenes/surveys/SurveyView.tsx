@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -355,9 +355,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyAsInsightURL,
         isAnyResultsLoading,
         processedSurveyStats,
-        showArchivedResponses,
+        archivedResponseUuids,
     } = useValues(surveyLogic)
-    const { setShowArchivedResponses } = useActions(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
@@ -367,28 +366,40 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {isAnyResultsLoading || atLeastOneResponse ? (
                 <>
                     <SurveyResponsesByQuestionV2 />
-                    <div className="flex justify-between">
-                        <LemonButton
-                            type="primary"
-                            data-attr="survey-results-explore"
-                            icon={<IconGraph />}
-                            to={surveyAsInsightURL}
-                            className="max-w-40"
-                        >
-                            Explore results
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={showArchivedResponses}
-                            onChange={setShowArchivedResponses}
-                            label="Show archived responses"
-                        />
-                    </div>
+                    <LemonButton
+                        type="primary"
+                        data-attr="survey-results-explore"
+                        icon={<IconGraph />}
+                        to={surveyAsInsightURL}
+                        className="max-w-40"
+                    >
+                        Explore results
+                    </LemonButton>
                     {!disableEventsTable &&
                         (surveyLoading ? (
                             <LemonSkeleton />
                         ) : (
                             <div className="survey-table-results">
-                                <Query query={dataTableQuery} />
+                                <Query
+                                    query={dataTableQuery}
+                                    context={{
+                                        rowProps: (record: unknown) => {
+                                            // "mute" archived records
+                                            if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                return {}
+                                            }
+                                            const result = record.result
+                                            if (!Array.isArray(result)) {
+                                                return {}
+                                            }
+                                            return {
+                                                className: archivedResponseUuids.has(result[0].uuid)
+                                                    ? 'opacity-50'
+                                                    : undefined,
+                                            }
+                                        },
+                                    }}
+                                />
                             </div>
                         ))}
                 </>
