@@ -51,7 +51,6 @@ class Task(models.Model):
     json_schema = models.JSONField(
         default=None,
         null=True,
-        required=False,
         blank=True,
         help_text="JSON schema for the task. This is used to validate the output of the task.",
     )

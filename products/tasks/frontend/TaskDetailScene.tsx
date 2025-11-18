@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,21 +13,12 @@ export const scene: SceneExport<TaskDetailLogicProps> = {
     }),
 }
 
-export function TaskDetailScene(): JSX.Element {
-    const { task, taskLoading } = useValues(taskDetailLogic)
+export function TaskDetailScene({ taskId }: TaskDetailLogicProps): JSX.Element {
     const isEnabled = useFeatureFlag('TASKS')
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    if (taskLoading) {
-        return <div>Loading...</div>
-    }
-
-    if (!task) {
-        return <NotFound object="Task" />
-    }
-
-    return <TaskDetailPage task={task} />
+    return <TaskDetailPage taskId={taskId} />
 }

@@ -73,7 +73,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team).order_by("position")
+        qs = queryset.filter(team=self.team).order_by("-created_at")
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -172,7 +172,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "retrieve",
             "create",
             "update",
-            "partial_update",l
+            "partial_update",
             "set_output",
             "append_log",
         ]
@@ -237,8 +237,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             TaskRun.Status.FAILED,
         ]:
             if not task_run.completed_at:
-                from django.utils import timezone
-
                 task_run.completed_at = timezone.now()
 
         task_run.save()
