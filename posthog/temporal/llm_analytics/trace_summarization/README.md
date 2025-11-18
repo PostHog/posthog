@@ -251,7 +251,7 @@ After this workflow is in production:
 Run tests:
 
 ```bash
-pytest posthog/temporal/llm_analytics/test_batch_trace_summarization.py -v
+pytest posthog/temporal/llm_analytics/trace_summarization/test_workflows.py -v
 ```
 
 Test coverage:
@@ -262,13 +262,28 @@ Test coverage:
 - ✅ Event emission and team validation
 - ✅ Workflow input parsing
 
-## Related Files
+## Module Structure
 
-- `posthog/temporal/llm_analytics/trace_summarization/workflows.py` - Main workflow implementation
-- `posthog/temporal/llm_analytics/trace_summarization/constants.py` - Configuration constants
-- `posthog/hogql_queries/ai/traces_query_runner.py` - Multi-trace query runner (used for sampling)
-- `posthog/hogql_queries/ai/trace_query_runner.py` - Single trace query runner (used for fetching)
-- `products/llm_analytics/backend/summarization/` - Summarization logic
+The implementation is split into focused, single-responsibility modules:
+
+**Core workflow:**
+
+- `workflows.py` - Workflow orchestration (173 lines)
+- `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`
+- `constants.py` - Configuration constants (timeouts, defaults, property names)
+
+**Activity modules:**
+
+- `sampling.py` - Trace sampling using `TracesQueryRunner` (85 lines)
+- `fetching.py` - Trace fetching using `TraceQueryRunner` (79 lines)
+- `summarization.py` - Text repr generation and LLM summarization (59 lines)
+- `events.py` - Event emission to ClickHouse (82 lines)
+
+**Dependencies (reused code):**
+
+- `posthog/hogql_queries/ai/traces_query_runner.py` - Multi-trace query runner
+- `posthog/hogql_queries/ai/trace_query_runner.py` - Single trace query runner
+- `products/llm_analytics/backend/summarization/` - LLM summarization logic and schemas
 - `products/llm_analytics/backend/text_repr/` - Text representation formatters
 
 ## References
