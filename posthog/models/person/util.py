@@ -44,10 +44,17 @@ if TEST:
 
     @mutable_receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
+        # Fetch person UUID without loading full Person object to avoid partition scan
+        person_uuid = (
+            Person.objects.filter(id=instance.person_id, team_id=instance.team_id)
+            .values_list("uuid", flat=True)
+            .first()
+        )
+
         create_person_distinct_id(
             instance.team.pk,
             instance.distinct_id,
-            str(instance.person.uuid),
+            str(person_uuid),
             version=instance.version or 0,
             sync=True,
         )
@@ -64,9 +71,16 @@ if TEST:
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
+        # Fetch person UUID without loading full Person object to avoid partition scan
+        person_uuid = (
+            Person.objects.filter(id=instance.person_id, team_id=instance.team_id)
+            .values_list("uuid", flat=True)
+            .first()
+        )
+
         _delete_ch_distinct_id(
             instance.team.pk,
-            instance.person.uuid,
+            person_uuid,
             instance.distinct_id,
             instance.version or 0,
             sync=True,
