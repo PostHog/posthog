@@ -2750,6 +2750,83 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][1], 60)
 
     @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_multi_turn_only_current_turn_matters(self, mock_region: MagicMock) -> None:
+        """Test that only the current turn's tool calls are analyzed for billing.
+
+        A conversation with multiple turns where previous turns had billable tools
+        but the current turn only has docs-search should NOT be billed.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with multiple turns - previous turns have billable tools,
+        # but current turn only has docs-search
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_multi_turn",
+                "$ai_output_state": {
+                    "messages": [
+                        # First turn - user asks a question
+                        {"type": "human", "content": "Generate a query for me"},
+                        # First turn - AI response with billable tool
+                        {
+                            "type": "ai",
+                            "tool_calls": [
+                                {"name": "generate_hogql_query", "args": {}},
+                            ],
+                        },
+                        # Second turn - user asks another question (CURRENT TURN STARTS HERE)
+                        {"type": "human", "content": "How do I setup session replay?"},
+                        # Second turn - AI response with only docs-search (NOT billable)
+                        {
+                            "type": "ai",
+                            "tool_calls": [
+                                {"name": "search", "args": {"kind": "docs"}},
+                            ],
+                        },
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create generation for this trace
+        # Even though previous turns had billable tools, current turn only has docs-search
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_multi_turn",
+                "$ai_total_cost_usd": 1.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges because current turn only has docs-search
+        # Previous turn's billable tools should be ignored
+        self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_filters_non_billable(self, mock_region: MagicMock) -> None:
         """Test that non-billable generations and invalid costs are filtered out."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period

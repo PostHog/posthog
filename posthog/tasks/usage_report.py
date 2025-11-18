@@ -950,7 +950,10 @@ def get_teams_with_ai_credits_used_in_period(
 
     Billing is performed at the trace level. Traces are billable only if they contain
     tool calls that include at least one non-search tool. Free (non-billable) traces:
-    - Traces that only contain 'search' tool calls
+        - Traces that only contain 'search' tool calls
+
+    We are also performing additional filtering to maintain current trace tool calls and not all messages
+    in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
 
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
@@ -972,7 +975,6 @@ def get_teams_with_ai_credits_used_in_period(
     region = get_instance_region()
     assert region is not None, "Region must be set in production infrastructure"
     team_to_query = cloud_region_to_team_id[region]
-    region_value = region
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
         results = sync_execute(
@@ -1000,9 +1002,20 @@ def get_teams_with_ai_credits_used_in_period(
                         arrayFlatten(
                             arrayMap(
                                 msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
-                                JSONExtractArrayRaw(
-                                    JSONExtractRaw(properties, '$ai_output_state'),
-                                    'messages'
+                                -- Only get messages from current turn (after last human message)
+                                arraySlice(
+                                    JSONExtractArrayRaw(
+                                        JSONExtractRaw(properties, '$ai_output_state'),
+                                        'messages'
+                                    ),
+                                    -- Start from the position after the last human message
+                                    arrayLastIndex(
+                                        x -> JSONExtractString(x, 'type') = 'human',
+                                        JSONExtractArrayRaw(
+                                            JSONExtractRaw(properties, '$ai_output_state'),
+                                            'messages'
+                                        )
+                                    ) + 1
                                 )
                             )
                         ) AS tool_calls
@@ -1064,7 +1077,7 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region": region_value,
+                "region": region,
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
