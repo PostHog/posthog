@@ -19,6 +19,12 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
+# Person table configuration
+# Controls which PostgreSQL table the Person model uses.
+# Default: "posthog_person" (legacy non-partitioned table)
+# For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
+# Note: posthog_person_new must exist (created by Rust sqlx migrations)
+PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases

@@ -47,17 +47,38 @@ def _raw_delete(queryset: Any):
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
     """
     Deletes records in batches to avoid statement timeout on large tables.
-    """
-    while True:
-        batch_ids = list(queryset.values_list("id", flat=True)[:batch_size])
 
-        if not batch_ids:
+    Note: For partitioned tables (like posthog_person_new), preserving filters
+    like team_id ensures efficient single-partition deletes instead of scanning
+    all partitions.
+
+    Uses tuple IN clause (id, team_id) IN ((...), (...)) to ensure accurate
+    deletion of specific record combinations rather than a Cartesian product.
+    """
+    from django.db import connections
+
+    while True:
+        # Get tuples of (id, team_id) to ensure accurate deletion
+        batch_tuples = list(queryset.values_list("team_id", "id")[:batch_size])
+
+        if not batch_tuples:
             break
 
-        queryset.model.objects.filter(id__in=batch_ids)._raw_delete(queryset.db)
+        # Use raw SQL with tuple IN clause for accurate deletion
+        # Format: DELETE FROM table WHERE (id, team_id) IN ((1, 1), (2, 1), ...)
+        db_connection = connections[queryset.db]
+        with db_connection.cursor() as cursor:
+            table_name = queryset.model._meta.db_table
+            # Build tuple placeholders: (%s, %s), (%s, %s), ...
+            tuple_placeholders = ",".join(["(%s, %s)"] * len(batch_tuples))
+            # Flatten tuples for parameters: [id1, team_id1, id2, team_id2, ...]
+            params = [item for tuple_pair in batch_tuples for item in tuple_pair]
+
+            query = f'DELETE FROM "{table_name}" WHERE ("team_id", "id") IN ({tuple_placeholders})'
+            cursor.execute(query, params)
 
         # If we got fewer records than batch_size, we're done
-        if len(batch_ids) < batch_size:
+        if len(batch_tuples) < batch_size:
             break
 
         time.sleep(0.1)
