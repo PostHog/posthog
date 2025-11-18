@@ -68,7 +68,9 @@ def run(options, sync: bool = False):  # sync used for unittests
 def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
     logger.info("Running person table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    persons = Person.objects.filter(team_id=team_id)
+    persons = Person.objects.filter(team_id=team_id).only(
+        "id", "team_id", "uuid", "version", "properties", "is_identified", "created_at"
+    )
     rows = sync_execute(
         """
             SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING max(is_deleted) = 0

@@ -41,7 +41,9 @@ def run(options):
     future_date = now() + timedelta(days=2)
 
     # Get all persons with future created_at value
-    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date)
+    persons = Person.objects.filter(team_id=team_id, created_at__gt=future_date).only(
+        "id", "team_id", "uuid", "version", "properties", "is_identified", "created_at"
+    )
 
     logger.info(
         f'Found {len(persons)} persons with future created_at value, updating them to {new_date.strftime("%Y-%m-%d %H:%M:%S.%f")}'
