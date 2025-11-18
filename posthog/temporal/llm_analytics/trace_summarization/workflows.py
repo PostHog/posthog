@@ -59,6 +59,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[5] if len(inputs) > 5 else None,
             window_end=inputs[6] if len(inputs) > 6 else None,
+            model=inputs[7] if len(inputs) > 7 else None,
         )
 
     @temporalio.workflow.run
@@ -134,7 +135,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     # Generate summary
                     summary = await temporalio.workflow.execute_activity(
                         generate_summary_activity,
-                        args=[trace_data, inputs.team_id, inputs.mode],
+                        args=[trace_data, inputs.team_id, inputs.mode, inputs.model],
                         schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )

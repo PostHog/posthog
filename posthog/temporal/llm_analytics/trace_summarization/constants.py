@@ -5,6 +5,7 @@ DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (start c
 DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
 DEFAULT_MODE = "minimal"  # Summary detail level: 'minimal' or 'detailed'
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
+DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"  # Default LLM model for workflow (slower but better than UI default)
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query

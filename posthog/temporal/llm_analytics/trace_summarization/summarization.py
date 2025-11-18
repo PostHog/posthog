@@ -12,6 +12,7 @@ async def generate_summary_activity(
     trace_data: dict[str, Any],
     team_id: int,
     mode: str,
+    model: str | None = None,
 ) -> TraceSummary:
     """
     Generate text repr and summary for a single trace.
@@ -45,6 +46,7 @@ async def generate_summary_activity(
         team_id=team_id,
         trace_id=trace_id,
         mode=mode,
+        model=model,
     )
 
     return TraceSummary(

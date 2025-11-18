@@ -217,7 +217,7 @@ class TestGenerateSummaryActivity:
             mock_format.return_value = "L1: Test trace\nL2: Content"
             mock_summarize.return_value = mock_summary
 
-            result = await generate_summary_activity(sample_trace_hierarchy, mock_team.id, "minimal")
+            result = await generate_summary_activity(sample_trace_hierarchy, mock_team.id, "minimal", None)
 
             assert isinstance(result, TraceSummary)
             assert result.trace_id == sample_trace_hierarchy["trace"]["properties"]["$ai_trace_id"]

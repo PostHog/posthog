@@ -63,6 +63,7 @@ def trigger_batch_summarization(
     batch_size: int | None = None,
     mode: str = "minimal",
     window_minutes: int | None = None,
+    model: str | None = None,
     window_start: str | None = None,
     window_end: str | None = None,
     wait: bool = True,
@@ -76,6 +77,7 @@ def trigger_batch_summarization(
         batch_size: Batch size for processing (default: 10)
         mode: Summary detail level - "minimal" or "detailed" (default: "minimal")
         window_minutes: Time window to query in minutes (default: 60)
+        model: LLM model to use (default: uses SUMMARIZATION_MODEL constant)
         window_start: Start of explicit time window in RFC3339 format (optional)
         window_end: End of explicit time window in RFC3339 format (optional)
         wait: Wait for workflow to complete (default: True)
@@ -92,6 +94,7 @@ def trigger_batch_summarization(
         batch_size=batch_size if batch_size is not None else 10,
         mode=mode,
         window_minutes=window_minutes if window_minutes is not None else 60,
+        model=model,
         window_start=window_start,
         window_end=window_end,
     )
@@ -165,6 +168,7 @@ async def trigger_batch_summarization_async(
     batch_size: int | None = None,
     mode: str = "minimal",
     window_minutes: int | None = None,
+    model: str | None = None,
     window_start: str | None = None,
     window_end: str | None = None,
 ):
@@ -183,6 +187,7 @@ async def trigger_batch_summarization_async(
         batch_size=batch_size if batch_size is not None else 10,
         mode=mode,
         window_minutes=window_minutes if window_minutes is not None else 60,
+        model=model,
         window_start=window_start,
         window_end=window_end,
     )
@@ -228,7 +233,7 @@ if __name__ == "__main__":
         team_id = teams[0][0]
         print(f"trigger_batch_summarization(team_id={team_id})")
         print(f"trigger_batch_summarization(team_id={team_id}, max_traces=50)")
-        print(f"trigger_batch_summarization(team_id={team_id}, window_minutes=30)")
+        print(f"trigger_batch_summarization(team_id={team_id}, model='gpt-5-mini')")
         print(f"trigger_batch_summarization(team_id={team_id}, mode='detailed')")
         print("-" * 60)
 
