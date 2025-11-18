@@ -311,7 +311,7 @@ class TestCopyChunk:
         assert execute_calls.count("COMMIT") == 3
 
         # Verify INSERT called 3 times
-        insert_calls = [call for call in execute_calls if "INSERT INTO" in call]
+        insert_calls = [call for call in execute_calls if "DELETE FROM" in call]
         assert len(insert_calls) == 3
 
     def test_scan_delete_chunk_duplicate_key_violation_retry(self):
@@ -402,14 +402,14 @@ class TestCopyChunk:
             except Failure as e:
                 # Verify error metadata
                 assert e.description is not None
-                assert "Failed to copy batch" in e.description
+                assert "Failed to scan and delete rows in batch" in e.description
 
                 # Verify ROLLBACK was called
                 execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
                 assert "ROLLBACK" in execute_calls
 
     def test_scan_delete_chunk_query_format(self):
-        """Test that DELETEquery has correct format."""
+        """Test that DELETE query has correct format."""
         config = PersonsNoDistinctIdsCleanupConfig(
             chunk_size=1000,
             batch_size=100,
@@ -436,9 +436,7 @@ class TestCopyChunk:
         assert scan_delete_query is not None
 
         # Verify query components
-        assert "DELETE FROM posthog_person" in scan_delete_query
-        assert "SELECT p.*" in scan_delete_query
-        assert "FROM posthog_person p" in scan_delete_query
+        assert "DELETE FROM posthog_person AS p" in scan_delete_query
         assert "WHERE p.id >=" in scan_delete_query
         assert "AND p.id <=" in scan_delete_query
         assert "NOT EXISTS" in scan_delete_query
