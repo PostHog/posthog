@@ -51,7 +51,11 @@ def verify_persons_data_in_sync(
 ) -> Counter:
     # :KLUDGE: Rather than filter on created_at directly which is unindexed, we look up the latest value in 'id' column
     #   and leverage that to narrow down filtering in an index-efficient way
-    max_pk = Person.objects.filter(created_at__lte=now() - period_start).latest("id").id
+    # Note: This query scans all partitions since we need to find max across all teams
+    # Using .values() to get id only, avoiding full model instantiation
+    max_pk = Person.objects.filter(created_at__lte=now() - period_start).values("id", "team_id").latest("id")["id"]
+    # Note: This query also scans all partitions since we're selecting across teams
+    # Using .values_list() returns raw tuples, avoiding model instantiation and team_id check
     person_data = list(
         Person.objects.filter(
             pk__lte=max_pk,
@@ -89,9 +93,9 @@ def _team_integrity_statistics(person_data: list[Any]) -> Counter:
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
     pg_persons = _index_by(
         list(
-            Person.objects.filter(id__in=person_ids).prefetch_related(
-                Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-            )
+            Person.objects.filter(id__in=person_ids, team_id__in=team_ids)
+            .only("id", "uuid", "version", "properties")
+            .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         ),
         lambda p: p.uuid,
     )
