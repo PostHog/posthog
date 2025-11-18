@@ -25,7 +25,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
-        Person.objects.all().delete()
+        Person.objects.filter(team_id__isnull=False).delete()
 
         with freeze_time("2023-01-01T12:00:00Z"):
             self.session_id = str(uuid7())
