@@ -11,7 +11,7 @@ import json
 import uuid
 import logging
 from collections.abc import Callable, Generator
-from typing import Any, TypedDict, TypeGuard
+from typing import Any, TypedDict, TypeGuard, cast
 
 from django.http import StreamingHttpResponse
 
@@ -25,6 +25,7 @@ from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -205,7 +206,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 tracking_properties["trace_id"] = trace_id
 
                 report_user_action(
-                    request.user,
+                    cast(User, request.user),
                     "llma playground completion started",
                     tracking_properties,
                     getattr(request.user, "current_team", None),
@@ -220,7 +221,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             # Track playground completion failed
             if request.user and request.user.is_authenticated:
-                error_properties = {
+                error_properties: dict[str, Any] = {
                     "error_type": type(e).__name__,
                     "error_message": str(e),
                 }
@@ -240,7 +241,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     pass
 
                 report_user_action(
-                    request.user,
+                    cast(User, request.user),
                     "llma playground completion failed",
                     error_properties,
                     getattr(request.user, "current_team", None),

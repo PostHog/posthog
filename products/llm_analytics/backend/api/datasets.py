@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -13,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
@@ -144,7 +147,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
 
         # Track dataset created
         report_user_action(
-            self.request.user,
+            cast(User, self.request.user),
             "llma dataset created",
             {
                 "dataset_id": str(instance.id),
@@ -160,7 +163,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
         is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
         # Track changes before update
-        changed_fields = []
+        changed_fields: list[str] = []
         for field in ["name", "description", "metadata", "deleted"]:
             if field in serializer.validated_data:
                 old_value = getattr(serializer.instance, field)
@@ -173,7 +176,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma dataset deleted",
                 {
                     "dataset_id": str(instance.id),
@@ -183,7 +186,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
             )
         elif changed_fields:
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma dataset updated",
                 {
                     "dataset_id": str(instance.id),
@@ -252,7 +255,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
 
         # Track dataset item created
         report_user_action(
-            self.request.user,
+            cast(User, self.request.user),
             "llma dataset item created",
             {
                 "dataset_item_id": str(instance.id),
@@ -272,7 +275,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
         is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
         # Track changes before update
-        changed_fields = []
+        changed_fields: list[str] = []
         for field in ["input", "output", "metadata", "deleted"]:
             if field in serializer.validated_data:
                 old_value = getattr(serializer.instance, field)
@@ -285,7 +288,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma dataset item deleted",
                 {
                     "dataset_item_id": str(instance.id),
@@ -295,7 +298,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
             )
         elif changed_fields:
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma dataset item updated",
                 {
                     "dataset_item_id": str(instance.id),

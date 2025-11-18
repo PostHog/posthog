@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -10,6 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
@@ -120,7 +123,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
 
         # Track evaluation created
         report_user_action(
-            self.request.user,
+            cast(User, self.request.user),
             "llma evaluation created",
             {
                 "evaluation_id": str(instance.id),
@@ -140,8 +143,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
         # Check if this is a deletion (soft delete)
         is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
+        # Capture old enabled state before save (for deletion tracking)
+        old_enabled_value = serializer.instance.enabled
+
         # Track changes before update
-        changed_fields = []
+        changed_fields: list[str] = []
         enabled_changed = False
         enabled_new_value = None
         condition_count_changed = False
@@ -183,12 +189,12 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma evaluation deleted",
                 {
                     "evaluation_id": str(instance.id),
                     "evaluation_name": instance.name,
-                    "was_enabled": serializer.instance.enabled,
+                    "was_enabled": old_enabled_value,
                 },
                 self.team,
             )
@@ -208,7 +214,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
                 event_properties["prompt_changed"] = True
 
             report_user_action(
-                self.request.user,
+                cast(User, self.request.user),
                 "llma evaluation updated",
                 event_properties,
                 self.team,
