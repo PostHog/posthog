@@ -271,15 +271,14 @@ def _run(
         logger.debug("Finished running pipeline")
         del pipeline
     except Exception as e:
-        source_model = ExternalDataSource.objects.get(id=job_inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+        source_cls = SourceRegistry.get_source(job_inputs.job_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
         error_msg = str(e)
         is_non_retryable_error = any(
             non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
         )
         if is_non_retryable_error:
-            logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={str(error_msg)}")
+            logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={error_msg}")
             raise NonRetryableException() from e
         else:
             logger.debug(

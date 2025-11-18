@@ -2898,7 +2898,7 @@ async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_clie
 @pytest.mark.asyncio
 async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesnt retry")
+        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
         with pytest.raises(Exception):
             await _run(
@@ -2932,5 +2932,5 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # We should early exit on the first retry attempt with a non-retryable error
+    # We should early exit on the first attempt with a non-retryable error
     assert mock_get_rows.call_count == 1

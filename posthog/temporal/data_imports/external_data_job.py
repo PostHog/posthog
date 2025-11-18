@@ -148,8 +148,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
                 if error in internal_error_normalized
             ]
 
-            if friendly_errors and len(friendly_errors) > 0:
+            if friendly_errors:
                 logger.exception(friendly_errors[0])
+                inputs.latest_error = friendly_errors[0]
 
     job = update_external_job_status(
         job_id=job_id,
