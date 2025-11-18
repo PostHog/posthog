@@ -1,17 +1,28 @@
 """
-Manual workflow trigger script for batch trace summarization.
+Manual trigger helpers for batch trace summarization.
 
-This script allows you to manually trigger the batch trace summarization workflow
-for testing and development purposes.
+Helper functions for manually triggering the batch trace summarization workflows
+for testing, development, and debugging purposes.
+
+Note: The workflow runs automatically every hour via the coordinator. This script
+is only needed for manual/ad-hoc testing.
 
 Usage:
     # From Django shell:
     python manage.py shell
-    >>> from posthog.temporal.llm_analytics.trace_summarization.trigger_workflow import trigger_batch_summarization
-    >>> trigger_batch_summarization(team_id=1)
+    >>> from posthog.temporal.llm_analytics.trace_summarization.manual_trigger import trigger_coordinator, trigger_single_team, find_teams_with_traces
+
+    # Find teams with traces:
+    >>> find_teams_with_traces()
+
+    # Trigger coordinator (processes all teams - same as scheduled run):
+    >>> trigger_coordinator()
+
+    # Trigger for a specific team only (bypass coordinator):
+    >>> trigger_single_team(team_id=1)
 
     # Or run directly:
-    python manage.py shell < posthog/temporal/llm_analytics/trace_summarization/trigger_workflow.py
+    python manage.py shell < posthog/temporal/llm_analytics/trace_summarization/manual_trigger.py
 """
 # ruff: noqa: T201
 
@@ -23,6 +34,7 @@ from django.conf import settings
 from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.llm_analytics.trace_summarization.coordinator import BatchTraceSummarizationCoordinatorInputs
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
 
@@ -57,7 +69,99 @@ def find_teams_with_traces():
     return results
 
 
-def trigger_batch_summarization(
+def trigger_coordinator(
+    max_traces: int | None = None,
+    batch_size: int | None = None,
+    mode: str = "minimal",
+    window_minutes: int | None = None,
+    model: str | None = None,
+    lookback_hours: int | None = None,
+    wait: bool = True,
+):
+    """
+    Trigger the coordinator workflow (processes all teams with trace activity).
+
+    This is what runs automatically on the hourly schedule. Use this to test
+    the full production flow.
+
+    Args:
+        max_traces: Maximum traces to process per team (default: 500)
+        batch_size: Batch size for processing (default: 10)
+        mode: Summary detail level - "minimal" or "detailed" (default: "minimal")
+        window_minutes: Time window to query in minutes (default: 60)
+        model: LLM model to use (default: gpt-5-mini for better quality)
+        lookback_hours: How far back to look for team activity (default: 24)
+        wait: Wait for workflow to complete (default: True)
+
+    Returns:
+        dict: Workflow result if wait=True, WorkflowHandle if wait=False
+    """
+    client = sync_connect()
+
+    inputs = BatchTraceSummarizationCoordinatorInputs(
+        max_traces=max_traces if max_traces is not None else 500,
+        batch_size=batch_size if batch_size is not None else 10,
+        mode=mode,
+        window_minutes=window_minutes if window_minutes is not None else 60,
+        model=model,
+        lookback_hours=lookback_hours if lookback_hours is not None else 24,
+    )
+
+    workflow_id = f"batch-summarization-coordinator-{datetime.now(UTC).isoformat()}"
+
+    print(f"\n{'='*60}")
+    print("Triggering batch trace summarization coordinator workflow")
+    print(f"{'='*60}")
+    print(f"Workflow ID: {workflow_id}")
+    print(f"Max traces per team: {max_traces or 'default (500)'}")
+    print(f"Batch size: {batch_size or 'default (10)'}")
+    print(f"Mode: {mode}")
+    print(f"Window: {window_minutes or 60} minutes")
+    print(f"Model: {model or 'default (gpt-5-mini)'}")
+    print(f"Lookback: {lookback_hours or 24} hours")
+    print(f"{'='*60}\n")
+
+    if wait:
+        print("⏳ Executing coordinator workflow (this may take a while)...\n")
+        result = async_to_sync(client.execute_workflow)(
+            "batch-trace-summarization-coordinator",
+            inputs,
+            id=workflow_id,
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        )
+
+        print(f"\n{'='*60}")
+        print("✅ Coordinator workflow completed!")
+        print(f"{'='*60}")
+        print(f"Teams processed: {result.get('teams_processed', 0)}")
+        print(f"Teams failed: {result.get('teams_failed', 0)}")
+        print(f"Total traces queried: {result.get('total_traces', 0)}")
+        print(f"Total summaries generated: {result.get('total_summaries', 0)}")
+        print(f"{'='*60}\n")
+
+        return result
+    else:
+        print("🚀 Starting coordinator workflow (non-blocking)...\n")
+        handle = asyncio.run(
+            _start_workflow_async(
+                client,
+                inputs,
+                workflow_id,
+                "batch-trace-summarization-coordinator",
+            )
+        )
+
+        print(f"\n{'='*60}")
+        print("✅ Coordinator workflow started!")
+        print(f"{'='*60}")
+        print(f"Workflow ID: {handle.id}")
+        print(f"Check status in Temporal UI: http://localhost:8233")
+        print(f"{'='*60}\n")
+
+        return handle
+
+
+def trigger_single_team(
     team_id: int,
     max_traces: int | None = None,
     batch_size: int | None = None,
@@ -69,7 +173,10 @@ def trigger_batch_summarization(
     wait: bool = True,
 ):
     """
-    Trigger batch trace summarization workflow synchronously.
+    Trigger batch trace summarization for a single team (bypasses coordinator).
+
+    Use this for testing a specific team or debugging. For production-like
+    testing, use trigger_coordinator() instead.
 
     Args:
         team_id: Team ID to process traces for
@@ -140,6 +247,7 @@ def trigger_batch_summarization(
                 client,
                 inputs,
                 workflow_id,
+                "batch-trace-summarization",
             )
         )
 
@@ -153,10 +261,10 @@ def trigger_batch_summarization(
         return handle
 
 
-async def _start_workflow_async(client, inputs, workflow_id):
+async def _start_workflow_async(client, inputs, workflow_id, workflow_name):
     """Helper to start workflow asynchronously."""
     return await client.start_workflow(
-        "batch-trace-summarization",
+        workflow_name,
         inputs,
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -232,17 +340,23 @@ if __name__ == "__main__":
         print("\nExample usage:")
         print("-" * 60)
         team_id = teams[0][0]
-        print(f"trigger_batch_summarization(team_id={team_id})")
-        print(f"trigger_batch_summarization(team_id={team_id}, max_traces=50)")
-        print(f"trigger_batch_summarization(team_id={team_id}, model='gpt-5-mini')")
-        print(f"trigger_batch_summarization(team_id={team_id}, mode='detailed')")
+        print("# Trigger coordinator (processes all teams - same as scheduled run):")
+        print("trigger_coordinator()")
+        print("trigger_coordinator(max_traces=100)")
+        print("trigger_coordinator(mode='detailed')")
+        print()
+        print("# Trigger single team (bypass coordinator):")
+        print(f"trigger_single_team(team_id={team_id})")
+        print(f"trigger_single_team(team_id={team_id}, max_traces=50)")
+        print(f"trigger_single_team(team_id={team_id}, model='gpt-5-mini')")
         print("-" * 60)
 
         print("\nRun from Django shell:")
         print("-" * 60)
         print("python manage.py shell")
         print(
-            ">>> from posthog.temporal.llm_analytics.trace_summarization.trigger_workflow import trigger_batch_summarization"
+            ">>> from posthog.temporal.llm_analytics.trace_summarization.manual_trigger import trigger_coordinator, trigger_single_team"
         )
-        print(f">>> trigger_batch_summarization(team_id={team_id})")
+        print(">>> trigger_coordinator()  # Process all teams")
+        print(f">>> trigger_single_team(team_id={team_id})  # Process one team")
         print("-" * 60)
