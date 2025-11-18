@@ -308,9 +308,7 @@ class ErrorTrackingStackFrame(UUIDTModel):
     part = models.IntegerField(null=False, default=0)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    symbol_set = models.ForeignKey(
-        "ErrorTrackingSymbolSet", related_name="frames", on_delete=models.SET_NULL, null=True
-    )
+    symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
     resolved = models.BooleanField(null=False, blank=False)
     # The context around the frame, +/- a few lines, if we can get it

@@ -47,7 +47,7 @@ class ErrorTrackingSymbolSetListSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
     def get_frames_count(self, obj):
-        return obj.frames.count()
+        return obj.errortrackingstackframe_set.count()
 
 
 @dataclass
