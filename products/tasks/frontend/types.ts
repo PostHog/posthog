@@ -53,7 +53,7 @@ export interface Task {
 
 export type TaskUpsertProps = Optional<
     Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'>,
-    'title'
+    'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'
 >
 
 export interface KanbanColumn {

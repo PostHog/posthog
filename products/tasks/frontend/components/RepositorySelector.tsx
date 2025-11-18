@@ -22,7 +22,7 @@ export interface RepositorySelectorProps {
 
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
-    const { availableRepos, githubIntegrations } = useValues(repositorySelectorLogic)
+    const { availableRepos, githubIntegrations, integrationsLoading } = useValues(repositorySelectorLogic)
     const { setOnChangeCallback, setCurrentConfig } = useActions(repositorySelectorLogic)
 
     // Set up the callback and current config when component mounts or value changes
@@ -32,6 +32,14 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
     }, [onChange, value, setOnChangeCallback, setCurrentConfig])
 
     const selectedRepoData = availableRepos.find((r) => r.integration_id === value.integrationId)
+
+    if (integrationsLoading) {
+        return (
+            <div className="flex items-center gap-2 p-4 border rounded bg-bg-light">
+                <Spinner /> Loading GitHub integrations...
+            </div>
+        )
+    }
 
     if (githubIntegrations.length === 0) {
         return (

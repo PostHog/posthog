@@ -1,256 +1,243 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconGithub, IconPlay, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSelect, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { dayjs } from 'lib/dayjs'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
 import { taskDetailLogic } from '../taskDetailLogic'
-import { tasksLogic } from '../tasksLogic'
-import { Task } from '../types'
-import { RepositorySelector } from './RepositorySelector'
-import { TaskProgressDisplay } from './TaskProgressDisplay'
+import { TaskRun } from '../types'
+import { TaskRunLogs } from './TaskRunLogs'
+import { TaskStatusBadge } from './TaskStatusBadge'
 
-interface TaskDetailPageProps {
-    task: Task
+export interface TaskDetailPageProps {
+    taskId: string
 }
 
-export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
-    const { updateTask, runTask } = useActions(taskDetailLogic)
-    const { taskLoading } = useValues(taskDetailLogic)
-    const { assignTaskToWorkflow } = useActions(tasksLogic)
-    const { allWorkflows } = useValues(tasksLogic)
+export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
+    const logic = taskDetailLogic({ taskId })
+    const { task, taskLoading, runs, runsLoading, selectedRunId, selectedRun, logs, logsLoading } = useValues(logic)
+    const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(logic)
 
-    const [isEditingRepository, setIsEditingRepository] = useState(false)
-    const [,setRepository] = useState<string | null>(task.repository ?? null)
-    const [savingRepository, setSavingRepository] = useState(false)
-    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
-
-    const isInBacklog = task.stage === 'backlog'
-
-    const getCurrentStage = (): any => {
-        if (task.workflow && task.current_stage) {
-            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
-            return stage
-        }
-        return null
+    if (taskLoading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <Spinner />
+            </div>
+        )
     }
 
-    const currentStage = getCurrentStage()
-    const stageKey = currentStage?.key || 'backlog'
-
-    const formatDate = (dateString: string): string => {
-        return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        })
+    if (!task) {
+        return <div className="text-center py-8 text-muted">Task not found</div>
     }
 
-    const handleAssignToWorkflow = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        if (selectedWorkflowId) {
-            assignTaskToWorkflow(task.id, selectedWorkflowId)
-        }
-    }
-
-    const handleSaveRepository = async (): Promise<void> => {
-        if (!repositoryConfig.integrationId || !repositoryConfig.organization || !repositoryConfig.repository) {
-            return
-        }
-
-        setSavingRepository(true)
-        try {
-            const updateData = {
-                github_integration: repositoryConfig.integrationId,
-                repository_config: {
-                    organization: repositoryConfig.organization,
-                    repository: repositoryConfig.repository,
-                },
-            }
-
-            updateTask(task.id, updateData)
-            setIsEditingRepository(false)
-        } catch (error) {
-            console.error('Failed to update repository:', error)
-        } finally {
-            setSavingRepository(false)
-        }
-    }
-
-    const handleCancelEdit = (): void => {
-        setRepositoryConfig({
-            integrationId: task?.github_integration || undefined,
-            organization: task?.repository?.organization || undefined,
-            repository: task?.repository_config?.repository || undefined,
-        })
-        setIsEditingRepository(false)
-    }
+    const runOptions = runs.map((run) => ({
+        label: formatRunLabel(run),
+        value: run.id,
+    }))
 
     return (
-        <div className="TaskDetailPage">
-            <SceneTitleSection
-                name={task.title}
-                resourceType={{
-                    type: 'task',
-                }}
-            />
-            {/* Navigation and status */}
-            <div className="flex items-center gap-2 px-6 mb-4">
-                <Link to="/tasks">
-                    <IconArrowLeft /> Back to Tasks
-                </Link>
-                <span className="mx-2">·</span>
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium">{stageKey}</span>
-                <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        ORIGIN_PRODUCT_COLORS[task.origin_product]
-                    }`}
-                >
-                    {ORIGIN_PRODUCT_LABELS[task.origin_product]}
-                </span>
-            </div>
-            <SceneDivider />
-
-            {/* Split view container */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
-                {/* Left panel - Task details */}
-                <div className="space-y-6">
-                    {/* Description */}
-                    <div>
-                        <h3 className="text-sm font-medium text-default mb-2">Description</h3>
-                        <p className="text-sm text-muted leading-relaxed">{task.description}</p>
+        <SceneContent>
+            <ScenePanel>
+                <ScenePanelInfoSection>
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            <div className="text-xs text-muted mb-1">Task ID</div>
+                            <div className="font-mono text-sm">{task.slug}</div>
+                        </div>
+                        <div>
+                            <div className="text-xs text-muted mb-1">Repository</div>
+                            <div className="text-sm">{task.repository}</div>
+                        </div>
+                        <div>
+                            <div className="text-xs text-muted mb-1">Created by</div>
+                            <div className="text-sm">
+                                {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-xs text-muted mb-1">Created</div>
+                            <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
+                        </div>
                     </div>
+                </ScenePanelInfoSection>
 
-                    {/* Repository Configuration */}
+                <ScenePanelDivider />
+
+                <ScenePanelActionsSection>
+                    <ButtonPrimitive menuItem variant="danger" onClick={deleteTask}>
+                        <IconTrash />
+                        Delete task
+                    </ButtonPrimitive>
+                </ScenePanelActionsSection>
+            </ScenePanel>
+
+            <SceneTitleSection
+                name={task?.title}
+                description={task?.description}
+                resourceType={{ type: 'task' }}
+                isLoading={taskLoading}
+                onNameChange={(value) => updateTask({ title: value })}
+                onDescriptionChange={(value) => updateTask({ description: value })}
+                canEdit={true}
+                renameDebounceMs={500}
+                saveOnBlur={true}
+                actions={
+                    <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
+                        Run task
+                    </LemonButton>
+                }
+            />
+
+            <div className="px-4">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold mb-0">Runs</h2>
+                    {runs.length > 0 && (
+                        <LemonSelect
+                            value={selectedRunId}
+                            onChange={(value) => setSelectedRunId(value as string)}
+                            options={runOptions}
+                            placeholder="Select a run"
+                            className="min-w-64"
+                        />
+                    )}
+                </div>
+
+                {runsLoading ? (
+                    <div className="flex items-center justify-center h-32">
+                        <Spinner />
+                    </div>
+                ) : runs.length === 0 ? (
+                    <div className="text-center py-8 border rounded bg-bg-light">
+                        <p className="text-muted mb-2">No runs yet</p>
+                        <LemonButton type="primary" icon={<IconPlay />} onClick={runTask}>
+                            Run this task
+                        </LemonButton>
+                    </div>
+                ) : selectedRun ? (
                     <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-sm font-medium text-default">Repository Configuration</h3>
-                            {!isEditingRepository && (
-                                <LemonButton size="small" type="secondary" onClick={() => setIsEditingRepository(true)}>
-                                    Edit
-                                </LemonButton>
+                        <div className="flex flex-wrap gap-8 p-4 bg-bg-light rounded">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted">Status:</span>
+                                <TaskStatusBadge task={{ ...task, latest_run: selectedRun }} />
+                            </div>
+                            {selectedRun.branch && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-muted">Branch:</span>
+                                    <span className="font-medium font-mono text-sm">{selectedRun.branch}</span>
+                                </div>
+                            )}
+                            {selectedRun.stage && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-muted">Stage:</span>
+                                    <span className="font-medium">{selectedRun.stage}</span>
+                                </div>
+                            )}
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted">Started:</span>
+                                <span className="font-medium">
+                                    {dayjs(selectedRun.created_at).format('MMM D, YYYY HH:mm:ss')}
+                                </span>
+                            </div>
+                            {selectedRun.completed_at && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-muted">Completed:</span>
+                                    <span className="font-medium">
+                                        {dayjs(selectedRun.completed_at).format('MMM D, YYYY HH:mm:ss')}
+                                    </span>
+                                </div>
+                            )}
+                            {selectedRun.output?.pr_url && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-muted">Pull request:</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconGithub />}
+                                        to={selectedRun.output.pr_url}
+                                        targetBlank
+                                    >
+                                        View PR
+                                    </LemonButton>
+                                </div>
                             )}
                         </div>
 
-                        {isEditingRepository ? (
-                            <div className="space-y-4">
-                                <RepositorySelector value={repositoryConfig} onChange={setRepositoryConfig} />
-                                <div className="flex gap-2">
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={handleSaveRepository}
-                                        loading={savingRepository}
-                                        disabled={
-                                            !repositoryConfig.integrationId ||
-                                            !repositoryConfig.organization ||
-                                            !repositoryConfig.repository
-                                        }
-                                    >
-                                        Save
-                                    </LemonButton>
-                                    <LemonButton type="secondary" size="small" onClick={handleCancelEdit}>
-                                        Cancel
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="bg-bg-light p-3 rounded border">
-                                {task.repository_config?.organization && task.repository_config?.repository ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-muted">Repository:</span>
-                                        <span className="text-sm font-mono text-primary">
-                                            {task.repository_config.organization}/{task.repository_config.repository}
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <div className="text-sm text-muted italic">
-                                        No repository configured - click Edit to add one
-                                    </div>
-                                )}
+                        {selectedRun.error_message && (
+                            <div className="mt-4 p-4 bg-danger-highlight border border-danger rounded">
+                                <div className="font-semibold text-danger mb-2">Error</div>
+                                <pre className="text-sm whitespace-pre-wrap">{selectedRun.error_message}</pre>
                             </div>
                         )}
-                    </div>
 
-                    {/* Metadata */}
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <span className="font-medium text-default">Created:</span>
-                            <div className="text-muted">{formatDate(task.created_at)}</div>
-                        </div>
-                        <div>
-                            <span className="font-medium text-default">Last Updated:</span>
-                            <div className="text-muted">{formatDate(task.updated_at)}</div>
-                        </div>
-                        <div>
-                            <span className="font-medium text-default">Position:</span>
-                            <div className="text-muted">{task.position}</div>
-                        </div>
-                    </div>
+                        <LemonDivider className="my-4" />
 
-                    {/* Actions */}
-                    <div className="space-y-4">
-                        {task.workflow && (
-                            <div className="pt-4 border-t border-border">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => runTask(task.id)}
-                                    loading={taskLoading}
-                                    fullWidth
-                                >
-                                    Run Task
-                                </LemonButton>
-                            </div>
-                        )}
-                        {isInBacklog && allWorkflows.length > 0 && (
-                            <div className="pt-4 border-t border-border">
-                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                    <LemonSelect
-                                        value={selectedWorkflowId}
-                                        onChange={(value) => setSelectedWorkflowId(value)}
-                                        options={[
-                                            { value: '', label: 'Select workflow...' },
-                                            ...allWorkflows.map((workflow) => ({
-                                                value: workflow.id,
-                                                label: workflow.name,
-                                            })),
-                                        ]}
-                                        placeholder="Select workflow"
-                                        size="small"
-                                        className="min-w-32"
-                                    />
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="primary"
-                                        onClick={handleAssignToWorkflow}
-                                        disabled={!selectedWorkflowId}
-                                    >
-                                        Assign
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        )}
+                        <LemonTabs
+                            activeKey="logs"
+                            tabs={[
+                                {
+                                    key: 'logs',
+                                    label: 'Logs',
+                                    content: <TaskRunLogs logs={logs} loading={logsLoading} />,
+                                },
+                                {
+                                    key: 'output',
+                                    label: 'Output',
+                                    content: (
+                                        <div className="p-4">
+                                            {selectedRun.output ? (
+                                                <pre className="bg-bg-light p-4 rounded overflow-auto">
+                                                    {JSON.stringify(selectedRun.output, null, 2)}
+                                                </pre>
+                                            ) : (
+                                                <p className="text-muted">No output available</p>
+                                            )}
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
-                </div>
-
-                {/* Right panel - Agent output */}
-                <div className="border-l pl-6 h-full">
-                    <div className="h-full">
-                        <h3 className="text-sm font-medium text-default mb-4">Agent Output</h3>
-                        <div className="h-[calc(100vh-300px)] overflow-hidden">
-                            <TaskProgressDisplay task={task} />
-                        </div>
-                    </div>
-                </div>
+                ) : null}
             </div>
-        </div>
+        </SceneContent>
     )
+}
+
+function formatRunLabel(run: TaskRun): string {
+    const date = dayjs(run.created_at)
+    const now = dayjs()
+    const diffInMinutes = now.diff(date, 'minutes')
+
+    let timeAgo: string
+    if (diffInMinutes < 1) {
+        timeAgo = 'just now'
+    } else if (diffInMinutes < 60) {
+        timeAgo = `${diffInMinutes}m ago`
+    } else if (diffInMinutes < 1440) {
+        const hours = Math.floor(diffInMinutes / 60)
+        timeAgo = `${hours}h ago`
+    } else {
+        const days = Math.floor(diffInMinutes / 1440)
+        timeAgo = `${days}d ago`
+    }
+
+    const statusEmoji = {
+        started: '🔵',
+        in_progress: '🟡',
+        completed: '✅',
+        failed: '❌',
+    }[run.status]
+
+    return `${statusEmoji} ${date.format('MMM D, HH:mm')} (${timeAgo})`
 }

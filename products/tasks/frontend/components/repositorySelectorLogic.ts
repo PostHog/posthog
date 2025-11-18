@@ -16,7 +16,7 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
 
     connect(() => ({
         actions: [integrationsLogic, ['loadIntegrations', 'loadGitHubRepositories']],
-        values: [integrationsLogic, ['integrations', 'getGitHubRepositories']],
+        values: [integrationsLogic, ['integrations', 'getGitHubRepositories', 'integrationsLoading']],
     })),
 
     actions({
@@ -55,7 +55,6 @@ export const repositorySelectorLogic = kea<repositorySelectorLogicType>([
     }),
 
     afterMount(({ actions }) => {
-        // Load data when logic mounts
         actions.loadIntegrations()
     }),
 
