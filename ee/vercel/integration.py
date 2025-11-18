@@ -311,12 +311,9 @@ class VercelIntegration:
                 if license:
                     try:
                         billing_manager = BillingManager(license)
-                        # Calls POST /api/activate/authorize with billing_provider and integration_id
-                        # Note: No email is passed - Billing Service will create Stripe customer with email=None
-                        # integration_id is stored in Stripe metadata for linking invoices back to Vercel
-                        billing_manager.authorize(
-                            organization, billing_provider="vercel", integration_id=installation_id
-                        )
+                        # Calls POST /api/activate/authorize with billing_provider="vercel"
+                        # Billing Service will create Stripe customer with email=None (prevents Stripe emails)
+                        billing_manager.authorize(organization, billing_provider="vercel")
                         logger.info(
                             "Created Stripe customer for Vercel installation",
                             installation_id=installation_id,

@@ -441,14 +441,10 @@ class BillingManager:
 
         self.update_available_product_features(organization)
 
-    def authorize(
-        self, organization: Organization, billing_provider: str | None = None, integration_id: str | None = None
-    ):
+    def authorize(self, organization: Organization, billing_provider: str | None = None):
         data = {}
         if billing_provider:
             data["billing_provider"] = billing_provider
-        if integration_id:
-            data["integration_id"] = integration_id
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
