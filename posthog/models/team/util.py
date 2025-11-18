@@ -59,7 +59,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
 
     while True:
         # Get tuples of (id, team_id) to ensure accurate deletion
-        batch_tuples = list(queryset.values_list("id", "team_id")[:batch_size])
+        batch_tuples = list(queryset.values_list("team_id", "id")[:batch_size])
 
         if not batch_tuples:
             break
@@ -74,7 +74,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
             # Flatten tuples for parameters: [id1, team_id1, id2, team_id2, ...]
             params = [item for tuple_pair in batch_tuples for item in tuple_pair]
 
-            query = f'DELETE FROM "{table_name}" WHERE ("id", "team_id") IN ({tuple_placeholders})'
+            query = f'DELETE FROM "{table_name}" WHERE ("team_id", "id") IN ({tuple_placeholders})'
             cursor.execute(query, params)
 
         # If we got fewer records than batch_size, we're done
