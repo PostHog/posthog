@@ -24,8 +24,10 @@ class TestSessionSummariesAPI(APIBaseTest):
     environment_patches: list[Any]
 
     async def _create_async_generator(
-        self, result: EnrichedSessionGroupSummaryPatternsList
-    ) -> AsyncIterator[tuple[SessionSummaryStreamUpdate, Union[str, EnrichedSessionGroupSummaryPatternsList]]]:
+        self, result: tuple[EnrichedSessionGroupSummaryPatternsList, str]
+    ) -> AsyncIterator[
+        tuple[SessionSummaryStreamUpdate, Union[str, tuple[EnrichedSessionGroupSummaryPatternsList, str]]]
+    ]:
         """Helper to create an async generator that yields progress updates and final result."""
         # Yield progress updates in the new tuple format
         yield (
@@ -98,17 +100,13 @@ class TestSessionSummariesAPI(APIBaseTest):
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
         )
-
         mock_result = self.create_mock_result()
-        mock_execute.return_value = self._create_async_generator(mock_result)
-
+        mock_execute.return_value = self._create_async_generator((mock_result, "session-group-summary-id"))
         # Make request
         response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
-
         # Assertions
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Content-Type"], "application/json")
-
         data: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         # The response is the serialized EnrichedSessionGroupSummaryPatternsList
         self.assertIsInstance(data, dict)
@@ -127,6 +125,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
             extra_summary_context=mock_execute.call_args[1]["extra_summary_context"],
             video_validation_enabled=False,
+            summary_title="Group summary",
         )
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
