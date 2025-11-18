@@ -295,10 +295,13 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     class Meta:
         db_table = "ee_group_session_summary"
         indexes = [
+            # List all summaries per team
+            models.Index(fields=["team", "-created_at"]),
+            # Search for str-contains in title
+            GinIndex(name="idx_group_summary_title_gin", fields=["title"], opclasses=["gin_trgm_ops"]),
             # Not indexing session ids or extra summary context, as the input for group summaries is highly volatile
             # (even a single session could change the meaning of the patterns).
             # Creating Manager for rare cases of `exact 300 ids + context input match` seems excessive.
-            models.Index(fields=["team", "-created_at"]),
         ]
 
     def __str__(self):
