@@ -1,7 +1,8 @@
 from typing import Any, Optional
 
-from django.db import connections, models, router, transaction
+from django.db import connection, connections, models, router, transaction
 from django.db.models import F, Q
+from django.db.models.deletion import Collector
 
 from posthog.models.utils import UUIDT
 
@@ -75,6 +76,51 @@ class Person(models.Model):
     @property
     def email(self) -> Optional[str]:
         return self.properties.get("email")
+
+    def delete(self, using=None, keep_parents=False):
+        """
+        Override delete to ensure team_id is in WHERE clause for partitioned tables.
+
+        For partitioned tables (posthog_person_new), the default delete generates:
+        DELETE FROM posthog_person WHERE id = X, which scans all 64 partitions.
+
+        This implementation ensures single-partition access:
+        DELETE FROM posthog_person WHERE team_id = Y AND id = X
+        """
+        if self.pk is None:
+            raise ValueError(
+                f"{self._meta.object_name} object can't be deleted because its {self._meta.pk.attname} attribute is set "
+                "to None."
+            )
+
+        # Save pk and team_id before they get cleared by collector
+        person_pk = self.pk
+        person_team_id = self.team_id
+
+        using = using or router.db_for_write(self.__class__, instance=self)
+
+        with transaction.atomic(using=using):
+            # Collect all related objects that would be deleted
+            collector = Collector(using=using, origin=self)
+            collector.collect([self], keep_parents=keep_parents)
+
+            # Remove the Person instance itself from the collector
+            # so it only deletes related objects
+            person_model_key = self._meta.label
+            if person_model_key in collector.data:
+                collector.data[person_model_key].discard(self)
+
+            # Delete all related objects (PersonDistinctId, etc.)
+            collector.delete()
+
+            # Now delete the Person itself with explicit team_id for partition pruning
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"DELETE FROM {self._meta.db_table} WHERE team_id = %s AND id = %s", [person_team_id, person_pk]
+                )
+
+        # Return the same format as Django's delete: (num_deleted, {model: count})
+        return (1, {self._meta.label: 1})
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:

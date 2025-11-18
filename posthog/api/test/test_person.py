@@ -7,12 +7,14 @@ from freezegun.api import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     override_settings,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
 )
 from unittest import mock
 from unittest.mock import patch
@@ -34,7 +36,7 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 
-class TestPerson(ClickhouseTestMixin, APIBaseTest):
+class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_legacy_get_person_by_id(self) -> None:
         person = _create_person(
             team=self.team,
@@ -314,7 +316,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        response = self.client.delete(f"/api/person/{person.uuid}/")
+        with snapshot_postgres_queries_context(
+            self,
+            custom_query_matcher=lambda query: f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}"
+            in query,
+        ):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response

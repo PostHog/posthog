@@ -246,18 +246,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         return get_object_or_404(queryset)
 
-    def perform_destroy(self, instance: Person):
-        """
-        Override to use queryset delete instead of instance delete.
-
-        For partitioned tables (posthog_person_new), instance.delete() generates
-        DELETE FROM posthog_person WHERE id = X, which scans all 64 partitions.
-
-        Using a queryset delete with team_id ensures single-partition access:
-        DELETE FROM posthog_person WHERE team_id = Y AND id = X
-        """
-        Person.objects.filter(team_id=instance.team_id, pk=instance.pk).delete()
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
