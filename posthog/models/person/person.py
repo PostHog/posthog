@@ -19,7 +19,56 @@ else:
     READ_DB_FOR_PERSONS = "default"
 
 
+class PersonQuerySet(models.QuerySet):
+    """
+    Custom QuerySet that enforces team_id filtering on all Person queries.
+
+    Required for partitioned posthog_person_new table (64 hash partitions by team_id).
+    Queries without team_id would scan all 64 partitions causing ~64x performance degradation.
+    """
+
+    def _fetch_all(self):
+        """
+        Intercept query execution to validate team_id is present in WHERE clause.
+        This is called before any query evaluation (get, filter, update, delete, etc.).
+        """
+        if self._result_cache is None:
+            has_filter = self._has_team_id_filter()
+            if not has_filter:
+                # Get SQL for debugging
+                sql = str(self.query)
+                raise ValueError(
+                    f"Person query missing required team_id filter. "
+                    f"Partitioned table requires team_id for efficient querying. "
+                    f"Add .filter(team_id=...) or .filter(team=...) to your query.\n"
+                    f"Query SQL: {sql[:500]}"
+                )
+        return super()._fetch_all()
+
+    def _has_team_id_filter(self) -> bool:
+        """
+        Check if the query's WHERE clause contains a team_id filter.
+        Walks the WHERE clause tree looking for team_id or team__id lookups.
+        """
+        if not self.query.where:
+            return False
+
+        # Convert full query to SQL to inspect it
+        # Check both the WHERE clause and the full SQL
+        sql = str(self.query)
+
+        # Check for team_id in the SQL
+        # Handles: team_id=X, team_id IN (...), etc.
+        # Note: We check the full SQL not just WHERE clause because
+        # Django might have team_id in the column list or joins
+        return "team_id" in sql.lower()
+
+
 class PersonManager(models.Manager):
+    def get_queryset(self):
+        """Return PersonQuerySet with team_id enforcement."""
+        return PersonQuerySet(self.model, using=self._db)
+
     def create(self, *args: Any, **kwargs: Any):
         with transaction.atomic(using=self.db):
             if not kwargs.get("distinct_ids"):

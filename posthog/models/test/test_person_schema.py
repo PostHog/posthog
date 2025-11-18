@@ -3,6 +3,8 @@
 from django.db import connection
 from django.test import TestCase
 
+from posthog.models.person import Person
+
 
 def table_exists(table_name: str) -> bool:
     """Check if a table exists."""
@@ -29,3 +31,12 @@ class TestPersonSchemaConsistency(TestCase):
             "posthog_person_new table does not exist. "
             "Rust sqlx migrations from rust/persons_migrations/ should have created it.",
         )
+
+    def test_person_queryset_enforces_team_id(self):
+        """Verify Person queries raise ValueError when team_id filter is missing."""
+        with self.assertRaises(ValueError) as cm:
+            # This should raise because no team_id filter
+            list(Person.objects.all())
+
+        self.assertIn("team_id filter", str(cm.exception))
+        self.assertIn("Partitioned table", str(cm.exception))
