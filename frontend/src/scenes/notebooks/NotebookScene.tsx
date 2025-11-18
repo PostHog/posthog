@@ -57,8 +57,9 @@ export function NotebookScene(): JSX.Element {
             if (contentParam) {
                 try {
                     const decoded = decodeURIComponent(contentParam)
-                    const parsed = JSON.parse(decoded)
-                    content = parsed['body'] as JSONContent[]
+                    const parsedNotebook = JSON.parse(decoded)
+                    content = parsedNotebook['body'] as JSONContent[]
+                    title = parsedNotebook['title'] as string
                     title = parsed['title'] as string
                 } catch (error) {
                     console.error('Failed to parse content query parameter:', error)
