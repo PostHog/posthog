@@ -4504,7 +4504,8 @@ class MaxExperimentSummaryContext(BaseModel):
     experiment_id: Union[float, str]
     experiment_name: str
     exposures: Optional[dict[str, float]] = None
-    metrics_results: list[MaxExperimentMetricResult]
+    primary_metrics_results: list[MaxExperimentMetricResult]
+    secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
 
