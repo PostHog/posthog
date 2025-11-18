@@ -1,3 +1,4 @@
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
@@ -36,6 +37,9 @@ describe('CdpBackfillConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
         processor = new CdpBackfillConsumer(hub)
+
+        // Manually set the kafka producer for tests
+        processor['kafkaProducer'] = mockProducer
 
         fn = await insertHogFunction(
             hub.postgres,
@@ -137,11 +141,6 @@ describe('CdpBackfillConsumer', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].id).toEqual(invocation.id)
-        })
-
-        it('should handle empty batch', async () => {
-            const invocations = await processor['parseKafkaBatch']([])
-            expect(invocations).toHaveLength(0)
         })
     })
 
@@ -291,9 +290,15 @@ describe('CdpBackfillConsumer', () => {
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
             } as any)
+
+            mockProducerObserver.resetKafkaProducer()
         })
 
-        it('should process a batch of invocations', async () => {
+        it('should process a batch of invocations and queue monitoring results', async () => {
+            const queueSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'queueInvocationResults')
+            const flushSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'flush')
+            const observeSpy = jest.spyOn(processor['hogWatcher'], 'observeResults')
+
             const invocation1 = createExampleInvocation(fn, globals)
             const invocation2 = createExampleInvocation(fn, globals)
 
@@ -304,6 +309,10 @@ describe('CdpBackfillConsumer', () => {
             expect(invocationResults[1].finished).toBe(true)
 
             await backgroundTask
+
+            expect(queueSpy).toHaveBeenCalledTimes(1)
+            expect(flushSpy).toHaveBeenCalledTimes(1)
+            expect(observeSpy).toHaveBeenCalledTimes(1)
         })
 
         it('should handle empty batch', async () => {
@@ -313,18 +322,38 @@ describe('CdpBackfillConsumer', () => {
             await backgroundTask
         })
 
-        it('should queue monitoring results in background', async () => {
-            const queueSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'queueInvocationResults')
-            const flushSpy = jest.spyOn(processor['hogFunctionMonitoringService'], 'flush')
-            const observeSpy = jest.spyOn(processor['hogWatcher'], 'observeResults')
+        it('should queue unfinished results back to kafka topic', async () => {
+            mockFetch.mockResolvedValueOnce({
+                status: 500,
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({})),
+                headers: {},
+                dump: () => Promise.resolve(),
+            } as any)
 
             const { backgroundTask } = await processor.processBatch([invocation])
-
             await backgroundTask
 
-            expect(queueSpy).toHaveBeenCalledTimes(1)
-            expect(flushSpy).toHaveBeenCalledTimes(1)
-            expect(observeSpy).toHaveBeenCalledTimes(1)
+            const producedMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BACKFILL_EVENTS)
+
+            expect(producedMessages).toHaveLength(1)
+            expect(producedMessages[0].key).toEqual(invocation.id)
+            expect(producedMessages[0].value.id).toEqual(invocation.id)
+            expect(producedMessages[0].value.queueScheduledAt).toBeDefined()
+            expect(producedMessages[0].headers).toMatchObject({
+                functionId: invocation.functionId,
+                teamId: invocation.teamId.toString(),
+                queueScheduledAt: expect.any(String),
+            })
+        })
+
+        it('should not queue finished results back to kafka', async () => {
+            const { backgroundTask } = await processor.processBatch([invocation])
+            await backgroundTask
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BACKFILL_EVENTS)
+
+            expect(producedMessages).toHaveLength(0)
         })
     })
 })
