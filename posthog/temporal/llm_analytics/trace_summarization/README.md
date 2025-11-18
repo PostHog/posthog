@@ -22,8 +22,15 @@ The summaries will then be used as input for:
 
 ```mermaid
 graph TB
-    subgraph "Hourly Batch Job (Per Team)"
-        A[Query Traces from Window] --> B[Fetch Trace Hierarchies]
+    subgraph "Hourly Coordinator (Scheduled)"
+        SCHED[Temporal Schedule] --> COORD[Coordinator Workflow]
+        COORD --> QUERY[Query Teams with Traces]
+        QUERY --> SPAWN[Spawn Child Workflows]
+    end
+
+    subgraph "Per-Team Batch Job"
+        SPAWN --> A[Query Traces from Window]
+        A --> B[Fetch Trace Hierarchies]
         B --> C[Generate Text Repr]
         C --> D[Generate LLM Summary]
         D --> E[Emit $ai_trace_summary Events]
@@ -39,6 +46,10 @@ graph TB
         H --> I[Clustering UI]
     end
 
+    style SCHED fill:#fff9c4
+    style COORD fill:#fff9c4
+    style QUERY fill:#fff9c4
+    style SPAWN fill:#fff9c4
     style A fill:#e1f5ff
     style E fill:#e8f5e9
     style F fill:#f3e5f5
@@ -49,7 +60,27 @@ graph TB
 
 ## Workflow Details
 
-### Temporal Workflow
+### Coordinator Workflow (Automatic)
+
+**Name**: `batch-trace-summarization-coordinator`
+
+**Inputs** (`BatchTraceSummarizationCoordinatorInputs`):
+
+- `max_traces` (optional): Maximum traces to process per team (default: 500)
+- `batch_size` (optional): Batch size for processing (default: 10)
+- `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `minimal`)
+- `window_minutes` (optional): Time window to query in minutes (default: 60)
+- `model` (optional): LLM model to use (default: gpt-5-mini)
+- `lookback_hours` (optional): How far back to look for team activity (default: 24)
+
+**Flow**:
+
+1. Queries for teams with LLM trace events in the last 24 hours
+2. Spawns child `batch-trace-summarization` workflow for each team
+3. Aggregates results across all teams
+4. Teams without traces are skipped efficiently
+
+### Per-Team Workflow
 
 **Name**: `batch-trace-summarization`
 
@@ -158,9 +189,29 @@ print(f"Summarized {result['summaries_generated']} traces")
 
 See `trigger_workflow.py` for more examples and helper functions.
 
-### Scheduled Execution (Recommended)
+### Scheduled Execution (Automatic)
 
-Set up a Temporal Schedule to run hourly per team:
+**The batch trace summarization runs automatically via a coordinator workflow that is scheduled hourly.**
+
+The coordinator workflow (`batch-trace-summarization-coordinator`):
+
+- Runs every hour via Temporal schedules (configured in `schedule.py`)
+- Automatically discovers teams with LLM trace activity in the last 24 hours
+- Spawns a child workflow for each team to process their traces
+- Teams without traces are skipped (no wasted compute)
+
+**No manual setup is required** - the schedule is created automatically when Temporal starts.
+
+You can verify the schedule is running:
+
+```bash
+# Check Temporal UI at http://localhost:8233
+# Look for schedule: "batch-trace-summarization-schedule"
+```
+
+**Manual schedule for specific team (advanced):**
+
+If you need to create a separate schedule for a specific team:
 
 ```python
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleIntervalSpec
@@ -313,10 +364,12 @@ Test coverage:
 
 The implementation is split into focused, single-responsibility modules:
 
-**Core workflow:**
+**Core workflows:**
 
-- `workflow.py` - Workflow orchestration (~180 lines)
-- `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`
+- `workflow.py` - Per-team workflow orchestration (~180 lines)
+- `coordinator.py` - Coordinator workflow for multi-team processing (~150 lines)
+- `schedule.py` - Temporal schedule configuration for hourly runs (~40 lines)
+- `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`, `BatchTraceSummarizationCoordinatorInputs`
 - `constants.py` - Configuration constants (timeouts, defaults, property names)
 
 **Activity modules:**
@@ -325,6 +378,10 @@ The implementation is split into focused, single-responsibility modules:
 - `fetching.py` - Trace hierarchy fetching using `TraceQueryRunner` (~80 lines)
 - `summarization.py` - Text repr generation and LLM summarization (~60 lines)
 - `events.py` - Event emission to ClickHouse (~80 lines)
+
+**Coordinator activities:**
+
+- `coordinator.py:get_teams_with_recent_traces_activity` - Query teams with LLM activity
 
 **Dependencies (reused code):**
 
