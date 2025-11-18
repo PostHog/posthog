@@ -60,7 +60,7 @@ export function SurveyOpportunityButton({
             })
 
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.FEATURE_FLAGS)
+                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL)
             }
 
             router.actions.push(urls.survey(toolOutput.survey_id))
@@ -76,7 +76,7 @@ export function SurveyOpportunityButton({
     }
 
     return (
-        <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick} targetBlank>
+        <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick}>
             Ask users why
         </LemonButton>
     )
