@@ -28,11 +28,11 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic(logicProps))
     // Scrolling to a bit before the moment to better notice it
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    const timeToSeekTo = (ms: number): number => Math.max(ms - 4000, 0)
     // Seek to target event timestamp when modal opens and player is loaded
     useEffect(() => {
         if (isOpen && event?.target_event && sessionPlayerData) {
-            seekToTime(timeToSeeekTo(event.target_event.milliseconds_since_start))
+            seekToTime(timeToSeekTo(event.target_event.milliseconds_since_start))
         }
     }, [isOpen, event, sessionPlayerData, seekToTime])
     // Handle conditional rendering after all hooks
