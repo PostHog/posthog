@@ -14,10 +14,16 @@ import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironme
 
 export function DefaultEvaluationEnvironments(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tags, isEnabled, canAddMoreTags, newTagInput, defaultEvaluationEnvironmentsLoading, isAdding } = useValues(
-        defaultEvaluationEnvironmentsLogic
-    )
-    const { addTag, removeTag, toggleEnabled, setNewTagInput, setIsAdding } = useActions(
+    const {
+        tags,
+        isEnabled,
+        isRequiredEnabled,
+        canAddMoreTags,
+        newTagInput,
+        defaultEvaluationEnvironmentsLoading,
+        isAdding,
+    } = useValues(defaultEvaluationEnvironmentsLogic)
+    const { addTag, removeTag, toggleEnabled, toggleRequiredEnabled, setNewTagInput, setIsAdding } = useActions(
         defaultEvaluationEnvironmentsLogic
     )
 
@@ -66,6 +72,15 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                     label="Apply default evaluation environments to new flags"
                     bordered
                     checked={isEnabled}
+                    disabled={defaultEvaluationEnvironmentsLoading}
+                />
+
+                <LemonSwitch
+                    data-attr="require-evaluation-environment-tags-switch"
+                    onChange={toggleRequiredEnabled}
+                    label="Require evaluation environment tags for new flags"
+                    bordered
+                    checked={isRequiredEnabled}
                     disabled={defaultEvaluationEnvironmentsLoading}
                 />
             </div>

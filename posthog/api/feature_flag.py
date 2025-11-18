@@ -431,6 +431,31 @@ class FeatureFlagSerializer(
         else:
             return None
 
+    def validate(self, attrs):
+        """Validate feature flag creation/update including evaluation tag requirements."""
+        attrs = super().validate(attrs)
+
+        # Only validate evaluation tag requirement on new flag creation (POST)
+        if self.context.get("request") and self.context["request"].method == "POST":
+            # Get the team to check if evaluation tags are required
+            team = self.context.get("team")
+            if team and team.require_evaluation_environment_tags:
+                # Check if evaluation tags feature is enabled
+                if self._is_evaluation_tags_feature_enabled():
+                    # Get evaluation_tags from the request
+                    evaluation_tags = (
+                        self.initial_data.get("evaluation_tags") if hasattr(self, "initial_data") else None
+                    )
+
+                    # Require at least one evaluation tag
+                    if not evaluation_tags or len(evaluation_tags) == 0:
+                        raise serializers.ValidationError(
+                            "At least one evaluation environment tag is required to create a new feature flag. "
+                            "This is a team-level setting that can be changed in feature flag settings."
+                        )
+
+        return attrs
+
     def validate_key(self, value):
         exclude_kwargs = {}
         if self.instance:
