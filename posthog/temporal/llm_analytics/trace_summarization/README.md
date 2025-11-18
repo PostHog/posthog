@@ -109,15 +109,41 @@ Each trace gets a `$ai_trace_summary` event with properties:
 
 ### Manual Trigger (Development/Testing)
 
+**Quick start using the helper script:**
+
+```bash
+# Start Django shell
+python manage.py shell
+
+# Import and run the trigger function
+>>> from posthog.temporal.llm_analytics.trace_summarization.trigger_workflow import trigger_batch_summarization, find_teams_with_traces
+
+# Find teams with trace data
+>>> find_teams_with_traces()
+
+# Trigger workflow for a team
+>>> trigger_batch_summarization(team_id=1)
+
+# Or with custom parameters
+>>> trigger_batch_summarization(
+...     team_id=1,
+...     sample_size=500,
+...     batch_size=50,
+...     mode="detailed"
+... )
+```
+
+**Or use the Temporal client directly:**
+
 ```python
 from temporalio.client import Client
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 # Connect to Temporal
 client = sync_connect()
 
 # Trigger for a specific team
-result = await client.execute_workflow(
+result = client.execute_workflow(
     "batch-trace-summarization",
     ["123"],  # team_id
     id=f"batch-summarization-team-123-{datetime.now().isoformat()}",
@@ -126,6 +152,8 @@ result = await client.execute_workflow(
 
 print(f"Summarized {result['summaries_generated']} traces")
 ```
+
+See `trigger_workflow.py` for more examples and helper functions.
 
 ### Scheduled Daily Job
 
