@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -36,6 +37,7 @@ def zero_trust_scores():
     return {k: 0 for k in TRUST_SCORE_KEYS.values()}
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestQuotaLimiting(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
