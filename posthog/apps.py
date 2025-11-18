@@ -82,6 +82,11 @@ class PostHogConfig(AppConfig):
         if not settings.TEST:
             queue_sync_hog_function_templates()
 
+        # Install partition enforcement for partitioned tables
+        from posthog.settings.partition_enforcement import install_partition_enforcement
+
+        install_partition_enforcement()
+
     def _setup_lazy_admin(self):
         """Set up lazy loading of admin classes to avoid importing all at startup."""
         import sys
