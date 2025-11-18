@@ -123,6 +123,84 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         """
         return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}"
 
+    def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
+        """Extract entity ID and validated entity data based on summarize type.
+
+        Args:
+            summarize_type: 'trace' or 'event'
+            data: Request data containing trace/event information
+
+        Returns:
+            Tuple of (entity_id, entity_data) where entity_data is trace or event dict
+
+        Raises:
+            ValidationError: If required fields are missing or invalid
+        """
+        if summarize_type == "trace":
+            if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
+                raise exceptions.ValidationError("Trace summarization requires 'trace' and 'hierarchy' fields")
+            trace = data["trace"]
+            entity_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
+            if not entity_id:
+                raise exceptions.ValidationError("Trace must have either '$ai_trace_id' or 'id'")
+            return entity_id, {"trace": trace, "hierarchy": data["hierarchy"]}
+        elif summarize_type == "event":
+            if not data.get("event"):
+                raise exceptions.ValidationError("Event summarization requires 'event' field")
+            event = data["event"]
+            entity_id = event.get("id")
+            if not entity_id:
+                raise exceptions.ValidationError("Event must have an 'id' field")
+            return entity_id, {"event": event}
+        else:
+            raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
+
+    def _generate_text_repr(self, summarize_type: str, entity_data: dict) -> str:
+        """Generate line-numbered text representation for summarization.
+
+        Args:
+            summarize_type: 'trace' or 'event'
+            entity_data: Dict containing trace/event data
+
+        Returns:
+            Line-numbered text representation
+        """
+        options = {
+            "include_line_numbers": True,
+            "truncated": False,
+            "include_markers": False,
+            "collapsed": False,
+        }
+
+        if summarize_type == "trace":
+            return format_trace_text_repr(
+                trace=entity_data["trace"],
+                hierarchy=entity_data["hierarchy"],
+                options=options,  # type: ignore[arg-type]
+            )
+        else:  # event
+            return format_event_text_repr(event=entity_data["event"], options=options)  # type: ignore[arg-type]
+
+    def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
+        """Build the API response dict from summary and text representation.
+
+        Args:
+            summary: Pydantic summary model from LLM
+            text_repr: Line-numbered text representation
+            summarize_type: 'trace' or 'event'
+
+        Returns:
+            Response dict with summary, text_repr, and metadata
+        """
+        return {
+            "summary": summary.model_dump(),
+            "text_repr": text_repr,
+            "metadata": {
+                "text_repr_length": len(text_repr),
+                "summarize_type": summarize_type,
+            },
+        }
+
     @extend_schema(
         request=SummarizeRequestSerializer,
         responses={
@@ -225,10 +303,8 @@ The response includes the summary text and optional metadata.
 
         POST /api/projects/:id/llm_analytics/summarize/
         """
-        # Validate feature access
         self._validate_feature_access(request)
 
-        # Validate request
         serializer = SummarizeRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -239,27 +315,8 @@ The response includes the summary text and optional metadata.
             data = serializer.validated_data["data"]
             force_refresh = serializer.validated_data["force_refresh"]
 
-            # Extract entity_id for cache key generation
-            if summarize_type == "trace":
-                if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
-                    raise exceptions.ValidationError("Trace summarization requires 'trace' and 'hierarchy' fields")
-                trace = data["trace"]
-                # For traces, use the trace ID
-                entity_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
-                if not entity_id:
-                    raise exceptions.ValidationError("Trace must have either '$ai_trace_id' or 'id'")
-            elif summarize_type == "event":
-                if not data.get("event"):
-                    raise exceptions.ValidationError("Event summarization requires 'event' field")
-                event = data["event"]
-                # For events, use the event's unique ID (NOT $ai_trace_id to avoid cache collisions)
-                entity_id = event.get("id")
-                if not entity_id:
-                    raise exceptions.ValidationError("Event must have an 'id' field")
-            else:
-                raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
+            entity_id, entity_data = self._extract_entity_id(summarize_type, data)
 
-            # Check cache unless force_refresh is requested
             cache_key = self._get_cache_key(summarize_type, entity_id, mode)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
@@ -273,40 +330,17 @@ The response includes the summary text and optional metadata.
                     )
                     return Response(cached_result, status=status.HTTP_200_OK)
 
-            # Cache miss or force_refresh - generate summary
-            # Generate line-numbered text representation
-            options = {
-                "include_line_numbers": True,
-                "truncated": False,  # Full content for LLM
-                "include_markers": False,  # Plain text for LLM
-                "collapsed": False,  # Full hierarchy
-            }
+            text_repr = self._generate_text_repr(summarize_type, entity_data)
 
-            if summarize_type == "trace":
-                hierarchy = data["hierarchy"]
-                text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)  # type: ignore[arg-type]
-            else:  # event
-                text_repr = format_event_text_repr(event=event, options=options)  # type: ignore[arg-type]
-
-            # Call summarization
             summary = async_to_sync(summarize)(
                 text_repr=text_repr,
                 team_id=self.team_id,
-                trace_id=entity_id,  # Pass entity_id as trace_id for now (interface compatibility)
+                trace_id=entity_id,
                 mode=mode,
             )
 
-            # Build response - convert Pydantic model to dict
-            result = {
-                "summary": summary.model_dump(),  # Convert Pydantic model to dict
-                "text_repr": text_repr,  # Include line-numbered text for navigation
-                "metadata": {
-                    "text_repr_length": len(text_repr),
-                    "summarize_type": summarize_type,
-                },
-            }
+            result = self._build_summary_response(summary, text_repr, summarize_type)
 
-            # Cache the result for 1 hour (3600 seconds)
             cache.set(cache_key, result, timeout=3600)
             logger.info(
                 "Generated and cached new summary",
@@ -320,10 +354,8 @@ The response includes the summary text and optional metadata.
             return Response(result, status=status.HTTP_200_OK)
 
         except exceptions.ValidationError:
-            # Re-raise validation errors
             raise
         except Exception as e:
-            # Log and return error
             logger.exception(
                 "Failed to generate summary",
                 summarize_type=serializer.validated_data.get("summarize_type"),
