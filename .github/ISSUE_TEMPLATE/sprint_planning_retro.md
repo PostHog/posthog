@@ -41,7 +41,7 @@ For your team sprint planning copy this template into a comment below for each t
 
 -
 
-### Are any other teams impacted by this plan? If so, tag them here.
+### Are any other teams impacted by this plan? If so, tag them here
 
 -
 ```
