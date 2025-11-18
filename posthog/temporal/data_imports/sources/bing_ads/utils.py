@@ -82,7 +82,7 @@ def fetch_data_in_yearly_chunks(
         current_start = chunk_end + dt.timedelta(days=1)
 
     if errors:
-        logger.exception(
+        logger.error(
             "Some data chunks failed to fetch",
             failed_chunks=len(errors),
             total_errors=errors,
