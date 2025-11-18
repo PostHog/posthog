@@ -1,4 +1,5 @@
 import os
+import inspect
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -21,6 +22,8 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         self._setup_lazy_admin()
+        self._setup_commented_query()
+
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
@@ -120,3 +123,35 @@ class PostHogConfig(AppConfig):
         # Don't use lazy loading in tests and migrations
         if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
             admin.site._registry = LazyAdminRegistry()
+
+    def _setup_commented_query(self):
+        """Monkey-patch Django's SQLCompiler to add query comments."""
+        from django.db.models.sql.compiler import SQLCompiler
+
+        def _get_caller_location(self):
+            stack = inspect.stack()
+            for frame_info in stack[2:]:
+                frame = frame_info.frame
+                filename = frame.f_code.co_filename
+                lineno = frame.f_lineno
+
+                if "django" not in filename.lower() and "site-packages" not in filename:
+                    if "posthog" in filename:
+                        rel_path = filename.split("posthog/", 1)[-1] if "posthog/" in filename else filename
+                        return f"{rel_path}:{lineno}"
+                    else:
+                        return f"{filename}:{lineno}"
+            return None
+
+        original = SQLCompiler.as_sql
+
+        def as_sql_with_comment(self, *args, **kwargs):
+            sql, params = original(self, *args, **kwargs)
+
+            location = _get_caller_location(self)
+            if location is not None:
+                sql = sql + f" /* {location} */"
+
+            return sql, params
+
+        SQLCompiler.as_sql = as_sql_with_comment
