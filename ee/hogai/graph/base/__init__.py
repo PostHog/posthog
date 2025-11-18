@@ -1,9 +1,9 @@
 from .graph import BaseAssistantGraph, global_checkpointer
-from .node import AssistantNode, BaseAssistantExecutable, BaseAssistantNode
+from .node import AssistantNode, BaseAgentExecutable, BaseAssistantNode
 
 __all__ = [
     "BaseAssistantNode",
-    "BaseAssistantExecutable",
+    "BaseAgentExecutable",
     "AssistantNode",
     "BaseAssistantGraph",
     "global_checkpointer",

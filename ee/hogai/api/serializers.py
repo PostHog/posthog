@@ -7,9 +7,9 @@ from rest_framework import serializers
 
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.chat_agent.graph import AssistantGraph
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.types import DeepResearchState
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState

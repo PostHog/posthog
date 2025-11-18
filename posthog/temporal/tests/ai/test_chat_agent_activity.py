@@ -11,7 +11,7 @@ from posthog.temporal.ai.chat_agent import (
     process_conversation_activity,
 )
 
-from ee.hogai.agent.redis_stream import CONVERSATION_STREAM_PREFIX
+from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 
@@ -103,7 +103,7 @@ class TestProcessChatAgentActivity:
             patch(
                 "posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream
             ) as mock_redis_stream_class,
-            patch("posthog.temporal.ai.chat_agent.Assistant.create", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
         ):
             # Execute the activity
             await process_conversation_activity(conversation_inputs)
@@ -149,7 +149,7 @@ class TestProcessChatAgentActivity:
                 new=AsyncMock(return_value=mock_conversation),
             ),
             patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
-            patch("posthog.temporal.ai.chat_agent.Assistant.create", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
         ):
             # Should raise the streaming error
             with pytest.raises(Exception, match="Streaming error"):
@@ -184,7 +184,7 @@ class TestProcessChatAgentActivity:
             ),
             patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
             patch(
-                "posthog.temporal.ai.chat_agent.Assistant.create", return_value=mock_assistant
+                "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
             ) as mock_assistant_create,
         ):
             # Execute the activity
@@ -214,7 +214,7 @@ class TestProcessChatAgentActivity:
                 new=AsyncMock(return_value=mock_conversation),
             ),
             patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
-            patch("posthog.temporal.ai.chat_agent.Assistant.create", return_value=mock_assistant),
+            patch("posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant),
             patch("posthog.temporal.ai.chat_agent.activity", mock_activity),
         ):
             # Track callback invocations
