@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from django.core.exceptions import EmptyResultSet
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
 
@@ -54,7 +55,12 @@ class PersonQuerySet(models.QuerySet):
 
         # Convert full query to SQL to inspect it
         # Check both the WHERE clause and the full SQL
-        sql = str(self.query)
+        try:
+            sql = str(self.query)
+        except EmptyResultSet:
+            # Query will return no results (WHERE clause always false like WHERE 0=1)
+            # This is safe - won't scan partitions. Allow it through.
+            return True
 
         # Check for team_id in the SQL
         # Handles: team_id=X, team_id IN (...), etc.
