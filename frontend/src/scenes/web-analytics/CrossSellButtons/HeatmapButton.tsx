@@ -62,7 +62,7 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
 
     return (
         <LemonButton
-            to={urls.heatmaps(`pageURL=${url}`)}
+            to={urls.heatmapNew(`pageURL=${url}&dataURL=${url}`)}
             icon={<IconHeatmap />}
             type="tertiary"
             size="xsmall"

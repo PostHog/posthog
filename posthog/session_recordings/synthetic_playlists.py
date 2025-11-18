@@ -257,7 +257,7 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
     def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         fetch_limit = ((offset or 0) + (limit or 50)) * 2
         query = RecordingsQuery(limit=fetch_limit, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _ = list_recordings_from_query(query, user, team)
+        recordings, _, _, _ = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         ten_days_from_now = now + timedelta(days=10)
@@ -267,7 +267,7 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
 
     def count_session_ids(self, team: Team, user: User) -> int:
         query = RecordingsQuery(limit=10000, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _ = list_recordings_from_query(query, user, team)
+        recordings, _, _, _ = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         ten_days_from_now = now + timedelta(days=10)

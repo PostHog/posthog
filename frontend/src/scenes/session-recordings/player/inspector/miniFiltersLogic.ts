@@ -1,6 +1,6 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { objectsEqual } from 'lib/utils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -212,7 +212,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     enabled: selectedMiniFilters.includes(x.key),
                 }))
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         miniFiltersByKey: [
@@ -223,7 +223,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     return acc
                 }, {})
             },
-            { resultEqualityCheck: objectsEqual },
+            { resultEqualityCheck: equal },
         ],
 
         miniFiltersForTypeByKey: [

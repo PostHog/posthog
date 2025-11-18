@@ -1,21 +1,22 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
-    validateEnvironmentVariables,
+    type CreatedResources,
+    TEST_ORG_ID,
+    TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
-    setActiveProjectAndOrg,
-    cleanupResources,
-    parseToolResponse,
     generateUniqueKey,
-    TEST_PROJECT_ID,
-    TEST_ORG_ID,
-    type CreatedResources,
+    parseToolResponse,
+    setActiveProjectAndOrg,
+    validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import createDashboardTool from '@/tools/dashboards/create'
-import updateDashboardTool from '@/tools/dashboards/update'
 import deleteDashboardTool from '@/tools/dashboards/delete'
-import getAllDashboardsTool from '@/tools/dashboards/getAll'
 import getDashboardTool from '@/tools/dashboards/get'
+import getAllDashboardsTool from '@/tools/dashboards/getAll'
+import updateDashboardTool from '@/tools/dashboards/update'
 import type { Context } from '@/tools/types'
 
 describe('Dashboards', { concurrent: false }, () => {
@@ -53,7 +54,7 @@ describe('Dashboards', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
             const dashboardData = parseToolResponse(result)
 
-            expect(dashboardData.id).toBeDefined()
+            expect(dashboardData.id).toBeTruthy()
             expect(dashboardData.name).toBe(params.data.name)
             expect(dashboardData.url).toContain('/dashboard/')
 
@@ -73,7 +74,7 @@ describe('Dashboards', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
             const dashboardData = parseToolResponse(result)
 
-            expect(dashboardData.id).toBeDefined()
+            expect(dashboardData.id).toBeTruthy()
             expect(dashboardData.name).toBe(params.data.name)
 
             createdResources.dashboards.push(dashboardData.id)

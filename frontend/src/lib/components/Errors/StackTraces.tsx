@@ -6,7 +6,7 @@ import { MouseEvent, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { PropertiesTable } from '@posthog/products-error-tracking/frontend/components/PropertiesTable'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
@@ -16,6 +16,7 @@ import { CodeLine, Language, getLanguage } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
 import { GitProviderFileLink } from './GitProviderFileLink'
+import { StackTraceWarningBanner } from './StackTraceWarningBanner'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { framesCodeSourceLogic } from './framesCodeSourceLogic'
 import { stackFrameLogic } from './stackFrameLogic'
@@ -80,27 +81,9 @@ export function ChainedStackTraces({
         }
     }
 
-    const isScriptError =
-        exceptionAttributes &&
-        exceptionAttributes.type === 'Error' &&
-        exceptionAttributes.runtime === 'web' &&
-        exceptionAttributes.value === 'Script error'
-
     return (
         <div className="flex flex-col gap-y-2">
-            {isScriptError && (
-                <LemonBanner type="warning">
-                    This error occurs when JavaScript exceptions are thrown from a third-party script but details are
-                    hidden due to cross-origin restrictions.{' '}
-                    <Link
-                        to="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
-                        target="_blank"
-                    >
-                        Read our docs
-                    </Link>{' '}
-                    to learn how to get the full exception context.
-                </LemonBanner>
-            )}
+            {exceptionAttributes && <StackTraceWarningBanner exceptionAttributes={exceptionAttributes} />}
 
             {exceptionList.map((exception, index) => {
                 const { stacktrace, id } = exception

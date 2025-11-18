@@ -86,12 +86,6 @@ core:
     dev:up:
         description: Start full PostHog dev stack via mprocs
         hidden: true
-    dev:setup:
-        cmd: python manage.py setup_dev
-        description: Initialize local development environment (one-time setup)
-        services:
-            - postgresql
-            - clickhouse
     dev:demo-data:
         cmd: python manage.py generate_demo_data
         description: Generate demo data for local testing
@@ -100,14 +94,14 @@ core:
             - clickhouse
     dev:reset:
         steps:
-            - docker:services:down
+            - docker:services:remove
             - docker:services:up
             - check:postgres
             - check:clickhouse
             - migrations:run
             - dev:demo-data
             - migrations:sync-flags
-        description: Full reset - stop services, migrate, load demo data, sync flags
+        description: Full reset - wipe volumes, migrate, load demo data, sync flags
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -272,6 +266,11 @@ docker:
         description: Stop Docker infrastructure services
         services:
             - docker
+    docker:services:remove:
+        cmd: docker compose -f docker-compose.dev.yml down -v
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
+        services:
+            - docker
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -302,7 +301,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run gunicorn application server with Prometheus metrics support
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -432,6 +431,10 @@ tools:
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     sync:storage:
         bin_script: sync-storage
