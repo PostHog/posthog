@@ -2,8 +2,6 @@ import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
-from django.dispatch import receiver
-
 import structlog
 import temporalio
 from rest_framework import filters, serializers, status, viewsets
@@ -17,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
@@ -373,7 +371,7 @@ class ExternalDataSchemaContext(ActivityContextBase):
     source_type: str
 
 
-@receiver(model_activity_signal, sender=ExternalDataSchema)
+@mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
 def handle_external_data_schema_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

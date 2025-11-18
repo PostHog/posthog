@@ -350,8 +350,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return isMerged
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
-        return await this.primaryRepo.personPropertiesSize(personId)
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        return await this.primaryRepo.personPropertiesSize(personId, teamId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

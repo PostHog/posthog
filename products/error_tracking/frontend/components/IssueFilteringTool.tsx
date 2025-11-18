@@ -7,7 +7,7 @@ import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-g
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
-import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './IssueFilters/FilterGroup'
+import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
@@ -68,8 +68,8 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(
         taxonomicFilterLogic({
-            taxonomicFilterLogicKey: taxonomicFilterLogicKey,
-            taxonomicGroupTypes: taxonomicGroupTypes,
+            taxonomicFilterLogicKey: TAXONOMIC_FILTER_LOGIC_KEY,
+            taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
         })
     )
 

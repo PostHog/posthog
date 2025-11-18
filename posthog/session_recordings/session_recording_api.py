@@ -41,6 +41,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ra
 from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
+    NodeKind,
     PropertyFilterType,
     PropertyOperator,
     QueryTiming,
@@ -1585,6 +1586,7 @@ def list_recordings_from_query(
       In the context of an API call we'll always have user, but from Celery we might be processing arbitrary filters for a team and there won't be a user
     """
     all_session_ids = query.session_ids
+    session_recording_id_to_prepend = query.session_recording_id
 
     recordings: list[SessionRecording] = []
     more_recordings_available = False
@@ -1592,6 +1594,46 @@ def list_recordings_from_query(
     next_cursor: str | None = None
 
     timer = ServerTimingsGathered()
+
+    # If session_recording_id is provided, add it to session_ids to fetch it along with the rest
+    if session_recording_id_to_prepend:
+        if all_session_ids:
+            all_session_ids = [session_recording_id_to_prepend] + [
+                sid for sid in all_session_ids if sid != session_recording_id_to_prepend
+            ]
+        else:
+            # We need to fetch this specific recording alongside the filtered results
+            # Create a separate query to fetch just this recording
+            with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
+                s3_persisted_recording = (
+                    SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
+                    .exclude(object_storage_path=None)
+                    .first()
+                )
+
+                if s3_persisted_recording:
+                    recordings.append(s3_persisted_recording)
+                else:
+                    # Try to load from ClickHouse
+                    # Optimize query by searching only within the team's retention period
+                    retention_period = team.session_recording_retention_period or "90d"
+                    ch_query_result = SessionRecordingListFromQuery(
+                        query=RecordingsQuery(
+                            kind=NodeKind.RECORDINGS_QUERY,
+                            session_ids=[session_recording_id_to_prepend],
+                            date_from=f"-{retention_period}",
+                            date_to=None,
+                        ),
+                        team=team,
+                        hogql_query_modifiers=None,
+                        allow_event_property_expansion=allow_event_property_expansion,
+                    ).run()
+                    if ch_query_result.results:
+                        prepend_recordings = SessionRecording.get_or_build_from_clickhouse(
+                            team, ch_query_result.results
+                        )
+                        if prepend_recordings and not prepend_recordings[0].deleted:
+                            recordings.append(prepend_recordings[0])
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
@@ -1607,16 +1649,27 @@ def list_recordings_from_query(
             recordings = recordings + list(persisted_recordings)
 
             remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-            query.session_ids = remaining_session_ids
+    else:
+        remaining_session_ids = None
 
-    if (all_session_ids and query.session_ids) or not all_session_ids:
+    # Determine if we need to query ClickHouse
+    should_query_clickhouse = (all_session_ids and remaining_session_ids) or not all_session_ids
+
+    if should_query_clickhouse:
         with (
             timer("load_recordings_from_hogql"),
             posthoganalytics.new_context(),
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
+            # Create a copy of the query without session_recording_id for the main query
+            # We've already handled session_recording_id separately above
+            query_updates: dict[str, Any] = {"session_recording_id": None}
+            if remaining_session_ids is not None:
+                query_updates["session_ids"] = remaining_session_ids
+
+            query_for_list = query.model_copy(update=query_updates)
             query_result = SessionRecordingListFromQuery(
-                query=query,
+                query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
@@ -1638,6 +1691,16 @@ def list_recordings_from_query(
                     recordings,
                     key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
                 )
+
+    # Deduplicate recordings by session_id (if session_recording_id was fetched separately and also in results)
+    if session_recording_id_to_prepend:
+        seen_ids: set[str] = set()
+        deduped_recordings = []
+        for rec in recordings:
+            if rec.session_id not in seen_ids:
+                seen_ids.add(rec.session_id)
+                deduped_recordings.append(rec)
+        recordings = deduped_recordings
 
     if user and not user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
