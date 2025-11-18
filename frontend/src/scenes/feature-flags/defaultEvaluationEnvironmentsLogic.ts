@@ -30,7 +30,6 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
         addTag: (tagName: string) => ({ tagName }),
         removeTag: (tagName: string) => ({ tagName }),
         toggleEnabled: (enabled: boolean) => ({ enabled }),
-        toggleRequiredEnabled: (enabled: boolean) => ({ enabled }),
         setNewTagInput: (value: string) => ({ value }),
         setIsAdding: (isAdding: boolean) => ({ isAdding }),
     }),
@@ -138,12 +137,6 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
             })
         },
 
-        toggleRequiredEnabled: async ({ enabled }) => {
-            actions.updateCurrentTeam({
-                require_evaluation_environment_tags: enabled,
-            })
-        },
-
         addTagSuccess: () => {
             lemonToast.success('Tag added to default evaluation environments')
         },
@@ -160,11 +153,6 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
         ],
 
         isEnabled: [(s) => [s.currentTeam], (team): boolean => team?.default_evaluation_environments_enabled || false],
-
-        isRequiredEnabled: [
-            (s) => [s.currentTeam],
-            (team): boolean => team?.require_evaluation_environment_tags || false,
-        ],
 
         canAddMoreTags: [(s) => [s.tags], (tags): boolean => tags.length < 10],
     }),

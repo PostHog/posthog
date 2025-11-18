@@ -175,3 +175,131 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         # Should succeed because the feature is disabled
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_update_flag_remove_all_evaluation_tags_when_required(self):
+        """Test that removing all evaluation tags from a flag fails when requirement is enabled"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        # Create a flag with evaluation tags
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "test-flag-with-tags",
+                "name": "Test Flag With Tags",
+                "tags": ["production", "staging"],
+                "evaluation_tags": ["production", "staging"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="test-flag-with-tags", team=self.team)
+
+        # Try to remove all evaluation tags
+        response = self.client.patch(
+            f"/api/projects/@current/feature_flags/{flag.id}/",
+            {
+                "evaluation_tags": [],
+            },
+            format="json",
+        )
+
+        # Should fail because the flag has existing evaluation tags
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot remove all evaluation environment tags", str(response.content))
+
+    def test_update_flag_keep_some_evaluation_tags_when_required(self):
+        """Test that updating to keep at least one evaluation tag succeeds"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        # Create a flag with multiple evaluation tags
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "test-flag-multiple-tags",
+                "name": "Test Flag Multiple Tags",
+                "tags": ["production", "staging"],
+                "evaluation_tags": ["production", "staging"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="test-flag-multiple-tags", team=self.team)
+
+        # Remove one tag but keep one
+        response = self.client.patch(
+            f"/api/projects/@current/feature_flags/{flag.id}/",
+            {
+                "tags": ["production"],
+                "evaluation_tags": ["production"],
+            },
+            format="json",
+        )
+
+        # Should succeed because at least one evaluation tag remains
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        self.assertEqual(eval_tag_names, {"production"})
+
+    def test_update_flag_without_evaluation_tags_when_required(self):
+        """Test that updating a flag without existing evaluation tags succeeds"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        # Create a flag without evaluation tags (before requirement was enabled)
+        self.team.require_evaluation_environment_tags = False
+        self.team.save()
+        flag = FeatureFlag.objects.create(key="flag-no-tags", name="Flag No Tags", team=self.team, created_by=self.user)
+
+        # Enable requirement
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        # Update the flag name (not touching evaluation tags)
+        response = self.client.patch(
+            f"/api/projects/@current/feature_flags/{flag.id}/",
+            {
+                "name": "Updated Name",
+            },
+            format="json",
+        )
+
+        # Should succeed because the flag doesn't have existing evaluation tags
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_flag_without_sending_evaluation_tags_field(self):
+        """Test that updating a flag without sending evaluation_tags field at all succeeds"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        # Create a flag with evaluation tags
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "test-flag-update",
+                "name": "Test Flag Update",
+                "tags": ["production"],
+                "evaluation_tags": ["production"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="test-flag-update", team=self.team)
+
+        # Update without sending evaluation_tags field (just update the name)
+        response = self.client.patch(
+            f"/api/projects/@current/feature_flags/{flag.id}/",
+            {
+                "name": "Updated Name",
+            },
+            format="json",
+        )
+
+        # Should succeed because we're not explicitly changing evaluation_tags
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        # Evaluation tags should remain unchanged
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        self.assertEqual(eval_tag_names, {"production"})
