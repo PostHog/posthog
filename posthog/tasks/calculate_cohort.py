@@ -518,7 +518,7 @@ def collect_cohort_query_stats(
                 cohort_id=cohort_id,
                 history_id=history_id,
             )
-            # Retry the task - this will use the retry_backoff configuration
+            # Retry the task with 60 second countdown
             raise collect_cohort_query_stats.retry(countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS)
 
         # Collect observability metrics based on the calculation result
