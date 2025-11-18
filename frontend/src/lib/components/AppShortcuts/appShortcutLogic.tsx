@@ -51,9 +51,9 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             if (commandKey) {
                 // Build current key combination in the same order as shortcuts are defined
                 const pressedKeys: string[] = []
-                if (commandKey) {
-                    pressedKeys.push('command')
-                }
+
+                pressedKeys.push('command')
+
                 if (event.shiftKey) {
                     pressedKeys.push('shift')
                 }

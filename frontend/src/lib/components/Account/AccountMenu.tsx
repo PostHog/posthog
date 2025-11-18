@@ -5,6 +5,7 @@ import {
     IconCake,
     IconConfetti,
     IconCopy,
+    IconDatabase,
     IconDay,
     IconFeatures,
     IconGear,
@@ -20,6 +21,7 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
@@ -49,6 +51,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
@@ -56,6 +59,9 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
 import { SidePanelTab, UserTheme } from '~/types'
 
+import { AppShortcut } from '../AppShortcuts/AppShortcut'
+import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
+import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
@@ -135,7 +141,7 @@ function ThemeMenu(): JSX.Element {
 export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isCloudOrDev, isCloud } = useValues(preflightLogic)
+    const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -144,6 +150,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { logout } = useActions(userLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     return (
         <DropdownMenu>
@@ -153,6 +161,8 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                 collisionPadding={{ bottom: 0 }}
                 alignOffset={2}
                 className="min-w-[var(--project-panel-width)]"
+                // Force mount to register app shortcuts
+                forceMount
             >
                 <DropdownMenuGroup>
                     <Label intent="menu" className="px-2">
@@ -307,6 +317,28 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <ThemeMenu />
 
+                    <AppShortcut
+                        name="ToggleShortcutMenu"
+                        keybind={['command', 'shift', 'k']}
+                        intent="Toggle shortcut menu"
+                        interaction="click"
+                        asChild
+                        disabled={!useAppShortcuts}
+                    >
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                tooltip={useAppShortcuts ? 'Open shortcut menu' : undefined}
+                                tooltipPlacement="right"
+                                onClick={() => setAppShortcutMenuOpen(true)}
+                                menuItem
+                            >
+                                <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
+                                Shortcuts
+                                <KeyboardShortcut command shift k className="ml-auto" />
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </AppShortcut>
+
                     <DropdownMenuItem asChild>
                         <Link
                             to="https://posthog.com/changelog"
@@ -396,6 +428,32 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                     Instance panel
                                 </Link>
                             </DropdownMenuItem>
+
+                            {user?.is_impersonated ||
+                            preflight?.is_debug ||
+                            preflight?.instance_preferences?.debug_queries ? (
+                                <AppShortcut
+                                    name="DebugClickhouseQueries"
+                                    keybind={['command', 'option', 'tab']}
+                                    intent="Debug clickhouse queries"
+                                    interaction="click"
+                                    asChild
+                                >
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => {
+                                                openCHQueriesDebugModal()
+                                            }}
+                                            data-attr="menu-item-debug-ch-queries"
+                                        >
+                                            <IconDatabase />
+                                            Debug CH queries
+                                            <KeyboardShortcut command option tab className="ml-auto" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </AppShortcut>
+                            ) : null}
                         </>
                     )}
                     {!isCloud && (

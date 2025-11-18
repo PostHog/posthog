@@ -23,6 +23,7 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { appShortcutLogic } from 'lib/components/AppShortcuts/appShortcutLogic'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
@@ -35,6 +36,7 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -89,7 +91,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+    const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
 
@@ -406,14 +408,31 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="Search"
-                                keybind={['command', 'k']}
+                                keybind={keyBinds.search}
                                 intent="Search"
                                 interaction="click"
                                 asChild
+                                disabled={!useAppShortcuts}
                             >
-                                <ButtonPrimitive className="hidden" aria-hidden="true">
-                                    placeholder
-                                </ButtonPrimitive>
+                                {/* Button is hidden, keep to register shortcut */}
+                                <ButtonPrimitive
+                                    className="hidden"
+                                    aria-hidden="true"
+                                    onClick={() => {
+                                        if (
+                                            removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
+                                        ) {
+                                            const mountedLogic = activeTabId
+                                                ? newTabSceneLogic.findMounted({ tabId: activeTabId })
+                                                : null
+                                            if (mountedLogic) {
+                                                mountedLogic.actions.focusNewTabSearchInput()
+                                            }
+                                        } else {
+                                            router.actions.push(urls.newTab())
+                                        }
+                                    }}
+                                />
                             </AppShortcut>
 
                             <AppShortcut
@@ -424,6 +443,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 asChild
                                 disabled={!useAppShortcuts}
                             >
+                                {/* Button is hidden, keep to register shortcut */}
                                 <ButtonPrimitive
                                     iconOnly={isLayoutNavCollapsed}
                                     tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
@@ -483,6 +503,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     interaction="click"
                                     asChild
                                 >
+                                    {/* Button is hidden, keep to register shortcut */}
                                     <ButtonPrimitive
                                         menuItem={!isLayoutNavCollapsed}
                                         onClick={() => {
@@ -492,6 +513,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
                                         tooltipPlacement="right"
                                         data-attr="menu-item-debug-ch-queries"
+                                        className="hidden"
                                     >
                                         <IconDatabase />
                                         {!isLayoutNavCollapsed && 'Debug CH queries'}
