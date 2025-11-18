@@ -1,3 +1,5 @@
+from posthog.schema import MarketingAnalyticsBaseColumns
+
 from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -43,9 +45,10 @@ class ConversionGoalsAggregator:
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
             enhanced_select = [
-                # Keep campaign and source
+                # Keep campaign, id, and source
                 base_query.select[0],  # campaign
-                base_query.select[1],  # source
+                base_query.select[1],  # id
+                base_query.select[2],  # source
             ]
 
             # Add columns for all conversion goals (this one gets the actual value, others get 0)
@@ -53,7 +56,7 @@ class ConversionGoalsAggregator:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
                     # Extract the expression from the alias to avoid double aliasing
-                    conversion_expr = base_query.select[2]
+                    conversion_expr = base_query.select[3]
                     if isinstance(conversion_expr, ast.Alias):
                         conversion_expr = conversion_expr.expr
                     enhanced_select.append(
@@ -88,12 +91,13 @@ class ConversionGoalsAggregator:
         else:
             union_query = ast.SelectSetQuery.create_from_queries(conversion_subqueries, "UNION ALL")
 
-        # Step 3: Create final aggregation query that sums all conversion goals by campaign/source
-        # First, wrap the union in a subquery to materialize campaign/source fields
+        # Step 3: Create final aggregation query that sums all conversion goals by campaign/id/source
+        # First, wrap the union in a subquery to materialize campaign/id/source fields
         subquery_alias = "conv"
 
         final_select: list[ast.Expr] = [
             ast.Field(chain=[self.config.campaign_field]),
+            ast.Field(chain=[self.config.id_field]),
             ast.Field(chain=[self.config.source_field]),
         ]
 
@@ -114,6 +118,7 @@ class ConversionGoalsAggregator:
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
             group_by=[
                 ast.Field(chain=[self.config.campaign_field]),
+                ast.Field(chain=[self.config.id_field]),
                 ast.Field(chain=[self.config.source_field]),
             ],
         )
@@ -125,6 +130,7 @@ class ConversionGoalsAggregator:
 
         outer_select: list[ast.Expr] = [
             ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
+            ast.Field(chain=[self.config.id_field]),
             ast.Field(chain=[self.config.source_field]),
         ]
 
@@ -265,9 +271,9 @@ class ConversionGoalsAggregator:
         return columns
 
     def get_coalesce_fallback_columns(self) -> dict[str, ast.Expr]:
-        """Get COALESCE columns that fall back to unified conversion goals for campaign/source"""
+        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source"""
         # Use the config group_by_fields to build COALESCE expressions
-        campaign_field, source_field = self.config.group_by_fields
+        campaign_field, id_field, source_field = self.config.group_by_fields
 
         campaign_args = [
             ast.Call(
@@ -285,6 +291,24 @@ class ConversionGoalsAggregator:
                 ],
             ),
             ast.Constant(value=self.config.organic_campaign),
+        ]
+
+        id_args = [
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=self.config.get_campaign_cost_field_chain(id_field)),
+                    ast.Constant(value=""),
+                ],
+            ),
+            ast.Call(
+                name="nullif",
+                args=[
+                    ast.Field(chain=self.config.get_unified_conversion_field_chain(id_field)),
+                    ast.Constant(value=""),
+                ],
+            ),
+            ast.Constant(value="-"),  # "-" for organic/conversion ID (not applicable)
         ]
 
         source_args = [
@@ -308,6 +332,9 @@ class ConversionGoalsAggregator:
         return {
             self.config.campaign_column_alias: ast.Alias(
                 alias=self.config.campaign_column_alias, expr=ast.Call(name="coalesce", args=campaign_args)
+            ),
+            MarketingAnalyticsBaseColumns.ID: ast.Alias(
+                alias=MarketingAnalyticsBaseColumns.ID, expr=ast.Call(name="coalesce", args=id_args)
             ),
             self.config.source_column_alias: ast.Alias(
                 alias=self.config.source_column_alias, expr=ast.Call(name="coalesce", args=source_args)

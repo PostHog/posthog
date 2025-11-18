@@ -1,1 +1,1 @@
-0904_alter_dashboard_creation_mode
+0906_teammarketinganalyticsconfig__campaign_field_preferences_and_more

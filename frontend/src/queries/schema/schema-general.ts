@@ -4190,6 +4190,7 @@ export type MarketingAnalyticsSchemaField = {
 }
 
 export enum MarketingAnalyticsColumnsSchemaNames {
+    Id = 'id',
     Campaign = 'campaign',
     Clicks = 'clicks',
     Cost = 'cost',
@@ -4208,6 +4209,7 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
     }, // self managed sources dates are not converted to date type
     [MarketingAnalyticsColumnsSchemaNames.Source]: { type: ['string'], required: true, isCurrency: false },
     [MarketingAnalyticsColumnsSchemaNames.Campaign]: { type: ['string'], required: true, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.Id]: { type: ['string'], required: true, isCurrency: false },
     [MarketingAnalyticsColumnsSchemaNames.Cost]: { type: ['float', 'integer'], required: true, isCurrency: true },
     [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
         type: ['integer', 'number', 'float'],
@@ -4242,15 +4244,22 @@ export enum AttributionMode {
     LastTouch = 'last_touch',
 }
 
+export interface CampaignFieldPreference {
+    match_field: 'campaign_name' | 'campaign_id'
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
+    custom_source_mappings?: Record<string, string[]>
+    campaign_field_preferences?: Record<string, CampaignFieldPreference>
 }
 
 export enum MarketingAnalyticsBaseColumns {
+    Id = 'ID',
     Campaign = 'Campaign',
     Source = 'Source',
     Cost = 'Cost',

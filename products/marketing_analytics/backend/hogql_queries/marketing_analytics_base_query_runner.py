@@ -88,11 +88,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign and source fields if we're grouping by them
+        # Only include campaign, ID, and source fields if we're grouping by them
         if group_by_exprs:
             select_columns.extend(
                 [
                     ast.Field(chain=[self.config.campaign_field]),
+                    ast.Field(chain=[self.config.id_field]),
                     ast.Field(chain=[self.config.source_field]),
                 ]
             )

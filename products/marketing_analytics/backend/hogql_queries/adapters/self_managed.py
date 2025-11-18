@@ -64,6 +64,14 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         else:
             return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
+    def _get_campaign_id_field(self) -> ast.Expr:
+        id_field = getattr(self.config.source_map, "id", None)
+        if id_field:
+            return ast.Call(name="toString", args=[ast.Field(chain=[id_field])])
+        else:
+            # Fallback to campaign name if id field is not configured
+            return self._get_campaign_name_field()
+
     def _get_source_name_field(self) -> ast.Expr:
         """Override to use user-configured source field or fallback to unknown"""
         if self.config.source_map.source:

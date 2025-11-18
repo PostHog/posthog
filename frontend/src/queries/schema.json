@@ -7415,6 +7415,17 @@
             "required": ["results"],
             "type": "object"
         },
+        "CampaignFieldPreference": {
+            "additionalProperties": false,
+            "properties": {
+                "match_field": {
+                    "enum": ["campaign_name", "campaign_id"],
+                    "type": "string"
+                }
+            },
+            "required": ["match_field"],
+            "type": "object"
+        },
         "Category": {
             "const": "deep_research",
             "type": "string"
@@ -17485,11 +17496,21 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
+            "enum": [
+                "id",
+                "campaign",
+                "clicks",
+                "cost",
+                "currency",
+                "date",
+                "impressions",
+                "source",
+                "reported_conversion"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -17500,6 +17521,12 @@
                 },
                 "attribution_window_days": {
                     "type": "number"
+                },
+                "campaign_field_preferences": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/CampaignFieldPreference"
+                    },
+                    "type": "object"
                 },
                 "campaign_name_mappings": {
                     "additionalProperties": {
@@ -17518,6 +17545,15 @@
                         "$ref": "#/definitions/ConversionGoalFilter"
                     },
                     "type": "array"
+                },
+                "custom_source_mappings": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "object"
                 },
                 "sources_map": {
                     "additionalProperties": {
@@ -26523,6 +26559,9 @@
                     "type": "string"
                 },
                 "date": {
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "impressions": {
