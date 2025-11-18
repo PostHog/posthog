@@ -86,7 +86,7 @@ export function Navigation({
                     role="main"
                     tabIndex={0}
                     id="main-content"
-                    className="@container/main-content bg-surface-tertiary focus-visible:outline-accent"
+                    className="@container/main-content bg-surface-tertiary"
                     style={
                         {
                             '--scene-layout-rect-right': mainContentRect?.right + 'px',
