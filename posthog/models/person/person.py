@@ -109,7 +109,8 @@ class PersonQuerySet(models.QuerySet):
 
         # Check if team_id appears in the WHERE clause
         # This catches: team_id = X, team_id IN (...), team.id = X, etc.
-        return "team_id" in where_clause or "team.id" in where_clause
+        # Also check for table-qualified versions like posthog_person.team_id or U0.team_id
+        return "team_id" in where_clause or "team.id" in where_clause or '."team_id"' in where_clause
 
 
 class PersonManager(models.Manager):

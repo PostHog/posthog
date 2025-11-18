@@ -634,7 +634,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 "email": person.email or "(no email)",
                 "distinct_id": person.distinct_ids[0] if person.distinct_ids else "(no distinct id)",
             }
-            for person in self.people.all()
+            for person in self.people.filter(team_id=self.team_id)
         ]
 
         from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions

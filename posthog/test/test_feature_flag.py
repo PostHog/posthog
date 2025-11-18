@@ -6545,7 +6545,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
 
         def delete_and_add(person, person2, distinct_id):
             FeatureFlagHashKeyOverride.objects.filter(person=person).delete()
-            Person.objects.filter(id=person.id).delete()
+            Person.objects.filter(id=person.id, team_id=person.team_id).delete()
             person2.add_distinct_id(distinct_id)
             return True, "deleted and added", {}, False
 
