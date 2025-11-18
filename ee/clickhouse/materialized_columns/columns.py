@@ -104,7 +104,7 @@ class MaterializedColumn:
             cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
         except Exception:
             # If cache set fails, log but don't fail the request
-            logger.warning(f"Failed to cache materialized columns for table {table}")
+            logger.warning("Failed to cache materialized columns for table %s", table)
 
         return result
 
