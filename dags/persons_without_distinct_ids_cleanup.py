@@ -14,12 +14,14 @@ from posthog.clickhouse.custom_metrics import MetricsClient
 
 from dags.common import JobOwners
 
+MAX_RETRY_ATTEMPTS = 5
+
 
 class PersonsNoDistinctIdsCleanupConfig(dagster.Config):
     """Configuration for the persons without distinct ids cleanup job."""
 
     chunk_size: int = 1_000_000  # ID range per chunk
-    batch_size: int = 100  # Records per batch insert
+    batch_size: int = 1000  # Records to scan for a parent person or delete in a single transaction
     max_id: int | None = None  # Optional override for max ID to resume from partial state
 
 
@@ -132,7 +134,7 @@ def scan_delete_chunk(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Scan posthog_persondistinctid table for records that have no associated posthog_person row,
+    Scan posthog_person table for records that have no associated posthog_persondistinctid row,
     and deletes the corresponding posthog_person row.
     Processes in batches of batch_size records.
     """
@@ -180,7 +182,8 @@ def scan_delete_chunk(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Execute INSERT INTO ... SELECT with NOT EXISTS check
+                    # Execute DELETE FROM posthog_person with NOT EXISTS check on
+                    # associated posthog_persondistinctid rows
                     scan_delete_query = f"""
 DELETE FROM posthog_person AS p
 WHERE p.id >= %s AND p.id <= %s
@@ -270,9 +273,9 @@ ORDER BY p.id DESC
                             "This is expected due to concurrent transactions. "
                         )
                         context.log.warning(error_msg)
-                        if retry_attempt < 3:
+                        if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.info(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
                             time.sleep(1)
                             continue
 
@@ -288,9 +291,9 @@ ORDER BY p.id DESC
                             "This is expected due to concurrent transactions. "
                         )
                         context.log.warning(error_msg)
-                        if retry_attempt < 3:
+                        if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.info(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
                             time.sleep(1)
                             continue
 
@@ -329,7 +332,7 @@ ORDER BY p.id DESC
         raise
     except Exception as e:
         # Catch any other unexpected errors
-        error_msg = f"Unexpected error scanning and deleteding from chunk {chunk_min}-{chunk_max}: {str(e)}"
+        error_msg = f"Unexpected error scanning and deleteting from chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
         # Report fatal error metric before raising
         try:
