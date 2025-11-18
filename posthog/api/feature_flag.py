@@ -1128,7 +1128,10 @@ def _evaluate_flags_with_fallback(
     which handles all of the evaluation logic without us needing to worry about passing in database connections, etc.
     See https://posthog.slack.com/archives/C07Q2U4BH4L/p1763419358264529 for more context on this decision.
 
-    Returns dict (Rust response) or tuple (Python fallback result).
+    Returns:
+        dict[str, Any]: Rust service response with structure {"flags": {...}, ...}
+        OR
+        tuple[dict, dict, dict, bool]: Python evaluation result (flags, reasons, payloads, errors)
     """
     try:
         return _proxy_to_flags_service(
