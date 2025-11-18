@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0904_alter_dashboard_creation_mode"),
+        ("posthog", "0908_userproductlist"),
     ]
 
     operations = [
