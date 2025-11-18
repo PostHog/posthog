@@ -176,7 +176,7 @@ def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> s
     Returns:
         Set of archived response UUIDs as strings
     """
-    filter_kwargs = {"team_id": team_id}
+    filter_kwargs: dict[str, int | str | UUID] = {"team_id": team_id}
     if survey_id is not None:
         filter_kwargs["survey_id"] = survey_id
 

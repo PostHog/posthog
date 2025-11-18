@@ -4378,6 +4378,7 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
             team=self.team, survey=self.survey, response_uuid=self.response_uuid
         ).first()
         self.assertIsNotNone(archive)
+        assert archive is not None  # for mypy
         self.assertEqual(str(archive.response_uuid), self.response_uuid)
 
         # Verify activity log
