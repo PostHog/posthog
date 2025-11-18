@@ -129,9 +129,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         - If no message: Stream from existing conversation
         """
 
-        if is_team_limited(
-            self.team.api_token, QuotaResource.AI_CREDITS_USED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        ):
+        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )

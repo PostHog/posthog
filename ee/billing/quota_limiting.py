@@ -70,7 +70,7 @@ class QuotaResource(Enum):
     LLM_EVENTS = "llm_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
-    AI_CREDITS_USED = "ai_credits_used"
+    AI_CREDITS = "ai_credits_used"
 
 
 class QuotaLimitingCaches(Enum):
@@ -89,7 +89,7 @@ OVERAGE_BUFFER = {
     QuotaResource.LLM_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
-    QuotaResource.AI_CREDITS_USED: 0,
+    QuotaResource.AI_CREDITS: 0,
 }
 
 # These trust score keys match billing default_plans_config.yml product keys (top level key)
@@ -104,7 +104,7 @@ TRUST_SCORE_KEYS = {
     QuotaResource.LLM_EVENTS: "llm_events",
     QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
     QuotaResource.ROWS_EXPORTED: "rows_exported",
-    QuotaResource.AI_CREDITS_USED: "ai_credits",
+    QuotaResource.AI_CREDITS: "ai_credits",
 }
 
 
