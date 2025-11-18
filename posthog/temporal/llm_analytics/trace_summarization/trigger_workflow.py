@@ -73,11 +73,11 @@ def trigger_batch_summarization(
 
     Args:
         team_id: Team ID to process traces for
-        max_traces: Maximum traces to process in window (default: 100)
+        max_traces: Maximum traces to process in window (default: 500)
         batch_size: Batch size for processing (default: 10)
         mode: Summary detail level - "minimal" or "detailed" (default: "minimal")
         window_minutes: Time window to query in minutes (default: 60)
-        model: LLM model to use (default: uses SUMMARIZATION_MODEL constant)
+        model: LLM model to use (default: gpt-5-mini for better quality)
         window_start: Start of explicit time window in RFC3339 format (optional)
         window_end: End of explicit time window in RFC3339 format (optional)
         wait: Wait for workflow to complete (default: True)
@@ -90,7 +90,7 @@ def trigger_batch_summarization(
     # Build inputs object
     inputs = BatchSummarizationInputs(
         team_id=team_id,
-        max_traces=max_traces if max_traces is not None else 100,
+        max_traces=max_traces if max_traces is not None else 500,
         batch_size=batch_size if batch_size is not None else 10,
         mode=mode,
         window_minutes=window_minutes if window_minutes is not None else 60,
@@ -106,10 +106,11 @@ def trigger_batch_summarization(
     print(f"{'='*60}")
     print(f"Workflow ID: {workflow_id}")
     print(f"Team ID: {team_id}")
-    print(f"Max traces: {max_traces or 'default (100)'}")
+    print(f"Max traces: {max_traces or 'default (500)'}")
     print(f"Batch size: {batch_size or 'default (10)'}")
     print(f"Mode: {mode}")
     print(f"Window: {window_minutes or 60} minutes")
+    print(f"Model: {model or 'default (gpt-5-mini)'}")
     print(f"{'='*60}\n")
 
     if wait:
@@ -183,7 +184,7 @@ async def trigger_batch_summarization_async(
     # Build inputs object
     inputs = BatchSummarizationInputs(
         team_id=team_id,
-        max_traces=max_traces if max_traces is not None else 100,
+        max_traces=max_traces if max_traces is not None else 500,
         batch_size=batch_size if batch_size is not None else 10,
         mode=mode,
         window_minutes=window_minutes if window_minutes is not None else 60,

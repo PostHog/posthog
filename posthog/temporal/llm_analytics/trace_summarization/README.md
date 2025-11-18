@@ -6,7 +6,7 @@ Automated workflow for generating summaries of recent LLM traces from time windo
 
 This workflow implements **Phase 2** of the clustering MVP (see [issue #40787](https://github.com/PostHog/posthog/issues/40787)):
 
-1. **Query traces from time window** - Process all traces from the last N minutes (default: 60), up to a maximum count (default: 100)
+1. **Query traces from time window** - Process all traces from the last N minutes (default: 60), up to a maximum count (default: 500)
 2. **Summarize them** - Use text repr and LLM summarization to generate concise summaries
 3. **Save as events** - Store generated summaries as `$ai_trace_summary` events in ClickHouse
 
@@ -56,10 +56,11 @@ graph TB
 **Inputs** (`BatchSummarizationInputs`):
 
 - `team_id` (required): Team ID to process traces for
-- `max_traces` (optional): Maximum traces to process in window (default: 100)
+- `max_traces` (optional): Maximum traces to process in window (default: 500)
 - `batch_size` (optional): Batch size for processing (default: 10)
 - `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `minimal`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
+- `model` (optional): LLM model to use (default: gpt-5-mini for better quality)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides window_minutes)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides window_minutes)
 
@@ -68,7 +69,7 @@ graph TB
 1. **`query_traces_in_window_activity`**
    - Uses `TracesQueryRunner` to fetch traces from time window (reuses frontend query logic)
    - Queries from last N minutes (default: 60) or explicit window if provided
-   - Enforces hard limit via `max_traces` parameter (default: 100)
+   - Enforces hard limit via `max_traces` parameter (default: 500)
    - Returns list of trace metadata (trace_id, timestamp, team_id)
    - Idempotent - same window returns same traces
 
@@ -172,7 +173,7 @@ schedule = Schedule(
         "batch-trace-summarization",
         BatchSummarizationInputs(
             team_id=123,
-            max_traces=100,  # Process up to 100 traces per hour
+            max_traces=500,  # Process up to 500 traces per hour
             window_minutes=60,  # Last 60 minutes
         ),
         id="batch-summarization-team-123",
@@ -195,16 +196,17 @@ The workflow is idempotent, so rerunning on the same window is safe.
 
 Key constants in `constants.py`:
 
-- `DEFAULT_MAX_TRACES_PER_WINDOW = 100` - Max traces to process per window (start conservative)
+- `DEFAULT_MAX_TRACES_PER_WINDOW = 500` - Max traces to process per window
 - `DEFAULT_BATCH_SIZE = 10` - Batch size for processing
 - `DEFAULT_MODE = "minimal"` - Summary detail level
 - `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
+- `DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"` - Default LLM model (slower but better quality than UI default)
 
 ## Processing Flow
 
 1. **Query Window** (< 5 min)
    - Query ClickHouse for traces in time window (last N minutes)
-   - Up to `max_traces` limit (default: 100)
+   - Up to `max_traces` limit (default: 500)
    - Idempotent - same window returns same traces
 
 2. **Batch Processing** (variable, depends on trace count and LLM latency)
@@ -237,10 +239,10 @@ Workflow outputs:
 ```json
 {
   "batch_run_id": "team_123_2025-01-15T12:00:00Z",
-  "traces_queried": 100,
-  "summaries_generated": 97,  // Some may fail
-  "events_emitted": 97,
-  "duration_seconds": 123.45
+  "traces_queried": 500,
+  "summaries_generated": 487,  // Some may fail
+  "events_emitted": 487,
+  "duration_seconds": 615.23
 }
 ```
 
@@ -253,20 +255,24 @@ Check logs for:
 
 ## Cost Estimation
 
-For `DEFAULT_MAX_TRACES_PER_WINDOW = 100` traces per hour (2400/day):
+For `DEFAULT_MAX_TRACES_PER_WINDOW = 500` traces per hour (12,000/day):
 
-- **LLM Calls**: 100 traces/hour × 24 hours = 2400 calls/day
-- **Model**: `gpt-4o-mini` (from `SUMMARIZATION_MODEL`)
+- **LLM Calls**: 500 traces/hour × 24 hours = 12,000 calls/day
+- **Model**: `gpt-5-mini` (from `DEFAULT_WORKFLOW_MODEL`)
 - **Token Usage** (estimated):
   - Input: ~2000 tokens/trace (text repr + prompt)
   - Output: ~500 tokens/trace (summary)
-  - Total: ~2500 tokens/trace = 6M tokens/day
-- **Cost** (at $0.15/1M input, $0.60/1M output):
-  - Input: 4.8M tokens × $0.15/1M = $0.72/day
-  - Output: 1.2M tokens × $0.60/1M = $0.72/day
-  - **Total: ~$1.44/day per team (100 traces/hour)**
+  - Total: ~2500 tokens/trace = 30M tokens/day
+- **Cost** (at $0.15/1M input, $0.60/1M output for gpt-4o-mini, adjust for actual gpt-5-mini pricing):
+  - Input: 24M tokens × $0.15/1M = $3.60/day
+  - Output: 6M tokens × $0.60/1M = $3.60/day
+  - **Total: ~$7.20/day per team (500 traces/hour)**
 
-Adjust `max_traces` and schedule frequency based on budget and data volume needs. Start conservative (100/hour) and scale up as needed.
+This provides a representative sample for clustering while keeping costs bounded. The pipeline is designed to scale up by:
+
+- Increasing `max_traces` if needed
+- Processing in predictable batches for stable resource usage
+- Feeding consistent volumes to downstream embedding and clustering workflows
 
 ## Next Steps
 
