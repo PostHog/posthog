@@ -4,7 +4,6 @@ from typing import Any, cast
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -268,9 +267,7 @@ class _SessionSearch:
 
     def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
         """Convert current filters into recordings query format"""
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            convert_filters_to_recordings_query,
-        )
+        from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 
         # Create a temporary playlist object to use the conversion function
         temp_playlist = SessionRecordingPlaylist(filters=current_filters)
