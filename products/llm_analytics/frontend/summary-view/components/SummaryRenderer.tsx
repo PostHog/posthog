@@ -1,21 +1,26 @@
 /**
  * Renders structured summary with collapsible sections
  */
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { StructuredSummary } from '../summaryViewLogic'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import { StructuredSummary, summaryViewLogic } from '../summaryViewLogic'
 import { parseLineReferences } from '../utils/lineReferenceUtils'
 
 export interface SummaryRendererProps {
     summary: StructuredSummary
+    trace?: LLMTrace
+    event?: LLMTraceEvent
+    tree?: any[]
 }
 
-export function SummaryRenderer({ summary }: SummaryRendererProps): JSX.Element {
-    const [isFlowExpanded, setIsFlowExpanded] = useState(false)
-    const [isSummaryExpanded, setIsSummaryExpanded] = useState(true)
-    const [isNotesExpanded, setIsNotesExpanded] = useState(true)
+export function SummaryRenderer({ summary, trace, event, tree }: SummaryRendererProps): JSX.Element {
+    const logic = summaryViewLogic({ trace, event, tree })
+    const { isFlowExpanded, isSummaryExpanded, isNotesExpanded } = useValues(logic)
+    const { toggleFlowExpanded, toggleSummaryExpanded, toggleNotesExpanded } = useActions(logic)
 
     const renderLineRefs = (lineRefs: string): JSX.Element | null => {
         if (!lineRefs || lineRefs.trim() === '') {
@@ -35,7 +40,7 @@ export function SummaryRenderer({ summary }: SummaryRendererProps): JSX.Element 
                     <button
                         type="button"
                         className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
-                        onClick={() => setIsFlowExpanded(!isFlowExpanded)}
+                        onClick={toggleFlowExpanded}
                         data-attr="summary-toggle-flow-diagram"
                     >
                         <span className="text-xs">{isFlowExpanded ? '▼' : '▶'}</span>
@@ -57,7 +62,7 @@ export function SummaryRenderer({ summary }: SummaryRendererProps): JSX.Element 
                     <button
                         type="button"
                         className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
-                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                        onClick={toggleSummaryExpanded}
                         data-attr="summary-toggle-points"
                     >
                         <span className="text-xs">{isSummaryExpanded ? '▼' : '▶'}</span>
@@ -85,7 +90,7 @@ export function SummaryRenderer({ summary }: SummaryRendererProps): JSX.Element 
                         <button
                             type="button"
                             className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
-                            onClick={() => setIsNotesExpanded(!isNotesExpanded)}
+                            onClick={toggleNotesExpanded}
                             data-attr="summary-toggle-notes"
                         >
                             <span className="text-xs">{isNotesExpanded ? '▼' : '▶'}</span>

@@ -220,7 +220,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
 
                     <div className="flex-none">
                         <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
-                            <SummaryRenderer summary={summaryData.summary} />
+                            <SummaryRenderer summary={summaryData.summary} trace={trace} event={event} tree={tree} />
                         </div>
                     </div>
 
