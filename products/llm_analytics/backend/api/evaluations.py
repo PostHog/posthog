@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import Q, QuerySet
 
@@ -199,7 +199,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
                 self.team,
             )
         elif changed_fields:
-            event_properties = {
+            event_properties: dict[str, Any] = {
                 "evaluation_id": str(instance.id),
                 "changed_fields": changed_fields,
             }
