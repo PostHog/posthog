@@ -23,7 +23,6 @@ NODE_ARTIFACT_PATTERNS = (
     "pnpm-debug.log",
     "frontend/.cache",
     "frontend/tmp",
-    "frontend/types",
     "frontend/dist",
     "frontend/storybook-static",
     "frontend/@posthog/apps-common/dist",
@@ -276,7 +275,7 @@ def doctor_disk(
 
         if non_counted:
             titles = ", ".join(non_counted)
-            click.echo("   Note: " f"{titles} cleanup is not included in the total freed space.")
+            click.echo(f"   Note: {titles} cleanup is not included in the total freed space.")
 
 
 def _run_category(
@@ -511,6 +510,7 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
                 # Go up to the main .git directory (worktrees/xxx -> .git)
                 git_dir = actual_git_path.parent.parent
         except (OSError, ValueError):
+            # If reading or parsing .git file fails, fallback to default .git directory
             pass
 
     if not git_dir.exists() or not git_dir.is_dir():
@@ -576,6 +576,9 @@ def _cleanup_flox_logs(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
     """Execute find command to clean up old Flox logs."""
 
     flox_log_dir = repo_root / ".flox" / "log"
+    if not flox_log_dir.exists():
+        return CleanupStats(deleted_anything=False)
+
     result = subprocess.run(
         ["find", str(flox_log_dir), "-name", "*.log", "-type", "f", "-mtime", "+7", "-delete"],
         capture_output=True,
@@ -829,21 +832,6 @@ def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
             workspaces.append(workspace_dir)
 
     return workspaces
-
-
-def _iter_named_directories(base: Path, name: str) -> Iterable[Path]:
-    """Yield directories named `name`, skipping nested duplicates."""
-
-    for path in base.glob(f"**/{name}"):
-        if not path.is_dir():
-            continue
-        try:
-            relative = path.relative_to(base)
-        except ValueError:
-            relative = path
-        if name in relative.parts[:-1]:
-            continue
-        yield path
 
 
 def _describe_items(items: Sequence[CleanupItem], repo_root: Path, heading: str) -> list[str]:
