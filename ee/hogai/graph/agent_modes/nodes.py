@@ -615,7 +615,6 @@ class AgentToolsExecutable(BaseAgentExecutable):
             messages=[tool_message],
         )
 
-    # This is only for the Inkeep node. Remove when inkeep_docs is removed.
     def router(self, state: AssistantState) -> Literal["root", "end"]:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
