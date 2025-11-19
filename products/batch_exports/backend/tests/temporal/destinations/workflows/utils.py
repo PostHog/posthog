@@ -7,10 +7,9 @@ import aiokafka
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
-from products.batch_exports.backend.tests.temporal.utils import get_record_batch_from_queue
+from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
 
 async def assert_clickhouse_records_in_kafka(
@@ -30,17 +29,26 @@ async def assert_clickhouse_records_in_kafka(
     json_columns = {"properties", "set", "set_once", "person_properties"}
 
     consumer = aiokafka.AIOKafkaConsumer(
-        topic, group_id="test-batch-exports", bootstrap_servers=hosts, security_protocol=security_protocol
+        topic,
+        group_id="test_batch_exports",
+        bootstrap_servers=hosts,
+        security_protocol=security_protocol,
+        auto_offset_reset="earliest",
     )
     produced_records = []
-    await consumer.start()
-    async for msg in consumer:
-        record = json.loads(msg.value)
 
-        if (event := record.get("event", None)) is not None and event == "$backfill_complete":
-            break
+    async with consumer:
+        async for msg in consumer:
+            record = json.loads(msg.value)
 
-        produced_records.append(record)
+            if (event := record.get("event", None)) is not None and event == "$backfill_complete":
+                break
+
+            for timestamp_column in ("timestamp", "created_at"):
+                if (timestamp_str := record.get(timestamp_column)) is not None and isinstance(timestamp_str, str):
+                    record[timestamp_column] = dt.datetime.fromisoformat(timestamp_str)
+
+            produced_records.append(record)
 
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
@@ -77,7 +85,6 @@ async def assert_clickhouse_records_in_kafka(
             done_ranges=[],
             fields=fields,
             filters=filters,
-            destination_default_fields=redshift_default_fields(),
             exclude_events=exclude_events,
             include_events=include_events,
             is_backfill=backfill_details is not None,
@@ -117,6 +124,7 @@ async def assert_clickhouse_records_in_kafka(
     expected_column_names.sort()
 
     expected_records.sort(key=operator.itemgetter(sort_key))
+    produced_records.sort(key=operator.itemgetter(sort_key))
 
     assert (
         produced_column_names == expected_column_names

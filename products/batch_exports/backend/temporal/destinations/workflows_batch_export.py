@@ -143,7 +143,6 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
-            schema=record_batch_schema,
             transformer=transformer,
         )
 

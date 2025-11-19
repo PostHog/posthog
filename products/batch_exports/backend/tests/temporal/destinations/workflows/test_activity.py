@@ -1,9 +1,14 @@
 import uuid
+import random
+import string
 
 import pytest
 
+import aiokafka
+import aiokafka.admin
+import pytest_asyncio
+
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
-from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsInsertInputs,
@@ -95,6 +100,26 @@ async def _run_activity(
     return result
 
 
+@pytest.fixture
+def hosts() -> list[str]:
+    return ["kafka:9092"]
+
+
+@pytest_asyncio.fixture
+async def topic(hosts):
+    admin_client = aiokafka.admin.AIOKafkaAdminClient(bootstrap_servers=hosts, security_protocol="PLAINTEXT")
+    random_string = "".join(random.choices(string.ascii_letters, k=10))
+    test_topic = f"test_batch_exports_{random_string}"
+
+    await admin_client.start()
+    await admin_client.create_topics([aiokafka.admin.NewTopic(name=test_topic, num_partitions=1, replication_factor=1)])
+
+    yield test_topic
+
+    await admin_client.delete_topics([test_topic])
+    await admin_client.close()
+
+
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
     clickhouse_client,
@@ -104,6 +129,8 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
     data_interval_end,
     generate_test_data,
     ateam,
+    hosts,
+    topic,
 ):
     model = BatchExportModel(name="events", schema=None)
 
@@ -111,12 +138,12 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
         activity_environment,
         clickhouse_client=clickhouse_client,
         team=ateam,
-        topic=KAFKA_EVENTS_JSON,
+        topic=topic,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        hosts=["kafka:9092"],
+        hosts=hosts,
         security_protocol="PLAINTEXT",
-        sort_key="inserted_at",
+        sort_key="timestamp",
     )
