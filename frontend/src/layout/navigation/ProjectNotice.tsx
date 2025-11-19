@@ -73,7 +73,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     }
 
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
-    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
 
     const NOTICES: Record<ProjectNoticeVariant, ProjectNoticeBlueprint> = {
         demo_project: {
