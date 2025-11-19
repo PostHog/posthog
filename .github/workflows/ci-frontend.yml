@@ -108,7 +108,7 @@ jobs:
     frontend-toolbar-checks:
         name: Frontend toolbar checks
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
