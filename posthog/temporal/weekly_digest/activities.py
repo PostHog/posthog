@@ -500,7 +500,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    if not created and messaging_record.sent_at:
+                    if not created and messaging_record.sent_at and not input.allow_already_sent:
                         logger.info(
                             f"Digest already sent for organization, skipping...", organization_id=organization.id
                         )
