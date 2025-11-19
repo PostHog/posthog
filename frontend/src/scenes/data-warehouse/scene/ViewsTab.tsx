@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,6 +18,14 @@ const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Failed: 'danger',
     Cancelled: 'muted',
     Modified: 'warning',
+}
+
+const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
+    if (view.managed_viewset_kind !== null) {
+        return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
+    }
+
+    return undefined
 }
 
 function RunHistoryDisplay({
@@ -107,13 +115,39 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Name',
                                 key: 'name',
-                                render: (_, view: DataWarehouseSavedQuery) => (
-                                    <LemonTableLink
-                                        to={urls.sqlEditor(undefined, view.id)}
-                                        title={view.name}
-                                        description="Materialized view"
-                                    />
-                                ),
+                                render: (_, view: DataWarehouseSavedQuery) =>
+                                    view.managed_viewset_kind !== null ? (
+                                        <>
+                                            <Tooltip
+                                                title={
+                                                    <>
+                                                        You cannot edit the definition for a view that belongs to a
+                                                        managed viewset. You can enable/disable the viewset in the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        page.
+                                                    </>
+                                                }
+                                            >
+                                                <span className="font-bold text-primary">{view.name}</span>
+                                            </Tooltip>
+                                            <br />
+                                            <span className="text-muted text-xs">
+                                                Created by the{' '}
+                                                <Link to={urls.dataWarehouseManagedViewsets()} className="text-muted">
+                                                    <code>{view.managed_viewset_kind}</code>
+                                                </Link>{' '}
+                                                managed viewset
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <LemonTableLink
+                                            to={urls.sqlEditor(undefined, view.id)}
+                                            title={view.name}
+                                            description="Materialized view"
+                                        />
+                                    ),
                             },
                             {
                                 title: 'Last run',
@@ -185,7 +219,11 @@ export function ViewsTab(): JSX.Element {
                                                 <LemonButton onClick={() => runMaterialization(view.id)}>
                                                     Run now
                                                 </LemonButton>
-                                                <LemonButton status="danger" onClick={() => deleteView(view.id)}>
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => deleteView(view.id)}
+                                                    disabledReason={getDisabledReason(view)}
+                                                >
                                                     Delete
                                                 </LemonButton>
                                             </>
@@ -222,13 +260,35 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Name',
                                 key: 'name',
-                                render: (_, view: DataWarehouseSavedQuery) => (
-                                    <LemonTableLink
-                                        to={urls.sqlEditor(undefined, view.id)}
-                                        title={view.name}
-                                        description="View"
-                                    />
-                                ),
+                                render: (_, view: DataWarehouseSavedQuery) =>
+                                    view.managed_viewset_kind !== null ? (
+                                        <>
+                                            <Tooltip
+                                                title={
+                                                    <>
+                                                        You cannot edit the definition for a view that belongs to a
+                                                        managed viewset. You can enable/disable the viewset in the{' '}
+                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
+                                                            Managed Viewsets
+                                                        </Link>{' '}
+                                                        page.
+                                                    </>
+                                                }
+                                            >
+                                                <span className="font-bold text-primary">{view.name}</span>
+                                            </Tooltip>
+                                            <br />
+                                            <span className="text-muted text-xs">
+                                                Created by the{' '}
+                                                <Link to={urls.dataWarehouseManagedViewsets()} className="text-muted">
+                                                    <code>{view.managed_viewset_kind}</code>
+                                                </Link>{' '}
+                                                managed viewset
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                                    ),
                             },
                             {
                                 title: 'Created',
@@ -269,7 +329,11 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton status="danger" onClick={() => deleteView(view.id)}>
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => deleteView(view.id)}
+                                                    disabledReason={getDisabledReason(view)}
+                                                >
                                                     Delete
                                                 </LemonButton>
                                             </>
