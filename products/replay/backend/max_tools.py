@@ -124,10 +124,8 @@ class SearchSessionRecordingsTool(MaxTool):
         """
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
-        current_session_id = self.context.get("current_session_id", None)
-        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(
-            change=change, current_filters=pretty_filters, current_session_id=current_session_id
-        )
+        # Not providing current session id to the prompt, as it's not required for the filtering logic, only as a context
+        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {
             "change": user_prompt,
             "output": None,
