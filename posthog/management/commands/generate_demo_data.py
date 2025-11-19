@@ -33,8 +33,6 @@ def get_default_product_paths() -> list[str]:
     project_root = script_dir.parent.parent.parent
     products_json_path = project_root / "frontend" / "src" / "products.json"
 
-    print(products_json_path)
-
     if not products_json_path.exists():
         raise FileNotFoundError(
             f"products.json not found at {products_json_path}. Generate it by making sure `hogli start`'s `frontend` service is running"
