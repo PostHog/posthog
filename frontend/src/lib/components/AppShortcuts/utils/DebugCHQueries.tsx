@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Region } from '~/types'
 
-import { CodeSnippet, Language } from '../CodeSnippet'
+import { CodeSnippet, Language } from '../../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
 export function openCHQueriesDebugModal(): void {
@@ -474,6 +474,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
 
 function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
     const [areAllStatsShown, setAreAllStatsShown] = useState(false)
+
     const event = item['profile_events']
     if (!event) {
         return null
