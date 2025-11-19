@@ -1,8 +1,10 @@
+import os
 import signal
 import typing as t
 import asyncio
 import datetime as dt
 import functools
+import threading
 import faulthandler
 from collections import defaultdict
 
@@ -369,3 +371,16 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+                logger.info("Listing active threads at shutdown:")
+                for t in threading.enumerate():
+                    logger.info(
+                        "Thread still alive at shutdown",
+                        thread_name=t.name,
+                        daemon=t.daemon,
+                        ident=t.ident,
+                    )
+
+                # _something_ is preventing clean exit after worker shutdown
+                logger.info("Temporal Worker has shut down, hard exiting")
+                os._exit(0)
