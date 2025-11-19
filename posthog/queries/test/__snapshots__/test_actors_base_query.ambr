@@ -19,17 +19,17 @@
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_distinct_id_limit
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid))
-  ORDER BY "posthog_person"."created_at" DESC,
-           "posthog_person"."uuid" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person_new"."created_at" DESC,
+           "posthog_person_new"."uuid" ASC
   '''
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_distinct_id_limit.1
@@ -54,18 +54,18 @@
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_prefetch
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid))
-  ORDER BY "posthog_person"."created_at" DESC,
-           "posthog_person"."uuid" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person_new"."created_at" DESC,
+           "posthog_person_new"."uuid" ASC
   '''
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_prefetch.1
@@ -90,18 +90,18 @@
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_value_per_actor
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid))
-  ORDER BY "posthog_person"."created_at" DESC,
-           "posthog_person"."uuid" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid))
+  ORDER BY "posthog_person_new"."created_at" DESC,
+           "posthog_person_new"."uuid" ASC
   '''
 # ---
 # name: TestActorsBaseQuery.test_get_people_with_value_per_actor.1
@@ -126,14 +126,14 @@
 # ---
 # name: TestActorsBaseQuery.test_get_serialized_people_empty
   '''
-  SELECT posthog_person.id,
-         posthog_person.uuid,
-         posthog_person.properties,
-         posthog_person.is_identified,
-         posthog_person.created_at
-  FROM posthog_person
-  WHERE posthog_person.uuid = ANY('{}')
-    AND posthog_person.team_id = 99999
+  SELECT posthog_person_new.id,
+         posthog_person_new.uuid,
+         posthog_person_new.properties,
+         posthog_person_new.is_identified,
+         posthog_person_new.created_at
+  FROM posthog_person_new
+  WHERE posthog_person_new.uuid = ANY('{}')
+    AND posthog_person_new.team_id = 99999
   ORDER BY created_at DESC,
            uuid
   '''
@@ -165,18 +165,18 @@
 # ---
 # name: TestActorsBaseQuery.test_serialize_people_basic
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE "posthog_person"."uuid" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE "posthog_person_new"."uuid" = '00000000000000000000000000000000'::uuid
   '''
 # ---
 # name: TestActorsBaseQuery.test_serialize_people_basic.1
