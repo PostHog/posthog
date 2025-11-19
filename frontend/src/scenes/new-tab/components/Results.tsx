@@ -20,7 +20,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -488,7 +488,23 @@ export function Results({
     // Track whether we have any results
     const hasStandardResults = allCategories.some((category) => category.items.length > 0)
     const hasAnyResults = hasStandardResults || folderHasResults
-    const firstAvailableCategory = firstCategoryWithResults ?? (folderHasResults ? 'folders' : null)
+    const firstAvailableCategory: NEW_TAB_CATEGORY_ITEMS | null = folderHasResults
+        ? 'folders'
+        : (firstCategoryWithResults as NEW_TAB_CATEGORY_ITEMS | null)
+    const categoriesToRender = showSearchResults
+        ? [
+              ...(showFoldersCategory
+                  ? [
+                        {
+                            key: 'folders' as const,
+                            items: folderCategoryItems,
+                            isLoading: folderCategoryLoading,
+                        },
+                    ]
+                  : []),
+              ...allCategories,
+          ]
+        : []
 
     // Check if we should show NoResultsFound component
     // (include='all' + search term + no results + flag on)
@@ -515,29 +531,17 @@ export function Results({
     return (
         <>
             {showSearchResults &&
-                allCategories.map(({ key: category, items, isLoading }, columnIndex: number) => (
+                categoriesToRender.map(({ key: category, items, isLoading }, columnIndex: number) => (
                     <Category
                         tabId={tabId}
                         items={items}
                         category={category}
                         columnIndex={columnIndex}
-                        isFirstCategoryWithResults={category === firstCategoryWithResults}
+                        isFirstCategoryWithResults={category === firstAvailableCategory}
                         isLoading={isLoading}
                         key={category}
                     />
                 ))}
-
-            {showSearchResults && showFoldersCategory && (
-                <Category
-                    tabId={tabId}
-                    items={folderCategoryItems}
-                    category="folders"
-                    columnIndex={allCategories.length}
-                    isFirstCategoryWithResults={firstAvailableCategory === 'folders'}
-                    isLoading={folderCategoryLoading}
-                    key="folders"
-                />
-            )}
 
             {showExplorerView && <ProjectExplorer tabId={tabId} listboxRef={listboxRef} />}
 

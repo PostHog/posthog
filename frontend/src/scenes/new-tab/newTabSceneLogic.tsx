@@ -1629,16 +1629,32 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     return []
                 }
 
-                const searchLower = search.trim().toLowerCase()
+                const trimmedSearch = search.trim()
+                const searchLower = trimmedSearch.toLowerCase()
+                const hasSearch = searchLower.length > 0
                 const rootFolders = ((folders || {})[''] || []).filter((entry) => entry.type === 'folder')
                 const matchesSearch = (entry: FileSystemEntry): boolean => {
-                    if (!searchLower) {
+                    if (!hasSearch) {
                         return true
                     }
                     const folderName = splitPath(entry.path).pop() || entry.path
                     const normalizedName = folderName.toLowerCase()
                     const normalizedPath = entry.path.toLowerCase()
                     return normalizedName.includes(searchLower) || normalizedPath.includes(searchLower)
+                }
+
+                const baseItems: NewTabTreeDataItem[] = [
+                    {
+                        id: 'project-root',
+                        name: 'Project root',
+                        category: 'folders',
+                        icon: <IconFolder />,
+                        record: { id: 'project-root', path: '', type: 'folder' } as FileSystemEntry,
+                    },
+                ]
+
+                if (!hasSearch) {
+                    return baseItems
                 }
 
                 const filteredFolders = rootFolders.filter(matchesSearch).sort((a, b) => a.path.localeCompare(b.path))
@@ -1649,13 +1665,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         : filteredFolders.slice(0, Math.max(foldersLimit - 1, 0))
 
                 return [
-                    {
-                        id: 'project-root',
-                        name: 'Project root',
-                        category: 'folders',
-                        icon: <IconFolder />,
-                        record: { id: 'project-root', path: '', type: 'folder' } as FileSystemEntry,
-                    },
+                    ...baseItems,
                     ...additionalFolders.map((entry) => ({
                         id: `folder-${entry.id}`,
                         name: splitPath(entry.path).pop() || entry.path,
