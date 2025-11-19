@@ -76,7 +76,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 experimentId: values.experimentId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
-                featureFlags: undefined,
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))

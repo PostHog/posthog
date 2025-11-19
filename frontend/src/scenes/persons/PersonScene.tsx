@@ -382,7 +382,9 @@ export function PersonScene(): JSX.Element | null {
                                               }))}
                                               data-attr="person-feature-flags-select"
                                           />
-                                          <LaunchToolbarButton distinctId={distinctId || primaryDistinctId} />
+                                          <LaunchToolbarButton
+                                              distinctId={distinctId || primaryDistinctId || person.distinct_ids[0]}
+                                          />
                                       </div>
                                       <LemonDivider className="mb-4" />
                                       <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
