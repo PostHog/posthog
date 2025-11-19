@@ -1,8 +1,27 @@
 import { LemonCard } from '@posthog/lemon-ui'
 
-import { BillingProductV2Type } from '~/types'
+import { compactNumber } from 'lib/utils'
+
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { DataWarehouseTierBreakdown } from './DataWarehouseTierBreakdown'
+
+function FreeRowsDisplay({ addon }: { addon: BillingProductV2AddonType }): JSX.Element {
+    const currentUsage = addon.current_usage
+
+    return (
+        <div className="border rounded-lg p-4 mb-3 bg-bg-light">
+            <div className="flex flex-col items-center justify-between">
+                <div>
+                    <div className="font-medium text-sm mb-1">Free historical rows</div>
+                </div>
+                <div className="text-xl font-semibold ">{`${compactNumber(currentUsage)}`}</div>
+            </div>
+        </div>
+    )
+}
+
+const HISTORICAL_ROWS_ADDON_KEY = 'data_warehouse_historical'
 
 export function DataWarehousePricingCard({ product }: { product: BillingProductV2Type | null }): JSX.Element {
     if (!product || !product.tiers || product.tiers.length === 0) {
@@ -23,6 +42,9 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
     const projectedTotal = parseFloat(product.projected_amount_usd || '0')
     const hasProjected = projectedTotal !== currentTotal
 
+    // Find the data warehouse historical addon
+    const historicalAddon = product.addons?.find((addon) => addon.type === HISTORICAL_ROWS_ADDON_KEY)
+
     return (
         <LemonCard className="hover:transform-none">
             <div className="pb-4">
@@ -40,6 +62,7 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
                     )}
                 </div>
             </div>
+            {historicalAddon && <FreeRowsDisplay addon={historicalAddon} />}
             <DataWarehouseTierBreakdown product={product} />
         </LemonCard>
     )
