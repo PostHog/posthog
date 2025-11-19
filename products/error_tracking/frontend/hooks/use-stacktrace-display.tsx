@@ -20,7 +20,7 @@ export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string
 }
 
 function generateExceptionText(exception: ErrorTrackingException, stackFrameRecords: Record<string, any>): string {
-    let result = `${formatType(exception)}: ${exception.value}`
+    let result = `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 
     const frames = exception.stacktrace?.frames || []
 

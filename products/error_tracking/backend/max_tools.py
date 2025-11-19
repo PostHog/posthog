@@ -237,7 +237,7 @@ class ErrorTrackingExplainIssueTool(MaxTool):
         return user_message, {}
 
     async def _analyze_issue(self, context: ErrorTrackingExplainIssueToolContext) -> ErrorTrackingExplainIssueOutput:
-        """Analyze experiment and generate summary."""
+        """Analyze an error tracking issue and generate a summary."""
         stacktrace = self.context.get("stacktrace")
 
         if not stacktrace:
@@ -270,7 +270,7 @@ class ErrorTrackingExplainIssueTool(MaxTool):
         lines.append(summary.specific_problem)
 
         lines.append("\n#### How to fix it:")
-        for option in summary.possible_resolutions:
-            lines.append(option)
+        for i, option in enumerate(summary.possible_resolutions, 1):
+            lines.append(f"{i}. {option}")
 
         return "\n".join(lines)
