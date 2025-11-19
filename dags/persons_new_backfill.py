@@ -84,6 +84,7 @@ def get_id_range(
         context.add_output_metadata(
             {
                 "min_id": dagster.MetadataValue.int(min_id),
+                "min_id_source": dagster.MetadataValue.text("config" if config.min_id is not None else "database"),
                 "max_id": dagster.MetadataValue.int(max_id),
                 "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
                 "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),
