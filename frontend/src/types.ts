@@ -4606,6 +4606,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
