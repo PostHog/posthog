@@ -60,6 +60,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             const entryType = target?.getAttribute('data-explorer-entry-type')
             const isParentRow = target?.getAttribute('data-explorer-entry-parent') === 'true'
             const isExpandable = target?.getAttribute('data-explorer-entry-expandable') === 'true'
+            const focusKey = target?.getAttribute('data-focus-key') ?? null
 
             if (!entryPath || entryType !== 'folder' || isParentRow || !isExpandable) {
                 return
@@ -73,8 +74,21 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             if (!wasExpanded) {
                 loadFolder(entryPath)
             }
+
+            if (focusKey) {
+                requestAnimationFrame(() => {
+                    listboxRef.current?.focusItemByKey(focusKey)
+                })
+            }
         },
-        [activeExplorerFolderPath, trimmedSearch, explorerExpandedFolders, toggleExplorerFolderExpansion, loadFolder]
+        [
+            activeExplorerFolderPath,
+            trimmedSearch,
+            explorerExpandedFolders,
+            toggleExplorerFolderExpansion,
+            loadFolder,
+            listboxRef,
+        ]
     )
 
     const handleAskAi = (question?: string): void => {
