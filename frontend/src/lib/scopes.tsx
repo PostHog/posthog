@@ -100,6 +100,11 @@ export const API_KEY_SCOPE_PRESETS: {
 }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
+        value: 'source_map_upload',
+        label: 'Source map upload',
+        scopes: ['organization:read', 'error_tracking:write'],
+    },
+    {
         value: 'zapier',
         label: 'Zapier integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
