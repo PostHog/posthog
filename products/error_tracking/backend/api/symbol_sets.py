@@ -5,6 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.db.models.aggregates import Count
 
 import structlog
 import posthoganalytics
@@ -39,15 +40,12 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
 
 
 class ErrorTrackingSymbolSetListSerializer(serializers.ModelSerializer):
-    frames_count = serializers.SerializerMethodField(read_only=True)
+    frames_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = ErrorTrackingSymbolSet
         fields = ["id", "ref", "frames_count", "team_id", "created_at", "storage_ptr", "failure_reason"]
         read_only_fields = ["team_id"]
-
-    def get_frames_count(self, obj):
-        return obj.errortrackingstackframe_set.count()
 
 
 @dataclass
@@ -115,7 +113,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     def list(self, request, *args, **kwargs) -> Response:
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self.filter_queryset(self.get_queryset()).annotate(frames_count=Count("errortrackingstackframe"))
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = ErrorTrackingSymbolSetListSerializer(page, many=True)
