@@ -355,6 +355,7 @@ DESTINATION_WORKFLOWS = {
         NoOpInputs,
     ),
     "NoOp": ("no-op", NoOpInputs),
+    "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
 
