@@ -14,13 +14,13 @@ import structlog
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
 
 
-class Task(models.Model):
+class Task(DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
@@ -99,6 +99,14 @@ class Task(models.Model):
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save()
+
+    def delete(self, *args, **kwargs):
+        raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
     @staticmethod
     def create_and_run(
@@ -258,6 +266,9 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+
+    def delete(self, *args, **kwargs):
+        raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
 
 class SandboxSnapshot(UUIDModel):

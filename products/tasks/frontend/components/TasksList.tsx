@@ -9,6 +9,7 @@ import { tasksLogic } from '../tasksLogic'
 import { Task, TaskRunStatus } from '../types'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskStatusBadge } from './TaskStatusBadge'
+import { UserFilter } from './UserFilter'
 
 export function TasksList(): JSX.Element {
     const { filteredTasks, tasksLoading, repositories, searchQuery, repository, status, isCreateModalOpen } =
@@ -106,6 +107,7 @@ export function TasksList(): JSX.Element {
                         />
                     )}
                     <LemonSelect value={status} onChange={setStatus} options={statusOptions} className="min-w-32" />
+                    <UserFilter />
                 </div>
                 <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
                     New task

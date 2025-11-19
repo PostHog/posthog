@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { urls } from 'scenes/urls'
+import { IconGit } from 'lib/lemon-ui/icons'
 
 import { repositorySelectorLogic } from './repositorySelectorLogic'
 
@@ -45,20 +45,23 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
         return (
             <LemonCard className="p-6 text-center">
                 <div className="space-y-4">
-                    <IconGear className="mx-auto text-4xl text-muted" />
+                    <IconGit className="mx-auto text-4xl text-muted" />
                     <div>
-                        <h3 className="font-medium">No GitHub Integration</h3>
+                        <h3 className="font-medium">Connect GitHub</h3>
                         <p className="text-muted text-sm">
-                            Connect a GitHub integration to enable repository selection.
+                            Connect your GitHub account to create tasks from repositories.
                         </p>
                     </div>
                     <LemonButton
                         type="primary"
-                        onClick={() =>
-                            window.open(urls.currentProject(urls.settings('environment-integrations')), '_blank')
-                        }
+                        icon={<IconGit />}
+                        disableClientSideRouting
+                        to={api.integrations.authorizeUrl({
+                            kind: 'github',
+                            next: window.location.pathname,
+                        })}
                     >
-                        Configure GitHub Integration
+                        Connect GitHub
                     </LemonButton>
                 </div>
             </LemonCard>

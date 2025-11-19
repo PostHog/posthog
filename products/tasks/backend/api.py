@@ -66,7 +66,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team).order_by("-created_at")
+        qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -105,6 +105,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
+
+    def perform_destroy(self, instance):
+        task = cast(Task, instance)
+        logger.info(f"Soft deleting task {task.id}")
+        task.soft_delete()
 
     def _trigger_workflow(self, task: Task) -> None:
         try:
