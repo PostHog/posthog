@@ -518,6 +518,7 @@ OAUTH2_PROVIDER = {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
         "email": "Access to user's email address",
+        "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
