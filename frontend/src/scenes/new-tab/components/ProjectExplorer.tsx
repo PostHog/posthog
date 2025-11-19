@@ -140,11 +140,11 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                     ← Back to results
                 </ButtonPrimitive>
             </div>
-            <div className="rounded bg-bg-300 overflow-hidden">
-                <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] px-3 py-2 text-xs uppercase text-muted">
-                    <span>Name</span>
-                    <span>Created by</span>
-                    <span>Created at</span>
+            <div className="rounded bg-bg-300">
+                <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border text-xs uppercase text-muted">
+                    <div className="py-2 pr-3 pl-6">Name</div>
+                    <div className="px-3 py-2">Created by</div>
+                    <div className="px-3 py-2">Created at</div>
                 </div>
                 {isLoadingCurrentFolder && rows.length === 0 ? (
                     <div className="flex items-center gap-2 px-3 py-4 text-muted">
@@ -178,7 +178,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                             >
                                 <Link
                                     to={entry.href || '#'}
-                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary"
+                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary"
                                     onClick={handleRowClick}
                                 >
                                     <div
