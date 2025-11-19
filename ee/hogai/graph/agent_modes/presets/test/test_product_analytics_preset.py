@@ -18,8 +18,8 @@ from ..product_analytics import ProductAnalyticsAgentToolkit, product_analytics_
 class TestProductAnalyticsAgentToolkit(BaseTest):
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("posthoganalytics.feature_enabled")
-    async def test_get_tools_session_summarization_feature_flag(self, mock_feature_enabled, mock_model):
-        """Test that session_summarization tool is only included when feature flag is enabled"""
+    async def test_create_insight_tool_when_agent_modes_enabled(self, mock_feature_enabled, mock_model):
+        """Test that create_insight tool is included when agent modes feature flag is enabled"""
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
 
         node = ProductAnalyticsAgentToolkit(
@@ -33,13 +33,41 @@ class TestProductAnalyticsAgentToolkit(BaseTest):
         mock_feature_enabled.return_value = True
         tools_with_flag = await node.get_tools(state, {})
         tool_names_with_flag = [tool.get_name() for tool in tools_with_flag]
-        self.assertIn("session_summarization", tool_names_with_flag)
+        self.assertIn("create_insight", tool_names_with_flag)
 
-        # Test with feature flag disabled
-        mock_feature_enabled.return_value = False
-        tools_without_flag = await node.get_tools(state, {})
-        tool_names_without_flag = [tool.get_name() for tool in tools_without_flag]
-        self.assertNotIn("session_summarization", tool_names_without_flag)
+    @patch(
+        "ee.hogai.graph.agent_modes.presets.product_analytics.ProductAnalyticsAgentToolkit._has_session_summarization_feature_flag"
+    )
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
+    @patch("posthoganalytics.feature_enabled")
+    async def test_legacy_tools_when_agent_modes_disabled(
+        self, mock_agent_modes_feature_flag, mock_model, mock_has_session_summarization_feature_flag
+    ):
+        """
+        Test that legacy tools (create_and_query_insight and session_summarization) are included
+        when the agent modes feature flag is disabled.
+
+        TODO: Remove this test after agent modes feature flag is fully rolled out.
+        """
+        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+        mock_agent_modes_feature_flag.return_value = False
+        mock_has_session_summarization_feature_flag.return_value = True
+
+        node = ProductAnalyticsAgentToolkit(
+            team=self.team,
+            user=self.user,
+            context_manager=AssistantContextManager(self.team, self.user, RunnableConfig(configurable={})),
+        )
+        state = AssistantState(messages=[HumanMessage(content="Test")])
+
+        tools = await node.get_tools(state, {})
+        tool_names = [tool.get_name() for tool in tools]
+
+        # When agent modes is disabled, we should have the legacy tools
+        self.assertIn("create_and_query_insight", tool_names)
+        self.assertIn("session_summarization", tool_names)
+        self.assertNotIn("create_insight", tool_names)
+        self.assertNotIn("switch_mode", tool_names)
 
 
 class TestProductAnalyticsAgentNode(BaseTest):

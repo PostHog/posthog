@@ -7,7 +7,7 @@ from django.http import StreamingHttpResponse
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from rest_framework import serializers, status
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
@@ -163,6 +163,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
+        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
+        if not has_message and conversation.status == Conversation.Status.IDLE:
+            raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,

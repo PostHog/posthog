@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconGlobe, IconPhone } from '@posthog/icons'
+import { IconFilter, IconGear, IconGlobe, IconPhone } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -94,6 +94,10 @@ const WebAnalyticsAIFilters = (): JSX.Element => {
                     doPathCleaning: isPathCleaningEnabled,
                     compareFilter: compareFilter,
                 },
+            }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
             }}
             callback={(toolOutput: Record<string, any>) => {
                 if (toolOutput.properties !== undefined) {
