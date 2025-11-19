@@ -7,6 +7,7 @@ import structlog
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
@@ -56,11 +57,10 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
     Generate SQL expression to extract property value from JSON properties column.
 
     Based on posthog/models/property/util.py:get_property_string_expr()
-    Matches PostHog's auto-materialization behavior: empty string for missing values, not NULL.
+    Uses the exact same extraction logic as HogQL for consistency.
     """
-    # Base JSON extraction with quote trimming
-    # Note: We use nullIf for 'null' (JSON null) but keep empty strings as empty strings
-    base_extract = f"replaceRegexpAll(nullIf(JSONExtractRaw(properties, '{property_name}'), 'null'), '^\"|\"$', '')"
+    # Base JSON extraction with quote trimming (exact same as HogQL)
+    base_extract = trim_quotes_expr(f"JSONExtractRaw(properties, '{property_name}')")
 
     if property_type == PropertyType.String:
         return base_extract
