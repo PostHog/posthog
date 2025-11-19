@@ -87,6 +87,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    object_media_preview,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -390,6 +391,13 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
+
+projects_router.register(
+    r"object_media_previews",
+    object_media_preview.ObjectMediaPreviewViewSet,
+    "project_object_media_previews",
+    ["project_id"],
+)
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
