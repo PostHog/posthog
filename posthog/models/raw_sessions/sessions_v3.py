@@ -660,10 +660,10 @@ SELECT
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
-    arrayDistinct(arrayFlatten(groupArray(flag_keys))) as flag_keys,
+    groupUniqArrayArray(flag_keys) as flag_keys,
 
     -- event names
-    arrayDistinct(arrayFlatten(groupArray(event_names))) as event_names,
+    groupUniqArrayArray(event_names) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events
