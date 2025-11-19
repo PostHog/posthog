@@ -58,9 +58,10 @@ export class LogsIngestionConsumer {
 
     public async processBatch(
         messages: LogsIngestionMessage[]
-    ): Promise<{ backgroundTask: Promise<any>; messages: LogsIngestionMessage[] }> {
+    ): Promise<{ backgroundTask?: Promise<any>; messages: LogsIngestionMessage[] }> {
+        await Promise.resolve() // NOTE: Just to keep the signature consistent as we will need this to be async in the future
         if (!messages.length) {
-            return { backgroundTask: Promise.resolve(), messages: [] }
+            return { messages: [] }
         }
 
         return {
