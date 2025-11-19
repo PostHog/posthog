@@ -8,6 +8,7 @@ import api from 'lib/api'
 
 import { Task, type TaskUpsertProps } from '../types'
 import type { taskLogicType } from './taskLogicType'
+import { tasksLogic } from './tasksLogic'
 
 export interface TaskLogicProps {
     taskId: string
@@ -32,13 +33,15 @@ export const taskLogic = kea<taskLogicType>([
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)
                     lemonToast.success('Task deleted')
+                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
-                    const response = await api.tasks.update(props.taskId, data)
+                    const updatedTask = await api.tasks.update(props.taskId, data)
                     lemonToast.success('Task updated')
-                    return response
+                    tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
+                    return updatedTask
                 },
             },
         ],

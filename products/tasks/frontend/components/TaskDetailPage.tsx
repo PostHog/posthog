@@ -12,7 +12,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -42,10 +41,6 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="flex items-center gap-2 mb-2">
-                <SceneBreadcrumbBackButton />
-            </div>
-
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <div className="flex flex-col gap-3">

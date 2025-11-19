@@ -30,7 +30,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
             description: description,
             origin_product: OriginProduct.SESSION_SUMMARIES,
         }
-        createTask(payload)
+        createTask({ data: payload })
     }
 
     const parsedSeverity =

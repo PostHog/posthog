@@ -16,7 +16,7 @@ export const manifest: ProductManifest = {
             iconType: 'task',
         },
         TaskDetail: {
-            name: 'Task Detail',
+            name: 'Task',
             import: () => import('./frontend/TaskDetailScene'),
             projectBased: true,
             activityScope: 'TaskDetail',
