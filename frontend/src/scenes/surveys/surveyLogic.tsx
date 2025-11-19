@@ -546,6 +546,9 @@ export const surveyLogic = kea<surveyLogicType>([
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setShowArchivedResponses: (show: boolean) => ({ show }),
+        archiveResponse: (responseUuid: string) => ({ responseUuid }),
+        unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -765,6 +768,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                         AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                         ${values.timestampFilter}
+                        ${values.archivedResponsesFilter}
                         AND {filters} -- Apply property filters here to the main query
                         -- Main condition for handling partial responses and answer filters:
                         AND (
@@ -821,6 +825,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                             ${values.timestampFilter}
+                            ${values.archivedResponsesFilter}
                             AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
@@ -871,6 +876,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ${values.timestampFilter}
                         ${values.answerFilterHogQLExpression}
                         ${values.partialResponsesFilter}
+                        ${values.archivedResponsesFilter}
                         AND {filters}
                     ORDER BY events.timestamp DESC
                     LIMIT ${limit}` as HogQLQueryString
@@ -888,6 +894,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responsesByQuestion = processResultsForSurveyQuestions(values.survey.questions, results)
 
                 return { responsesByQuestion }
+            },
+        },
+        archivedResponseUuids: {
+            loadArchivedResponseUuids: async (): Promise<Set<string>> => {
+                if (props.id === NEW_SURVEY.id) {
+                    return new Set()
+                }
+                const uuids = await api.surveys.getArchivedResponseUuids(props.id)
+                return new Set(uuids)
             },
         },
     })),
@@ -942,6 +957,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
+                    // Load archived response UUIDs when survey loads
+                    actions.loadArchivedResponseUuids()
                 }
 
                 if (values.survey.start_date) {
@@ -1004,9 +1021,57 @@ export const surveyLogic = kea<surveyLogicType>([
                     reloadAllSurveyResults()
                 }
             },
+            setShowArchivedResponses: () => {
+                reloadAllSurveyResults()
+            },
+            archiveResponse: async ({ responseUuid }) => {
+                try {
+                    await api.surveys.archiveResponse(values.survey.id, responseUuid)
+
+                    const updatedUuids = new Set<string>(values.archivedResponseUuids)
+                    updatedUuids.add(responseUuid)
+                    actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+
+                    lemonToast.success('Response archived')
+                } catch (error) {
+                    lemonToast.error('Failed to archive response')
+                    posthog.captureException(error, {
+                        action: 'archive-survey-response',
+                        survey: values.survey.id,
+                        response: responseUuid,
+                    })
+                    actions.loadArchivedResponseUuids()
+                }
+            },
+            unarchiveResponse: async ({ responseUuid }) => {
+                try {
+                    await api.surveys.unarchiveResponse(values.survey.id, responseUuid)
+
+                    const updatedUuids = new Set<string>(values.archivedResponseUuids)
+                    updatedUuids.delete(responseUuid)
+                    actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+
+                    lemonToast.success('Response unarchived')
+                } catch (error) {
+                    lemonToast.error('Failed to unarchive response')
+                    posthog.captureException(error, {
+                        action: 'unarchive-survey-response',
+                        survey: values.survey.id,
+                        response: responseUuid,
+                    })
+                    actions.loadArchivedResponseUuids()
+                }
+            },
         }
     }),
     reducers({
+        showArchivedResponses: [
+            false,
+            { persist: true },
+            {
+                setShowArchivedResponses: (_, { show }) => show,
+            },
+        ],
         filterSurveyStatsByDistinctId: [
             true,
             { persist: true },
@@ -1284,6 +1349,22 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        archivedResponsesFilter: [
+            (s) => [s.showArchivedResponses, s.archivedResponseUuids],
+            (showArchivedResponses: boolean, archivedUuids: Set<string>): string => {
+                if (showArchivedResponses) {
+                    return ''
+                }
+                if (!archivedUuids || archivedUuids.size === 0) {
+                    return ''
+                }
+
+                const uuidList = Array.from(archivedUuids)
+                    .map((uuid) => `'${uuid}'`)
+                    .join(', ')
+                return `AND uuid NOT IN (${uuidList})`
+            },
+        ],
         isSurveyAnalysisMaxToolEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1422,12 +1503,22 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression, s.partialResponsesFilter, s.dateRange],
+            (s) => [
+                s.survey,
+                s.propertyFilters,
+                s.answerFilterHogQLExpression,
+                s.partialResponsesFilter,
+                s.archivedResponsesFilter,
+                s.dateRange,
+                s.archivedResponseUuids,
+                s.showArchivedResponses,
+            ],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
                 answerFilterHogQLExpression: string,
                 partialResponsesFilter: string,
+                archivedResponsesFilter: string,
                 dateRange: SurveyDateRange
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
@@ -1441,6 +1532,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
                     where.push(answerFilterHogQLExpression.substring(4))
+                }
+
+                if (archivedResponsesFilter !== '') {
+                    // skip the 'AND ' prefix
+                    where.push(archivedResponsesFilter.substring(4))
                 }
 
                 return {
