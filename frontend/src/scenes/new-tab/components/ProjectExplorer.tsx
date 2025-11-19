@@ -19,6 +19,8 @@ import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-gen
 
 import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabSceneLogic'
 
+const CHILD_INDENT_PX = 24
+
 interface ExplorerRow {
     entry: FileSystemEntry
     depth: number
@@ -195,6 +197,7 @@ export function ProjectExplorer({
                                 setHighlightedExplorerEntryPath(null)
                             }
                         }
+                        const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
                         return (
                             <ListBox.Item
                                 asChild
@@ -210,34 +213,34 @@ export function ProjectExplorer({
                                         'grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                         isHighlighted && 'bg-primary-alt-highlight text-primary'
                                     )}
+                                    style={rowIndent ? { paddingLeft: rowIndent } : undefined}
                                     onClick={handleRowClick}
                                     onFocus={handleRowFocus}
                                 >
-                                    <div
-                                        className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm"
-                                        style={{ paddingLeft: 12 + depth * 16 }}
-                                    >
-                                        {isExpandableFolder ? (
-                                            <ButtonPrimitive
-                                                size="xs"
-                                                iconOnly
-                                                tabIndex={-1}
-                                                className="shrink-0"
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                onClick={(event) => {
-                                                    event.stopPropagation()
-                                                    event.preventDefault()
-                                                    handleToggleFolder(entry.path)
-                                                }}
-                                                aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
-                                            >
-                                                <IconChevronRight
-                                                    className={`size-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                                />
-                                            </ButtonPrimitive>
-                                        ) : (
-                                            <span className="w-4" />
-                                        )}
+                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm">
+                                        <span className="flex w-5 justify-center">
+                                            {isExpandableFolder ? (
+                                                <ButtonPrimitive
+                                                    size="xs"
+                                                    iconOnly
+                                                    tabIndex={-1}
+                                                    className="shrink-0"
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        event.preventDefault()
+                                                        handleToggleFolder(entry.path)
+                                                    }}
+                                                    aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                                                >
+                                                    <IconChevronRight
+                                                        className={`size-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                                    />
+                                                </ButtonPrimitive>
+                                            ) : (
+                                                <span className="block w-3" />
+                                            )}
+                                        </span>
                                         <span className="shrink-0 text-primary">{icon}</span>
                                         <span className="truncate">{nameLabel}</span>
                                         {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
