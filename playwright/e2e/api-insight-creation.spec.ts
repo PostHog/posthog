@@ -69,7 +69,7 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
 
     // :FIXME: Temporarily disabled due to flakiness with alerts for erroring requests
     // // Take a screenshot of the insight for visual regression testing
-    // await page.locator('[data-attr="insights-graph"]').screenshot({
-    //     path: '__snapshots__/pageview-trends-insight.png',
+    // await expect(page).toHaveScreenshot('pageview-trends-insight.png', {
+    //     fullPage: true,
     // })
 })

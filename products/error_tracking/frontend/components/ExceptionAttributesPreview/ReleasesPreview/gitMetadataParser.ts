@@ -1,16 +1,13 @@
-import { ErrorTrackingRelease } from 'lib/components/Errors/types'
+import { ReleaseGitMetadata } from 'lib/components/Errors/types'
 
-export type GitProvider = 'github' | 'unknown'
+export type GitProvider = 'github' | 'gitlab' | 'unknown'
+export const supportedProviders: GitProvider[] = ['github', 'gitlab']
 
 export class GitMetadataParser {
-    static getViewCommitLink(release: ErrorTrackingRelease): string | undefined {
-        const hasRemoteUrl = release.metadata?.git?.remote_url !== undefined
-        const hasCommitId = release.metadata?.git?.commit_id !== undefined
+    static getViewCommitLink(git: ReleaseGitMetadata): string | undefined {
+        const { remote_url, commit_id } = git
 
-        const remoteUrl = release.metadata?.git?.remote_url ?? ''
-        const commitId = release.metadata?.git?.commit_id ?? ''
-
-        return hasRemoteUrl && hasCommitId ? this.resolveRemoteUrlWithCommitToLink(remoteUrl, commitId) : undefined
+        return !!remote_url && !!commit_id ? this.resolveRemoteUrlWithCommitToLink(remote_url, commit_id) : undefined
     }
 
     static parseRemoteUrl(remoteUrl: string): { provider: GitProvider; owner: string; repository: string } | null {
@@ -23,6 +20,14 @@ export class GitMetadataParser {
         if (parsed.providerUrl.includes('github')) {
             return {
                 provider: 'github',
+                owner: parsed.user,
+                repository: parsed.path,
+            }
+        }
+
+        if (parsed.providerUrl.includes('gitlab')) {
+            return {
+                provider: 'gitlab',
                 owner: parsed.user,
                 repository: parsed.path,
             }
@@ -42,11 +47,19 @@ export class GitMetadataParser {
             parsed = GitMetadataParser.parseHttpsRemoteUrl(remoteUrl)
         }
 
-        if (!parsed?.providerUrl.includes('github')) {
+        if (!parsed) {
             return undefined
         }
 
-        return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/commit/${commitSha}`
+        if (parsed.providerUrl.includes('github')) {
+            return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/commit/${commitSha}`
+        }
+
+        if (parsed.providerUrl.includes('gitlab')) {
+            return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/-/commit/${commitSha}`
+        }
+
+        return undefined
     }
 
     static parseSshRemoteUrl(remoteUrl: string): { providerUrl: string; user: string; path: string } | undefined {

@@ -12,12 +12,12 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
+import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
@@ -27,7 +27,7 @@ export function DataWarehouseScene(): JSX.Element {
     const { setActiveTab } = useActions(dataWarehouseSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
-        return <NotFound object="Data Warehouse" />
+        return <NotFound object="Data warehouse" />
     }
 
     return (
@@ -54,7 +54,6 @@ export function DataWarehouseScene(): JSX.Element {
                     </div>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
@@ -69,6 +68,11 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.VIEWS,
+                        label: 'Views',
+                        content: <ViewsTab />,
                     },
                 ]}
             />

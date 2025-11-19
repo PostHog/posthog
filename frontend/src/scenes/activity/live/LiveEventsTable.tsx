@@ -16,7 +16,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
@@ -84,15 +83,14 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.LiveEvents].name}
-                description={sceneConfigurations[Scene.LiveEvents].description}
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">

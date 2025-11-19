@@ -87,78 +87,72 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     return node
 }
 
-export const SupportedPlatforms = memo(
-    function SupportedPlatforms(props: {
-        web?: false | { note?: ReactNode; version?: string }
-        android?: false | { note?: ReactNode; version?: string }
-        ios?: false | { note?: ReactNode; version?: string }
-        reactNative?: false | { note?: ReactNode; version?: string }
-        flutter?: false | { note?: ReactNode; version?: string }
-    }): JSX.Element | null {
-        const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
-        return allSupported ? null : (
-            <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
-                <Tooltip
-                    delayMs={200}
-                    title="We support lots of platforms! But not every feature works everywhere (yet)"
-                >
-                    <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
-                </Tooltip>
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.web) ? props.web.note : undefined}
-                    label="Web"
-                    supportedSinceVersion={
-                        isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
-                    }
-                />
+export const SupportedPlatforms = memo(function SupportedPlatforms(props: {
+    web?: false | { note?: ReactNode; version?: string }
+    android?: false | { note?: ReactNode; version?: string }
+    ios?: false | { note?: ReactNode; version?: string }
+    reactNative?: false | { note?: ReactNode; version?: string }
+    flutter?: false | { note?: ReactNode; version?: string }
+}): JSX.Element | null {
+    const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
+    return allSupported ? null : (
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+            <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
+                <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
+            </Tooltip>
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.web) ? props.web.note : undefined}
+                label="Web"
+                supportedSinceVersion={
+                    isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.android) ? props.android.note : undefined}
-                    label="Android"
-                    supportedSinceVersion={
-                        isObject(props.android) && typeof props.android?.version === 'string'
-                            ? props.android.version
-                            : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.android) ? props.android.note : undefined}
+                label="Android"
+                supportedSinceVersion={
+                    isObject(props.android) && typeof props.android?.version === 'string'
+                        ? props.android.version
+                        : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.ios) ? props.ios.note : undefined}
-                    label="iOS"
-                    supportedSinceVersion={
-                        isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.ios) ? props.ios.note : undefined}
+                label="iOS"
+                supportedSinceVersion={
+                    isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.reactNative) ? props.reactNative.note : undefined}
-                    label="React Native"
-                    supportedSinceVersion={
-                        isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
-                            ? props.reactNative.version
-                            : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
+                label="React Native"
+                supportedSinceVersion={
+                    isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
+                        ? props.reactNative.version
+                        : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.flutter) ? props.flutter.note : undefined}
-                    label="Flutter"
-                    supportedSinceVersion={
-                        isObject(props.flutter) && typeof props.flutter?.version === 'string'
-                            ? props.flutter.version
-                            : false
-                    }
-                />
-            </div>
-        )
-    },
-    (prevProps, nextProps) => objectsEqual(prevProps, nextProps)
-)
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.flutter) ? props.flutter.note : undefined}
+                label="Flutter"
+                supportedSinceVersion={
+                    isObject(props.flutter) && typeof props.flutter?.version === 'string'
+                        ? props.flutter.version
+                        : false
+                }
+            />
+        </div>
+    )
+})
 
 export function Since(props: {
     web?: false | { version?: string }

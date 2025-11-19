@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import React from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -28,21 +29,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { EventType } from '~/types'
+import { DashboardPlacement, EventType } from '~/types'
 
+import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
@@ -50,6 +53,13 @@ import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
+import { EvaluationTemplatesEmptyState } from './evaluations/EvaluationTemplates'
+import {
+    EvaluationMetrics,
+    PASS_RATE_SUCCESS_THRESHOLD,
+    PASS_RATE_WARNING_THRESHOLD,
+} from './evaluations/components/EvaluationMetrics'
+import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
@@ -65,25 +75,48 @@ export const scene: SceneExport = {
     logic: llmAnalyticsLogic,
 }
 
-const Filters = (): JSX.Element => {
-    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
-        useValues(llmAnalyticsLogic)
+const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
+    const {
+        dashboardDateFilter,
+        dateFilter,
+        shouldFilterTestAccounts,
+        generationsQuery,
+        propertyFilters,
+        activeTab,
+        selectedDashboardId,
+    } = useValues(llmAnalyticsLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
-                onChange={setPropertyFilters}
-                pageKey="llm-analytics"
-            />
-            <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            {!hidePropertyFilters && (
+                <>
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
+                        onChange={setPropertyFilters}
+                        pageKey="llm-analytics"
+                    />
+                    <div className="flex-1" />
+                    <TestAccountFilterSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={setShouldFilterTestAccounts}
+                    />
+                </>
+            )}
+            {hidePropertyFilters && <div className="flex-1" />}
+            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                    Edit dashboard
+                </LemonButton>
+            )}
             <LLMAnalyticsReloadAction />
         </div>
     )
@@ -115,11 +148,54 @@ const Tiles = (): JSX.Element => {
 }
 
 function LLMAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
+        useValues(llmAnalyticsLogic)
+
+    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
+    const setExternalFilters =
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+
+    // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
+    React.useLayoutEffect(() => {
+        if (selectedDashboardId && setExternalFilters) {
+            setExternalFilters({
+                date_from: dashboardDateFilter.dateFrom,
+                date_to: dashboardDateFilter.dateTo,
+                properties: propertyFilters.length > 0 ? propertyFilters : null,
+            })
+        }
+    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+
     return (
         <LLMAnalyticsSetupPrompt>
             <div className="@container/dashboard">
                 <Filters />
-                <Tiles />
+
+                {useCustomizableDashboard ? (
+                    availableDashboardsLoading || !selectedDashboardId ? (
+                        <div className="text-center p-8">
+                            <Spinner />
+                        </div>
+                    ) : (
+                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
+                    )
+                ) : (
+                    <Tiles />
+                )}
             </div>
         </LLMAnalyticsSetupPrompt>
     )
@@ -316,17 +392,29 @@ function LLMAnalyticsGenerations(): JSX.Element {
 function LLMAnalyticsEvaluations(): JSX.Element {
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <LLMAnalyticsEvaluationsContent />
+            <BindLogic logic={evaluationMetricsLogic} props={{}}>
+                <LLMAnalyticsEvaluationsContent />
+            </BindLogic>
         </BindLogic>
     )
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
+    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
         useActions(llmEvaluationsLogic)
+    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
+
+    const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
+        filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
+    )
+
+    // Show templates when there are no evaluations at all (not just filtered empty)
+    if (!evaluationsLoading && evaluations.length === 0) {
+        return <EvaluationTemplatesEmptyState />
+    }
 
     const columns: LemonTableColumns<EvaluationConfig> = [
         {
@@ -388,6 +476,32 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             ),
         },
         {
+            title: 'Recent',
+            key: 'recent_stats',
+            render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
+                const stats = evaluation.stats
+                if (!stats || stats.runs_count === 0) {
+                    return <span className="text-muted text-sm">No runs</span>
+                }
+
+                const passRateColor =
+                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
+                        ? 'text-success'
+                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
+                          ? 'text-warning'
+                          : 'text-danger'
+
+                return (
+                    <div className="flex flex-col items-center">
+                        <div className="text-sm">
+                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                        </div>
+                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
+                    </div>
+                )
+            },
+        },
+        {
             title: 'Runs',
             key: 'total_runs',
             render: (_, evaluation) => (
@@ -444,7 +558,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            {/* Header */}
+            <Filters hidePropertyFilters />
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Evaluations</h2>
@@ -455,12 +569,15 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
-                    to={urls.llmAnalyticsEvaluation('new')}
+                    to={urls.llmAnalyticsEvaluationTemplates()}
                     data-attr="create-evaluation-button"
                 >
                     Create Evaluation
                 </LemonButton>
             </div>
+
+            {/* Metrics Visualization */}
+            <EvaluationMetrics />
 
             {/* Search */}
             <div className="flex items-center gap-2">
@@ -478,7 +595,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             {/* Table */}
             <LemonTable
                 columns={columns}
-                dataSource={filteredEvaluations}
+                dataSource={filteredEvaluationsWithMetrics}
                 loading={evaluationsLoading}
                 rowKey="id"
                 pagination={{
@@ -537,6 +654,27 @@ export function LLMAnalyticsScene(): JSX.Element {
             'data-attr': 'users-tab',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB]) {
+        tabs.push({
+            key: 'errors',
+            label: (
+                <>
+                    Errors{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsErrors />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+            'data-attr': 'errors-tab',
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
         tabs.push({
@@ -632,7 +770,6 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

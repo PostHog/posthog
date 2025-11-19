@@ -7,8 +7,10 @@ __pycache__/
 .dmypy.json
 .DS_Store
 .env*
+!.env.example
 .eslintcache
 .idea
+!.idea/posthog.iml
 .mypy_cache
 .parcel-cache
 # pyenv local config
@@ -62,6 +64,7 @@ frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
 frontend/src/products.tsx
+frontend/src/products.json
 # Vite-specific assets (we copy public assets to src/assets) just for development
 frontend/src/assets
 .typegen
@@ -70,6 +73,8 @@ gen/
 max-test-venv/
 node_modules/
 object_storage/
+data/seaweedfs/
+.migration-checkpoint.json
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 # pyright config (keep this until we have a standardized one)

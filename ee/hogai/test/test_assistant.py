@@ -9,9 +9,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from django.test import override_settings
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
@@ -61,12 +59,12 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.agent_modes import SLASH_COMMAND_INIT
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
@@ -88,7 +86,7 @@ title_generator_mock = patch(
 )
 
 query_executor_mock = patch(
-    "ee.hogai.graph.query_executor.nodes.QueryExecutorNode._format_query_result", new=MagicMock(return_value="Result")
+    "ee.hogai.graph.query_executor.nodes.execute_and_format_query", new=AsyncMock(return_value="Result")
 )
 
 
@@ -242,7 +240,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         with (
-            patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
+            patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model") as root_mock,
             patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as planner_mock,
         ):
             config: RunnableConfig = {
@@ -440,10 +438,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_new_conversation_handles_serialized_conversation(self):
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="Hello", id=str(uuid4()))])
 
@@ -474,10 +468,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_async_stream(self):
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="bar", id=str(uuid4()))])
 
@@ -536,7 +526,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_trends_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
@@ -629,7 +619,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_funnel_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
@@ -727,7 +717,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_retention_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
@@ -827,7 +817,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_sql_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
@@ -1070,7 +1060,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_exits_infinite_loop_after_fourth_attempt(
         self, memory_collector_mock, get_model_mock, planner_mock, generator_mock, title_node_mock
@@ -1137,7 +1127,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
+        with patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model") as root_mock:
 
             def assert_lock_status(_):
                 self.conversation.refresh_from_db()
@@ -1159,8 +1149,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
-            patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.graph.root.nodes.RootNodeTools.run") as root_tool_mock,
+            patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model") as root_mock,
+            patch("ee.hogai.graph.agent_executor.nodes.AgentGraphToolsNode.arun") as root_tool_mock,
         ):
 
             def assert_lock_status(_):
@@ -1184,7 +1174,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertEqual(snapshot.values["messages"][-1].content, "")
             root_tool_mock.assert_not_called()
 
-        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
+        with patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model") as root_mock:
             # The graph must start from the root node despite being cancelled on the root tools node.
             root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(
                 lambda _: messages.AIMessage(content="Finished")
@@ -1195,60 +1185,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
             actual_output, _ = await self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
-
-    @override_settings(INKEEP_API_KEY="test")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model")
-    async def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
-        """Test basic documentation search functionality using Inkeep."""
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
-            .compile()
-        )
-
-        root_model_mock.return_value = FakeChatAnthropic(
-            responses=[
-                messages.AIMessage(
-                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
-                )
-            ]
-        )
-        inkeep_docs_model_mock.return_value = FakeChatOpenAI(
-            responses=[messages.AIMessage(content="Here's what I found in the docs...")]
-        )
-        output, _ = await self._run_assistant_graph(graph, message="How do I use feature flags?")
-
-        self.assertConversationEqual(
-            output,
-            [
-                ("message", HumanMessage(content="How do I use feature flags?")),
-                (
-                    "message",
-                    AssistantMessage(
-                        content="",
-                        tool_calls=[
-                            AssistantToolCall(
-                                args={"kind": "docs", "query": "test"}, id="1", name="search", type="tool_call"
-                            )
-                        ],
-                    ),
-                ),
-                (
-                    "update",
-                    AssistantUpdateEvent(content="Checking PostHog documentation...", id="1", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantMessage(content="Here's what I found in the docs...", id=str(uuid4())),
-                ),
-            ],
-        )
 
     @title_generator_mock
     @query_executor_mock
@@ -1344,10 +1280,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 super().__init__(team, user)
                 self.call_count = 0
 
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
@@ -1414,10 +1346,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 def __init__(self, team, user, message_to_return):
                     super().__init__(team, user)
                     self.message_to_return = message_to_return
-
-                @property
-                def node_name(self):
-                    return AssistantNodeName.ROOT
 
                 async def arun(self, state, config):
                     return PartialAssistantState(messages=[self.message_to_return])
@@ -1509,7 +1437,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     async def test_create_and_query_insight_contextual_tool(
         self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
     ):
@@ -1638,7 +1566,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     async def test_continue_generation_without_new_message(self, root_mock):
         """Test that the assistant can continue generation without a new message (askMax(null) scenario)"""
         root_mock.return_value = FakeChatOpenAI(
@@ -1702,10 +1630,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test ainvoke returns all messages at once without streaming."""
 
         class TestNode(AssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
             async def arun(self, state, config):
                 return PartialAssistantState(messages=[AssistantMessage(content="Response", id=str(uuid4()))])
 
@@ -1777,7 +1701,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(config["configurable"]["billing_context"], billing_context)
 
     @patch("ee.hogai.context.context.AssistantContextManager.check_user_has_billing_access", return_value=True)
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     async def test_billing_tool_execution(self, root_mock, access_mock):
         """Test that the billing tool can be called and returns formatted billing information."""
         billing_context = MaxBillingContext(
@@ -1998,9 +1922,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         "ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize",
         new=AsyncMock(return_value="Summary"),
     )
-    @patch("ee.hogai.graph.root.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation")
-    @patch("ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch(
+        "ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
+    )
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
         mock_model.side_effect = cycle(  # Changed from return_value to side_effect
             [
@@ -2051,12 +1977,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # should be equal to the summary message, minus reasoning message
         self.assertEqual(state.root_conversation_start_id, state.messages[3].id)
 
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
+    @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
-        "ee.hogai.graph.root.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
+        "ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
         return_value=("Hedgehogs have not talked yet", None),
     )
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
     async def test_root_node_can_execute_multiple_tool_calls(self, root_mock, search_mock, read_taxonomy_mock):
         """Test that the root node can execute multiple tool calls in parallel."""
         tool_call_id1, tool_call_id2 = [str(uuid4()), str(uuid4())]

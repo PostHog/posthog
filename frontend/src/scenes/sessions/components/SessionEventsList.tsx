@@ -92,15 +92,13 @@ export function SessionEventsList(): JSX.Element {
                         icon={eventsListFolded ? <IconExpand /> : <IconCollapse />}
                         onClick={() => setEventsListFolded(!eventsListFolded)}
                     />
-                    <div>
-                        <h3 className="text-lg font-semibold">
-                            Events (
-                            {totalEventCount !== null && totalEventCount !== undefined
-                                ? totalEventCount
-                                : sessionEvents.length}
-                            )
-                        </h3>
-                    </div>
+                    <h3 className="text-lg font-semibold m-0">
+                        Events (
+                        {totalEventCount !== null && totalEventCount !== undefined
+                            ? totalEventCount
+                            : sessionEvents.length}
+                        )
+                    </h3>
                 </div>
                 <div className="flex gap-2">
                     <LemonButton

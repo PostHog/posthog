@@ -327,6 +327,16 @@ class TimeSensitiveActionPermission(BasePermission):
 
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
+        allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        if allow_if_only_fields and request.method not in SAFE_METHODS:
+            data = getattr(request, "data", None)
+            data_keys: set[str] = set()
+            if data is not None and hasattr(data, "keys"):
+                data_keys = {str(key) for key in data.keys()}
+
+            if data_keys and data_keys.issubset(set(allow_if_only_fields)):
+                return True
+
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True
 

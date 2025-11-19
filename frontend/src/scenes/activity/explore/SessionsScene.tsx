@@ -27,7 +27,7 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <SceneContent>
-            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ExploreSessions].name}
                 description={sceneConfigurations[Scene.ExploreSessions].description}

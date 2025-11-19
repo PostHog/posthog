@@ -30,6 +30,12 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
+class AgentMode(StrEnum):
+    PRODUCT_ANALYTICS = "product_analytics"
+    SQL = "sql"
+    SESSION_REPLAY = "session_replay"
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
@@ -266,7 +272,6 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
-    NAVIGATE = "navigate"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
@@ -280,7 +285,13 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
+    CREATE_EXPERIMENT = "create_experiment"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
@@ -890,6 +901,17 @@ class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class DataWarehouseSyncInterval(StrEnum):
+    FIELD_5MIN = "5min"
+    FIELD_30MIN = "30min"
+    FIELD_1HOUR = "1hour"
+    FIELD_6HOUR = "6hour"
+    FIELD_12HOUR = "12hour"
+    FIELD_24HOUR = "24hour"
+    FIELD_7DAY = "7day"
+    FIELD_30DAY = "30day"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1118,6 +1140,7 @@ class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -1127,6 +1150,7 @@ class LastEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    distinct_id: str
     properties: str
     timestamp: str
     uuid: str
@@ -1415,6 +1439,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
 
 
@@ -1436,13 +1461,6 @@ class FailureMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
-
-
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
 
 
 class Tag(StrEnum):
@@ -1529,6 +1547,7 @@ class FileSystemIconType(StrEnum):
     APPS = "apps"
     LIVE = "live"
     CHAT = "chat"
+    SEARCH = "search"
 
 
 class FileSystemImport(BaseModel):
@@ -1669,6 +1688,11 @@ class FunnelVizType(StrEnum):
     TRENDS = "trends"
 
 
+class Position(StrEnum):
+    START = "start"
+    END = "end"
+
+
 class GoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1677,6 +1701,7 @@ class GoalLine(BaseModel):
     displayIfCrossed: Optional[bool] = None
     displayLabel: Optional[bool] = None
     label: str
+    position: Optional[Position] = None
     value: float
 
 
@@ -1707,6 +1732,7 @@ class HogLanguage(StrEnum):
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"
+    LIQUID = "liquid"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -1857,6 +1883,7 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
+    BING_ADS = "bing-ads"
 
 
 class IntervalType(StrEnum):
@@ -2705,6 +2732,7 @@ class SimilarIssue(BaseModel):
         extra="forbid",
     )
     description: str
+    distance: float
     first_seen: str
     id: str
     library: Optional[str] = None
@@ -2818,6 +2846,14 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class SuggestedTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    table: str
+    tooltip: Optional[str] = None
+
+
 class SurveyAnalysisResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2896,6 +2932,13 @@ class SurveyQuestionType(StrEnum):
     SINGLE_CHOICE = "single_choice"
     RATING = "rating"
     LINK = "link"
+
+
+class SurveyTabPosition(StrEnum):
+    TOP = "top"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTTOM = "bottom"
 
 
 class SurveyType(StrEnum):
@@ -4098,6 +4141,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -4199,6 +4243,15 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -4477,17 +4530,11 @@ class MaxExperimentSummaryContext(BaseModel):
     description: Optional[str] = None
     experiment_id: Union[float, str]
     experiment_name: str
-    metrics_results: list[MaxExperimentMetricResult]
+    exposures: Optional[dict[str, float]] = None
+    primary_metrics_results: list[MaxExperimentMetricResult]
+    secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
-
-
-class NewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class NotebookUpdateMessage(BaseModel):
@@ -4522,6 +4569,7 @@ class PathsFilter(BaseModel):
     pathReplacements: Optional[bool] = None
     pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
+    showFullUrls: Optional[bool] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = 5
 
@@ -4944,6 +4992,9 @@ class SavedInsightNode(BaseModel):
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
     )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -5245,6 +5296,7 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    tabPosition: Optional[SurveyTabPosition] = None
     textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
@@ -6896,27 +6948,6 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class CachedNewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
-    query_metadata: Optional[dict[str, Any]] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    timezone: str
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -8967,12 +8998,14 @@ class ErrorTrackingIssue(BaseModel):
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
+    function: Optional[str] = None
     id: str
     last_event: Optional[LastEvent] = None
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
     revenue: Optional[float] = None
+    source: Optional[str] = None
     status: Status
 
 
@@ -9217,6 +9250,22 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentBreakdownResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated = Field(..., description="Control variant stats for this breakdown")
+    breakdown_value: list[Optional[Union[int, str, float, list[Union[int, str, float]]]]] = Field(
+        ...,
+        description=(
+            'The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)'
+        ),
+    )
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] = Field(
+        ..., description="Test variant results with statistical comparisons for this breakdown"
+    )
 
 
 class ExperimentDataWarehouseNode(BaseModel):
@@ -9884,6 +9933,15 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
+
+
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class PathsQueryResponse(BaseModel):
@@ -11499,6 +11557,10 @@ class RecordingsQueryResponse(BaseModel):
         extra="forbid",
     )
     has_next: bool
+    next_cursor: Optional[str] = Field(
+        default=None,
+        description="Cursor for the next page. Contains the ordering value and session_id from the last record.",
+    )
     results: list[SessionRecordingType]
 
 
@@ -11549,12 +11611,19 @@ class RetentionFilter(BaseModel):
     meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     minimumOccurrences: Optional[int] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
+    retentionCustomBrackets: Optional[list[float]] = Field(
+        default=None, description="Custom brackets for retention calculations"
+    )
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
         description="Whether retention is with regard to initial cohort size, or that of the previous period.",
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    selectedInterval: Optional[int] = Field(
+        default=None,
+        description="The selected interval to display across all cohorts (null = show all intervals for each cohort)",
+    )
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     timeWindowMode: Optional[TimeWindowMode] = Field(
@@ -11839,6 +11908,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -12032,6 +12102,17 @@ class VectorSearchQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class WebAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    doPathCleaning: Optional[bool] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class WebAnalyticsExternalSummaryQuery(BaseModel):
@@ -12522,6 +12603,28 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     timezone: str
 
 
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12858,6 +12961,7 @@ class ExperimentRatioMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
@@ -13190,6 +13294,13 @@ class RecordingsQuery(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[dict[str, Any]]] = None
+    after: Optional[str] = Field(
+        default=None,
+        description=(
+            "Cursor for pagination. Contains the ordering value and session_id from the last record of the previous"
+            " page."
+        ),
+    )
     comment_text: Optional[RecordingPropertyFilter] = None
     console_log_filters: Optional[list[LogEntryPropertyFilter]] = None
     date_from: Optional[str] = "-3d"
@@ -13265,6 +13376,13 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    session_recording_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the"
+            " filters"
+        ),
+    )
     tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -13804,6 +13922,7 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -13824,6 +13943,7 @@ class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -13868,6 +13988,12 @@ class ExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -14371,6 +14497,12 @@ class QueryResponseAlternative20(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -14647,6 +14779,12 @@ class CachedExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
@@ -15238,10 +15376,16 @@ class EndpointRequest(BaseModel):
     cache_age_seconds: Optional[float] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_materialized: Optional[bool] = Field(
+        default=None, description="Whether this endpoint's query results are materialized to S3"
+    )
     name: Optional[str] = None
     query: Optional[
         Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
     ] = None
+    sync_frequency: Optional[DataWarehouseSyncInterval] = Field(
+        default=None, description="How frequently should the underlying materialized view be updated"
+    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -15608,6 +15752,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -16352,6 +16499,9 @@ class SourceConfig(BaseModel):
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
+    suggestedTables: Optional[list[SuggestedTable]] = Field(
+        default=[], description="Tables to suggest enabling, with optional tooltip explaining why"
+    )
     unreleasedSource: Optional[bool] = None
 
 

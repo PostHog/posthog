@@ -13,6 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -247,6 +248,10 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
 
 
 class BaseStateWithTasks(BaseState):
@@ -414,10 +419,13 @@ class AssistantNodeName(StrEnum):
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
     REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
+    WEB_ANALYTICS_FILTER = "web_analytics_filter"
+    WEB_ANALYTICS_FILTER_OPTIONS_TOOLS = "web_analytics_filter_options_tools"
 
 
 class AssistantGraphName(StrEnum):
     ASSISTANT = "assistant_graph"
+    AGENT_EXECUTOR = "agent_executor_graph"
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"

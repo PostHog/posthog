@@ -11,7 +11,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 export const scene: SceneExport<GroupsNewLogicProps> = {
@@ -61,7 +60,6 @@ export function GroupsNew(): JSX.Element {
                         key: 'groups',
                     }}
                 />
-                <SceneDivider />
                 <div className="deprecated-space-y-2 max-w-200 gap-4">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">

@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { LLMAnalyticsGetCostsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = LLMAnalyticsGetCostsSchema
 
 type Params = z.infer<typeof schema>
 
-export const getLLMCostsHandler = async (context: Context, params: Params) => {
+export const getLLMCostsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { projectId, days } = params
 
     const trendsQuery = {
@@ -31,15 +32,11 @@ export const getLLMCostsHandler = async (context: Context, params: Params) => {
         },
     }
 
-    const costsResult = await context.api
-        .query({ projectId: String(projectId) })
-        .execute({ queryBody: trendsQuery })
+    const costsResult = await context.api.query({ projectId: String(projectId) }).execute({ queryBody: trendsQuery })
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return {
-        content: [{ type: 'text', text: JSON.stringify(costsResult.data.results) }],
-    }
+    return costsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

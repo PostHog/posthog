@@ -21,6 +21,7 @@ import {
     IconStethoscope,
     IconTestTube,
     IconToggle,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
@@ -145,12 +146,15 @@ function piiMaskingMenuItem(
     piiMaskingEnabled: boolean,
     piiMaskingColor: string,
     togglePiiMasking: () => void,
-    setPiiMaskingColor: (color: string) => void
+    setPiiMaskingColor: (color: string) => void,
+    piiWarning: string[] | null
 ): LemonMenuItem[] {
     return [
         {
             icon: piiMaskingEnabled ? <IconEye /> : <IconHide />,
             label: piiMaskingEnabled ? 'Show PII' : 'Hide PII',
+            sideIcon: piiWarning && piiWarning.length > 0 ? <IconWarning className="text-warning" /> : undefined,
+            tooltip: piiWarning && piiWarning.length > 0 ? piiWarning.join('\n') : undefined,
             onClick: (e: React.MouseEvent) => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -191,7 +195,7 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor } = useValues(toolbarLogic)
+    const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
         useActions(toolbarLogic)
 
@@ -237,7 +241,13 @@ function MoreMenu(): JSX.Element {
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
                     },
-                    ...piiMaskingMenuItem(piiMaskingEnabled, piiMaskingColor, togglePiiMasking, setPiiMaskingColor),
+                    ...piiMaskingMenuItem(
+                        piiMaskingEnabled,
+                        piiMaskingColor,
+                        togglePiiMasking,
+                        setPiiMaskingColor,
+                        piiWarning
+                    ),
                     postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
                     {
                         icon: <IconQuestion />,

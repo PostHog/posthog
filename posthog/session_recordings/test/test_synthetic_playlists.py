@@ -770,6 +770,37 @@ class TestUrlNormalization(BaseTest):
             # Should return original URL if parsing fails
             assert result == url or result != ""  # Either returns as-is or handles gracefully
 
+    def test_normalize_url_groups_country_subdomains(self) -> None:
+        """Test that URLs with different country-code subdomains are grouped together"""
+        urls = [
+            "https://us.example.com/pricing",
+            "https://uk.example.com/pricing",
+            "https://fr.example.com/pricing",
+            "https://de.example.com/pricing",
+        ]
+
+        normalized = [NewUrlsSyntheticPlaylistSource._normalize_url(url) for url in urls]
+
+        # All should normalize to the same value
+        assert len(set(normalized)) == 1
+        assert normalized[0] == "https://{country}.example.com/pricing"
+
+    def test_normalize_url_preserves_non_country_subdomains(self) -> None:
+        """Test that non-country-code subdomains are preserved"""
+        urls = [
+            "https://app.example.com/dashboard",
+            "https://api.example.com/v1/users",
+            "https://www.example.com/home",
+        ]
+
+        normalized = [NewUrlsSyntheticPlaylistSource._normalize_url(url) for url in urls]
+
+        # All should remain different (not treated as country codes)
+        assert len(set(normalized)) == 3
+        assert "https://app.example.com/dashboard" in normalized
+        assert "https://api.example.com/v1/users" in normalized
+        assert "https://www.example.com/home" in normalized
+
     def test_pattern_newness_not_url_newness(self) -> None:
         """
         Test that we detect NEW PATTERNS, not just new URLs.

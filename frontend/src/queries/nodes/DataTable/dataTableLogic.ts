@@ -76,6 +76,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     })),
     selectors({
+        context: [() => [(_, props) => props.context], (context) => context],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
@@ -238,6 +239,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : (query.showOpenEditorButton ?? true),
                         showResultsTable: query.showResultsTable ?? true,
+                        showRecordingColumn: query.showRecordingColumn ?? false,
                     }),
                 }
             },

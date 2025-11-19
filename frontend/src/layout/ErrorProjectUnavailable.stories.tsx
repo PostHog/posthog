@@ -38,7 +38,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        pageUrl: urls.projectHomepage(),
+        pageUrl: urls.projectRoot(),
         testOptions: {
             waitForLoadersToDisappear: true,
         },

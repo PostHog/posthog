@@ -55,7 +55,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
-    [Scene.BillingSection]: { name: 'Billing', hideProjectNotice: true, organizationBased: true },
+    [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
     [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
@@ -204,6 +204,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
         iconType: 'experiment',
     },
+    [Scene.Activity]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Explore your events or see real-time events from your app or website.',
+        iconType: 'event',
+    },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
@@ -292,7 +299,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.NewTab]: {
+        projectBased: true,
+        name: 'Search',
+        iconType: 'search',
+        hideProjectNotice: true,
+        layout: 'app-raw',
+    },
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
@@ -343,6 +356,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
+    [Scene.UseCaseSelection]: { projectBased: true, name: 'Use case selection', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -351,7 +365,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
-        layout: 'app-raw',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -546,7 +559,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/home': urls.projectHomepage(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -698,6 +710,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
     [urls.products()]: [Scene.Products, 'products'],
+    [urls.useCaseSelection()]: [Scene.UseCaseSelection, 'useCaseSelection'],
     [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],

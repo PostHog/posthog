@@ -14,7 +14,6 @@ import {
     IconDashboard,
     IconExpand,
     IconEye,
-    IconGear,
     IconLeave,
     IconLogomark,
     IconRedux,
@@ -47,7 +46,12 @@ import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
-const typeToIconAndDescription = {
+interface IconAndDescription {
+    Icon: FunctionComponent | undefined
+    tooltip: string | undefined
+}
+
+const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescription> = {
     events: {
         Icon: undefined,
         tooltip: 'Recording event',
@@ -72,21 +76,17 @@ const typeToIconAndDescription = {
         Icon: IconEye,
         tooltip: 'browser tab/window became visible or hidden',
     },
-    $session_config: {
-        Icon: IconGear,
-        tooltip: 'Session recording config',
-    },
     doctor: {
         Icon: undefined,
         tooltip: 'Doctor event',
     },
+    'session-change': {
+        Icon: undefined,
+        tooltip: 'User session changed',
+    },
     comment: {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
-    },
-    annotation: {
-        Icon: IconChat,
-        tooltip: 'An annotation was added to this timestamp',
     },
     'inspector-summary': {
         Icon: undefined,
@@ -97,6 +97,8 @@ const typeToIconAndDescription = {
         tooltip: undefined,
     },
 }
+
+const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
 
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
@@ -200,14 +202,12 @@ function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null 
 function RowItemDetail({
     item,
     finalTimestamp,
-    onClick,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
-    onClick: () => void
 }): JSX.Element | null {
     return (
-        <div onClick={onClick}>
+        <div>
             {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'app-state' ? (
@@ -308,7 +308,7 @@ const ListItemTitle = memo(function ListItemTitle({
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
-            {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+            {!notExpandable.includes(item.type) && (
                 <LemonButton
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     size="small"
@@ -328,14 +328,9 @@ const ListItemTitle = memo(function ListItemTitle({
 
 const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: InspectorListItem; index: number }) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
 
     const { end } = useValues(playerInspectorLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-
-    // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
-    // Ceiling second is used since this is what's displayed to the user.
-    const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
 
     return (
         <div
@@ -345,7 +340,7 @@ const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: Ins
             )}
         >
             <div className="text-xs">
-                <RowItemDetail item={item} finalTimestamp={end} onClick={() => seekToEvent()} />
+                <RowItemDetail item={item} finalTimestamp={end} />
                 <LemonDivider dashed />
 
                 <div

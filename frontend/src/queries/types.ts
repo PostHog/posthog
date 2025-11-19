@@ -42,6 +42,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     extraDataTableQueryFeatures?: QueryFeature[]
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    /** Cohort ID to enable cohort-specific features like View Replays button */
+    cohortId?: number | null
     /** Custom column features to pass down to the DataTable */
     columnFeatures?: ColumnFeature[]
     /** Key to be used in dataNodeLogic so that we can find the dataNodeLogic */
