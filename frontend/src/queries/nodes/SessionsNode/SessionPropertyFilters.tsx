@@ -30,7 +30,6 @@ export function SessionPropertyFilters({ query, setQuery }: SessionPropertyFilte
               TaxonomicFilterGroupType.EventProperties,
               TaxonomicFilterGroupType.PersonProperties,
               TaxonomicFilterGroupType.EventFeatureFlags,
-              TaxonomicFilterGroupType.Cohorts,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
         : [
