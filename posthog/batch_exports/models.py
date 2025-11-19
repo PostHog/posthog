@@ -30,6 +30,7 @@ class BatchExportDestination(UUIDTModel):
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         DATABRICKS = "Databricks"
+        WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         POSTHOG_REALTIME_DESTINATIONS = "PostHogRealtimeDestinations"
 
@@ -46,6 +47,7 @@ class BatchExportDestination(UUIDTModel):
         "HTTP": {"token"},
         "PostHogRealtimeDestinations": set(),
         "NoOp": set(),
+        "Workflows": set(),
     }
 
     type = models.CharField(
