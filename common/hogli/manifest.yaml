@@ -362,6 +362,8 @@ db:
             - docker
     db:restore:
         cmd: |
+            set -e
+            set -o pipefail
             if [ -z "$1" ]; then
                 LATEST=$(ls -t .postgres-backups/*.sql.gz 2>/dev/null | head -1)
                 if [ -z "$LATEST" ]; then
@@ -373,6 +375,10 @@ db:
                 BACKUP_FILE="$LATEST"
             else
                 BACKUP_FILE="$1"
+            fi
+            if [ ! -f "$BACKUP_FILE" ]; then
+                echo "❌ Error: Backup file not found: $BACKUP_FILE"
+                exit 1
             fi
             gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -q -U posthog > /dev/null 2>&1
             echo "✅ Restored from: $BACKUP_FILE"
