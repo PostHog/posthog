@@ -223,7 +223,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         activityEventFilters: [
             (s) => [s.activityEvent, s.activityEventSelection],
-            (activityEvent, activityEventSelection) => {
+            (activityEvent, activityEventSelection): FilterType => {
                 if (activityEventSelection) {
                     return activityEventSelection
                 }
