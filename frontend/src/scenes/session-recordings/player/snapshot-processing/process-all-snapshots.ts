@@ -568,9 +568,9 @@ const lengthPrefixedSnappyDecompress = async (
     }
 
     // Phase 2: Decompress all blocks in parallel
-    const blockCount = compressedBlocks.length
+    const isParallel = compressedBlocks.length > 1
     const decompressedBlocks = await Promise.all(
-        compressedBlocks.map((block) => workerManager.decompress(block, { blockCount }))
+        compressedBlocks.map((block) => workerManager.decompress(block, { isParallel }))
     )
 
     // Phase 3: Decode all blocks to strings
@@ -587,7 +587,7 @@ const rawSnappyDecompress = async (
 ): Promise<string> => {
     const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
 
-    const decompressedData = await workerManager.decompress(uint8Data)
+    const decompressedData = await workerManager.decompress(uint8Data, { isParallel: false })
 
     const textDecoder = new TextDecoder('utf-8')
     return textDecoder.decode(decompressedData)
@@ -619,7 +619,7 @@ export const parseEncodedSnapshots = async (
     posthogInstance?: PostHog
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
-    const enableYielding = decompressionMode === 'yielding'
+    const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
 
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()

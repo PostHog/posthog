@@ -9,7 +9,7 @@ interface PendingRequest {
     reject: (error: Error) => void
     startTime: number
     dataSize: number
-    blockCount?: number
+    isParallel?: boolean
 }
 
 interface DecompressionStats {
@@ -18,10 +18,10 @@ interface DecompressionStats {
     totalSize: number
 }
 
-export type DecompressionMode = 'worker' | 'yielding' | 'blocking'
+export type DecompressionMode = 'worker' | 'yielding' | 'blocking' | 'worker_and_yielding'
 
 export function normalizeMode(mode?: string | boolean): DecompressionMode {
-    if (mode === 'worker' || mode === 'yielding') {
+    if (mode === 'worker' || mode === 'yielding' || mode === 'worker_and_yielding') {
         return mode
     }
     return 'blocking'
@@ -43,7 +43,8 @@ export class DecompressionWorkerManager {
         private readonly posthog?: PostHog
     ) {
         this.mode = normalizeMode(mode)
-        this.readyPromise = this.mode === 'worker' ? this.initWorker() : this.initSnappy()
+        this.readyPromise =
+            this.mode === 'worker' || this.mode === 'worker_and_yielding' ? this.initWorker() : this.initSnappy()
     }
 
     private getErrorMessage(error: unknown): string {
@@ -92,7 +93,7 @@ export class DecompressionWorkerManager {
                     pending.dataSize,
                     undefined,
                     workerDecompressDuration,
-                    pending.blockCount
+                    pending.isParallel
                 )
 
                 if (error || !decompressedData) {
@@ -135,7 +136,7 @@ export class DecompressionWorkerManager {
         this.snappyInitialized = true
     }
 
-    async decompress(compressedData: Uint8Array, metadata?: { blockCount?: number }): Promise<Uint8Array> {
+    async decompress(compressedData: Uint8Array, metadata?: { isParallel?: boolean }): Promise<Uint8Array> {
         await this.readyPromise
 
         if (this.shouldUseWorker()) {
@@ -145,35 +146,39 @@ export class DecompressionWorkerManager {
     }
 
     private shouldUseWorker(): boolean {
-        return this.mode === 'worker' && this.worker !== null && !this.workerInitFailed
+        return (
+            (this.mode === 'worker' || this.mode === 'worker_and_yielding') &&
+            this.worker !== null &&
+            !this.workerInitFailed
+        )
     }
 
     private async decompressWithFallback(
         compressedData: Uint8Array,
-        metadata?: { blockCount?: number }
+        metadata?: { isParallel?: boolean }
     ): Promise<Uint8Array> {
         try {
             return await this.decompressWithWorker(compressedData, metadata)
         } catch (error) {
-            this.reportWorkerFailure(error, compressedData.length, metadata?.blockCount)
+            this.reportWorkerFailure(error, compressedData.length, metadata?.isParallel)
             return await this.decompressMainThread(compressedData, metadata)
         }
     }
 
-    private reportWorkerFailure(error: unknown, dataSize: number, blockCount?: number): void {
+    private reportWorkerFailure(error: unknown, dataSize: number, isParallel?: boolean): void {
         console.warn('[DecompressionWorkerManager] Worker decompression failed, falling back to main thread:', error)
         if (this.posthog) {
             this.posthog.capture('replay_worker_decompression_failed', {
                 error: this.getErrorMessage(error),
                 dataSize,
-                blockCount,
+                isParallel,
             })
         }
     }
 
     private async decompressWithWorker(
         compressedData: Uint8Array,
-        metadata?: { blockCount?: number }
+        metadata?: { isParallel?: boolean }
     ): Promise<Uint8Array> {
         const id = this.messageId++
         const startTime = performance.now()
@@ -188,7 +193,7 @@ export class DecompressionWorkerManager {
                     console.error('[DecompressionWorkerManager] Worker decompression timeout', {
                         id,
                         dataSize: compressedData.length,
-                        blockCount: metadata?.blockCount,
+                        isParallel: metadata?.isParallel,
                         timeoutMs: DECOMPRESSION_TIMEOUT_MS,
                     })
                     reject(new Error('Worker decompression timeout'))
@@ -206,7 +211,7 @@ export class DecompressionWorkerManager {
                 },
                 startTime,
                 dataSize: compressedData.length,
-                blockCount: metadata?.blockCount,
+                isParallel: metadata?.isParallel,
             })
 
             const message: DecompressionRequest = {
@@ -226,14 +231,14 @@ export class DecompressionWorkerManager {
 
     private async decompressMainThread(
         compressedData: Uint8Array,
-        metadata?: { blockCount?: number }
+        metadata?: { isParallel?: boolean }
     ): Promise<Uint8Array> {
         const startTime = performance.now()
         const dataSize = compressedData.length
 
         try {
             let yieldDuration = 0
-            if (this.mode === 'yielding') {
+            if (this.mode === 'yielding' || this.mode === 'worker_and_yielding') {
                 const yieldStart = performance.now()
                 await yieldToMain()
                 yieldDuration = performance.now() - yieldStart
@@ -244,7 +249,7 @@ export class DecompressionWorkerManager {
             const decompressDuration = performance.now() - decompressStart
 
             const totalDuration = performance.now() - startTime
-            this.updateStats(totalDuration, dataSize, yieldDuration, decompressDuration, metadata?.blockCount)
+            this.updateStats(totalDuration, dataSize, yieldDuration, decompressDuration, metadata?.isParallel)
             return result
         } catch (error) {
             console.error('Decompression error:', error)
@@ -257,7 +262,7 @@ export class DecompressionWorkerManager {
         dataSize: number,
         yieldDuration?: number,
         decompressDuration?: number,
-        blockCount?: number
+        isParallel?: boolean
     ): void {
         this.stats.totalTime += duration
         this.stats.count += 1
@@ -266,7 +271,7 @@ export class DecompressionWorkerManager {
         if (this.isColdStart) {
             this.isColdStart = false
         }
-        this.reportTiming(duration, dataSize, isColdStart, yieldDuration, decompressDuration, blockCount)
+        this.reportTiming(duration, dataSize, isColdStart, yieldDuration, decompressDuration, isParallel)
     }
 
     private reportTiming(
@@ -275,7 +280,7 @@ export class DecompressionWorkerManager {
         isColdStart: boolean,
         yieldDuration?: number,
         decompressDuration?: number,
-        blockCount?: number
+        isParallel?: boolean
     ): void {
         if (!this.posthog) {
             return
@@ -301,9 +306,8 @@ export class DecompressionWorkerManager {
             properties.overhead_duration_ms = durationMs - decompressDuration - (yieldDuration || 0)
         }
 
-        if (blockCount !== undefined) {
-            properties.block_count = blockCount
-            properties.is_parallel = blockCount > 1
+        if (isParallel !== undefined) {
+            properties.is_parallel = isParallel
         }
 
         this.posthog.capture('replay_decompression_timing', properties)
