@@ -113,6 +113,27 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 },
             },
         ],
+        examples: [
+            [] as string[],
+            {
+                loadExamples: async () => {
+                    if (
+                        values.type === TaxonomicFilterGroupType.Events &&
+                        values.definition &&
+                        'id' in values.definition
+                    ) {
+                        try {
+                            return await api.eventDefinitions.getExamples({
+                                eventDefinitionId: (values.definition as EventDefinition).id,
+                            })
+                        } catch {
+                            return []
+                        }
+                    }
+                    return []
+                },
+            },
+        ],
     })),
     reducers({
         state: [
@@ -290,6 +311,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             ) {
                 actions.setPopoverState(DefinitionPopoverState.View)
                 actions.recordHoverActivity()
+            }
+
+            if (values.type === TaxonomicFilterGroupType.Events && values.definition && 'id' in values.definition) {
+                actions.loadExamples()
             }
         },
         handleSave: () => {

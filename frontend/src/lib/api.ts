@@ -2282,6 +2282,9 @@ const api = {
         }): Promise<EventDefinitionMetrics> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
+        async getExamples({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<string[]> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('examples').get()
+        },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId,

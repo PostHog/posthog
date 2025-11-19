@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -106,7 +106,7 @@ function DescriptionEmpty(): JSX.Element {
     return <div className="definition-popover-description empty">Add a description for this {singularType}</div>
 }
 
-function ImageCarousel({ images }: { images: string[] }): JSX.Element {
+function ImageCarousel({ images, loading }: { images: string[]; loading?: boolean }): JSX.Element {
     const [currentIndex, setCurrentIndex] = useState(0)
 
     const goToPrevious = (): void => {
@@ -117,7 +117,8 @@ function ImageCarousel({ images }: { images: string[] }): JSX.Element {
         setCurrentIndex((prevIndex) => (prevIndex === images.length - 1 ? 0 : prevIndex + 1))
     }
 
-    if (images.length === 0) {
+    if (!loading && images.length === 0) {
+        // TODO upsell manual addition of images?
         return <></>
     }
 
@@ -131,14 +132,18 @@ function ImageCarousel({ images }: { images: string[] }): JSX.Element {
                 disabledReason={images.length <= 1 ? 'Only one image' : undefined}
             />
             <div className="flex-1 flex justify-center overflow-hidden">
-                <img
-                    key={currentIndex}
-                    src={images[currentIndex]}
-                    alt={`Screenshot ${currentIndex + 1} of ${images.length}`}
-                    loading="lazy"
-                    className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out"
-                    style={{ maxWidth: '600px' }}
-                />
+                {loading ? (
+                    <Spinner />
+                ) : (
+                    <img
+                        key={currentIndex}
+                        src={images[currentIndex]}
+                        alt={`Screenshot ${currentIndex + 1} of ${images.length}`}
+                        loading="lazy"
+                        className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out"
+                        style={{ maxWidth: '600px' }}
+                    />
+                )}
             </div>
             <LemonButton
                 size="small"
@@ -152,7 +157,8 @@ function ImageCarousel({ images }: { images: string[] }): JSX.Element {
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type } = useValues(definitionPopoverLogic)
+    const { type, examples, examplesLoading } = useValues(definitionPopoverLogic)
+
     let data: CoreFilterDefinition | null = null
 
     if (
@@ -176,13 +182,7 @@ function Example({ value }: { value?: string }): JSX.Element {
         <></>
     )
 
-    const mockImages = [
-        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZTBmMmZlIi8+PC9zdmc+',
-        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZmVlMmUyIi8+PC9zdmc+',
-        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZTBmZWU4Ii8+PC9zdmc+',
-    ]
-
-    const imageExample = mockImages.length > 0 ? <ImageCarousel images={mockImages} /> : <></>
+    const imageExample = examples.length > 0 ? <ImageCarousel images={examples} loading={examplesLoading} /> : <></>
 
     return (
         <div className="flex flex-col gap-2">
@@ -240,7 +240,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
             {user?.uuid ? (
                 <div className="flex items-center flex-row">
                     <ProfilePicture user={user} size="sm" />
-                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                    <span className="pl-2 inline-flex font-semibold whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (
                 <span className="text-secondary italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
