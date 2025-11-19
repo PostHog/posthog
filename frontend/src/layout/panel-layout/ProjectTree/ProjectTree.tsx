@@ -7,6 +7,7 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
+    IconPencil,
     IconPlusSmall,
     IconShortcut,
 } from '@posthog/icons'
@@ -109,23 +110,38 @@ export function ProjectTree({
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const treeData: TreeDataItem[] = []
-    if (root === 'shortcuts://' && fullFileSystemFiltered.length === 0) {
-        treeData.push({
-            id: 'products/shortcuts-helper-category',
-            name: 'Example shortcuts',
-            type: 'category',
-            displayName: (
-                <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
-                    Shortcuts are added by pressing{' '}
-                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
-                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
-                </div>
-            ),
-        })
-    } else {
-        treeData.push(...fullFileSystemFiltered)
+    const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    if (fullFileSystemFiltered.length === 0) {
+        if (root === 'shortcuts://') {
+            treeData.push({
+                id: 'products/shortcuts-helper-category',
+                name: 'Example shortcuts',
+                type: 'category',
+                displayName: (
+                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                        Shortcuts are added by pressing{' '}
+                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                        side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
+                        menu click{' '}
+                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                    </div>
+                ),
+            })
+        } else if (root === 'custom-products://') {
+            treeData.push({
+                id: 'products/custom-products-helper-category',
+                name: 'Example apps',
+                type: 'category',
+                displayName: (
+                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
+                        This list will display your more frequently used apps. You can configure what items show up in
+                        here by clicking on the{' '}
+                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                        above. We'll automatically suggest new apps to this list as you use them.
+                    </div>
+                ),
+            })
+        }
     }
 
     useEffect(() => {

@@ -1504,7 +1504,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         .trim()
         .split('')
         .forEach((character) => {
-            if (character === '_' || character === '-') {
+            if (character === '_' || character === '-' || character === '/') {
                 if (currentWord) {
                     words.push(currentWord)
                 }
