@@ -27,6 +27,19 @@ if EE_AVAILABLE:
 logger = structlog.get_logger(__name__)
 
 
+def get_auto_materialized_property_names() -> set[str]:
+    """Get set of property names that are already auto-materialized by PostHog."""
+    if not EE_AVAILABLE:
+        return set()
+
+    try:
+        materialized_columns = get_materialized_columns("events")
+        return {col.details.property_name for col in materialized_columns.values()}
+    except Exception as e:
+        logger.warning("Failed to get auto-materialized columns", error=str(e))
+        return set()
+
+
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyDefinition
@@ -116,7 +129,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         """Get properties that can be materialized for a team.
 
         Only returns custom properties and feature flag properties.
-        Excludes PostHog system properties and Duration type properties.
+        Excludes PostHog system properties, Duration type properties, and properties already auto-materialized.
         """
         team_id = request.query_params.get("team_id")
         if not team_id:
@@ -129,6 +142,9 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         already_materialized = MaterializedColumnSlot.objects.filter(team_id=team_id).values_list(
             "property_definition_id", flat=True
         )
+
+        # Get auto-materialized property names to exclude them
+        auto_materialized_property_names = get_auto_materialized_property_names()
 
         # Duration properties are PostHog system properties and should never be materialized
         allowed_types = [t for t in PropertyType.values if t != PropertyType.Duration]
@@ -145,10 +161,14 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             .order_by("property_type", "name")
         )
 
-        # Filter out PostHog system properties (starting with $) except feature flags ($feature/)
-        # Duration properties are implicitly excluded here since they're PostHog system properties
+        # Filter out:
+        # 1. PostHog system properties (starting with $) except feature flags ($feature/)
+        # 2. Properties already auto-materialized by PostHog
         filtered_properties = [
-            prop for prop in available_properties if not prop.name.startswith("$") or prop.name.startswith("$feature/")
+            prop
+            for prop in available_properties
+            if (not prop.name.startswith("$") or prop.name.startswith("$feature/"))
+            and prop.name not in auto_materialized_property_names
         ]
 
         return response.Response(PropertyDefinitionSerializer(filtered_properties, many=True).data)
@@ -212,6 +232,16 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         # Validate property is not a PostHog system property (except feature flags)
         if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):
             return response.Response({"error": "PostHog system properties cannot be materialized"}, status=400)
+
+        # Validate property is not already auto-materialized by PostHog
+        auto_materialized_names = get_auto_materialized_property_names()
+        if property_definition.name in auto_materialized_names:
+            return response.Response(
+                {
+                    "error": f"This property is already automatically materialized by PostHog! You're already getting all the performance gains we can provide for '{property_definition.name}'."
+                },
+                status=400,
+            )
 
         # Check if property is already materialized
         if MaterializedColumnSlot.objects.filter(team_id=team_id, property_definition=property_definition).exists():
