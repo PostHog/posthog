@@ -1439,6 +1439,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
 
 
@@ -1891,6 +1892,7 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
+    BING_ADS = "bing-ads"
 
 
 class IntervalType(StrEnum):

@@ -4429,6 +4429,7 @@ export const INTEGRATION_KINDS = [
     'reddit-ads',
     'databricks',
     'tiktok-ads',
+    'bing-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
