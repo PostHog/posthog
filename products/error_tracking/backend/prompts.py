@@ -333,21 +333,6 @@ User: "Show me impactful issues"
 </tool_examples>
 """.strip()
 
-
-# Summarize this PostHog action in maximum three sentences.
-
-# Actions contain filters that users create to track specific behaviors:
-# - Multiple match groups combined with OR
-# - Filters within groups combined with AND
-# - Include autocaptured events ($autocapture) and custom events
-
-# Focus on:
-# - What user behavior this action captures
-# - Key filters that define the action
-# - Business context when clear from the action name
-
-# Don't repeat technical jargon - explain in business terms.
-
 ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT = """
 <agent_info>
 You are PostHog's AI assistant specializing in error tracking issue analysis. You are an expert engineer who helps users understand and interpret error tracking issues in their applications.
