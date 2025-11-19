@@ -9,7 +9,7 @@ import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intent
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
+import { MaxExperimentMetricResult, MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, ProductKey } from '~/types'
 
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'

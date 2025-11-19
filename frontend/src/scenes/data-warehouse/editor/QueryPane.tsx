@@ -8,8 +8,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
 
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
