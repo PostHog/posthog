@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_details import TaskDetails, get_task_details
 
 
@@ -16,9 +16,8 @@ class TestGetTaskDetailsActivity:
             title="Test Task",
             description="Test task description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            position=0,
             github_integration=github_integration,
-            repository_config=repo_config,
+            repository=repo_config,
             created_by=user,
         )
 
@@ -51,9 +50,7 @@ class TestGetTaskDetailsActivity:
 
     @pytest.mark.django_db
     def test_get_task_details_with_different_repository(self, activity_environment, team, user, github_integration):
-        task = self._create_task_with_repo(
-            team, user, github_integration, {"organization": "posthog", "repository": "posthog-js"}
-        )
+        task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
 
         try:
             result = async_to_sync(activity_environment.run)(get_task_details, str(task.id))
@@ -62,20 +59,5 @@ class TestGetTaskDetailsActivity:
             assert result.team_id == task.team_id
             assert result.github_integration_id == github_integration.id
             assert result.repository == "posthog/posthog-js"
-        finally:
-            self._cleanup_task(task)
-
-    @pytest.mark.django_db
-    def test_get_task_details_with_missing_repository(self, activity_environment, team, user, github_integration):
-        task = self._create_task_with_repo(
-            team,
-            user,
-            github_integration,
-            {"organization": "test-org"},
-        )
-
-        try:
-            with pytest.raises(TaskInvalidStateError):
-                async_to_sync(activity_environment.run)(get_task_details, str(task.id))
         finally:
             self._cleanup_task(task)
