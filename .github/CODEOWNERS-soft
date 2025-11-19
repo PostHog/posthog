@@ -32,11 +32,11 @@ plugin-server/src/ingestion/cookieless/** @PostHog/team-web-analytics
 dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Analytics Platform - owned by @PostHog/team-analytics-platform
-dags/locations/analytics*platform.py @PostHog/team-analytics-platform
+dags/locations/analytics_platform.py @PostHog/team-analytics-platform
 ee/tasks/subscriptions/** @PostHog/team-analytics-platform
 frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
 posthog/api/schema_property_group.py @PostHog/team-analytics-platform
-posthog/hogql/database/schema/sessions*\*.py @PostHog/team-analytics-platform
+posthog/hogql/database/schema/sessions_*.py @PostHog/team-analytics-platform
 posthog/models/raw_sessions/** @PostHog/team-analytics-platform
 posthog/models/schema.py @PostHog/team-analytics-platform
 posthog/models/sessions/** @PostHog/team-analytics-platform
@@ -44,7 +44,7 @@ posthog/tasks/alerts/** @PostHog/team-analytics-platform
 posthog/tasks/exports/** @PostHog/team-analytics-platform
 
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-customer-analytics
-products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-customer-analytics
+products/revenue_analytics/** @rafaeelaudibert @PostHog/team-customer-analytics
 
 # Feature Flags platform (the `/flags` and `/decide` endpoints + associated utils) - owned by @PostHog/team-feature-flags
 rust/feature-flags/ @PostHog/team-feature-flags
@@ -92,8 +92,8 @@ frontend/src/scenes/notebooks/ @daibhin
 frontend/src/lib/components/RichContentEditor/ @daibhin
 
 # Session Replay python files - owned by @PostHog/team-replay
-posthog/session_recordings/**/\*.py @PostHog/team-replay
-ee/session_recordings/**/\*.py @PostHog/team-replay
+posthog/session_recordings/**/*.py @PostHog/team-replay
+ee/session_recordings/**/*.py @PostHog/team-replay
 
 # Mobile Session Replay - owned by @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
@@ -102,11 +102,11 @@ ee/frontend/mobile-replay @PostHog/team-replay
 frontend/src/scenes/onboarding/ @PostHog/team-growth
 
 # SDK Doctor - owned by @PostHog/team-growth
-frontend/src/layout/navigation-3000/sidepanel/panels/*SdkDoctor*
+frontend/src/layout/navigation-3000/sidepanel/panels/*SdkDoctor* @PostHog/team-growth
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
 Dockerfile @PostHog/team-devex
-docker-compose\*.yml @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
 pyproject.toml @PostHog/team-devex
 .prettierrc @PostHog/team-devex
 mypy.ini @PostHog/team-devex
