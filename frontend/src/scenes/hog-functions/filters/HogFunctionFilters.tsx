@@ -159,6 +159,9 @@ export function HogFunctionFilters({
                             <b>Events</b> will trigger from the real-time stream of ingested events.
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
+                            <br />
+                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
+                            warehouse.
                         </>
                     }
                 >
