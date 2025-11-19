@@ -60,6 +60,7 @@ async def execute_batch_export_using_internal_stage(
     maximum_retry_interval_seconds: int = 120,
     override_start_to_close_timeout_seconds: int | None = None,
     num_partitions: int | None = None,
+    order_by_timestamp: bool = False,
 ) -> None:
     """
     This is the entrypoint for a new version of the batch export insert activity.
@@ -145,6 +146,7 @@ async def execute_batch_export_using_internal_stage(
                 backfill_details=batch_export_inputs.backfill_details,
                 batch_export_model=batch_export_inputs.batch_export_model,
                 num_partitions=num_partitions,
+                order_by_timestamp=order_by_timestamp,
                 batch_export_schema=batch_export_inputs.batch_export_schema,
                 destination_default_fields=batch_export_inputs.destination_default_fields,
             ),

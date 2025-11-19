@@ -350,6 +350,7 @@ DESTINATION_WORKFLOWS = {
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
 
