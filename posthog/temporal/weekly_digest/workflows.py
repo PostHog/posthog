@@ -40,7 +40,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> WeeklyDigestInput:
         """Parse input from the management command CLI."""
-        parsed_input = WeeklyDigestInput.model_validate_json(input[0])
+        parsed_input = WeeklyDigestInput.model_validate_json(input[0]) if input else WeeklyDigestInput()
 
         if parsed_input.common.django_redis_url is None:
             parsed_input.common.django_redis_url = settings.REDIS_URL
@@ -60,30 +60,32 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
-            key=f"weekly-digest-{year}-{week}",
+            key=input.digest_key_override or f"weekly-digest-{year}-{week}",
             period_start=period_start,
             period_end=period_end,
         )
 
-        await workflow.execute_child_workflow(
-            GenerateDigestDataWorkflow.run,
-            GenerateDigestDataInput(
-                digest=digest,
-                common=input.common,
-            ),
-            parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=15),
-            run_timeout=timedelta(hours=6),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=10),
-            ),
-        )
+        if not input.skip_generate:
+            await workflow.execute_child_workflow(
+                GenerateDigestDataWorkflow.run,
+                GenerateDigestDataInput(
+                    digest=digest,
+                    common=input.common,
+                ),
+                parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
+                execution_timeout=timedelta(hours=15),
+                run_timeout=timedelta(hours=6),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=10),
+                ),
+            )
 
         await workflow.execute_child_workflow(
             SendWeeklyDigestWorkflow.run,
             SendWeeklyDigestInput(
                 dry_run=input.dry_run,
+                allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
             ),
@@ -213,7 +215,11 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     send_weekly_digest_batch,
                     SendWeeklyDigestBatchInput(
-                        batch=batch, dry_run=input.dry_run, digest=input.digest, common=input.common
+                        batch=batch,
+                        dry_run=input.dry_run,
+                        allow_already_sent=input.allow_already_sent,
+                        digest=input.digest,
+                        common=input.common,
                     ),
                     start_to_close_timeout=timedelta(minutes=30),
                     retry_policy=common.RetryPolicy(

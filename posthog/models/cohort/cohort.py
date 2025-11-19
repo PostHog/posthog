@@ -33,6 +33,7 @@ class CohortType(StrEnum):
     STATIC = "static"
     PERSON_PROPERTY = "person_property"
     BEHAVIORAL = "behavioral"
+    REALTIME = "realtime"
     ANALYTICAL = "analytical"
 
 
@@ -519,14 +520,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         current_batch_index = -1
         processing_error = None
         try:
-            from django.db import connections
+            from django.db import connections, router
 
-            persons_connection = connections[READ_DB_FOR_PERSONS]
+            db_write = router.db_for_write(Person) or "default"
+            db_read = router.db_for_read(Person) or "default"
+            persons_connection = connections[db_write]
             cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
                 persons_query = (
-                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    Person.objects.db_manager(db_read)
                     .filter(team_id=team_id)
                     .filter(uuid__in=batch)
                     .exclude(cohort__id=self.id)
@@ -538,11 +541,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                         team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                person_table = Person._meta.db_table
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        f'FROM "{person_table}"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "{person_table}"',
                         1,
                     ),
                 )

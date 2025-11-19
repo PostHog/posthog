@@ -312,7 +312,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Install Playwright Chromium browser for video export (as root for system deps)
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    chown -R posthog:posthog /ms-playwright
 USER posthog
 
 # Validate video export dependencies
@@ -327,8 +329,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/fro
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
+# Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
@@ -337,15 +338,13 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
-# Keep server command backwards compatible
-RUN cp ./bin/docker-server-unit ./bin/docker-server
-
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    BUILD_LIBRDKAFKA=0
+    BUILD_LIBRDKAFKA=0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

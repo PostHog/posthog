@@ -9,7 +9,10 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import (
+    RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
+    RAW_SESSION_TABLE_BACKFILL_SQL_V3,
+)
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
@@ -313,9 +316,23 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             timestamp="2024-03-08",
         )
 
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
+        )
+
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            {"team_id": self.team.id},
+        )
+        sync_execute(
+            RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+            ),
             {"team_id": self.team.id},
         )
 

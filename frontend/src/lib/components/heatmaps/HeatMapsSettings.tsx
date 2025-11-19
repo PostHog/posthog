@@ -33,7 +33,7 @@ const ScrollDepthJSWarning = (): JSX.Element | null => {
         </p>
     )
 }
-const SectionSetting = ({
+export const SectionSetting = ({
     children,
     title,
     info,

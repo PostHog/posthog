@@ -137,6 +137,7 @@ function OverlayMenu(): JSX.Element {
                                         onClick={() => {
                                             setSearchFormValue('datasetId', dataset.id)
                                         }}
+                                        data-attr="save-to-dataset-select"
                                     >
                                         <span className="line-clamp-1">{dataset.name}</span>
                                     </LemonButton>
@@ -155,6 +156,7 @@ function OverlayMenu(): JSX.Element {
                                 onClick={() => {
                                     setSearchFormValue('datasetId', dataset.id)
                                 }}
+                                data-attr="save-to-dataset-select"
                             >
                                 <span className="line-clamp-1">{dataset.name}</span>
                             </LemonButton>

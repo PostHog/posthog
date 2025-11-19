@@ -800,7 +800,7 @@
     --glass-border-3000-dark: var(--border-3000-dark);
     --link-3000-dark: #f1a82c;
     --primary-3000-frame-bg-dark: #926826;
-    --primary-3000-button-bg-dark: #e0a045;
+    --primary-3000-button-bg-dark: var(--color-accent);
     --primary-3000-button-border-dark: #b17816;
     --primary-3000-button-border-hover-dark: #8e5b03;
     --primary-alt-highlight-dark: #232429;
@@ -833,7 +833,7 @@
     --color-bg-table: #f9faf7;
     --link: var(--link-3000-light);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-    --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+    --primary-3000-button-bg: var(--color-white);
     --primary-3000-button-border: var(--primary-3000-button-border-light);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --primary-alt-highlight: var(--primary-alt-highlight-light);
@@ -1032,7 +1032,7 @@
     --link: var(--link-3000-dark);
     --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+    --primary-3000-button-bg: var(--color-accent);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
     --primary-alt-highlight: var(--primary-alt-highlight-dark);

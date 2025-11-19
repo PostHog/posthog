@@ -283,7 +283,7 @@ def get_people(
             )
         )
         .order_by("-created_at", "uuid")
-        .only("id", "is_identified", "created_at", "properties", "uuid")
+        .only("id", "is_identified", "created_at", "properties", "uuid", "team_id")
     )
     return persons, serialize_people(team, persons, value_per_actor_id)
 

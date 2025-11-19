@@ -2,8 +2,9 @@ import './PaginationControl.scss'
 
 import clsx from 'clsx'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { PaginationState } from './types'
 

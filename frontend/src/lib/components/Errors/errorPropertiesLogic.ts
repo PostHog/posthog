@@ -1,9 +1,10 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 
 import {
     ErrorEventId,
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingStackFrame,
     FingerprintRecordPart,
 } from 'lib/components/Errors/types'
 import {
@@ -18,6 +19,7 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -31,6 +33,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
 
     connect(() => ({
         values: [preflightLogic, ['isCloudOrDev']],
+        actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 
     selectors({
@@ -79,9 +82,14 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? [])
+                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+    }),
+
+    afterMount(({ values, actions }) => {
+        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
+        actions.loadFromRawIds(rawIds)
     }),
 ])

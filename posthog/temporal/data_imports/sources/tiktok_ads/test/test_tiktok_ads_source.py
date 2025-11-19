@@ -13,7 +13,8 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalFieldType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 class TestTikTokAdsSource:

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -60,7 +61,17 @@ export const ExternalReferences = (): JSX.Element | null => {
     return (
         <div>
             {externalReferences.map((reference) => (
-                <Link key={reference.id} to={reference.external_url} target="_blank">
+                <Link
+                    key={reference.id}
+                    to={reference.external_url}
+                    target="_blank"
+                    onClick={() => {
+                        posthog.capture('error_tracking_external_issue_clicked', {
+                            issue_id: issue.id,
+                            integration_kind: reference.integration.kind,
+                        })
+                    }}
+                >
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
                         <IntegrationIcon kind={reference.integration.kind} />
                         {reference.integration.display_name}

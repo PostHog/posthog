@@ -1,11 +1,13 @@
 from typing import Any
 
 import structlog
+import posthoganalytics
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
 
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
@@ -81,6 +83,16 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             integration=integration,
             external_context=external_context,
         )
+
+        posthoganalytics.capture(
+            "error_tracking_external_issue_created",
+            groups=groups(team.organization, team),
+            properties={
+                "issue_id": issue.id,
+                "integration_kind": integration.kind,
+            },
+        )
+
         return instance
 
 

@@ -2444,6 +2444,36 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_restore_allows_payload_with_additional_fields(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Restorable Experiment",
+                "feature_flag_key": "restore-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment = create_response.json()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        restore_payload = {"deleted": False, "name": experiment["name"]}
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            restore_payload,
+            format="json",
+        )
+
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore_response.json()["deleted"])
+
     def test_create_experiment_with_missing_parameters(self):
         ff_key = "a-b-tests"
 
@@ -3011,6 +3041,44 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "type": "OR",
                             "values": [
                                 {
+                                    "bytecode": [
+                                        "_H",
+                                        1,
+                                        32,
+                                        "custom_exposure_event",
+                                        32,
+                                        "event",
+                                        1,
+                                        1,
+                                        11,
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "bonk",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        11,
+                                        32,
+                                        "x",
+                                        32,
+                                        "y",
+                                        44,
+                                        2,
+                                        32,
+                                        "$current_url",
+                                        32,
+                                        "properties",
+                                        1,
+                                        2,
+                                        21,
+                                        3,
+                                        2,
+                                        3,
+                                        2,
+                                    ],
+                                    "conditionHash": "605645c960b2c67c",
                                     "event_filters": [
                                         {"key": "bonk", "type": "event", "value": "bonk"},
                                         {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
