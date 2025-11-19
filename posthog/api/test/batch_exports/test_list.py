@@ -127,3 +127,45 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
     # Make sure we can't see these batch exports for the other team.
     response = list_batch_exports_ok(client, another_team.pk)
     assert len(response["results"]) == 0
+
+
+def test_list_filters_posthog_realtime_destinations(client: HttpClient, organization, team, user):
+    """
+    PostHogRealtimeDestinations should be filtered out from the list.
+    """
+    client.force_login(user)
+
+    s3_destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    s3_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": s3_destination_data,
+        "interval": "hour",
+    }
+
+    realtime_destination_data = {
+        "type": "PostHogRealtimeDestinations",
+        "config": {},
+    }
+
+    realtime_batch_export_data = {
+        "name": "my-realtime-destination",
+        "destination": realtime_destination_data,
+        "interval": "hour",
+    }
+
+    create_batch_export_ok(client, team.pk, s3_batch_export_data)
+    create_batch_export_ok(client, team.pk, realtime_batch_export_data)
+
+    response = list_batch_exports_ok(client, team.pk)
+    assert len(response["results"]) == 1
+    assert response["results"][0]["destination"]["type"] == "S3"
