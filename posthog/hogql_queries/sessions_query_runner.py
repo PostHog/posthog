@@ -72,8 +72,18 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
+                        # Filter out cohort and person properties from session-level filters
+                        # as they require person_id which doesn't exist in sessions table
+                        session_properties = [
+                            prop
+                            for prop in self.query.properties
+                            if not (
+                                hasattr(prop, "type")
+                                and prop.type in ("cohort", "static-cohort", "precalculated-cohort", "person")
+                            )
+                        ]
                         where_exprs.extend(
-                            property_to_expr(property, self.team, scope="session") for property in self.query.properties
+                            property_to_expr(property, self.team, scope="session") for property in session_properties
                         )
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
@@ -134,8 +144,27 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                                 property_to_expr(property, self.team) for property in self.query.eventProperties
                             )
 
+                        # Add timestamp filter to events subquery based on session date range
+                        if self.query.after and self.query.after != "all":
+                            parsed_after = relative_date_parse(self.query.after, self.team.timezone_info)
+                            event_where_exprs.append(
+                                parse_expr(
+                                    "timestamp > {timestamp}",
+                                    {"timestamp": ast.Constant(value=parsed_after)},
+                                    timings=self.timings,
+                                )
+                            )
+                        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+                        parsed_before = relative_date_parse(before, self.team.timezone_info)
+                        event_where_exprs.append(
+                            parse_expr(
+                                "timestamp < {timestamp}",
+                                {"timestamp": ast.Constant(value=parsed_before)},
+                                timings=self.timings,
+                            )
+                        )
+
                         # Build subquery: session_id IN (SELECT DISTINCT $session_id FROM events WHERE ...)
-                        # We also need to filter events by the session date range
                         events_subquery = ast.SelectQuery(
                             select=[ast.Field(chain=["$session_id"])],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),

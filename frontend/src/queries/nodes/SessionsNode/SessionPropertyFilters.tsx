@@ -30,6 +30,7 @@ export function SessionPropertyFilters({ query, setQuery }: SessionPropertyFilte
               TaxonomicFilterGroupType.EventProperties,
               TaxonomicFilterGroupType.PersonProperties,
               TaxonomicFilterGroupType.EventFeatureFlags,
+              TaxonomicFilterGroupType.Cohorts,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
         : [
@@ -49,9 +50,7 @@ export function SessionPropertyFilters({ query, setQuery }: SessionPropertyFilte
                 } else {
                     // Event filter active: split properties by their type field
                     const sessionProps = value.filter((prop) => 'type' in prop && prop.type === 'session')
-                    const eventProps = value.filter(
-                        (prop) => 'type' in prop && (prop.type === 'event' || prop.type === 'person')
-                    )
+                    const eventProps = value.filter((prop) => !('type' in prop) || prop.type !== 'session')
                     setQuery?.({
                         ...query,
                         properties: sessionProps,
