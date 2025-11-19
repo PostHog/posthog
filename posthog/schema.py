@@ -1463,15 +1463,6 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
-
-
 class Tag(StrEnum):
     ALPHA = "alpha"
     BETA = "beta"
@@ -2332,6 +2323,25 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProductItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Optional[str] = None
+    iconType: Optional[str] = None
+    path: str
+    type: Optional[str] = None
+
+
+class ProductsData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    games: list[ProductItem]
+    metadata: list[ProductItem]
+    products: list[ProductItem]
 
 
 class PropertyFilterType(StrEnum):
@@ -4254,6 +4264,15 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4991,6 +5010,9 @@ class SavedInsightNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
@@ -15734,6 +15756,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")

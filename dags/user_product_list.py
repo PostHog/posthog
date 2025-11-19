@@ -1,6 +1,4 @@
-import json
 from datetime import datetime
-from pathlib import Path
 
 from django.utils import timezone
 
@@ -10,17 +8,14 @@ import pydantic
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.products import Products
 
 from dags.common import JobOwners
 
 
 def get_valid_product_paths() -> set[str]:
     """Get all valid product paths from products.json and hardcoded sidebar products"""
-    products_json_path = Path(__file__).parent.parent / "frontend" / "src" / "products.json"
-    with open(products_json_path) as f:
-        data = json.load(f)
-
-    valid_paths = set[str](product["path"] for product in data["products"])
+    valid_paths = set[str](Products.get_product_paths())
     return valid_paths
 
 
