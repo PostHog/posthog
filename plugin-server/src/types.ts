@@ -807,6 +807,14 @@ export interface RawOrganization {
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
+/** Materialized column slot assignment for a team. */
+export interface MaterializedColumnSlot {
+    property_definition_id: string
+    slot_index: number
+    slot_property_type: 'string' | 'numeric' | 'bool' | 'datetime'
+    state: 'READY' | 'BACKFILL' | 'ERROR'
+}
+
 /** Usable Team model. */
 export interface Team {
     id: number
@@ -830,6 +838,8 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    // This is parsed as a join from the materialized column slots table
+    materialized_column_slots: MaterializedColumnSlot[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

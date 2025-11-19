@@ -1,12 +1,13 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
+import { MaterializedColumnSlot, OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'availableFeatures'> & {
+type RawTeam = Omit<Team, 'available_features' | 'materialized_column_slots'> & {
     available_product_features: { key: string; name: string }[]
+    materialized_column_slots: MaterializedColumnSlot[]
 }
 
 export class TeamManager {
@@ -127,7 +128,26 @@ export class TeamManager {
                 t.cookieless_server_hash_mode,
                 t.timezone,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
-                o.available_product_features
+                o.available_product_features,
+                (
+                    SELECT COALESCE(json_agg(
+                        json_build_object(
+                            'property_definition_id', slots.property_definition_id,
+                            'slot_index', slots.slot_index,
+                            'slot_property_type', CASE
+                                WHEN slots.property_type = 'String' THEN 'string'
+                                WHEN slots.property_type = 'Numeric' THEN 'numeric'
+                                WHEN slots.property_type = 'Boolean' THEN 'bool'
+                                WHEN slots.property_type = 'DateTime' THEN 'datetime'
+                                ELSE LOWER(slots.property_type)
+                            END,
+                            'state', slots.state
+                        ) ORDER BY slots.slot_index
+                    ), '[]'::json)
+                    FROM posthog_materializedcolumnslot slots
+                    WHERE slots.team_id = t.id
+                        AND slots.state IN ('READY', 'BACKFILL')
+                ) as materialized_column_slots
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             WHERE t.id = ANY($1) OR t.api_token = ANY($2)
@@ -144,12 +164,13 @@ export class TeamManager {
 
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
-            const { available_product_features, ...teamPartial } = row
+            const { available_product_features, materialized_column_slots, ...teamPartial } = row
             const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,
                 available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
+                materialized_column_slots: materialized_column_slots || [],
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team

@@ -26,6 +26,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     available_features: [],
     drop_events_older_than_seconds: null,
     ...overrides,
+    materialized_column_slots: overrides.materialized_column_slots ?? [],
 })
 
 describe('normalizeProcessPersonFlagStep', () => {
