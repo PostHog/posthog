@@ -26,14 +26,14 @@ class TestUsage(BaseTest):
         """Test that EU internal team gets custom free tier limit."""
         mock_region.return_value = "EU"
         credits = get_ai_free_tier_credits(team_id=1)
-        self.assertEqual(credits, 10000)
+        self.assertEqual(credits, 9999999)
 
     @patch("ee.hogai.graph.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_custom_us(self, mock_region):
         """Test that US internal team gets custom free tier limit."""
         mock_region.return_value = "US"
         credits = get_ai_free_tier_credits(team_id=2)
-        self.assertEqual(credits, 10000)
+        self.assertEqual(credits, 9999999)
 
     @patch("ee.hogai.graph.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_fallback_when_region_unknown(self, mock_region):

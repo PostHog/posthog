@@ -373,6 +373,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that memory collector correctly routes to tools when resuming from an interrupt with pending tool calls."""
         graph = (
             AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
             .add_memory_collector(AssistantNodeName.END)
             .add_memory_collector_tools()
             .compile()
@@ -912,7 +913,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_ONBOARDING)
+            .add_memory_onboarding(AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -970,7 +976,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_ONBOARDING)
+            .add_memory_onboarding(AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -1019,6 +1030,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # Create a graph with just memory collection
         graph = (
             AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
             .add_memory_collector(AssistantNodeName.END)
             .add_memory_collector_tools()
             .compile()
@@ -2006,7 +2018,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_tool.return_value = ("Event list" * 128000, None)
         mock_should_compact.side_effect = cycle([False, True])  # Also changed this
 
-        graph = AssistantGraph(self.team, self.user).add_root().add_memory_onboarding().compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root()
+            .add_memory_onboarding()
+            .compile()
+        )
 
         expected_output = [
             ("message", HumanMessage(content="First")),
