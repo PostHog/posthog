@@ -1627,17 +1627,28 @@ class TestQuotaLimiting(BaseTest):
             events_captured = [call[1]["event"] for call in mock_capture.call_args_list if len(call) >= 2]
             assert "org_quota_limited_until" in events_captured  # Should have suspension and removal events
 
-    def test_usage_counters_matches_quota_resource(self):
+    def test_usage_keys_stay_in_sync(self):
         """
-        Ensure UsageCounters TypedDict keys exactly match QuotaResource enum values.
-        This prevents bugs where trust scores or todays_usage lookups fail due to key mismatches.
+        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys (except for `period`).
         """
-        expected_keys = {resource.value for resource in QuotaResource}
-        actual_keys = set(UsageCounters.__annotations__.keys())
+        from posthog.models.organization import OrganizationUsageInfo
 
-        missing = expected_keys - actual_keys
-        extra = actual_keys - expected_keys
+        # OrganizationUsageInfo is source of truth (excluding 'period``)
+        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period"}
 
-        assert not missing, f"UsageCounters is missing required keys: {missing}"
-        assert not extra, f"UsageCounters has extra keys: {extra}"
-        assert expected_keys == actual_keys, "UsageCounters keys must exactly match QuotaResource values"
+        quota_resource_keys = {resource.value for resource in QuotaResource}
+        usage_counter_keys = set(UsageCounters.__annotations__.keys())
+
+        # Check QuotaResource matches OrganizationUsageInfo
+        missing_from_quota = org_usage_keys - quota_resource_keys
+        extra_in_quota = quota_resource_keys - org_usage_keys
+        assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
+        assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
+
+        # Check UsageCounters matches OrganizationUsageInfo
+        missing_from_counters = org_usage_keys - usage_counter_keys
+        extra_in_counters = usage_counter_keys - org_usage_keys
+        assert (
+            not missing_from_counters
+        ), f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
+        assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"

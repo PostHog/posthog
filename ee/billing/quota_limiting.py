@@ -58,7 +58,7 @@ class OrgQuotaLimitingInformation(TypedDict):
 
 
 # These quota resource identifiers match billing default_plans_config.yml usage_key.
-# They should be kept in sync with UsageCounters.
+# These keys should match OrganizationUsageInfo and UsageCounters.
 class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
@@ -91,7 +91,7 @@ OVERAGE_BUFFER = {
 }
 
 
-# These should be kept in sync with QuotaResource values.
+# These should be kept in sync with OrganizationUsageInfo and QuotaResource values.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
