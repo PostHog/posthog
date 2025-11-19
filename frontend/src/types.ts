@@ -6136,3 +6136,45 @@ export interface EnrichedPatternAssignedEvent {
     event_type: string | null
     event_index: number
 }
+
+export enum FeedActivityType {
+    Dashboard = 'dashboard',
+    EventDefinition = 'event_definition',
+    ExperimentLaunched = 'experiment_launched',
+    ExperimentCompleted = 'experiment_completed',
+    ExternalDataSource = 'external_data_source',
+    FeatureFlag = 'feature_flag',
+    Survey = 'survey',
+    ReplayPlaylist = 'replay_playlist',
+    ExpiringRecordings = 'expiring_recordings',
+}
+
+export interface FeedItem {
+    id: string
+    type: FeedActivityType
+    title: string
+    description?: string
+    metadata: Record<string, any>
+    created_at: string
+    creator?: {
+        id: number
+        name: string
+    }
+    url: string
+    can_summarize: boolean
+}
+
+export interface FeedResponse {
+    results: FeedItem[]
+    count: number
+    next: number | null
+    previous: number | null
+}
+
+export interface FeedPreferences {
+    id: string
+    enabled_types: Record<FeedActivityType, boolean>
+    feed_enabled: boolean
+    ai_summarization_enabled: boolean
+    updated_at: string
+}

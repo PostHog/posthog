@@ -111,6 +111,9 @@ import {
     ExternalDataSourceSyncSchema,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FeedActivityType,
+    FeedPreferences,
+    FeedResponse,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
     Group,
@@ -1608,6 +1611,15 @@ export class ApiRequest {
 
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
+    }
+
+    // Feed
+    public feed(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('feed')
+    }
+
+    public feedPreferences(teamId?: TeamType['id']): ApiRequest {
+        return this.feed(teamId).addPathComponent('preferences')
     }
 }
 
@@ -4727,6 +4739,29 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    feed: {
+        async list(filters?: {
+            type?: FeedActivityType
+            date_from?: string
+            date_to?: string
+            limit?: number
+            offset?: number
+        }): Promise<FeedResponse> {
+            return await new ApiRequest()
+                .feed()
+                .withQueryString(toParams(filters || {}))
+                .get()
+        },
+
+        async getPreferences(): Promise<FeedPreferences> {
+            return await new ApiRequest().feedPreferences().get()
+        },
+
+        async updatePreferences(preferences: Partial<FeedPreferences>): Promise<FeedPreferences> {
+            return await new ApiRequest().feedPreferences().update({ data: preferences })
         },
     },
 }
