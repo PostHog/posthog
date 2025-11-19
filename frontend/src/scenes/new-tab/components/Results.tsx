@@ -539,7 +539,7 @@ export function Results({
                 />
             )}
 
-            {showExplorerView && <ProjectExplorer tabId={tabId} />}
+            {showExplorerView && <ProjectExplorer tabId={tabId} listboxRef={listboxRef} />}
 
             {/* Show NoResultsFound when include='all' + search term + no results */}
             {showSearchResults && shouldShowGlobalNoResults && <NoResultsFound handleAskAi={handleAskAi} />}

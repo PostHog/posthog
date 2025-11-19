@@ -10,7 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ListBox } from 'lib/ui/ListBox/ListBox'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -25,7 +25,13 @@ interface ExplorerRow {
     isParentNavigation?: boolean
 }
 
-export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | null {
+export function ProjectExplorer({
+    tabId,
+    listboxRef,
+}: {
+    tabId: string
+    listboxRef: React.RefObject<ListBoxHandle>
+}): JSX.Element | null {
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
     const { folders, folderStates, users } = useValues(projectTreeLogic(projectTreeLogicProps))
     const { loadFolder } = useActions(projectTreeLogic(projectTreeLogicProps))
@@ -45,43 +51,47 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
         }
     }, [activeExplorerFolderPath, folders, folderStates, loadFolder])
 
-    if (activeExplorerFolderPath === null) {
-        return null
-    }
+    const hasActiveFolder = activeExplorerFolderPath !== null
+    const explorerFolderPath = activeExplorerFolderPath ?? ''
+    const currentEntries = hasActiveFolder ? folders[explorerFolderPath] || [] : []
 
-    const currentEntries = folders[activeExplorerFolderPath] || []
-
-    const buildRows = (entries: FileSystemEntry[], depth: number): ExplorerRow[] => {
-        const sorted = [...entries].sort(sortFilesAndFolders)
-        const rows: ExplorerRow[] = []
-        for (const entry of sorted) {
-            rows.push({ entry, depth })
-            if (entry.type === 'folder' && explorerExpandedFolders[entry.path]) {
-                const children = folders[entry.path] || []
-                rows.push(...buildRows(children, depth + 1))
+    const rows = useMemo(() => {
+        const buildRowsRecursive = (entries: FileSystemEntry[], depth: number): ExplorerRow[] => {
+            const sorted = [...entries].sort(sortFilesAndFolders)
+            const collectedRows: ExplorerRow[] = []
+            for (const entry of sorted) {
+                collectedRows.push({ entry, depth })
+                if (entry.type === 'folder' && explorerExpandedFolders[entry.path]) {
+                    const children = folders[entry.path] || []
+                    collectedRows.push(...buildRowsRecursive(children, depth + 1))
+                }
             }
+            return collectedRows
         }
-        return rows
-    }
 
-    const rows = buildRows(currentEntries, 0)
-    const isLoadingCurrentFolder = folderStates[activeExplorerFolderPath] === 'loading'
+        return buildRowsRecursive(currentEntries, 0)
+    }, [currentEntries, explorerExpandedFolders, folders])
+    const isLoadingCurrentFolder = hasActiveFolder ? folderStates[explorerFolderPath] === 'loading' : false
 
-    const breadcrumbSegments = splitPath(activeExplorerFolderPath)
+    const breadcrumbSegments = splitPath(explorerFolderPath)
     const parentBreadcrumbSegments = breadcrumbSegments.slice(0, -1)
     const parentFolderPath = joinPath(parentBreadcrumbSegments)
-    const parentRow: ExplorerRow | null = breadcrumbSegments.length
-        ? {
-              entry: {
-                  id: `__parent-${activeExplorerFolderPath || 'root'}`,
-                  path: parentFolderPath,
-                  type: 'folder',
-              },
-              depth: 0,
-              isParentNavigation: true,
-          }
-        : null
-    const displayRows = parentRow ? [parentRow, ...rows] : rows
+    const parentRow: ExplorerRow | null = useMemo(() => {
+        if (!hasActiveFolder || breadcrumbSegments.length === 0) {
+            return null
+        }
+
+        return {
+            entry: {
+                id: `__parent-${explorerFolderPath || 'root'}`,
+                path: parentFolderPath,
+                type: 'folder',
+            },
+            depth: 0,
+            isParentNavigation: true,
+        }
+    }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
+    const displayRows = useMemo(() => (parentRow ? [parentRow, ...rows] : rows), [parentRow, rows])
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
@@ -121,6 +131,37 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
 
     const renderCreatedAt = (entry: FileSystemEntry): string =>
         entry.created_at ? dayjs(entry.created_at).format('MMM D, YYYY') : '—'
+
+    const highlightedFocusKey = useMemo(() => {
+        if (!highlightedExplorerEntryPath) {
+            return null
+        }
+
+        const targetIndex = displayRows.findIndex(({ entry }) => entry.path === highlightedExplorerEntryPath)
+
+        if (targetIndex === -1) {
+            return null
+        }
+
+        const entry = displayRows[targetIndex]?.entry
+        if (!entry) {
+            return null
+        }
+
+        const focusBase = String(entry.id ?? entry.path ?? targetIndex)
+        return `${focusBase}-row`
+    }, [displayRows, highlightedExplorerEntryPath])
+
+    useEffect(() => {
+        if (!listboxRef.current || !highlightedFocusKey) {
+            return
+        }
+        listboxRef.current.focusItemByKey(highlightedFocusKey)
+    }, [highlightedFocusKey, listboxRef])
+
+    if (!hasActiveFolder) {
+        return null
+    }
 
     return (
         <div className="flex flex-col gap-3 p-3">
