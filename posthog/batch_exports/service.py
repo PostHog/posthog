@@ -70,6 +70,7 @@ class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str]]] | None = None
+    saved_query_id: str | None = None
 
 
 @dataclass
@@ -95,6 +96,7 @@ class BaseBatchExportInputs:
 
     batch_export_id: str
     team_id: int
+    # TODO - should we make this optional or in the case of saved queries, use the sync frequency interval?
     interval: str = "hour"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None

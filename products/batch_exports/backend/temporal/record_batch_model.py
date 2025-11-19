@@ -15,6 +15,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal import sql
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 Query = str
 QueryParameters = dict[str, typing.Any]
@@ -194,6 +195,72 @@ INSERT INTO FUNCTION
         return insert_query, context.values
 
 
+class SavedQueryRecordBatchModel(RecordBatchModel):
+    """A model to produce record batches from a saved query (materialized view)."""
+
+    def __init__(self, team_id: int, saved_query_id: str | None = None, batch_export_id: str | None = None):
+        super().__init__(team_id, batch_export_id)
+        self.saved_query_id = saved_query_id
+
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        # this method is now deprecated for all activities that use internal stage
+        raise NotImplementedError
+
+    async def as_insert_into_s3_query_with_parameters(
+        self,
+        data_interval_start: dt.datetime | None,
+        data_interval_end: dt.datetime,
+        s3_folder: str,
+        s3_key: str,
+        s3_secret: str,
+        num_partitions: int,
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        context = await self.get_hogql_context()
+
+        saved_query = await DataWarehouseSavedQuery.objects.select_related("table").aget(id=self.saved_query_id)
+        # sanity check
+        assert saved_query.table is not None
+        assert saved_query.is_materialized is True
+
+        table_sql = saved_query.table.to_printed_clickhouse(context)
+        table_sql = f"SELECT * FROM {table_sql}"
+
+        # prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        #     hogql_query, context=context, dialect="clickhouse", stack=[]
+        # )
+        # assert prepared_hogql_query is not None
+        # printed = print_prepared_ast(
+        #     prepared_hogql_query,
+        #     context=context,
+        #     dialect="clickhouse",
+        #     stack=[],
+        # )
+
+        log_comment = "log_comment={log_comment}"
+        if "settings" not in table_sql.lower():
+            log_comment = " SETTINGS log_comment={log_comment}"
+        else:
+            log_comment = ", " + log_comment
+
+        insert_query = f"""
+INSERT INTO FUNCTION
+   s3(
+       '{s3_folder}/export_{{{{_partition_id}}}}.arrow',
+       '{s3_key}',
+       '{s3_secret}',
+       'ArrowStream'
+    )
+    PARTITION BY rand() %% {num_partitions}
+{table_sql}{log_comment}
+"""
+
+        return insert_query, context.values
+
+
 def resolve_batch_exports_model(
     team_id: int,
     batch_export_model: BatchExportModel | None = None,
@@ -218,6 +285,8 @@ def resolve_batch_exports_model(
 
             if model_name == "sessions":
                 record_batch_model = SessionsRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
+            elif model_name == "saved_query" and model.saved_query_id is not None:
+                record_batch_model = SavedQueryRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
         else:
             model_name = "events"
             extra_query_parameters = None

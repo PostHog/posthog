@@ -535,7 +535,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
-        sync_batch_export(batch_export, created=True)
+
+        # Batch exports for saved queries are triggered by the materialized view workflow
+        # and therefore don't need a Temporal schedule.
+        if batch_export.model != BatchExport.Model.SAVED_QUERY:
+            sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():
             destination.save()
@@ -645,7 +649,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
 
-            sync_batch_export(batch_export, created=False)
+            # Batch exports for saved queries are triggered by the materialized view workflow
+            # and therefore don't need a Temporal schedule.
+            if batch_export.model != BatchExport.Model.SAVED_QUERY:
+                sync_batch_export(batch_export, created=False)
 
         return batch_export
 

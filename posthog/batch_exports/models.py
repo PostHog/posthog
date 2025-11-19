@@ -201,6 +201,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         EVENTS = "events"
         PERSONS = "persons"
         SESSIONS = "sessions"
+        SAVED_QUERY = "saved_query"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -257,6 +258,13 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         help_text="Which model this BatchExport is exporting.",
     )
     filters = models.JSONField(null=True, blank=True)
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        on_delete=models.PROTECT,
+        help_text="The saved query (materialized view) this batch export is exporting.",
+        null=True,
+        blank=True,
+    )
 
     @property
     def latest_runs(self):
