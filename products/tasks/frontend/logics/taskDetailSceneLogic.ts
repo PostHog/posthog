@@ -20,7 +20,7 @@ import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
 
-const LOG_POLL_INTERVAL_MS = 3000
+const LOG_POLL_INTERVAL_MS = 1000
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
@@ -109,6 +109,12 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     return false
                 }
                 return selectedRun.status === TaskRunStatus.STARTED || selectedRun.status === TaskRunStatus.IN_PROGRESS
+            },
+        ],
+        title: [
+            (s) => [s.task],
+            (task): string => {
+                return task?.title || task?.slug || 'Task'
             },
         ],
     }),

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCode } from '@posthog/icons'
+import { IconArrowRight, IconCode } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -44,7 +44,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
     if (githubIntegrations.length === 0) {
         return (
             <LemonCard className="p-6 text-center">
-                <div className="space-y-4">
+                <div className="space-y-4 flex flex-col items-center">
                     <IconCode className="mx-auto text-4xl text-muted" />
                     <div>
                         <h3 className="font-medium">Connect GitHub</h3>
@@ -53,8 +53,9 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                         </p>
                     </div>
                     <LemonButton
+                        icon={<IconArrowRight />}
                         type="primary"
-                        icon={<IconCode />}
+                        className="w-max"
                         disableClientSideRouting
                         to={api.integrations.authorizeUrl({
                             kind: 'github',

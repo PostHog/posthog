@@ -31,13 +31,14 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={submitNewTask} loading={isSubmittingTask}>
-                        Create and run
+                        Create task
                     </LemonButton>
                 </div>
             }
         >
             <div className="space-y-6">
                 <div>
+                    <label className="block text-sm font-medium mb-2">Description</label>
                     <LemonTextArea
                         value={newTaskData.description}
                         onChange={(value) => setNewTaskData({ description: value })}
