@@ -15,8 +15,6 @@ export function usePeriodicRerender(milliseconds: number): void {
     })
 
     useEffect(() => {
-        const isPageActive = (): boolean => isPageVisibleRef.current && document.hasFocus()
-
         const startInterval = (triggerImmediately: boolean): void => {
             if (intervalIdRef.current) {
                 return
@@ -34,27 +32,22 @@ export function usePeriodicRerender(milliseconds: number): void {
             }
         }
 
-        const handleActiveStateChange = (): void => {
-            if (isPageActive()) {
+        const handleVisibilityChange = (): void => {
+            if (isPageVisibleRef.current) {
                 startInterval(true)
             } else {
                 stopInterval()
             }
         }
 
-        checkAndUpdateInterval.current = handleActiveStateChange
+        checkAndUpdateInterval.current = handleVisibilityChange
 
-        if (isPageActive()) {
+        if (isPageVisibleRef.current) {
             startInterval(false)
         }
 
-        window.addEventListener('focus', handleActiveStateChange)
-        window.addEventListener('blur', handleActiveStateChange)
-
         return () => {
             stopInterval()
-            window.removeEventListener('focus', handleActiveStateChange)
-            window.removeEventListener('blur', handleActiveStateChange)
             checkAndUpdateInterval.current = null
         }
     }, [milliseconds])
