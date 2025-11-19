@@ -112,10 +112,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <div className="mt-4">
                             <ResultDetails
                                 metric={metrics[0] as ExperimentMetric}
-                                result={{
-                                    ...results[0],
-                                    metric: metrics[0] as ExperimentMetric,
-                                }}
+                                result={results[0]}
                                 experiment={experiment}
                             />
                         </div>
