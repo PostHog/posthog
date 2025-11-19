@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -37,7 +39,8 @@ def call_root_for_replay_sessions(demo_org_team_user):
         )
         # Conditionally include session replay page context
         if include_search_session_recordings_context:
-            context = {"current_filters": {"date_from": "-7d", "filter_test_accounts": True}}
+            context: dict[str, Any] = {}
+            context["current_filters"] = {"date_from": "-7d", "filter_test_accounts": True}
             if include_current_session_id:
                 context["current_session_id"] = "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
             contextual_tools = {"search_session_recordings": context}
