@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actionToUrl, router } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
@@ -276,4 +276,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
+    actionToUrl(({ props }) => ({
+        cancelChanges: () => {
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                const { q: _, ...hash } = hashParams
+                return [pathname, searchParams, hash]
+            }
+        },
+    })),
 ])
