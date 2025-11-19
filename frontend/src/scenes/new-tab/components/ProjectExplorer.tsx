@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { MouseEvent, useEffect, useMemo } from 'react'
+import { CSSProperties, MouseEvent, useEffect, useMemo } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -292,6 +292,9 @@ export function ProjectExplorer({
                                 }
                             }
                             const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
+                            const nameColumnIndentStyle: CSSProperties | undefined = rowIndent
+                                ? { marginLeft: rowIndent }
+                                : undefined
                             const treeItem = isParentNavigationRow ? null : convertEntryToTreeDataItem(entry)
                             const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
                             const listBoxItem = (
@@ -314,11 +317,13 @@ export function ProjectExplorer({
                                             'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
-                                        style={rowIndent ? { paddingLeft: rowIndent } : undefined}
                                         onClick={handleRowClick}
                                         onFocus={handleRowFocus}
                                     >
-                                        <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm">
+                                        <div
+                                            className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm"
+                                            style={nameColumnIndentStyle}
+                                        >
                                             <span className="flex w-5 justify-center">
                                                 {isExpandableFolder ? (
                                                     <ButtonPrimitive
