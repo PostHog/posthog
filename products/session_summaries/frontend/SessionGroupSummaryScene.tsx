@@ -38,9 +38,10 @@ type SeverityConfig = {
 
 function getSeverityConfig(severity: SeverityLevel): SeverityConfig {
     const configs: Record<SeverityLevel, SeverityConfig> = {
-        critical: { type: 'danger', color: 'bg-danger' },
-        high: { type: 'warning', color: 'bg-warning' },
-        medium: { type: 'success', color: 'bg-success' },
+        // bg-danger
+        critical: { type: 'danger', color: 'bg-orange-700' },
+        high: { type: 'warning', color: 'bg-yellow-700' },
+        medium: { type: 'success', color: 'bg-warning' },
         low: { type: 'default', color: 'bg-muted' },
     }
     return configs[severity]
