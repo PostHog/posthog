@@ -593,7 +593,7 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
 
 
-class BaseTestUnorderedFunnelGroupBreakdown(
+class BaseTestFunnelUnorderedGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
