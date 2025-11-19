@@ -2,6 +2,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
+import posthoganalytics
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
@@ -15,34 +17,90 @@ DEFAULT_FREE_TIER_CREDITS = 2000
 
 POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE = "PostHog AI usage"
 
-# Custom free tier limits by region and team_id: region -> team_id -> credits
-CUSTOM_FREE_TIER_TEAMS = {
-    "EU": {
-        1: 9999999,  # PostHog internal team
-    },
-    "US": {
-        2: 9999999,  # PostHog internal team
-    },
-}
-
-# GA launch date - don't count usage before this date
-GA_LAUNCH_DATE = datetime(2025, 11, 17, tzinfo=UTC)
+# Default GA launch date - don't count usage before this date
+DEFAULT_GA_LAUNCH_DATE = datetime(2025, 11, 17, tzinfo=UTC)
 
 CH_BILLING_SETTINGS = {
     "max_execution_time": 60,  # 1 minute
 }
 
 
+def _get_billing_config_payload() -> dict | None:
+    """
+    Get the billing configuration payload from feature flag.
+    Returns None if not available or invalid.
+
+    Feature flag: posthog-ai-billing-free-tier-credits
+    Expected payload format:
+    {
+        "ga_launch_date": "2025-11-17",  # ISO format date string (YYYY-MM-DD)
+        "EU": {
+            "1": 10000,  # team_id (as string): credits (as int)
+            "2": 5000
+        },
+        "US": {
+            "2": 10000
+        }
+    }
+    """
+    payload = posthoganalytics.get_feature_flag_payload(
+        "posthog-ai-billing-free-tier-credits", "internal_billing_events"
+    )
+
+    if not payload or not isinstance(payload, dict):
+        return None
+
+    return payload
+
+
 def get_ai_free_tier_credits(team_id: int) -> int:
     """
     Get the AI free tier credits limit for a team.
-    Checks if the team has a custom free tier limit configured for the current region.
     Falls back to DEFAULT_FREE_TIER_CREDITS if not configured.
     """
     region = get_instance_region()
-    if region and region in CUSTOM_FREE_TIER_TEAMS:
-        return CUSTOM_FREE_TIER_TEAMS[region].get(team_id, DEFAULT_FREE_TIER_CREDITS)
+    if not region:
+        return DEFAULT_FREE_TIER_CREDITS
+
+    payload = _get_billing_config_payload()
+    if not payload:
+        return DEFAULT_FREE_TIER_CREDITS
+
+    region_config = payload.get(region)
+    if not region_config or not isinstance(region_config, dict):
+        return DEFAULT_FREE_TIER_CREDITS
+
+    team_id_str = str(team_id)
+    if team_id_str in region_config:
+        try:
+            return int(region_config[team_id_str])
+        except (ValueError, TypeError):
+            return DEFAULT_FREE_TIER_CREDITS
+
     return DEFAULT_FREE_TIER_CREDITS
+
+
+def get_ga_launch_date() -> datetime:
+    """
+    Falls back to DEFAULT_GA_LAUNCH_DATE if not configured.
+    """
+    payload = _get_billing_config_payload()
+    if not payload:
+        return DEFAULT_GA_LAUNCH_DATE
+
+    ga_date_str = payload.get("ga_launch_date")
+    if not ga_date_str or not isinstance(ga_date_str, str):
+        return DEFAULT_GA_LAUNCH_DATE
+
+    try:
+        # Parse ISO format date string (YYYY-MM-DD)
+        parsed_date = datetime.fromisoformat(ga_date_str)
+        # Ensure it has UTC timezone
+        if parsed_date.tzinfo is None:
+            parsed_date = parsed_date.replace(tzinfo=UTC)
+        return parsed_date
+    except (ValueError, TypeError):
+        return DEFAULT_GA_LAUNCH_DATE
 
 
 def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
@@ -207,7 +265,8 @@ def get_past_month_start() -> datetime:
     """
     now = datetime.now(UTC)
     thirty_days_ago = now - timedelta(days=30)
-    return max(thirty_days_ago, GA_LAUNCH_DATE)
+    ga_launch_date = get_ga_launch_date()
+    return max(thirty_days_ago, ga_launch_date)
 
 
 def format_usage_message(
@@ -236,8 +295,9 @@ def format_usage_message(
     lines: list[str] = [f"## {POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE}", ""]
 
     # Determine if GA cap is active
-    ga_cap_active = past_month_start is not None and past_month_start.date() == GA_LAUNCH_DATE.date()
-    past_30_label = "**Past 30 days**" + (f" (since {GA_LAUNCH_DATE.strftime('%Y-%m-%d')})" if ga_cap_active else "")
+    ga_launch_date = get_ga_launch_date()
+    ga_cap_active = past_month_start is not None and past_month_start.date() == ga_launch_date.date()
+    past_30_label = "**Past 30 days**" + (f" (since {ga_launch_date.strftime('%Y-%m-%d')})" if ga_cap_active else "")
 
     lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
     lines.append(f"{past_30_label}: {past_month_credits:,} credits\n")
@@ -265,9 +325,8 @@ def format_usage_message(
     # Add GA cap explanation if active
     if ga_cap_active:
         lines.append(
-            f"\n_Past 30 days usage is calculated from PostHog AI general availability date ({GA_LAUNCH_DATE.strftime('%b %d, %Y')}) "
+            f"\n_Past 30 days usage is calculated from PostHog AI general availability date ({ga_launch_date.strftime('%b %d, %Y')}) "
             "as usage before this date is not counted._"
         )
-        # lines.append("")
 
     return "\n".join(lines)
