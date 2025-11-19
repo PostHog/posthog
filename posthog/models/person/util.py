@@ -34,7 +34,7 @@ if TEST:
     @mutable_receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
         create_person(
-            team_id=instance.team.pk,
+            team_id=instance.team_id,
             properties=instance.properties,
             uuid=str(instance.uuid),
             is_identified=instance.is_identified,
@@ -45,7 +45,7 @@ if TEST:
     @mutable_receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
         create_person_distinct_id(
-            instance.team.pk,
+            instance.team_id,
             instance.distinct_id,
             str(instance.person.uuid),
             version=instance.version or 0,
