@@ -2967,6 +2967,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -3168,6 +3169,7 @@
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+      mapKeys(properties_group_feature_flags) as flag_keys,
   
       -- event names
       [event] as event_names,
@@ -3260,6 +3262,7 @@
   
       -- flags
       initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+      CAST([], 'Array(String)') as flag_keys,
   
       -- event names
       CAST([], 'Array(String)') as event_names,
@@ -4179,6 +4182,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -4188,7 +4192,8 @@
   ,
   
       -- Indexes
-      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1
+      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
@@ -5380,6 +5385,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -6772,6 +6778,7 @@
   
       -- Flags - store every seen value for each flag
       flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -6781,7 +6788,8 @@
   ,
   
       -- Indexes
-      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1
+      INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
