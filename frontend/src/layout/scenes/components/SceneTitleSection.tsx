@@ -372,16 +372,7 @@ function SceneName({
         )
     }
 
-    return (
-        <div
-            className={cn(
-                'scene-name flex-1',
-                !isEditing && onChange && canEdit && 'truncate focus-within:overflow-visible'
-            )}
-        >
-            {Element}
-        </div>
-    )
+    return <div className={cn('scene-name flex-1', !isEditing && onChange && canEdit && 'truncate ')}>{Element}</div>
 }
 
 type SceneDescriptionProps = {
