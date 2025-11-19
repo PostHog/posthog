@@ -30,6 +30,7 @@ If the conversation history contains context about the current filters or sessio
 - Convert the user query into a `session_summarization_query`
 - The query should be used to understand the user's intent
 - Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
+- If a `current_session_id` is present in the context, decide if the user wants to summarize that specific session and set `should_use_current_session` accordingly
 - Generate the `summary_title` based on the user's query and the current filters
 - Extract the `session_summarization_limit` from the user's query if present
 
@@ -37,6 +38,7 @@ Otherwise:
 - Convert the user query into a `session_summarization_query`
 - The query should be used to search for relevant sessions and then summarize them
 - Assume the `should_use_current_filters` should be always `false`
+- Assume the `should_use_current_session` should be always `false`
 - Generate the `summary_title` based on the user's query
 - Extract the `session_summarization_limit` from the user's query if present
 
@@ -60,6 +62,23 @@ class SessionSummarizationToolArgs(BaseModel):
           * 'watch last 300 session recordings of MacOS users from US'
           * and similar
         """
+    )
+    should_use_current_session: bool = Field(
+        description="""
+        - Whether to use the current session ID from user's UI (the session they are viewing) to summarize.
+        - IMPORTANT: Should be always `false` if `current_session_id` is not present in the `search_session_recordings` context.
+        - Examples:
+          * Set to `true` if ALL of the following conditions are met:
+            - `current_session_id` is present in the context
+            - the user wants to summarize a single specific session they are viewing
+            - the user refers to "this session", "the session", "current session", "session I'm looking at", "session I'm watching", or similar singular references
+          * Set to `false` if ANY of the following conditions are met:
+            - `current_session_id` is not present in the context
+            - the user asks to summarize multiple sessions (e.g., "these sessions", "all sessions", "sessions from yesterday")
+            - the user wants to follow current filters
+            - the user specifies search criteria or filters (e.g., "sessions from user X", "mobile sessions")
+            - the user asks to find or search for sessions
+        """,
     )
     should_use_current_filters: bool = Field(
         description="""
@@ -126,6 +145,7 @@ class SessionSummarizationTool(MaxTool):
         self,
         session_summarization_query: str,
         should_use_current_filters: bool,
+        should_use_current_session: bool,
         summary_title: str,
         session_summarization_limit: int,
     ) -> tuple[str, ToolMessagesArtifact | None]:
@@ -137,6 +157,7 @@ class SessionSummarizationTool(MaxTool):
                 "root_tool_call_id": self.tool_call_id,
                 "session_summarization_query": session_summarization_query,
                 "should_use_current_filters": should_use_current_filters,
+                "should_use_current_session": should_use_current_session,
                 "summary_title": summary_title,
                 "session_summarization_limit": session_summarization_limit,
             },
