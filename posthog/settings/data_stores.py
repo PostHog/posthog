@@ -21,10 +21,9 @@ SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
 # Person table configuration
 # Controls which PostgreSQL table the Person model uses.
-# Default: "posthog_person" (legacy non-partitioned table)
-# For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
-# Note: posthog_person_new must exist (created by Rust sqlx migrations)
-PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
+# Default: "posthog_person_new" (partitioned table created by Rust sqlx migrations)
+# For legacy non-partitioned table: set PERSON_TABLE_NAME=posthog_person
+PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person_new")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases

@@ -72,41 +72,41 @@ def get_partition_count(parent_table: str) -> int:
 
 
 class TestPersonSchemaConsistency(TestCase):
-    """Verify posthog_person table structure created by sqlx migrations."""
+    """Verify person table structure created by sqlx migrations."""
 
-    def test_posthog_person_exists(self):
-        """Verify posthog_person table exists."""
+    def test_person_table_exists(self):
+        """Verify person table exists."""
         self.assertTrue(
-            table_exists("posthog_person"),
-            "posthog_person table does not exist. "
+            table_exists(settings.PERSON_TABLE_NAME),
+            f"{settings.PERSON_TABLE_NAME} table does not exist. "
             "Rust sqlx migrations from rust/persons_migrations/ should have created it.",
         )
 
-    def test_posthog_person_is_partitioned(self):
-        """Verify posthog_person is a partitioned table."""
+    def test_person_table_is_partitioned(self):
+        """Verify person table is partitioned."""
         self.assertTrue(
-            is_table_partitioned("posthog_person"),
-            "posthog_person should be a partitioned table. "
+            is_table_partitioned(settings.PERSON_TABLE_NAME),
+            f"{settings.PERSON_TABLE_NAME} should be a partitioned table. "
             "Sqlx migration 20251113000001_add_partitioned_person_table.sql should have created it.",
         )
 
-    def test_posthog_person_uses_hash_partitioning(self):
-        """Verify posthog_person uses HASH partitioning strategy."""
-        strategy = get_partition_strategy("posthog_person")
+    def test_person_table_uses_hash_partitioning(self):
+        """Verify person table uses HASH partitioning strategy."""
+        strategy = get_partition_strategy(settings.PERSON_TABLE_NAME)
         self.assertEqual(
             strategy,
             "h",
-            f"posthog_person should use HASH partitioning (got '{strategy}'). "
+            f"{settings.PERSON_TABLE_NAME} should use HASH partitioning (got '{strategy}'). "
             "Check sqlx migration 20251113000001_add_partitioned_person_table.sql.",
         )
 
-    def test_posthog_person_has_64_partitions(self):
-        """Verify posthog_person has 64 hash partitions."""
-        count = get_partition_count("posthog_person")
+    def test_person_table_has_64_partitions(self):
+        """Verify person table has 64 hash partitions."""
+        count = get_partition_count(settings.PERSON_TABLE_NAME)
         self.assertEqual(
             count,
             64,
-            f"posthog_person should have 64 partitions (got {count}). "
+            f"{settings.PERSON_TABLE_NAME} should have 64 partitions (got {count}). "
             "Check sqlx migration 20251113000001_add_partitioned_person_table.sql.",
         )
 
@@ -114,9 +114,10 @@ class TestPersonSchemaConsistency(TestCase):
         """Verify individual partition tables exist (spot check)."""
         # Check a few partitions exist
         for i in [0, 1, 31, 63]:
+            partition_name = f"{settings.PERSON_TABLE_NAME}_p{i}"
             self.assertTrue(
-                table_exists(f"posthog_person_p{i}"),
-                f"Partition posthog_person_p{i} does not exist. "
+                table_exists(partition_name),
+                f"Partition {partition_name} does not exist. "
                 "Sqlx migration should have created 64 partitions (p0 through p63).",
             )
 

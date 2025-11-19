@@ -159,9 +159,8 @@ def create_persons_tables():
     # Drop Django-created tables and clear sqlx migration tracking
     with connection.cursor() as cursor:
         cursor.execute("""
+            DROP TABLE IF EXISTS posthog_person_new CASCADE;
             DROP TABLE IF EXISTS posthog_person CASCADE;
-            DROP TABLE IF EXISTS posthog_person_old CASCADE;
-            DROP VIEW IF EXISTS posthog_person_new CASCADE;
             DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
             DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
             DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
@@ -185,11 +184,11 @@ def create_persons_tables():
     # Run sqlx migrations to create tables
     run_persons_sqlx_migrations()
 
-    # Set sequence defaults for posthog_person
+    # Set sequence defaults for posthog_person_new
     with connection.cursor() as cursor:
         cursor.execute("""
-            CREATE SEQUENCE IF NOT EXISTS posthog_person_id_seq START WITH 1000000000;
-            ALTER TABLE posthog_person ALTER COLUMN id SET DEFAULT nextval('posthog_person_id_seq');
+            CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
+            ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
         """)
 
 
@@ -205,7 +204,7 @@ def reset_persons_tables():
     with connection.cursor() as cursor:
         cursor.execute("""
             TRUNCATE TABLE posthog_cohortpeople CASCADE;
-            TRUNCATE TABLE posthog_person CASCADE;
+            TRUNCATE TABLE posthog_person_new CASCADE;
             TRUNCATE TABLE posthog_persondistinctid CASCADE;
             TRUNCATE TABLE posthog_personlessdistinctid CASCADE;
             TRUNCATE TABLE posthog_personoverridemapping CASCADE;
