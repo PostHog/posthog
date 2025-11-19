@@ -18194,7 +18194,26 @@
                 "experiment_name": {
                     "type": "string"
                 },
-                "metrics_results": {
+                "exposures": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "primary_metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "secondary_metrics_results": {
                     "items": {
                         "$ref": "#/definitions/MaxExperimentMetricResult"
                     },
@@ -18214,8 +18233,10 @@
                 "experiment_id",
                 "experiment_name",
                 "description",
+                "exposures",
                 "variants",
-                "metrics_results",
+                "primary_metrics_results",
+                "secondary_metrics_results",
                 "stats_method"
             ],
             "type": "object"

@@ -22,7 +22,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
-        Person.objects.all().delete()
+        Person.objects.filter(team_id__isnull=False).delete()
 
     def produce_replay_summary(
         self,
