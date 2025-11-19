@@ -16,6 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AgentMode,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -775,8 +776,16 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
+    def test_get_updated_agent_mode(self):
+        node = _create_agent_node(self.team, self.user)
+        message = AssistantMessage(content="test")
+        self.assertEqual(
+            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
+        )
+        self.assertIsNone(node._get_updated_agent_mode(message, None))
 
-class TestAgentToolsNode(BaseTest):
+
+class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
         node = _create_agent_tools_node(self.team, self.user)
 

@@ -289,11 +289,15 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'execute_sql'
+    | 'switch_mode'
+    | 'summarize_sessions'
+    | 'create_insight'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
-    // The schema generator breaks on enums with a single member. This will be removed.
-    Noop = 'noop',
+    SQL = 'sql',
+    SessionReplay = 'session_replay',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */

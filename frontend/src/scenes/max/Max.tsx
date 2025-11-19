@@ -18,6 +18,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -89,9 +90,14 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId: string
+    isAIOnlyMode?: boolean
 }
 
-export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({
+    sidePanel,
+    tabId,
+    isAIOnlyMode,
+}: MaxInstanceProps): JSX.Element {
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -104,6 +110,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
+    const { exitAIOnlyMode } = useActions(appLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -160,7 +167,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     return sidePanel ? (
         <>
-            <SidePanelPaneHeader className="transition-all duration-200" onClose={() => startNewConversation()}>
+            <SidePanelPaneHeader
+                className="transition-all duration-200"
+                onClose={() => {
+                    exitAIOnlyMode()
+                    startNewConversation()
+                }}
+            >
                 <div className="flex flex-1">
                     <div className="flex items-center flex-1">
                         <AnimatedBackButton in={!backButtonDisabled}>
@@ -188,7 +201,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             )}
                         </h3>
                     </div>
-                    {conversationId && !conversationHistoryVisible && !threadVisible && (
+                    {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
                         <LemonButton
                             size="small"
                             icon={<IconPlus />}
@@ -219,18 +232,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             tooltipPlacement="bottom-end"
                         />
                     )}
-                    <LemonButton
-                        size="small"
-                        sideIcon={<IconExpand45 />}
-                        to={urls.max(conversationId ?? undefined)}
-                        onClick={() => {
-                            closeSidePanel()
-                            startNewConversation()
-                        }}
-                        targetBlank
-                        tooltip="Open as main focus"
-                        tooltipPlacement="bottom-end"
-                    />
+                    {!isAIOnlyMode && (
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExpand45 />}
+                            to={urls.max(conversationId ?? undefined)}
+                            onClick={() => {
+                                closeSidePanel()
+                                startNewConversation()
+                            }}
+                            targetBlank
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        />
+                    )}
                 </div>
             </SidePanelPaneHeader>
             {content}
