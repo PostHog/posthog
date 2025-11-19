@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
@@ -964,5 +965,12 @@ environments_router.register(
     r"llm_analytics/text_repr",
     LLMAnalyticsTextReprViewSet,
     "environment_llm_analytics_text_repr",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/summarization",
+    LLMAnalyticsSummarizationViewSet,
+    "environment_llm_analytics_summarization",
     ["team_id"],
 )

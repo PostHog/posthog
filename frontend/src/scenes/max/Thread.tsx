@@ -736,7 +736,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
@@ -748,7 +748,7 @@ function AssistantActionComponent({
                 aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
             >
                 {icon && (
-                    <div className="flex items-center justify-center size-6">
+                    <div className="flex items-center justify-center size-5">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
@@ -829,7 +829,7 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
+            icon={<IconBrain />}
             animate={true}
             showCompletionIcon={showCompletionIcon}
         />
