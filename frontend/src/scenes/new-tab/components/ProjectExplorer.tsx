@@ -315,14 +315,14 @@ export function ProjectExplorer({
                                         to={entry.href || '#'}
                                         className={clsx(
                                             rowGridClass,
-                                            'group/explorer-row border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            'group/explorer-row grid grid-cols-[minmax(0,1fr)_200px_160px_auto] rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
                                         style={rowIndent ? { paddingLeft: rowIndent } : undefined}
                                         onClick={handleRowClick}
                                         onFocus={handleRowFocus}
                                     >
-                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm">
                                             <span className="flex w-5 justify-center">
                                                 {isExpandableFolder ? (
                                                     <ButtonPrimitive
@@ -353,17 +353,17 @@ export function ProjectExplorer({
                                             ) : null}
                                         </div>
                                         {shouldUseSearchRows && (
-                                            <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
+                                            <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm text-primary">
                                                 <span className="truncate">{folderLabel}</span>
                                             </div>
                                         )}
-                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm text-primary">
                                             {renderCreatedBy(entry)}
                                         </div>
-                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-muted">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm text-muted">
                                             {renderCreatedAt(entry)}
                                         </div>
-                                        <div className="flex items-center justify-end px-2 py-2">
+                                        <div className="flex items-center justify-end px-2 py-1.5">
                                             {!isParentNavigationRow && treeItem ? (
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
@@ -425,12 +425,12 @@ export function ProjectExplorer({
                         }
                     )}
                     {isLoadingRows && contentRows.length === 0 ? (
-                        <div className="flex items-center gap-2 px-3 py-2 ml-6 text-muted border-t border-border">
+                        <div className="flex items-center gap-2 px-3 py-1.5 ml-6 text-muted border-t border-border">
                             <Spinner /> {isSearchActive ? 'Searching within folder…' : 'Loading folder...'}
                         </div>
                     ) : null}
                     {!isLoadingRows && contentRows.length === 0 ? (
-                        <div className="px-3 py-2 ml-12 text-sm text-muted border-t border-border">
+                        <div className="px-3 py-1.5 ml-12 text-sm text-muted border-t border-border">
                             {isSearchActive
                                 ? 'No matching files or folders in this location.'
                                 : 'No files in this folder.'}
