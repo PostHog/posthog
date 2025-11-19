@@ -541,6 +541,11 @@ export class ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
     }
 
+    // # User product list
+    public userProductList(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -1923,6 +1928,26 @@ const api = {
         },
     },
 
+    userProductList: {
+        async list(): Promise<
+            CountedPaginatedResponse<{
+                id: string
+                product_path: string
+                enabled: boolean
+                created_at: string
+                updated_at: string
+            }>
+        > {
+            return await new ApiRequest().userProductList().get()
+        },
+        async updateByPath(data: {
+            product_path: string
+            enabled: boolean
+        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
+        },
+    },
+
     organizationFeatureFlags: {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -3178,6 +3203,18 @@ const api = {
             return await new ApiRequest()
                 .gitProviderFileLinks()
                 .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
+        async resolveGitlab(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_gitlab')
                 .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
                 .get()
         },
