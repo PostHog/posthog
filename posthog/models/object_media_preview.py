@@ -40,12 +40,11 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     )
 
     # Metadata - URL where screenshot was taken, recording_id, feature flag values, etc.
-    is_default = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         indexes = [
-            models.Index(fields=["team", "event_definition", "is_default"]),
+            models.Index(fields=["team", "event_definition"]),
         ]
         constraints = [
             # Exactly one media must be set
@@ -90,15 +89,6 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-
-        # If setting as default, unset other defaults for this object
-        if self.is_default and self.event_definition:
-            ObjectMediaPreview.objects.filter(
-                team=self.team,
-                event_definition=self.event_definition,
-                is_default=True,
-            ).exclude(id=self.id).update(is_default=False)
-
         super().save(*args, **kwargs)
 
     @property
