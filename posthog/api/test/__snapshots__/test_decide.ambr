@@ -656,14 +656,14 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.24
   '''
-  SELECT "posthog_teamcustomeranalyticsconfig"."team_id",
-         "posthog_teamcustomeranalyticsconfig"."activity_event",
-         "posthog_teamcustomeranalyticsconfig"."signup_pageview_event",
-         "posthog_teamcustomeranalyticsconfig"."signup_event",
-         "posthog_teamcustomeranalyticsconfig"."subscription_event",
-         "posthog_teamcustomeranalyticsconfig"."payment_event"
-  FROM "posthog_teamcustomeranalyticsconfig"
-  WHERE "posthog_teamcustomeranalyticsconfig"."team_id" = 99999
+  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
+         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."payment_event"
+  FROM "customer_analytics_teamcustomeranalyticsconfig"
+  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
@@ -3367,14 +3367,14 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.24
   '''
-  SELECT "posthog_teamcustomeranalyticsconfig"."team_id",
-         "posthog_teamcustomeranalyticsconfig"."activity_event",
-         "posthog_teamcustomeranalyticsconfig"."signup_pageview_event",
-         "posthog_teamcustomeranalyticsconfig"."signup_event",
-         "posthog_teamcustomeranalyticsconfig"."subscription_event",
-         "posthog_teamcustomeranalyticsconfig"."payment_event"
-  FROM "posthog_teamcustomeranalyticsconfig"
-  WHERE "posthog_teamcustomeranalyticsconfig"."team_id" = 99999
+  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
+         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."payment_event"
+  FROM "customer_analytics_teamcustomeranalyticsconfig"
+  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
