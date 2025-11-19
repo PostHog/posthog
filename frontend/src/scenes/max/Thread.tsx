@@ -251,6 +251,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                     id={message.id || key}
                                     completed={isThinkingComplete}
                                     showCompletionIcon={false}
+                                    animate={message.id === 'loader'}
                                 />
                             )
                         }
@@ -720,19 +721,19 @@ function AssistantActionComponent({
             >
                 {icon && (
                     <div className="flex items-center justify-center size-5">
-                        {isInProgress && animate ? (
+                        {animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className="inline-flex">{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
                         )}
                     </div>
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
                     <div>
-                        {isInProgress && animate ? (
+                        {animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            markdownContent
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
@@ -791,9 +792,16 @@ interface ReasoningAnswerProps {
     completed: boolean
     id: string
     showCompletionIcon?: boolean
+    animate?: boolean
 }
 
-function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+function ReasoningAnswer({
+    content,
+    completed,
+    id,
+    showCompletionIcon = true,
+    animate = false,
+}: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
@@ -801,7 +809,7 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
             icon={<IconBrain />}
-            animate={true}
+            animate={animate}
             showCompletionIcon={showCompletionIcon}
         />
     )
