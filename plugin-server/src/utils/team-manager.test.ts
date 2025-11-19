@@ -1,8 +1,11 @@
+import { v4 } from 'uuid'
+
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import {
     createTeam,
     getFirstTeam,
+    insertRow,
     resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../tests/helpers/sql'
@@ -57,6 +60,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
+                  "materialized_column_slots": [],
                   "name": "TEST PROJECT",
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
@@ -200,6 +204,178 @@ describe('TeamManager()', () => {
             const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
             expect(newTeamByToken).not.toBeNull()
             expect(newTeamByToken!.drop_events_older_than_seconds).toBeNull()
+        })
+
+        it('fetches materialized column slots with property definitions', async () => {
+            // Create a new team for this test
+            const newTeamId = await createTeam(postgres, organizationId)
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+
+            // Create property definitions
+            const propertyDef1 = await insertRow(postgres, 'posthog_propertydefinition', {
+                id: v4(),
+                team_id: newTeamId,
+                name: 'custom_property',
+                type: 1, // EVENT
+                property_type: 'String',
+                is_numerical: false,
+            })
+
+            const propertyDef2 = await insertRow(postgres, 'posthog_propertydefinition', {
+                id: v4(),
+                team_id: newTeamId,
+                name: 'user_age',
+                type: 2, // PERSON
+                property_type: 'Numeric',
+                is_numerical: true,
+            })
+
+            // Create materialized column slots in READY state
+            await insertRow(postgres, 'posthog_materializedcolumnslot', {
+                id: v4(),
+                team_id: newTeamId,
+                property_definition_id: propertyDef1.id,
+                slot_index: 0,
+                property_type: 'String',
+                state: 'READY',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+
+            await insertRow(postgres, 'posthog_materializedcolumnslot', {
+                id: v4(),
+                team_id: newTeamId,
+                property_definition_id: propertyDef2.id,
+                slot_index: 5,
+                property_type: 'Numeric',
+                state: 'READY',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+
+            // Clear cache and fetch again
+            await (teamManager as any).lazyLoader.clear()
+            const teamWithSlots = await teamManager.getTeam(newTeamId)
+
+            expect(teamWithSlots).not.toBeNull()
+            expect(teamWithSlots!.materialized_column_slots).toEqual([
+                {
+                    property_definition_id: propertyDef1.id,
+                    slot_index: 0,
+                    slot_property_type: 'string',
+                    state: 'READY',
+                },
+                {
+                    property_definition_id: propertyDef2.id,
+                    slot_index: 5,
+                    slot_property_type: 'numeric',
+                    state: 'READY',
+                },
+            ])
+        })
+
+        it('fetches materialized column slots in both READY and BACKFILL states', async () => {
+            // Create a new team for this test
+            const newTeamId = await createTeam(postgres, organizationId)
+
+            // Create property definitions
+            const propertyDef1 = await insertRow(postgres, 'posthog_propertydefinition', {
+                id: v4(),
+                team_id: newTeamId,
+                name: 'ready_property',
+                type: 1, // EVENT
+                property_type: 'String',
+                is_numerical: false,
+            })
+
+            const propertyDef2 = await insertRow(postgres, 'posthog_propertydefinition', {
+                id: v4(),
+                team_id: newTeamId,
+                name: 'backfill_property',
+                type: 1, // EVENT
+                property_type: 'Boolean',
+                is_numerical: false,
+            })
+
+            const propertyDef3 = await insertRow(postgres, 'posthog_propertydefinition', {
+                id: v4(),
+                team_id: newTeamId,
+                name: 'pending_property',
+                type: 1, // EVENT
+                property_type: 'DateTime',
+                is_numerical: false,
+            })
+
+            // Create slots with different states
+            await insertRow(postgres, 'posthog_materializedcolumnslot', {
+                id: v4(),
+                team_id: newTeamId,
+                property_definition_id: propertyDef1.id,
+                slot_index: 0,
+                property_type: 'String',
+                state: 'READY',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+
+            await insertRow(postgres, 'posthog_materializedcolumnslot', {
+                id: v4(),
+                team_id: newTeamId,
+                property_definition_id: propertyDef2.id,
+                slot_index: 1,
+                property_type: 'Boolean',
+                state: 'BACKFILL',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+
+            // This one should NOT be fetched (PENDING state)
+            await insertRow(postgres, 'posthog_materializedcolumnslot', {
+                id: v4(),
+                team_id: newTeamId,
+                property_definition_id: propertyDef3.id,
+                slot_index: 2,
+                property_type: 'DateTime',
+                state: 'PENDING',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            })
+
+            // Fetch the team
+            const teamWithSlots = await teamManager.getTeam(newTeamId)
+
+            expect(teamWithSlots).not.toBeNull()
+            expect(teamWithSlots!.materialized_column_slots).toHaveLength(2)
+            expect(teamWithSlots!.materialized_column_slots).toEqual(
+                expect.arrayContaining([
+                    {
+                        property_definition_id: propertyDef1.id,
+                        slot_index: 0,
+                        slot_property_type: 'string',
+                        state: 'READY',
+                    },
+                    {
+                        property_definition_id: propertyDef2.id,
+                        slot_index: 1,
+                        slot_property_type: 'bool',
+                        state: 'BACKFILL',
+                    },
+                ])
+            )
+            // Verify PENDING slot is NOT included
+            expect(
+                teamWithSlots!.materialized_column_slots?.find((s) => s.property_definition_id === propertyDef3.id)
+            ).toBeUndefined()
+        })
+
+        it('returns empty array for materialized_column_slots when team has no slots', async () => {
+            // Create a new team without any slots
+            const newTeamId = await createTeam(postgres, organizationId)
+            const teamWithoutSlots = await teamManager.getTeam(newTeamId)
+
+            expect(teamWithoutSlots).not.toBeNull()
+            expect(teamWithoutSlots!.materialized_column_slots).toEqual([])
         })
     })
 
