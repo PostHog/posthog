@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
-import { tasksLogic } from '../tasksLogic'
+import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 interface TaskCreateModalProps {
@@ -11,8 +11,8 @@ interface TaskCreateModalProps {
 }
 
 export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.Element {
-    const { submitNewTask, resetNewTaskData, setNewTaskData } = useActions(tasksLogic)
-    const { newTaskData, tasksLoading } = useValues(tasksLogic)
+    const { submitNewTask, resetNewTaskData, setNewTaskData } = useActions(taskTrackerSceneLogic)
+    const { newTaskData, isSubmittingTask } = useValues(taskTrackerSceneLogic)
 
     const handleCancel = (): void => {
         resetNewTaskData()
@@ -30,7 +30,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                     <LemonButton type="secondary" onClick={handleCancel}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={submitNewTask} loading={tasksLoading}>
+                    <LemonButton type="primary" onClick={submitNewTask} loading={isSubmittingTask}>
                         Create and run
                     </LemonButton>
                 </div>

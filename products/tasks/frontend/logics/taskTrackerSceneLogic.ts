@@ -1,6 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -10,12 +9,13 @@ import api from 'lib/api'
 import { Params } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
-import type { RepositoryConfig } from './components/RepositorySelector'
-import type { tasksLogicType } from './tasksLogicType'
-import { OriginProduct, Task, TaskRunStatus, TaskUpsertProps } from './types'
+import type { RepositoryConfig } from '../components/RepositorySelector'
+import { OriginProduct, Task, TaskRunStatus, TaskUpsertProps } from '../types'
+import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
+import { tasksLogic } from './tasksLogic'
 
 const DEFAULT_SEARCH_QUERY = ''
-const DEFAULT_REPOSITORY = ''
+const DEFAULT_REPOSITORY = 'all'
 const DEFAULT_STATUS = 'all'
 
 export type TaskCreateForm = {
@@ -23,11 +23,12 @@ export type TaskCreateForm = {
     repositoryConfig: RepositoryConfig
 }
 
-export const tasksLogic = kea<tasksLogicType>([
-    path(['products', 'tasks', 'frontend', 'tasksLogic']),
+export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
+    path(['products', 'tasks', 'frontend', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [router, ['location'], userLogic, ['user']],
+        values: [router, ['location'], userLogic, ['user'], tasksLogic, ['tasks']],
+        actions: [tasksLogic, ['loadTasks', 'deleteTask']],
     })),
 
     actions({
@@ -35,13 +36,13 @@ export const tasksLogic = kea<tasksLogicType>([
         setRepository: (repository: string) => ({ repository }),
         setStatus: (status: 'all' | TaskRunStatus) => ({ status }),
         setCreatedBy: (createdBy: number | null) => ({ createdBy }),
-        openTask: (taskId: Task['id']) => ({ taskId }),
         openCreateModal: true,
         closeCreateModal: true,
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
         resetNewTaskData: true,
         submitNewTask: true,
-        deleteTask: (taskId: Task['id']) => ({ taskId }),
+        submitNewTaskSuccess: true,
+        submitNewTaskFailure: (error: string) => ({ error }),
     }),
 
     reducers({
@@ -104,51 +105,15 @@ export const tasksLogic = kea<tasksLogicType>([
                 }),
             },
         ],
-    }),
-
-    loaders(({ values }) => ({
-        tasks: [
-            [] as Task[],
+        isSubmittingTask: [
+            false,
             {
-                loadTasks: async () => {
-                    const response = await api.tasks.list()
-                    return response.results
-                },
-                submitNewTask: async () => {
-                    const { description, repositoryConfig } = values.newTaskData
-
-                    if (!description.trim()) {
-                        throw new Error('Description is required')
-                    }
-                    if (
-                        !repositoryConfig.integrationId ||
-                        !repositoryConfig.organization ||
-                        !repositoryConfig.repository
-                    ) {
-                        throw new Error('Repository is required')
-                    }
-
-                    const taskData: TaskUpsertProps = {
-                        title: '', // Backend will auto-generate from description
-                        description,
-                        origin_product: OriginProduct.USER_CREATED,
-                        repository: `${repositoryConfig.organization}/${repositoryConfig.repository}`,
-                        github_integration: repositoryConfig.integrationId ?? null,
-                    }
-
-                    const newTask = await api.tasks.create(taskData)
-                    lemonToast.success('Task created successfully')
-                    router.actions.push(`/tasks/${newTask.id}`)
-                    return [...values.tasks, newTask]
-                },
-                deleteTask: async ({ taskId }) => {
-                    await api.tasks.delete(taskId)
-                    lemonToast.success('Task deleted')
-                    return values.tasks.filter((t) => t.id !== taskId)
-                },
+                submitNewTask: () => true,
+                submitNewTaskSuccess: () => false,
+                submitNewTaskFailure: () => false,
             },
         ],
-    })),
+    }),
 
     selectors({
         filteredTasks: [
@@ -166,7 +131,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     )
                 }
 
-                if (repository) {
+                if (repository && repository !== 'all') {
                     filtered = filtered.filter((task) =>
                         task.repository.toLowerCase().includes(repository.toLowerCase())
                     )
@@ -185,22 +150,43 @@ export const tasksLogic = kea<tasksLogicType>([
                 return filtered
             },
         ],
-        repositories: [
-            (s) => [s.tasks],
-            (tasks): string[] => {
-                const repos = new Set(tasks.map((task) => task.repository))
-                return Array.from(repos).sort()
-            },
-        ],
     }),
 
-    listeners(({ actions }) => ({
-        openTask: ({ taskId }) => {
-            router.actions.push(`/tasks/${taskId}`)
-        },
-        submitNewTaskSuccess: () => {
-            actions.resetNewTaskData()
-            actions.closeCreateModal()
+    listeners(({ actions, values }) => ({
+        submitNewTask: async () => {
+            const { description, repositoryConfig } = values.newTaskData
+
+            if (!description.trim()) {
+                lemonToast.error('Description is required')
+                actions.submitNewTaskFailure('Description is required')
+                return
+            }
+            if (!repositoryConfig.integrationId || !repositoryConfig.organization || !repositoryConfig.repository) {
+                lemonToast.error('Repository is required')
+                actions.submitNewTaskFailure('Repository is required')
+                return
+            }
+
+            try {
+                const taskData: TaskUpsertProps = {
+                    title: '',
+                    description,
+                    origin_product: OriginProduct.USER_CREATED,
+                    repository: `${repositoryConfig.organization}/${repositoryConfig.repository}`,
+                    github_integration: repositoryConfig.integrationId ?? null,
+                }
+
+                const newTask = await api.tasks.create(taskData)
+                lemonToast.success('Task created successfully')
+                router.actions.push(`/tasks/${newTask.id}`)
+                actions.submitNewTaskSuccess()
+                actions.resetNewTaskData()
+                actions.closeCreateModal()
+                actions.loadTasks()
+            } catch (error) {
+                lemonToast.error('Failed to create task')
+                actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
+            }
         },
     })),
 
@@ -264,14 +250,13 @@ export const tasksLogic = kea<tasksLogicType>([
 
     subscriptions(({ actions, values }) => ({
         user: (user) => {
-            // Set createdBy to current user when user is loaded, if not already set from URL
             if (user?.id && !values.createdByInitialized) {
                 actions.setCreatedBy(user.id)
             }
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadTasks()
-    }),
+    events(({ actions }) => ({
+        afterMount: [actions.loadTasks],
+    })),
 ])

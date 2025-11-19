@@ -3,17 +3,17 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { TaskDetailPage } from './components/TaskDetailPage'
-import { TaskDetailLogicProps, taskDetailLogic } from './taskDetailLogic'
+import { TaskDetailSceneLogicProps, taskDetailSceneLogic } from './logics/taskDetailSceneLogic'
 
-export const scene: SceneExport<TaskDetailLogicProps> = {
+export const scene: SceneExport<TaskDetailSceneLogicProps> = {
     component: TaskDetailScene,
-    logic: taskDetailLogic,
+    logic: taskDetailSceneLogic,
     paramsToProps: ({ params: { taskId } }) => ({
         taskId: taskId,
     }),
 }
 
-export function TaskDetailScene({ taskId }: TaskDetailLogicProps): JSX.Element {
+export function TaskDetailScene({ taskId }: TaskDetailSceneLogicProps): JSX.Element {
     const isEnabled = useFeatureFlag('TASKS')
 
     if (!isEnabled) {
