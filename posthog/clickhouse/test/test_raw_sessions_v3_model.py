@@ -2,7 +2,6 @@ import datetime
 
 from posthog.test.base import (
     BaseTest,
-    ClickhouseDestroyTablesMixin,
     ClickhouseTestMixin,
     _create_event,
     flush_persons_and_events,
@@ -34,7 +33,7 @@ def create_session_id():
 
 
 @snapshot_clickhouse_queries
-class TestRawSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseTest):
+class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
     snapshot_replace_all_numbers = True
 
     def select_by_session_id(self, session_id):
@@ -614,6 +613,7 @@ class TestRawSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Ba
             session_id=session_id,
             first_timestamp="2024-03-08",
             last_timestamp="2024-03-08",
+            ensure_analytics_event_in_session=False,
         )
 
         result_2 = self.select_by_session_id(session_id)
