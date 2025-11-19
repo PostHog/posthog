@@ -78,6 +78,7 @@ class BackfillDetails:
     start_at: str | None
     end_at: str | None
     is_earliest_backfill: bool = False
+    is_last_backfill_run: bool = False
 
 
 @dataclass(kw_only=True)
