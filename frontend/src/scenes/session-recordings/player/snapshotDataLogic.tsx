@@ -250,7 +250,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             const sourceKey = snapshotsForSource.sources
                 ? keyForSource(snapshotsForSource.sources[0])
                 : keyForSource(snapshotsForSource.source)
-            const snapshots = (cache.snapshotsBySource || {})[sourceKey] || []
+            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
+            const snapshots = snapshotsData?.snapshots || []
 
             if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
                 // We got only a single source to load, loaded it successfully, but it had no snapshots.

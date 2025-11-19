@@ -76,7 +76,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
         cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
+        people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people.count(), 1)
         self.assertEqual(cohort.count, 1)
 
@@ -147,7 +147,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
         cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
+        people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(
             people.count(),
@@ -266,7 +266,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
         cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
+        people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(
             people.count(),
@@ -366,7 +366,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
         insert_cohort_from_insight_filter(cohort_id, params)
 
         cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
+        people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(people.count(), 1)
         self.assertEqual(cohort.count, 1)
@@ -471,7 +471,7 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             },
         )
         cohort = Cohort.objects.get(pk=response["id"])
-        people_result = Person.objects.filter(cohort__id=cohort.pk).values_list("id", flat=True)
+        people_result = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id).values_list("id", flat=True)
         self.assertIn(people[0].id, people_result)
 
         query_params = {
@@ -537,5 +537,5 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
 
         cohort = Cohort.objects.get(pk=response["id"])
         self.assertEqual(cohort.count, 2)
-        people_result = Person.objects.filter(cohort__id=cohort.pk).values_list("id", flat=True)
+        people_result = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id).values_list("id", flat=True)
         self.assertCountEqual([people[1].id, people[2].id], people_result)

@@ -48,13 +48,11 @@ from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrot
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
-from products.data_warehouse.backend.data_load.saved_query_service import sync_saved_query_workflow
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 from common.hogvm.python.utils import HogVMException
@@ -331,13 +329,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError(f"Cannot materialize endpoint: {reason}")
 
         saved_query = DataWarehouseSavedQuery.objects.filter(name=endpoint.name, team=self.team, deleted=False).first()
-        if saved_query:
-            created = False
-        else:
+        if saved_query is None:
             saved_query = DataWarehouseSavedQuery(
                 name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
             )
-            created = True
 
         saved_query.query = endpoint.query
         saved_query.external_tables = saved_query.s3_tables
@@ -346,19 +341,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             sync_frequency_to_sync_frequency_interval(sync_frequency.value) if sync_frequency else timedelta(hours=12)
         )
         saved_query.save()
+        saved_query.schedule_materialization()
 
         endpoint.saved_query = saved_query
-
-        DataWarehouseModelPath.objects.create_or_update_from_saved_query(saved_query)
-
-        if created:
-            try:
-                sync_saved_query_workflow(saved_query, create=True)
-            except Exception as e:
-                capture_exception(e, {"endpoint_id": endpoint.id, "saved_query_id": saved_query.id})
-                saved_query.is_materialized = False
-                saved_query.save(update_fields=["is_materialized"])
-
         endpoint.save()
 
     def _disable_materialization(self, endpoint: Endpoint) -> None:

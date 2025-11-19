@@ -175,6 +175,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
+            {
+                value: 'setup-wizard',
+                'data-attr': `support-form-target-area-setup-wizard`,
+                label: 'Setup wizard',
+            },
         ],
     },
     {
@@ -229,6 +234,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
                 label: 'PostHog AI',
+            },
+            {
+                value: 'mcp-server',
+                'data-attr': `support-form-target-area-mcp-server`,
+                label: 'MCP Server',
             },
             {
                 value: 'workflows',

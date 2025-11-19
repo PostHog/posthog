@@ -5,15 +5,16 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
-    name: 'Data Warehouse',
+    name: 'Data warehouse',
     scenes: {
         DataWarehouse: {
-            name: 'Data Warehouse',
+            name: 'Data warehouse',
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
             defaultDocsPath: '/docs/data-warehouse',
             activityScope: 'DataWarehouse',
-            description: 'Manage your data warehouse sources and queries',
+            description:
+                'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
             iconType: 'data_warehouse',
         },
     },
@@ -25,7 +26,7 @@ export const manifest: ProductManifest = {
     },
     treeItemsProducts: [
         {
-            path: 'Data Warehouse',
+            path: 'Data warehouse',
             category: 'Unreleased',
             href: urls.dataWarehouse(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
