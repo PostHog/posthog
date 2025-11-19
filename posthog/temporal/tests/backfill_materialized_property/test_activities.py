@@ -45,8 +45,8 @@ class TestGetSlotDetails:
         [
             ("String", 0, "dmat_string_0"),
             ("String", 5, "dmat_string_5"),
-            ("Numeric", 0, "dmat_numeric_0"),
-            ("Numeric", 9, "dmat_numeric_9"),
+            ("Numeric", 0, "dmat_float_0"),
+            ("Numeric", 9, "dmat_float_9"),
             ("Boolean", 0, "dmat_bool_0"),
             ("Boolean", 3, "dmat_bool_3"),
             ("DateTime", 0, "dmat_datetime_0"),
