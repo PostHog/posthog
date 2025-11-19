@@ -13,6 +13,13 @@ from posthog.models.property_definition import PropertyType
 
 logger = structlog.get_logger(__name__)
 
+PROPERTY_TYPE_TO_COLUMN_NAME = {
+    "String": "string",
+    "Numeric": "numeric",
+    "Boolean": "bool",
+    "DateTime": "datetime",
+}
+
 
 @dataclasses.dataclass
 class GetSlotDetailsInputs:
@@ -97,9 +104,7 @@ def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
     if not property_definition:
         raise ValueError(f"MaterializedColumnSlot {inputs.slot_id} has no property_definition")
 
-    # Determine materialized column name based on type and slot index
-    # Format: mat_{type}_{index} where type is lowercase (string, numeric, bool, datetime)
-    type_name = slot.property_type.lower()
+    type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type, slot.property_type.lower())
     mat_column_name = f"mat_{type_name}_{slot.slot_index}"
 
     logger.info(
