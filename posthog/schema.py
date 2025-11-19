@@ -5000,6 +5000,9 @@ class SavedInsightNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTable: Optional[bool] = None
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
@@ -12735,6 +12738,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class CustomerAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    activity_event: Union[EventsNode, ActionsNode]
+    payment_event: Union[EventsNode, ActionsNode]
+    signup_event: Union[EventsNode, ActionsNode]
+    signup_pageview_event: Union[EventsNode, ActionsNode]
+    subscription_event: Union[EventsNode, ActionsNode]
+
+
 class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15727,6 +15741,9 @@ class DataTableNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[

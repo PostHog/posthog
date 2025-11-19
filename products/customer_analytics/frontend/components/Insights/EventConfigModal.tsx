@@ -9,7 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 
 export function EventConfigModal(): JSX.Element {
-    const { isEventConfigModalOpen, activityEventSelectionWithDefault, hasActivityEventChanged } =
+    const { isEventConfigModalOpen, activityEventFilters, hasActivityEventChanged } =
         useValues(customerAnalyticsSceneLogic)
     const { toggleEventConfigModal, setActivityEventSelection, saveActivityEvent } =
         useActions(customerAnalyticsSceneLogic)
@@ -32,9 +32,11 @@ export function EventConfigModal(): JSX.Element {
             hasUnsavedInput={hasActivityEventChanged}
         >
             <LemonModal.Content>
-                <p className="mb-4">Select which event defines user activity for your customer analytics dashboard.</p>
+                <p className="mb-4">
+                    Select which event or action define user activity for your customer analytics dashboard.
+                </p>
                 <ActionFilter
-                    filters={activityEventSelectionWithDefault}
+                    filters={activityEventFilters}
                     setFilters={setActivityEventSelection}
                     typeKey="customer-analytics-event-config-modal"
                     mathAvailability={MathAvailability.None}
@@ -43,7 +45,7 @@ export function EventConfigModal(): JSX.Element {
                     hideDuplicate={true}
                     hideFilter={true}
                     entitiesLimit={1}
-                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                 />
             </LemonModal.Content>
             <LemonModal.Footer>
