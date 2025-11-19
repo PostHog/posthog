@@ -660,3 +660,35 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
+
+    def test_flag_keys_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "value1",
+                "$feature/flag_b": "value2",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "different_value",
+                "$feature/flag_c": "value3",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # Should have all unique flag keys (not values)
+        assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}

@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 
     -- Event names - store unique event names seen in this session
     event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
@@ -188,7 +189,8 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
         """,
 
     -- Indexes
-    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1
+    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
 ) ENGINE = {engine}""",
     )
 
@@ -371,6 +373,7 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    mapKeys(properties_group_feature_flags) as flag_keys,
 
     -- event names
     [event] as event_names,
@@ -492,6 +495,7 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_keys,
 
     -- event names
     CAST([], 'Array(String)') as event_names,
@@ -656,6 +660,7 @@ SELECT
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
+    arrayDistinct(arrayFlatten(groupArray(flag_keys))) as flag_keys,
 
     -- event names
     arrayDistinct(arrayFlatten(groupArray(event_names))) as event_names,
