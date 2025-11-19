@@ -20,9 +20,11 @@ from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
@@ -330,18 +332,57 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
 
         try:
             if exported_asset.insight:
-                # NOTE: Dashboards are regularly updated but insights are not
-                # so, we need to trigger a manual update to ensure the results are good
+                logger.info(
+                    "export_image.calculate_insight",
+                    insight_id=exported_asset.insight.id,
+                    dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
+                )
+                dashboard_variables = None
+                if exported_asset.dashboard and exported_asset.dashboard.variables:
+                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+
                 with upgrade_query(exported_asset.insight):
                     process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,
                         dashboard_filters_json=exported_asset.dashboard.filters if exported_asset.dashboard else None,
+                        variables_override_json=dashboard_variables,
                         limit_context=LimitContext.QUERY_ASYNC,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         insight_id=exported_asset.insight.id,
                         dashboard_id=exported_asset.dashboard.id if exported_asset.dashboard else None,
                     )
+            elif exported_asset.dashboard:
+                logger.info(
+                    "export_image.calculate_dashboard_insights",
+                    dashboard_id=exported_asset.dashboard.id,
+                )
+                dashboard_variables = None
+                if exported_asset.dashboard.variables:
+                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
+
+                tiles = (
+                    exported_asset.dashboard.tiles.select_related("insight")
+                    .filter(insight__isnull=False, insight__deleted=False)
+                    .all()
+                )
+                insights_to_update = [tile.insight for tile in tiles if tile.insight]
+                for insight in insights_to_update:
+                    if not insight.query:
+                        continue
+                    with upgrade_query(insight):
+                        process_query_dict(
+                            exported_asset.team,
+                            insight.query,
+                            dashboard_filters_json=exported_asset.dashboard.filters,
+                            variables_override_json=dashboard_variables,
+                            limit_context=LimitContext.QUERY_ASYNC,
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                            insight_id=insight.id,
+                            dashboard_id=exported_asset.dashboard.id,
+                        )
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():

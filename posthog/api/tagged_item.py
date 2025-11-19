@@ -2,7 +2,6 @@ import dataclasses
 from typing import Optional
 
 from django.db.models import Prefetch, Q, QuerySet
-from django.dispatch import receiver
 
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
@@ -12,7 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
 
 
@@ -148,7 +147,7 @@ class TaggedItemContext(ActivityContextBase):
     related_object_name: Optional[str] = None
 
 
-@receiver(model_activity_signal, sender=Tag)
+@mutable_receiver(model_activity_signal, sender=Tag)
 def handle_tag_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
     context = TagContext(
         team_id=after_update.team_id,
@@ -171,7 +170,7 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, user
     )
 
 
-@receiver(model_activity_signal, sender=TaggedItem)
+@mutable_receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

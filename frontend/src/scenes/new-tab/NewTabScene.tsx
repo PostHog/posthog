@@ -1,15 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
-import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { Results } from './components/Results'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -19,11 +16,11 @@ export const scene: SceneExport = {
     logic: newTabSceneLogic,
 }
 
-export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
+export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setSearchInputRef } = useActions(
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setNewTabSearchInputRef } = useActions(
         newTabSceneLogic({ tabId })
     )
 
@@ -46,9 +43,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     // Set the ref in the logic so it can be accessed from other components
     useEffect(() => {
-        setSearchInputRef(commandInputRef)
-    }, [setSearchInputRef])
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+        setNewTabSearchInputRef(commandInputRef)
+    }, [setNewTabSearchInputRef])
 
     return (
         <>
@@ -64,8 +60,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         interactive elements with the keyboard
                     </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+                <div className="flex flex-col gap-2 border-b">
+                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
                         <SearchInput
                             ref={commandInputRef}
                             commands={NEW_TAB_COMMANDS_ITEMS}
@@ -106,28 +102,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 refreshDataAfterToggle()
                             }}
                         />
-                    </div>
-                    <div className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                            <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
-                                {source === 'homepage' ? (
-                                    <>
-                                        <ButtonPrimitive
-                                            size="xxs"
-                                            data-attr="project-home-customize-homepage"
-                                            className="ml-auto text-xs"
-                                            onClick={() => setIsConfigurePinnedTabsOpen(true)}
-                                        >
-                                            Customize homepage
-                                        </ButtonPrimitive>
-                                        <ConfigurePinnedTabsModal
-                                            isOpen={isConfigurePinnedTabsOpen}
-                                            onClose={() => setIsConfigurePinnedTabsOpen(false)}
-                                        />
-                                    </>
-                                ) : null}
-                            </div>
-                        </div>
                     </div>
                 </div>
 
