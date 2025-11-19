@@ -10,9 +10,11 @@ Main entry points:
 """
 
 from .event_formatter import format_event_text_repr
+from .message_formatter import FormatterOptions
 from .trace_formatter import format_trace_text_repr
 
 __all__ = [
+    "FormatterOptions",
     "format_event_text_repr",
     "format_trace_text_repr",
 ]

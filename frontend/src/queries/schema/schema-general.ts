@@ -2604,6 +2604,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
