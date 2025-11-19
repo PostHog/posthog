@@ -20,6 +20,14 @@ const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Modified: 'warning',
 }
 
+const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
+    if (view.managed_viewset_kind !== null) {
+        return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
+    }
+
+    return undefined
+}
+
 function RunHistoryDisplay({
     runHistory,
     loading,
@@ -214,18 +222,7 @@ export function ViewsTab(): JSX.Element {
                                                 <LemonButton
                                                     status="danger"
                                                     onClick={() => deleteView(view.id)}
-                                                    disabledReason={
-                                                        view.managed_viewset_kind !== null ? (
-                                                            <span>
-                                                                Cannot delete a view that belongs to a managed viewset.
-                                                                You can turn the viewset off in the{' '}
-                                                                <Link to={urls.dataWarehouseManagedViewsets()}>
-                                                                    Managed Viewsets
-                                                                </Link>{' '}
-                                                                page.
-                                                            </span>
-                                                        ) : undefined
-                                                    }
+                                                    disabledReason={getDisabledReason(view)}
                                                 >
                                                     Delete
                                                 </LemonButton>
@@ -332,7 +329,11 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton status="danger" onClick={() => deleteView(view.id)}>
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => deleteView(view.id)}
+                                                    disabledReason={getDisabledReason(view)}
+                                                >
                                                     Delete
                                                 </LemonButton>
                                             </>
