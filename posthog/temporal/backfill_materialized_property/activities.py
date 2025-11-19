@@ -56,11 +56,11 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
     Generate SQL expression to extract property value from JSON properties column.
 
     Based on posthog/models/property/util.py:get_property_string_expr()
+    Matches PostHog's auto-materialization behavior: empty string for missing values, not NULL.
     """
     # Base JSON extraction with quote trimming
-    base_extract = (
-        f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '{property_name}'), ''), 'null'), '^\"|\"$', '')"
-    )
+    # Note: We use nullIf for 'null' (JSON null) but keep empty strings as empty strings
+    base_extract = f"replaceRegexpAll(nullIf(JSONExtractRaw(properties, '{property_name}'), 'null'), '^\"|\"$', '')"
 
     if property_type == PropertyType.String:
         return base_extract
