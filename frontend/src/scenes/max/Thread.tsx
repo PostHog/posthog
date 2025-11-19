@@ -62,7 +62,6 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
-    SessionGroupSummaryMessage,
     VisualizationItem,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -88,7 +87,6 @@ import {
     isHumanMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isSessionGroupSummaryMessage,
     isVisualizationMessage,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
@@ -344,8 +342,6 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
-                    } else if (isSessionGroupSummaryMessage(message)) {
-                        return <SessionGroupSummaryAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })()}
@@ -448,12 +444,14 @@ interface AssistantMessageFormProps {
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
+        <div className="flex flex-wrap gap-1.5">
             {form.options.map((option) => (
                 <LemonButton
                     key={option.value}
-                    onClick={() => askMax(option.value)}
+                    onClick={!option.href ? () => askMax(option.value) : undefined}
+                    to={option.href}
                     size="small"
+                    targetBlank={!!option.href}
                     type={
                         option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
                             ? (option.variant as LemonButtonPropsBase['type'])
@@ -557,32 +555,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
         </MessageTemplate>
     )
 }
-
-interface SessionGroupSummaryAnswerProps {
-    message: SessionGroupSummaryMessage
-}
-
-function SessionGroupSummaryAnswer({ message }: SessionGroupSummaryAnswerProps): JSX.Element {
-    return (
-        <MessageTemplate type="ai">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                    <IconCheck className="text-success size-4" />
-                    <span>Report complete: {message.title || 'Session group summary complete'}</span>
-                </div>
-                <LemonButton
-                    to={urls.sessionSummary(message.session_group_summary_id)}
-                    size="xsmall"
-                    type="primary"
-                    icon={<IconOpenInNew />}
-                >
-                    Open report
-                </LemonButton>
-            </div>
-        </MessageTemplate>
-    )
-}
-
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean

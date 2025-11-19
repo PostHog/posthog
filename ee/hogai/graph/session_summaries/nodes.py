@@ -10,12 +10,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import (
-    AssistantToolCallMessage,
-    MaxRecordingUniversalFilters,
-    RecordingsQuery,
-    SessionGroupSummaryMessage,
-)
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
@@ -123,9 +118,19 @@ class SessionSummarizationNode(AssistantNode):
             # Add session group summary message for frontend "View summary" button (only for group summaries)
             if session_group_summary_id:
                 messages.append(
-                    SessionGroupSummaryMessage(
-                        session_group_summary_id=session_group_summary_id,
-                        title=state.summary_title or "Session group summary complete",
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {state.summary_title or 'Sessions summary'}",
                         id=str(uuid4()),
                     )
                 )
