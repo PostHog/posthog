@@ -1556,8 +1556,7 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution",
-                "ai/session_group_summary"
+                "ai/task_execution"
             ],
             "type": "string"
         },
@@ -25339,9 +25338,6 @@
                     "$ref": "#/definitions/NotebookUpdateMessage"
                 },
                 {
-                    "$ref": "#/definitions/SessionGroupSummaryMessage"
-                },
-                {
                     "$ref": "#/definitions/PlanningMessage"
                 },
                 {
@@ -25864,29 +25860,6 @@
                 }
             },
             "required": ["session_id", "events"],
-            "type": "object"
-        },
-        "SessionGroupSummaryMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "parent_tool_call_id": {
-                    "type": "string"
-                },
-                "session_group_summary_id": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ai/session_group_summary",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "session_group_summary_id"],
             "type": "object"
         },
         "SessionPropertyFilter": {
@@ -28622,6 +28595,35 @@
                     "type": "object"
                 }
             },
+            "type": "object"
+        },
+        "WebAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

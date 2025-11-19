@@ -1,3 +1,5 @@
+import { PlanningMessage } from '.'
+
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
@@ -52,7 +54,6 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
-    SessionGroupSummary = 'ai/session_group_summary',
 }
 
 export interface BaseAssistantMessage {
@@ -162,12 +163,6 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
-export interface SessionGroupSummaryMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.SessionGroupSummary
-    session_group_summary_id: string
-    title?: string
-}
-
 export enum PlanningStepStatus {
     Pending = 'pending',
     InProgress = 'in_progress',
@@ -232,7 +227,6 @@ export type RootAssistantMessage =
     | HumanMessage
     | FailureMessage
     | NotebookUpdateMessage
-    | SessionGroupSummaryMessage
     | PlanningMessage
     | TaskExecutionMessage
     | AssistantToolCallMessage

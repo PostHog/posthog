@@ -190,7 +190,6 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
-    AI_SESSION_GROUP_SUMMARY = "ai/session_group_summary"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -1458,15 +1457,6 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
-
-
 class Tag(StrEnum):
     ALPHA = "alpha"
     BETA = "beta"
@@ -2694,17 +2684,6 @@ class SessionEventsItem(BaseModel):
         description="List of events for this session, each event is a list of field values matching the query columns",
     )
     session_id: str = Field(..., description="Session ID these events belong to")
-
-
-class SessionGroupSummaryMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Optional[str] = None
-    parent_tool_call_id: Optional[str] = None
-    session_group_summary_id: str
-    title: Optional[str] = None
-    type: Literal["ai/session_group_summary"] = "ai/session_group_summary"
 
 
 class SessionPropertyFilter(BaseModel):
@@ -4244,6 +4223,15 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4681,17 +4669,6 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
-
-
-class WebAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    doPathCleaning: Optional[bool] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -12100,6 +12077,17 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
+class WebAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    doPathCleaning: Optional[bool] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+
+
 class WebAnalyticsExternalSummaryQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16407,7 +16395,6 @@ class RootAssistantMessage(
             HumanMessage,
             FailureMessage,
             NotebookUpdateMessage,
-            SessionGroupSummaryMessage,
             PlanningMessage,
             TaskExecutionMessage,
             AssistantToolCallMessage,
@@ -16422,7 +16409,6 @@ class RootAssistantMessage(
         HumanMessage,
         FailureMessage,
         NotebookUpdateMessage,
-        SessionGroupSummaryMessage,
         PlanningMessage,
         TaskExecutionMessage,
         AssistantToolCallMessage,
