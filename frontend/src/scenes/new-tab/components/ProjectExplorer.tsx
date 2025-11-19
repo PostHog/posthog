@@ -242,9 +242,12 @@ export function ProjectExplorer({
         return <SearchHighlightMultiple string={text} substring={trimmedSearch} />
     }
 
+    const folderDisplayName =
+        breadcrumbSegments.length === 0 ? 'project root' : breadcrumbSegments[breadcrumbSegments.length - 1]
+
     const rowGridClass = shouldUseSearchRows
-        ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_200px_160px]'
-        : 'grid grid-cols-[minmax(0,1fr)_200px_160px]'
+        ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_200px_160px_48px]'
+        : 'grid grid-cols-[minmax(0,1fr)_200px_160px_48px]'
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -257,17 +260,13 @@ export function ProjectExplorer({
                         {explorerSearchResultsLoading && <Spinner size="small" />}
                     </div>
                 )}
-                <div
-                    className={clsx(
-                        'grid grid-cols-[minmax(0,1fr)_200px_160px_auto] border-b border-border px-3 py-2 text-xs uppercase text-muted',
-                        rowGridClass
-                    )}
-                >
+                <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
                     <div className="pr-3 pl-6">Name</div>
                     {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
-                    <div className="px-3 text-right">
+                    <div className="flex items-center justify-end px-2">
+                        <span aria-hidden="true" className="inline-block size-5" />
                         <span className="sr-only">Actions</span>
                     </div>
                 </div>
@@ -316,7 +315,7 @@ export function ProjectExplorer({
                                         to={entry.href || '#'}
                                         className={clsx(
                                             rowGridClass,
-                                            'group/explorer-row grid grid-cols-[minmax(0,1fr)_200px_160px_auto] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            'group/explorer-row border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
                                         style={rowIndent ? { paddingLeft: rowIndent } : undefined}
@@ -394,7 +393,9 @@ export function ProjectExplorer({
                                                         </DropdownMenuGroup>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
-                                            ) : null}
+                                            ) : (
+                                                <span aria-hidden="true" className="inline-block size-5" />
+                                            )}
                                         </div>
                                     </Link>
                                 </ListBox.Item>
