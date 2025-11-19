@@ -26,6 +26,14 @@ class CommentSerializer(serializers.ModelSerializer):
         exclude = ["team"]
         read_only_fields = ["id", "created_by", "version"]
 
+    def has_empty_paragraph(self, doc):
+        for node in doc.get("content", []):
+            if node.get("type") == "paragraph":
+                content = node.get("content", [])
+                if len(content) == 1 and content[0].get("type") == "text" and content[0].get("text", "") == "":
+                    return True
+        return False
+
     def validate(self, data):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
@@ -33,6 +41,12 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
+
+        content = data.get("content", "")
+        rich_content = data.get("rich_content")
+
+        if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
+            raise exceptions.ValidationError("A comment must have content")
 
         data["created_by"] = request.user
 

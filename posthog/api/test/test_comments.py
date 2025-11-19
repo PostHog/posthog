@@ -242,3 +242,37 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments/count{query_params}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"count": expected_count}
+
+    def test_creates_llm_trace_comment_successfully(self) -> None:
+        trace_id = "test-trace-123"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This trace has high latency",
+                "scope": "LLMTrace",
+                "item_id": trace_id,
+                "item_context": {"trace_id": trace_id},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["scope"] == "LLMTrace"
+        assert response.json()["item_id"] == trace_id
+        assert response.json()["content"] == "This trace has high latency"
+
+    def test_filters_llm_trace_comments(self) -> None:
+        trace_id_1 = "trace-1"
+        trace_id_2 = "trace-2"
+
+        # Create comments on different traces
+        self._create_comment({"content": "Trace 1 comment", "scope": "LLMTrace", "item_id": trace_id_1})
+        self._create_comment({"content": "Trace 2 comment", "scope": "LLMTrace", "item_id": trace_id_2})
+
+        # Filter by LLMTrace scope
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMTrace")
+        assert len(response.json()["results"]) == 2
+
+        # Filter by specific trace
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMTrace&item_id={trace_id_1}")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "Trace 1 comment"

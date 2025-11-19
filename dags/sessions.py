@@ -1,5 +1,5 @@
 from clickhouse_driver import Client
-from dagster import AssetExecutionContext, BackfillPolicy, DailyPartitionsDefinition, asset
+from dagster import AssetExecutionContext, BackfillPolicy, DailyPartitionsDefinition, asset, define_asset_job
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -123,3 +123,11 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext) -> None:
     cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
+
+
+sessions_backfill_job = define_asset_job(
+    name="sessions_v3_backfill_job",
+    selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
+    partitions_def=daily_partitions,
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+)

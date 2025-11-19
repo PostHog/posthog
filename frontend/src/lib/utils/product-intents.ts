@@ -32,10 +32,6 @@ export enum ProductIntentContext {
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
 
-    /*
-    Cross Sells
-    */
-
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
@@ -47,6 +43,7 @@ export enum ProductIntentContext {
     WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
     WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
     WEB_ANALYTICS_FRUSTRATING_PAGES = 'web_analytics_frustrating_pages',
+
     // Actions
     ACTION_VIEW_RECORDINGS = 'action_view_recordings',
 
@@ -59,6 +56,9 @@ export enum ProductIntentContext {
 
     // Early Access Features
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
+
+    // Data Warehouse -> Revenue Analytics Cross-sell
+    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
     SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
@@ -74,6 +74,12 @@ export enum ProductIntentContext {
     SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+
+    // Revenue Analytics
+    REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',
+    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = 'revenue_analytics_onboarding_completed',
+    REVENUE_ANALYTICS_EVENT_CREATED = 'revenue_analytics_event_created',
+    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = 'revenue_analytics_data_source_connected',
 
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',

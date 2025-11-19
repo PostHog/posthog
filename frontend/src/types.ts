@@ -4137,6 +4137,19 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
     symbol: React.ReactElement
     path?: never
 }
+
+export interface FileSystemDeletionSummary {
+    type: string
+    ref: string | null
+    mode: 'soft' | 'hard'
+    undo: string
+    path: string
+    can_undo: boolean
+}
+
+export interface FileSystemDeleteResponse {
+    deleted: FileSystemDeletionSummary[]
+}
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
     name: string
@@ -4606,6 +4619,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4756,6 +4770,7 @@ export enum ActivityScope {
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_TRACE = 'LLMTrace',
 }
 
 export type CommentType = {
