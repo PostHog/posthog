@@ -1,21 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
+import { materializedColumnsLogic } from './materializedColumnsLogic'
 
 export function CreateSlotModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { availableProperties, availablePropertiesLoading } = useValues(materializedColumnsLogic)
     const { setShowCreateModal, loadSlots } = useActions(materializedColumnsLogic)
     const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null)
+    const [searchTerm, setSearchTerm] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const handleSubmit = async (): Promise<void> => {
@@ -40,22 +44,19 @@ export function CreateSlotModal(): JSX.Element {
         }
     }
 
-    const propertiesByType = availableProperties.reduce(
-        (acc, prop) => {
-            if (!acc[prop.property_type]) {
-                acc[prop.property_type] = []
-            }
-            acc[prop.property_type].push(prop)
-            return acc
-        },
-        {} as Record<string, PropertyDefinition[]>
-    )
+    // Filter and sort properties based on search term
+    const filteredProperties = availableProperties
+        .filter((prop) => prop.name.toLowerCase().includes(searchTerm.toLowerCase()))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+    const selectedProperty = availableProperties.find((prop) => prop.id === selectedPropertyId)
 
     return (
         <LemonModal
             isOpen
             onClose={() => setShowCreateModal(false)}
             title="Assign Materialized Column Slot"
+            width="36rem"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={() => setShowCreateModal(false)}>
@@ -80,21 +81,67 @@ export function CreateSlotModal(): JSX.Element {
 
                 <div>
                     <LemonLabel>Property to Materialize</LemonLabel>
-                    <LemonSelect
-                        placeholder="Select a property..."
-                        loading={availablePropertiesLoading}
-                        value={selectedPropertyId}
-                        onChange={setSelectedPropertyId}
-                        options={Object.entries(propertiesByType).flatMap(([type, props]) => [
-                            {
-                                label: type,
-                                options: props.map((prop) => ({
-                                    label: prop.name,
-                                    value: prop.id,
-                                })),
-                            },
-                        ])}
-                    />
+                    {selectedProperty ? (
+                        <LemonButton
+                            fullWidth
+                            onClick={() => setSelectedPropertyId(null)}
+                            sideAction={{
+                                icon: <IconX />,
+                                tooltip: 'Clear selection',
+                                onClick: () => setSelectedPropertyId(null),
+                            }}
+                        >
+                            <span className="flex items-center justify-between gap-2 flex-1">
+                                <span>{selectedProperty.name}</span>
+                                <LemonTag type="default" size="small">
+                                    {selectedProperty.property_type}
+                                </LemonTag>
+                            </span>
+                        </LemonButton>
+                    ) : (
+                        <div className="deprecated-space-y-2">
+                            <LemonInput
+                                type="search"
+                                placeholder="Search properties..."
+                                value={searchTerm}
+                                onChange={setSearchTerm}
+                                fullWidth
+                                autoFocus
+                            />
+                            <div className="max-h-60 overflow-y-auto">
+                                {availablePropertiesLoading ? (
+                                    <div className="p-4 text-center text-muted">Loading properties...</div>
+                                ) : filteredProperties.length === 0 ? (
+                                    <div className="p-4 text-center text-muted">
+                                        {searchTerm ? 'No properties match your search' : 'No properties available'}
+                                    </div>
+                                ) : (
+                                    <ul className="deprecated-space-y-px">
+                                        {filteredProperties.map((prop) => (
+                                            <li key={prop.id}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    onClick={() => {
+                                                        setSelectedPropertyId(prop.id)
+                                                        setSearchTerm('')
+                                                    }}
+                                                >
+                                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                                        <span className="truncate">{prop.name}</span>
+                                                        <LemonTag type="default" size="small">
+                                                            {prop.property_type}
+                                                        </LemonTag>
+                                                    </span>
+                                                </LemonButton>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {availableProperties.length === 0 && !availablePropertiesLoading && (

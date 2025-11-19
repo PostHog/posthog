@@ -15,6 +15,9 @@ class MaterializedColumnSlotState(models.TextChoices):
 
 
 class MaterializedColumnSlot(UUIDTModel):
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,

@@ -202,6 +202,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             property_type=property_definition.property_type,
             slot_index=available_slot,
             state=MaterializedColumnSlotState.BACKFILL,
+            created_by=request.user,
         )
 
         # Start Temporal backfill workflow
