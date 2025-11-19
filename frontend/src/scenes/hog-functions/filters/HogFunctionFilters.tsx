@@ -262,19 +262,23 @@ export function HogFunctionFilters({
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : isDataWarehouse
-                                                  ? [
-                                                        TaxonomicFilterGroupType.DataWarehouse,
-                                                        TaxonomicFilterGroupType.Actions,
-                                                    ]
+                                                  ? [TaxonomicFilterGroupType.DataWarehouse]
                                                   : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
-                                        addFilterDefaultOptions={{
-                                            id: '$pageview',
-                                            name: '$pageview',
-                                            type: EntityTypes.EVENTS,
-                                        }}
+                                        addFilterDefaultOptions={
+                                            isDataWarehouse
+                                                ? {
+                                                      name: 'Select a table',
+                                                      type: EntityTypes.DATA_WAREHOUSE,
+                                                  }
+                                                : {
+                                                      id: '$pageview',
+                                                      name: '$pageview',
+                                                      type: EntityTypes.EVENTS,
+                                                  }
+                                        }
                                         buttonCopy="Add event matcher"
                                         excludedProperties={excludedProperties}
                                     />
