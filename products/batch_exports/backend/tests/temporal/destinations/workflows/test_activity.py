@@ -79,6 +79,7 @@ async def _run_activity(
             include_events=None,
             run_id=None,
             backfill_details=None,
+            num_partitions=1,
             batch_export_model=copy_inputs.batch_export.batch_export_model,
             batch_export_schema=copy_inputs.batch_export.batch_export_schema,
         ),
@@ -127,6 +128,7 @@ async def topic(hosts):
     await admin_client.close()
 
 
+@pytest.mark.parametrize("count_no_prop", [0], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
     clickhouse_client,
@@ -153,5 +155,5 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
         batch_export_model=model,
         hosts=hosts,
         security_protocol=security_protocol,
-        sort_key="timestamp",
+        sort_key="_inserted_at",
     )

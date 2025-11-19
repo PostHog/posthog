@@ -51,6 +51,7 @@ class WorkflowsConsumer(Consumer):
     def __init__(
         self,
         topic: str,
+        key: bytes,
         hosts: collections.abc.Sequence[str],
         security_protocol: str = "PLAINTEXT",
     ):
@@ -62,9 +63,10 @@ class WorkflowsConsumer(Consumer):
             api_version="2.5.0",
             acks="all",
             enable_idempotence=True,
-            compression_type="lz4",
+            compression_type="zstd",
             ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
         )
+        self.key = key
         self.topic = topic
         self._started = False
 
@@ -73,14 +75,14 @@ class WorkflowsConsumer(Consumer):
             await self.producer.start()
             self._started = True
 
-        await self.producer.send_and_wait(topic=self.topic, value=data)
+        await self.producer.send_and_wait(topic=self.topic, value=data, key=self.key)
 
     async def finalize_file(self):
         """Required by consumer interface."""
         pass
 
     async def produce_final_message(self):
-        await self.producer.send_and_wait(topic=self.topic, value=b'{"event":"$backfill_complete"}')
+        await self.producer.send_and_wait(topic=self.topic, value=b'{"event":"$backfill_complete"}', key=self.key)
 
     async def finalize(self):
         await self.producer.flush()
@@ -138,7 +140,12 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
         transformer = JSONLStreamTransformer(max_workers=1)
-        consumer = WorkflowsConsumer(topic=inputs.topic, hosts=inputs.hosts, security_protocol=inputs.security_protocol)
+        consumer = WorkflowsConsumer(
+            topic=inputs.topic,
+            key=str(inputs.batch_export.team_id).encode("utf-8"),
+            hosts=inputs.hosts,
+            security_protocol=inputs.security_protocol,
+        )
         result = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
