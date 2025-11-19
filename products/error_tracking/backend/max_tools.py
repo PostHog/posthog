@@ -270,7 +270,7 @@ class ErrorTrackingExplainIssueTool(MaxTool):
         lines.append(summary.specific_problem)
 
         lines.append("\n#### How to fix it:")
-        for option in summary.possible_resolutions:
-            lines.append(option)
+        for i, option in enumerate(summary.possible_resolutions, 1):
+            lines.append(f"{i}. {option}")
 
         return "\n".join(lines)
