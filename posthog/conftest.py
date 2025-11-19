@@ -212,11 +212,9 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     test_db_name = connection.settings_dict["NAME"]
     test_persons_db_name = test_db_name + "_persons"
 
-    # Configure the persons databases - copy all settings from default and just change the NAME
-    db_config = settings.DATABASES["default"]
-    settings.DATABASES["persons_db_writer"] = db_config.copy()
+    # Update the persons database NAME to use the correct test database name
+    # The database configuration already exists from settings, we just need to update the NAME
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
-    settings.DATABASES["persons_db_reader"] = db_config.copy()
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
     # Drop FK constraints that reference posthog_person to allow dual-table migration
@@ -353,16 +351,14 @@ def pytest_sessionstart():
         m._meta.managed = True
 
 
-def pytest_configure(config):
+@pytest.fixture(autouse=True, scope="session")
+def enable_db_access_for_all_tests():
     """
-    Configure pytest-django to allow access to persons databases by default.
-    This is needed because Person and PersonDistinctId models are routed to persons_db_writer.
+    Ensure all tests have access to persons databases.
+    This patches Django's TestCase and TransactionTestCase to include persons databases.
     """
-    from django.test import TestCase
+    from django.test import TestCase, TransactionTestCase
 
-    # Store original databases if not already stored
-    if not hasattr(TestCase, "_original_databases"):
-        TestCase._original_databases = getattr(TestCase, "databases", None)
-
-    # Set default databases for all TestCase classes
+    # Set databases for all test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
