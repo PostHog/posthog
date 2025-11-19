@@ -23,7 +23,7 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { getItemId, joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -31,13 +31,20 @@ import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabScene
 
 const CHILD_INDENT_PX = 24
 
-const convertEntryToTreeDataItem = (entry: FileSystemEntry): TreeDataItem => ({
-    id: String(entry.id || entry.path || 'entry'),
-    name: splitPath(entry.path).pop() || entry.path || 'Unnamed entry',
-    record: {
-        ...entry,
-    },
-})
+type EntryWithProtocol = FileSystemEntry & { protocol?: string }
+
+const convertEntryToTreeDataItem = (entry: EntryWithProtocol): TreeDataItem => {
+    const protocol = entry.protocol ?? 'project://'
+
+    return {
+        id: getItemId(entry, protocol),
+        name: splitPath(entry.path).pop() || entry.path || 'Unnamed entry',
+        record: {
+            ...entry,
+            protocol,
+        },
+    }
+}
 
 interface ExplorerRow {
     entry: FileSystemEntry
