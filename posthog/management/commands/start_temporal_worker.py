@@ -43,6 +43,10 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.event_screenshots import (
+    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
+    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
@@ -178,6 +182,11 @@ _task_queue_specs = [
         settings.WEEKLY_DIGEST_TASK_QUEUE,
         WEEKLY_DIGEST_WORKFLOWS,
         WEEKLY_DIGEST_ACTIVITIES,
+    ),
+    (
+        settings.EVENT_SCREENSHOTS_TASK_QUEUE,
+        EVENT_SCREENSHOTS_WORKFLOWS,
+        EVENT_SCREENSHOTS_ACTIVITIES,
     ),
 ]
 
