@@ -108,13 +108,7 @@ class SessionSummarizationNode(AssistantNode):
                 session_ids=search_result, state=state
             )
             # Build messages list
-            messages: list = [
-                AssistantToolCallMessage(
-                    content=summaries_content,
-                    tool_call_id=state.root_tool_call_id or "unknown",
-                    id=str(uuid4()),
-                ),
-            ]
+            messages: list = []
             # Add session group summary message for frontend "View summary" button (only for group summaries)
             if session_group_summary_id:
                 messages.append(
@@ -134,6 +128,14 @@ class SessionSummarizationNode(AssistantNode):
                         id=str(uuid4()),
                     )
                 )
+            # Add content
+            messages.append(
+                AssistantToolCallMessage(
+                    content=summaries_content,
+                    tool_call_id=state.root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                ),
+            )
             return PartialAssistantState(messages=messages, session_summarization_query=None, root_tool_call_id=None)
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
