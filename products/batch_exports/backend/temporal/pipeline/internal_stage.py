@@ -149,6 +149,7 @@ class BatchExportInsertIntoInternalStageInputs:
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
+    num_partitions: int | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -164,6 +165,7 @@ class BatchExportInsertIntoInternalStageInputs:
             "exclude_events": self.exclude_events,
             "include_events": self.include_events,
             "run_id": self.run_id,
+            "num_partitions": self.num_partitions,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
@@ -217,6 +219,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
+                num_partitions=inputs.num_partitions,
             )
             query_or_model = query
 
@@ -228,6 +231,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
+            num_partitions=inputs.num_partitions,
         )
 
 
@@ -242,6 +246,7 @@ async def _get_query(
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
     filters: list[dict[str, str | list[str] | None]] | None = None,
+    num_partitions: int | None = None,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)
@@ -263,7 +268,7 @@ async def _get_query(
 
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
-    num_partitions = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
+    num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
 
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
@@ -319,6 +324,7 @@ async def _get_query(
         if is_5_min_batch_export(full_range=full_range) and not is_backfill:
             logger.info("Using events_recent table for 5 min batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
+            order_by = "ORDER BY events_recent.inserted_at"
         # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
         # which is a distributed table that sits in front of the `events_recent` table
         elif use_distributed_events_recent_table(
@@ -326,17 +332,21 @@ async def _get_query(
         ):
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
+            order_by = "ORDER BY distributed_events_recent.inserted_at"
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             logger.info("Using unbounded events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
+            order_by = "ORDER BY events.timestamp"
         elif is_backfill:
             logger.info("Using events_batch_export_backfill query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
+            order_by = "ORDER BY events.timestamp"
         else:
             logger.info("Using events table for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
+            order_by = "ORDER BY events.timestamp"
 
         if "_inserted_at" not in [field["alias"] for field in fields]:
             control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
@@ -359,6 +369,7 @@ async def _get_query(
                 data_interval_end=data_interval_end,
             ),
             num_partitions=num_partitions,
+            order=order_by,
         )
 
     parameters["team_id"] = team_id
@@ -410,6 +421,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
     batch_export_id: str,
     data_interval_start: str | None,
     data_interval_end: str,
+    num_partitions: int | None = None,
 ):
     """Write record batches to our own internal S3 staging area."""
     logger = LOGGER.bind()
@@ -455,7 +467,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     s3_folder=s3_folder,
                     s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                     s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                    num_partitions=settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
+                    num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
             else:
                 query = query_or_model

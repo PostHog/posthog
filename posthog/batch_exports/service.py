@@ -313,6 +313,19 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class WorkflowsBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Workflows export workflow.
+
+    NOTE: "Workflows" in this context refers to PostHog Workflows. PostHog Workflows
+    are not related to Temporal Workflows.
+    """
+
+    topic: str
+    hosts: list[str]
+    security_protocol: typing.Literal["SSL", "PLAINTEXT"]
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 

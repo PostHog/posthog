@@ -59,6 +59,7 @@ async def execute_batch_export_using_internal_stage(
     initial_retry_interval_seconds: int = 5,
     maximum_retry_interval_seconds: int = 120,
     override_start_to_close_timeout_seconds: int | None = None,
+    num_partitions: int | None = None,
 ) -> None:
     """
     This is the entrypoint for a new version of the batch export insert activity.
@@ -84,6 +85,8 @@ async def execute_batch_export_using_internal_stage(
         override_start_to_close_timeout_seconds: Optionally, override the start-to-close
             timeout of the main activity. If this is lower than the calculated default
             timeout for the main activity, then the default will be preferred.
+        num_partitions: Optionally, set a number of partitions for the internal stage
+            activity.
     """
     get_export_started_metric().add(1)
 
@@ -141,6 +144,7 @@ async def execute_batch_export_using_internal_stage(
                 run_id=batch_export_inputs.run_id,
                 backfill_details=batch_export_inputs.backfill_details,
                 batch_export_model=batch_export_inputs.batch_export_model,
+                num_partitions=num_partitions,
                 batch_export_schema=batch_export_inputs.batch_export_schema,
                 destination_default_fields=batch_export_inputs.destination_default_fields,
             ),
