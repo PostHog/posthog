@@ -21,7 +21,7 @@ If the user's question mentions multiple topics, search for each topic separatel
 
 # Documentation search
 
-Use this tool for any PostHog questions. It relies on hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers.
+Use this tool for any PostHog questions. It relies on hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:
 - How to use PostHog
 - How to use PostHog features
 - How to contact support or other humans
