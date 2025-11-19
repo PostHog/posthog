@@ -370,7 +370,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: SessionGroupSummary) -> None:
         if isinstance(self.request.user, AnonymousUser):
             # Don't log activity for anonymous users
-            return
+            raise exceptions.PermissionDenied("User is not allowed to delete session summaries")
         log_session_summary_group_activity(
             activity="deleted",
             summary=instance,
