@@ -51,6 +51,16 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     /** Contextual data to be included for use by the LLM */
     context?: Record<string, any>
     /**
+     * Optional: Describes what kind of context information is being provided
+     * This metadata is shown to users in the context topbar to indicate what contextual values are available
+     */
+    contextDescription?: {
+        /** The type or category of context (e.g., "Current insight", "Active filters") */
+        text: string
+        /** Icon to display for the context type */
+        icon: JSX.Element
+    }
+    /**
      * Optional: If this tool is the main one of the page, you can override the default intro headline and description when it's mounted.
      *
      * Note that if more than one mounted tool has an intro override, only one will take effect.

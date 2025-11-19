@@ -45,6 +45,7 @@ settings = {
     "max_execution_time": MAX_PARTITIONS_PER_RUN * 4 * ONE_HOUR_IN_SECONDS,
     "max_memory_usage": 100 * ONE_GB_IN_BYTES,
     "distributed_aggregation_memory_efficient": "1",
+    "insert_distributed_sync": "1",
 }
 
 
