@@ -79,9 +79,6 @@ class QueryDateRange:
             self._interval = IntervalType.MINUTE
             self._interval_count *= 60
 
-        if self._date_range and self._date_range.explicitDate:
-            self._exact_timerange = True
-
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
         if self._interval == IntervalType.WEEK and self._interval_count > 1:

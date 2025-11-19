@@ -239,6 +239,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             interval=self.query.interval,
             now=datetime.now(),
             earliest_timestamp_fallback=self._earliest_timestamp,
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property

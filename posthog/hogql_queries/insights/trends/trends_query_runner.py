@@ -671,6 +671,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return None
 
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
+
     @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
@@ -680,6 +684,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
@@ -692,12 +697,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 interval=self.query.interval,
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
+                exact_timerange=self.exact_timerange,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
