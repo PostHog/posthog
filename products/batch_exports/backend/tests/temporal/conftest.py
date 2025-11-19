@@ -380,6 +380,15 @@ def test_person_properties(request):
 
 
 @pytest.fixture
+def count_no_prop(request) -> int:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return 5
+
+
+@pytest.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -389,6 +398,7 @@ async def generate_test_data(
     test_properties,
     test_person_properties,
     insert_sessions,
+    count_no_prop,
 ):
     """Generate test data in ClickHouse."""
     if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
@@ -416,7 +426,7 @@ async def generate_test_data(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=5,
+        count=count_no_prop,
         count_outside_range=0,
         count_other_team=0,
         properties=None,
