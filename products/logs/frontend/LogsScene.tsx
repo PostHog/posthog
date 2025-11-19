@@ -14,6 +14,7 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -216,6 +217,18 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     title: 'Value',
                     key: 'value',
                     dataIndex: 'value',
+                    render: (_, record) => (
+                        <CopyToClipboardInline
+                            explicitValue={String(record.value)}
+                            description="attribute value"
+                            iconSize="xsmall"
+                            iconPosition="start"
+                            selectable
+                            className="gap-1"
+                        >
+                            {String(record.value)}
+                        </CopyToClipboardInline>
+                    ),
                 },
             ]}
             dataSource={rows}

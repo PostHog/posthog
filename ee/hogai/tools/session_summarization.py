@@ -117,7 +117,6 @@ class SessionSummarizationToolArgs(BaseModel):
 class SessionSummarizationTool(MaxTool):
     name: Literal["session_summarization"] = "session_summarization"
     description: str = SESSION_SUMMARIZATION_TOOL_PROMPT
-    thinking_message: str = "Summarizing session recordings"
     context_prompt_template: str = "Summarizes session recordings based on the user's query and current filters"
     args_schema: type[BaseModel] = SessionSummarizationToolArgs
     show_tool_call_message: bool = False

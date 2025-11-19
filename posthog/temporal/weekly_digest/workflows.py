@@ -85,6 +85,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
             SendWeeklyDigestWorkflow.run,
             SendWeeklyDigestInput(
                 dry_run=input.dry_run,
+                allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
             ),
@@ -214,7 +215,11 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     send_weekly_digest_batch,
                     SendWeeklyDigestBatchInput(
-                        batch=batch, dry_run=input.dry_run, digest=input.digest, common=input.common
+                        batch=batch,
+                        dry_run=input.dry_run,
+                        allow_already_sent=input.allow_already_sent,
+                        digest=input.digest,
+                        common=input.common,
                     ),
                     start_to_close_timeout=timedelta(minutes=30),
                     retry_policy=common.RetryPolicy(
