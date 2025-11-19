@@ -1,12 +1,19 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
-import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import {
+    NEW_TAB_COMMANDS,
+    NEW_TAB_COMMANDS_ITEMS,
+    getNewTabProjectTreeLogicProps,
+    newTabSceneLogic,
+} from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import { Results } from './components/Results'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -23,6 +30,8 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setNewTabSearchInputRef } = useActions(
         newTabSceneLogic({ tabId })
     )
+    const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
+    useMountedLogic(projectTreeLogic(projectTreeLogicProps))
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()

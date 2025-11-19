@@ -8,6 +8,7 @@ import {
     IconApps,
     IconArrowRight,
     IconDatabase,
+    IconFolder,
     IconGear,
     IconHogQL,
     IconPeople,
@@ -33,7 +34,11 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import {
+    ProjectTreeLogicProps,
+    SearchResults,
+    projectTreeLogic,
+} from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
@@ -59,6 +64,7 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
+    | 'folders'
 
 export type NEW_TAB_COMMANDS =
     | 'all'
@@ -71,6 +77,7 @@ export type NEW_TAB_COMMANDS =
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
+    | 'folders'
 
 export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'all', displayName: 'All' },
@@ -78,12 +85,18 @@ export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
     { value: 'recents', displayName: 'Recents files' },
+    { value: 'folders', displayName: 'Folders' },
     { value: 'persons', displayName: 'Persons' },
     { value: 'groups', displayName: 'Groups' },
     { value: 'eventDefinitions', displayName: 'Events' },
     { value: 'propertyDefinitions', displayName: 'Properties' },
     { value: 'askAI', displayName: 'Posthog AI' },
 ]
+
+export const getNewTabProjectTreeLogicProps = (tabId?: string): ProjectTreeLogicProps => ({
+    key: `new-tab-project-tree-${tabId || 'default'}`,
+    root: 'project://',
+})
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -157,8 +170,15 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], groupsModel, ['groupTypes', 'aggregationLabel']],
+    connect((props: { tabId?: string }) => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            projectTreeLogic(getNewTabProjectTreeLogicProps(props.tabId)),
+            ['folders', 'loadingPaths'],
+        ],
     })),
     key((props) => props.tabId || 'default'),
     actions({
@@ -189,6 +209,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         }),
         setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
         focusNewTabSearchInput: true,
+        setActiveExplorerFolderPath: (path: string | null) => ({ path }),
+        toggleExplorerFolderExpansion: (path: string) => ({ path }),
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -600,6 +622,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setNewTabSearchInputRef: (_, { ref }) => ref,
             },
         ],
+        activeExplorerFolderPath: [
+            null as string | null,
+            {
+                setActiveExplorerFolderPath: (_, { path }) => path,
+            },
+        ],
+        explorerExpandedFolders: [
+            {} as Record<string, boolean>,
+            {
+                toggleExplorerFolderExpansion: (state, { path }) => ({
+                    ...state,
+                    [path]: !state[path],
+                }),
+                setActiveExplorerFolderPath: () => ({}),
+            },
+        ],
     }),
     selectors(({ actions }) => ({
         sceneLogViewsByRef: [
@@ -696,12 +734,18 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 apps: false,
                 'data-management': false,
                 recents: recentsLoading,
+                folders: false,
                 persons: personSearchResultsLoading || personSearchPending,
                 groups: groupSearchResultsLoading || groupSearchPending,
                 eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
                 propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
                 askAI: false,
             }),
+        ],
+        showFoldersCategory: [
+            (s) => [s.newTabSceneDataInclude],
+            (newTabSceneDataInclude: NEW_TAB_COMMANDS[]): boolean =>
+                newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders'),
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
@@ -1477,6 +1521,64 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return null
             },
         ],
+        folderCategoryItems: [
+            (s) => [s.showFoldersCategory, s.folders, s.search, s.getSectionItemLimit],
+            (
+                showFoldersCategory: boolean,
+                folders: Record<string, FileSystemEntry[]>,
+                search: string,
+                getSectionItemLimit: (section: string) => number
+            ): NewTabTreeDataItem[] => {
+                if (!showFoldersCategory) {
+                    return []
+                }
+
+                const searchLower = search.trim().toLowerCase()
+                const rootFolders = ((folders || {})[''] || []).filter((entry) => entry.type === 'folder')
+                const matchesSearch = (entry: FileSystemEntry): boolean => {
+                    if (!searchLower) {
+                        return true
+                    }
+                    const folderName = splitPath(entry.path).pop() || entry.path
+                    const normalizedName = folderName.toLowerCase()
+                    const normalizedPath = entry.path.toLowerCase()
+                    return normalizedName.includes(searchLower) || normalizedPath.includes(searchLower)
+                }
+
+                const filteredFolders = rootFolders.filter(matchesSearch).sort((a, b) => a.path.localeCompare(b.path))
+                const foldersLimit = getSectionItemLimit('folders')
+                const additionalFolders =
+                    foldersLimit === Infinity
+                        ? filteredFolders
+                        : filteredFolders.slice(0, Math.max(foldersLimit - 1, 0))
+
+                return [
+                    {
+                        id: 'project-root',
+                        name: 'Project root',
+                        category: 'folders',
+                        icon: <IconFolder />,
+                        record: { id: 'project-root', path: '', type: 'folder' } as FileSystemEntry,
+                    },
+                    ...additionalFolders.map((entry) => ({
+                        id: `folder-${entry.id}`,
+                        name: splitPath(entry.path).pop() || entry.path,
+                        category: 'folders',
+                        icon: <IconFolder />,
+                        record: entry,
+                    })),
+                ]
+            },
+        ],
+        folderCategoryLoading: [
+            (s) => [s.loadingPaths],
+            (loadingPaths: Record<string, boolean | undefined>): boolean => !!(loadingPaths || {})[''],
+        ],
+        folderHasResults: [
+            (s) => [s.showFoldersCategory, s.folderCategoryItems],
+            (showFoldersCategory: boolean, folderCategoryItems: NewTabTreeDataItem[]): boolean =>
+                showFoldersCategory && folderCategoryItems.length > 0,
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
             (rawSelectedIndex, filteredItemsGrid): number | null => {
@@ -1561,6 +1663,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         onSubmit: () => {
             const selected = values.selectedItem
             if (selected) {
+                if (selected.category === 'folders') {
+                    const folderPath = (selected.record as FileSystemEntry | undefined)?.path ?? ''
+                    actions.setActiveExplorerFolderPath(folderPath)
+                    return
+                }
                 if (selected.category === 'askAI' && selected.record?.searchTerm) {
                     actions.askAI(selected.record.searchTerm)
                 } else if (selected.href) {
@@ -1572,6 +1679,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         setSearch: () => {
+            actions.setActiveExplorerFolderPath(null)
             actions.loadRecents()
             actions.triggerSearchForIncludedItems()
         },
