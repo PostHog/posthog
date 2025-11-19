@@ -219,6 +219,38 @@ ORDER BY occurrences DESC""",
             error_variants
         ), f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
 
+    @parameterized.expand(
+        [
+            (
+                "Call ID normalization",
+                [
+                    "No tool output found for function call call_edLiisyOJybNZLouC6MCNxyC.",
+                    "No tool output found for function call call_abc123def456ghi789jkl012.",
+                ],
+                "No tool output found for function call call_<CALL_ID>.",
+            ),
+            (
+                "User ID normalization",
+                [
+                    "Error with user_32yQoBNWxpvzxVJG0S0zxnnVSCJ",
+                    "Error with user_abc123xyz789def456",
+                ],
+                "Error with user_<USER_ID>",
+            ),
+            (
+                "Object ID normalization",
+                [
+                    "CancelledError: <object object at 0xfffced405130>",
+                    "CancelledError: <object object at 0xaaabec123456>",
+                ],
+                "CancelledError: <object object at <OBJECT_ID>>",
+            ),
+        ]
+    )
+    def test_new_normalization_patterns(self, test_name, error_variants, expected_normalized):
+        """Test specifically for the new normalization patterns."""
+        self.test_error_normalization_step(test_name, error_variants, expected_normalized)
+
     def test_complex_error_with_multiple_normalizations(self):
         """Test that errors requiring multiple normalization steps are handled correctly."""
         error_variants = [
@@ -228,6 +260,24 @@ ORDER BY occurrences DESC""",
         ]
 
         expected = 'Error at <TIMESTAMP> in project <ID>: "responseId":"<RESPONSE_ID>", "tokenCount":<TOKEN_COUNT>, tool_call_id=\'<TOOL_CALL_ID>\' (status <N>)'
+
+        for error in error_variants:
+            self._create_ai_event_with_error(error)
+
+        results = self._execute_normalization_query()
+
+        assert len(results) == 1, f"Expected 1 normalized error, got {len(results)}"
+        assert results[0][0] == expected
+        assert results[0][1] == len(error_variants)
+
+    def test_new_patterns_combined(self):
+        """Test that new normalization patterns work together with existing ones."""
+        error_variants = [
+            "BadRequestError: No tool output found for function call call_edLiisyOJybNZLouC6MCNxyC for user_32yQoBNWxpvzxVJG0S0zxnnVSCJ at <object object at 0xfffced405130>",
+            "BadRequestError: No tool output found for function call call_abc123xyz789 for user_xyz789abc123def456 at <object object at 0xaaabec123456>",
+        ]
+
+        expected = "BadRequestError: No tool output found for function call call_<CALL_ID> for user_<USER_ID> at <object object at <OBJECT_ID>>"
 
         for error in error_variants:
             self._create_ai_event_with_error(error)
