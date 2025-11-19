@@ -1,31 +1,25 @@
 import { useValues } from 'kea'
 import React from 'react'
 
+import { IconCalculator, IconCalendar, IconCode2, IconFilter, IconPencil, IconSort, IconUser } from '@posthog/icons'
+import { Lettermark, LettermarkColor } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import {
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
-    convertPropertiesToPropertyGroup,
-    formatPropertyLabel,
-    isAnyPropertyfilter,
-    isCohortPropertyFilter,
-    isPropertyFilterWithOperator,
-} from 'lib/components/PropertyFilters/utils'
+import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { allOperatorsMapping, capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -62,98 +56,25 @@ import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, UserBasi
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
+import { CompactUniversalFiltersDisplay } from './CompactUniversalFiltersDisplay'
 
-function CompactPropertyFiltersDisplay({
-    groupFilter,
-    embedded,
+export function InsightDetailSectionDisplay({
+    icon,
+    label,
+    children,
 }: {
-    groupFilter: PropertyGroupFilter | null
-    embedded?: boolean
+    icon: React.ReactNode
+    label: string | JSX.Element
+    children: React.ReactNode
 }): JSX.Element {
-    const { cohortsById } = useValues(cohortsModel)
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-
-    const areAnyFiltersPresent = !!groupFilter && groupFilter.values.flatMap((subValues) => subValues.values).length > 0
-
-    if (!areAnyFiltersPresent) {
-        return <i>None</i>
-    }
-
     return (
-        <>
-            {groupFilter.values.map(({ values: subValues, type: subType }, subIndex) => (
-                <React.Fragment key={subIndex}>
-                    {subIndex === 0 ? null : (
-                        <em className="text-[11px] font-semibold">
-                            {groupFilter.type === FilterLogicalOperator.Or ? 'OR' : 'AND'}
-                        </em>
-                    )}
-                    {subValues.map((leafFilter, leafIndex) => {
-                        const isFirstFilterWithinSubgroup = leafIndex === 0
-                        const isFirstFilterOverall = isFirstFilterWithinSubgroup && subIndex === 0
-
-                        return (
-                            <div key={leafIndex} className="SeriesDisplay__condition">
-                                <span>
-                                    {isFirstFilterWithinSubgroup
-                                        ? embedded
-                                            ? 'where '
-                                            : null
-                                        : subType === FilterLogicalOperator.Or
-                                          ? 'or '
-                                          : 'and '}
-                                    {isCohortPropertyFilter(leafFilter) ? (
-                                        <>
-                                            {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
-                                            <span className="SeriesDisplay__raw-name">
-                                                {formatPropertyLabel(
-                                                    leafFilter,
-                                                    cohortsById,
-                                                    (s) =>
-                                                        formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
-                                                        '?'
-                                                )}
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {isFirstFilterOverall && !embedded
-                                                ? capitalizeFirstLetter(leafFilter.type || 'event')
-                                                : leafFilter.type || 'event'}
-                                            's
-                                            <span className="SeriesDisplay__raw-name">
-                                                {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
-                                                    <PropertyKeyInfo
-                                                        value={leafFilter.key}
-                                                        type={
-                                                            PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
-                                                                leafFilter.type
-                                                            ]
-                                                        }
-                                                    />
-                                                )}
-                                            </span>
-                                            {
-                                                allOperatorsMapping[
-                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
-                                                        'exact'
-                                                ]
-                                            }{' '}
-                                            <b>
-                                                {isAnyPropertyfilter(leafFilter) &&
-                                                    (Array.isArray(leafFilter.value)
-                                                        ? leafFilter.value.join(' or ')
-                                                        : leafFilter.value)}
-                                            </b>
-                                        </>
-                                    )}
-                                </span>
-                            </div>
-                        )
-                    })}
-                </React.Fragment>
-            ))}
-        </>
+        <section className="flex items-start gap-2 text-xs">
+            <div className="flex text-muted-alt mt-px flex-shrink-0 text-sm">{icon}</div>
+            <div className="flex-1 min-w-0">
+                <div className="text-muted-alt mb-0.5">{label}</div>
+                <div className="leading-6">{children}</div>
+            </div>
+        </section>
     )
 }
 
@@ -201,29 +122,18 @@ function SeriesDisplay({
     ] as MathDefinition | undefined
 
     return (
-        <LemonRow
-            fullWidth
-            className="SeriesDisplay"
-            icon={<SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} />}
-            extendedContent={
-                series.properties &&
-                series.properties.length > 0 && (
-                    <CompactPropertyFiltersDisplay
-                        groupFilter={{
-                            type: FilterLogicalOperator.And,
-                            values: [{ type: FilterLogicalOperator.And, values: series.properties }],
-                        }}
-                        embedded
-                    />
-                )
-            }
-        >
-            <span>
-                {isFunnelsQuery(query) ? 'Performed' : 'Showing'}
+        <div className="SeriesDisplay">
+            {isFunnelsQuery(query) ? (
+                <Lettermark name={seriesIndex + 1} color={LettermarkColor.Gray} className="mt-px" />
+            ) : (
+                <SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} className="mt-0.5" />
+            )}
+            <div>
+                {isFunnelsQuery(query) ? 'Performed' : 'Counting'}
                 <EntityDisplay entity={series} />
                 {!isFunnelsQuery(query) && (
-                    <span className="leading-none">
-                        counted by{' '}
+                    <>
+                        by{' '}
                         {mathDefinition?.category === MathCategory.HogQLExpression ? (
                             <code>{series.math_hogql}</code>
                         ) : (
@@ -243,10 +153,19 @@ function SeriesDisplay({
                                 <b>{mathDefinition?.name.toLowerCase()}</b>
                             </>
                         )}
-                    </span>
+                    </>
                 )}
-            </span>
-        </LemonRow>
+                {series.properties && series.properties.length > 0 && (
+                    <CompactUniversalFiltersDisplay
+                        groupFilter={{
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: series.properties }],
+                        }}
+                        embedded
+                    />
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -256,18 +175,20 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
+                <div>
+                    User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
+                </div>
+                {startPoint && (
+                    <div>
+                        starting at <b>{startPoint}</b>
+                    </div>
+                )}
+                {endPoint && (
+                    <div>
+                        ending at <b>{endPoint}</b>
+                    </div>
+                )}
             </div>
-            {startPoint && (
-                <div>
-                    starting at <b>{startPoint}</b>
-                </div>
-            )}
-            {endPoint && (
-                <div>
-                    ending at <b>{endPoint}</b>
-                </div>
-            )}
         </div>
     )
 }
@@ -305,7 +226,7 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
                 {query.retentionFilter.period?.toLocaleLowerCase() ?? 'day'}s
             </strong>
             <br />
-            and came back to perform
+            <strong>and</strong> who came back to perform
             <EntityDisplay
                 entity={
                     query.retentionFilter.returningEntity?.type === 'actions'
@@ -321,7 +242,6 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
                           }
                 }
             />
-            in any of the next periods
         </>
     )
 }
@@ -333,37 +253,33 @@ export function SeriesSummary({
     query: InsightQueryNode | HogQLQuery
     heading?: JSX.Element | null
 }): JSX.Element {
+    const IconComponent = QUERY_TYPES_METADATA[query.kind].icon
+
     return (
-        <section>
-            {heading !== null && <h5>{heading || 'Query summary'}</h5>}
+        <InsightDetailSectionDisplay icon={<IconComponent />} label={heading !== null ? heading || 'Query' : ''}>
             {isHogQLQuery(query) ? (
                 <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={8} compact>
                     {query.query}
                 </CodeSnippet>
             ) : (
-                <div className="InsightDetails__query">
+                <>
                     {isTrendsQuery(query) && <FormulaSummary query={query} />}
-                    <div className="InsightDetails__series">
-                        {isPathsQuery(query) ? (
-                            <PathsSummary query={query} />
-                        ) : isRetentionQuery(query) ? (
-                            <RetentionSummary query={query} />
-                        ) : isInsightQueryWithSeries(query) ? (
-                            <>
-                                {query.series.map((_entity, index) => (
-                                    <React.Fragment key={index}>
-                                        {index !== 0 && <LemonDivider className="my-1" />}
-                                        <SeriesDisplay query={query} seriesIndex={index} />
-                                    </React.Fragment>
-                                ))}
-                            </>
-                        ) : (
-                            <i>Query summary is not available for {(query as Node).kind} yet</i>
-                        )}
-                    </div>
-                </div>
+                    {isPathsQuery(query) ? (
+                        <PathsSummary query={query} />
+                    ) : isRetentionQuery(query) ? (
+                        <RetentionSummary query={query} />
+                    ) : isInsightQueryWithSeries(query) ? (
+                        <>
+                            {query.series.map((_entity, index) => (
+                                <SeriesDisplay key={index} query={query} seriesIndex={index} />
+                            ))}
+                        </>
+                    ) : (
+                        <i>Query summary is not available for {(query as Node).kind} yet</i>
+                    )}
+                </>
             )}
-        </section>
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -378,22 +294,22 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
     return (
         <>
-            {formulaNodes.map((node) => (
-                <>
-                    <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                        {node.custom_name ? (
-                            <span>
-                                Formula <b>"{node.custom_name}"</b>: <code>{node.formula}</code>
-                            </span>
-                        ) : (
-                            <span>
-                                Formula: <code>{node.formula}</code>
-                            </span>
+            {formulaNodes.map((node, index) => (
+                <div className="SeriesDisplay" key={index}>
+                    <IconCalculate className="text-xl m-px text-text-secondary-3000" />
+                    <span>
+                        Formula
+                        {node.custom_name && (
+                            <>
+                                {' '}
+                                <b>{node.custom_name}</b>
+                            </>
                         )}
-                    </LemonRow>
-                    <LemonDivider />
-                </>
+                        : <code>{node.formula}</code>
+                    </span>
+                </div>
             ))}
+            <LemonDivider className="mt-1 mb-2" />
         </>
     )
 }
@@ -404,12 +320,9 @@ export function PropertiesSummary({
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
 }): JSX.Element {
     return (
-        <section>
-            <h5>Filters</h5>
-            <div>
-                <CompactPropertyFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
-            </div>
-        </section>
+        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -425,29 +338,25 @@ export function VariablesSummary({
     }
 
     return (
-        <section>
-            <h5>Variables</h5>
-            <div>
-                {Object.entries(variables).map(([key, variable]) => {
-                    const overrideValue = variablesOverride?.[key]?.value
-                    const hasOverride = overrideValue !== undefined && overrideValue !== variable.value
+        <InsightDetailSectionDisplay icon={<IconCode2 />} label="Variables">
+            {Object.entries(variables).map(([key, variable]) => {
+                const overrideValue = variablesOverride?.[key]?.value
+                const hasOverride = overrideValue !== undefined && overrideValue !== variable.value
 
-                    return (
-                        <div key={key} className="flex items-center gap-2">
-                            <span>
-                                {variable.code_name}:{' '}
-                                {variable.value ? <strong>{variable.value}</strong> : <em>null</em>}
-                            </span>
-                            {hasOverride && (
-                                <LemonTag type="highlight">
-                                    Overridden: {overrideValue ? <strong>{overrideValue}</strong> : <em>null</em>}
-                                </LemonTag>
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-        </section>
+                return (
+                    <div key={key} className="flex items-center gap-2">
+                        <span>
+                            {variable.code_name}: {variable.value ? <strong>{variable.value}</strong> : <em>null</em>}
+                        </span>
+                        {hasOverride && (
+                            <LemonTag type="highlight">
+                                Overridden: {overrideValue ? <strong>{overrideValue}</strong> : <em>null</em>}
+                            </LemonTag>
+                        )}
+                    </div>
+                )
+            })}
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -464,26 +373,39 @@ export function BreakdownSummary({
 }: {
     breakdownFilter: BreakdownFilter | null | undefined
 }): JSX.Element | null {
+    if (!isValidBreakdown(breakdownFilter)) {
+        return null
+    }
+
+    const content = Array.isArray(breakdownFilter.breakdowns) ? (
+        <>
+            {breakdownFilter.breakdowns.map((b) => (
+                <BreakdownTag
+                    key={`${b.type}-${b.property}`}
+                    breakdown={b.property}
+                    breakdownType={b.type}
+                    size="small"
+                />
+            ))}
+        </>
+    ) : breakdownFilter.breakdown ? (
+        <>
+            {(Array.isArray(breakdownFilter.breakdown) ? breakdownFilter.breakdown : [breakdownFilter.breakdown]).map(
+                (b) => (
+                    <BreakdownTag key={b} breakdown={b} breakdownType={breakdownFilter.breakdown_type} size="small" />
+                )
+            )}
+        </>
+    ) : null
+
+    if (!content) {
+        return null
+    }
+
     return (
-        <section>
-            <h5>Breakdown by</h5>
-            <div>
-                {!isValidBreakdown(breakdownFilter) ? (
-                    <i>None</i>
-                ) : Array.isArray(breakdownFilter.breakdowns) ? (
-                    breakdownFilter.breakdowns.map((b) => (
-                        <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
-                    ))
-                ) : (
-                    breakdownFilter.breakdown &&
-                    (Array.isArray(breakdownFilter.breakdown)
-                        ? breakdownFilter.breakdown
-                        : [breakdownFilter.breakdown].map((b) => (
-                              <BreakdownTag key={b} breakdown={b} breakdownType={breakdownFilter.breakdown_type} />
-                          )))
-                )}
-            </div>
-        </section>
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
+            {content}
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -494,11 +416,14 @@ export function DateRangeSummary({
     dateFrom: string | null | undefined
     dateTo: string | null | undefined
 }): JSX.Element | null {
+    const dateFilterText = dateFilterToText(dateFrom, dateTo, null)
+    if (!dateFilterText) {
+        return null
+    }
     return (
-        <section>
-            <h5>Date range</h5>
-            <div>{dateFilterToText(dateFrom, dateTo, null)}</div>
-        </section>
+        <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
+            <div className="font-medium">{dateFilterText}</div>
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -519,10 +444,11 @@ export const InsightDetails = React.memo(
         { query, footerInfo, variablesOverride },
         ref
     ): JSX.Element {
-        // TODO: Implement summaries for HogQL query insights
         return (
-            <div className="InsightDetails" ref={ref}>
-                {isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query) ? (
+            <div className="InsightDetails space-y-2" ref={ref}>
+                {(isInsightVizNode(query) ||
+                    isDataVisualizationNode(query) ||
+                    isDataTableNodeWithHogQLQuery(query)) && (
                     <>
                         <SeriesSummary query={query.source} />
                         <VariablesSummary
@@ -536,32 +462,27 @@ export const InsightDetails = React.memo(
                         />
                         <InsightBreakdownSummary query={query.source} />
                     </>
-                ) : null}
+                )}
                 {footerInfo && (
-                    <div className="InsightDetails__footer">
-                        <div>
-                            <h5>Created by</h5>
-                            <section>
-                                <ProfilePicture user={footerInfo.created_by} showName size="md" />{' '}
+                    <>
+                        <InsightDetailSectionDisplay icon={<IconUser />} label="Created by">
+                            <div className="flex items-center py-px gap-1.5">
+                                <ProfilePicture user={footerInfo.created_by} showName size="sm" />
                                 <TZLabel time={footerInfo.created_at} />
-                            </section>
-                        </div>
-                        <div>
-                            <h5>Last modified by</h5>
-                            <section>
-                                <ProfilePicture user={footerInfo.last_modified_by} showName size="md" />{' '}
-                                <TZLabel time={footerInfo.last_modified_at} />
-                            </section>
-                        </div>
-                        {footerInfo.last_refresh && (
-                            <div>
-                                <h5>Last computed</h5>
-                                <section>
-                                    <TZLabel time={footerInfo.last_refresh} />
-                                </section>
                             </div>
+                        </InsightDetailSectionDisplay>
+                        <InsightDetailSectionDisplay icon={<IconPencil />} label="Last modified by">
+                            <div className="flex items-center py-px gap-1.5">
+                                <ProfilePicture user={footerInfo.last_modified_by} showName size="sm" />
+                                <TZLabel time={footerInfo.last_modified_at} />
+                            </div>
+                        </InsightDetailSectionDisplay>
+                        {footerInfo.last_refresh && (
+                            <InsightDetailSectionDisplay icon={<IconCalculator />} label="Last computed">
+                                <TZLabel time={footerInfo.last_refresh} />
+                            </InsightDetailSectionDisplay>
                         )}
-                    </div>
+                    </>
                 )}
             </div>
         )

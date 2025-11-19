@@ -32,7 +32,8 @@ class MathGroupTypeIndex(float, Enum):
 
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
-    NOOP = "noop"
+    SQL = "sql"
+    SESSION_REPLAY = "session_replay"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -284,8 +285,13 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
@@ -1462,6 +1468,8 @@ class FileSystemCount(BaseModel):
         extra="forbid",
     )
     count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
 
 
 class Tag(StrEnum):
@@ -2847,6 +2855,14 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class SuggestedTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    table: str
+    tooltip: Optional[str] = None
+
+
 class SurveyAnalysisResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2925,6 +2941,13 @@ class SurveyQuestionType(StrEnum):
     SINGLE_CHOICE = "single_choice"
     RATING = "rating"
     LINK = "link"
+
+
+class SurveyTabPosition(StrEnum):
+    TOP = "top"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTTOM = "bottom"
 
 
 class SurveyType(StrEnum):
@@ -4507,7 +4530,9 @@ class MaxExperimentSummaryContext(BaseModel):
     description: Optional[str] = None
     experiment_id: Union[float, str]
     experiment_name: str
-    metrics_results: list[MaxExperimentMetricResult]
+    exposures: Optional[dict[str, float]] = None
+    primary_metrics_results: list[MaxExperimentMetricResult]
+    secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
 
@@ -5268,6 +5293,7 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    tabPosition: Optional[SurveyTabPosition] = None
     textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
@@ -11879,6 +11905,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -12072,6 +12099,17 @@ class VectorSearchQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class WebAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    doPathCleaning: Optional[bool] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class WebAnalyticsExternalSummaryQuery(BaseModel):
@@ -13335,6 +13373,13 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    session_recording_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the"
+            " filters"
+        ),
+    )
     tags: Optional[QueryLogTags] = None
     user_modified_filters: Optional[dict[str, Any]] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -16418,6 +16463,9 @@ class SourceConfig(BaseModel):
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
+    suggestedTables: Optional[list[SuggestedTable]] = Field(
+        default=[], description="Tables to suggest enabling, with optional tooltip explaining why"
+    )
     unreleasedSource: Optional[bool] = None
 
 

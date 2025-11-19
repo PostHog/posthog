@@ -37,7 +37,7 @@ export const addInsightHandler: ToolBase<typeof schema>['handler'] = async (cont
         insight_url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(resultWithUrls) }] }
+    return resultWithUrls
 }
 
 const tool = (): ToolBase<typeof schema> => ({
