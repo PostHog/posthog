@@ -38,7 +38,7 @@ class MaterializedColumnSlot(UUIDTModel):
         choices=MaterializedColumnSlotState.choices,
         default=MaterializedColumnSlotState.BACKFILL,
     )
-    backfill_temporal_uuid = models.UUIDField(null=True, blank=True)
+    backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -60,7 +60,7 @@ class MaterializedColumnSlot(UUIDTModel):
             models.Index(fields=["team", "state"]),
             models.Index(fields=["team", "property_definition"]),
             models.Index(fields=["team", "property_type", "slot_index"]),
-            models.Index(fields=["backfill_temporal_uuid"]),
+            models.Index(fields=["backfill_temporal_workflow_id"]),
         ]
 
     def save(self, *args, **kwargs):

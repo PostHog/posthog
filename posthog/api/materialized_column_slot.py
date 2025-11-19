@@ -43,7 +43,7 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
             "property_type",
             "slot_index",
             "state",
-            "backfill_temporal_uuid",
+            "backfill_temporal_workflow_id",
             "error_message",
             "created_at",
             "updated_at",
@@ -223,7 +223,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
 
         try:
             workflow_id = async_to_sync(_start_backfill)()
-            slot.backfill_temporal_uuid = workflow_id
+            slot.backfill_temporal_workflow_id = workflow_id
             slot.save()
 
             logger.info(
@@ -371,7 +371,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
 
         try:
             workflow_id = async_to_sync(_start_backfill)()
-            slot.backfill_temporal_uuid = workflow_id
+            slot.backfill_temporal_workflow_id = workflow_id
             slot.save()
 
             logger.info(

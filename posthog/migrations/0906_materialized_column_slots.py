@@ -80,7 +80,7 @@ class Migration(migrations.Migration):
                         default="BACKFILL",
                     ),
                 ),
-                ("backfill_temporal_uuid", models.UUIDField(null=True, blank=True)),
+                ("backfill_temporal_workflow_id", models.CharField(max_length=400, null=True, blank=True)),
                 ("error_message", models.TextField(null=True, blank=True)),
             ],
             options={
@@ -129,7 +129,7 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="materializedcolumnslot",
             index=models.Index(
-                fields=["backfill_temporal_uuid"],
+                fields=["backfill_temporal_workflow_id"],
                 name="posthog_mat_backfi_idx",
             ),
         ),
