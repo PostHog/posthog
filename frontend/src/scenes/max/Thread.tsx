@@ -721,7 +721,7 @@ function AssistantActionComponent({
             >
                 {icon && (
                     <div className="flex items-center justify-center size-5">
-                        {animate ? (
+                        {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
@@ -730,7 +730,7 @@ function AssistantActionComponent({
                 )}
                 <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
                     <div>
-                        {animate ? (
+                        {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
