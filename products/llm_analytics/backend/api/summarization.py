@@ -366,7 +366,8 @@ The response includes the summary text and optional metadata.
                 team_id=self.team_id,
                 error=str(e),
             )
+            error_detail = str(e) if settings.DEBUG else "An error occurred while generating the summary"
             return Response(
-                {"error": "Failed to generate summary", "detail": str(e)},
+                {"error": "Failed to generate summary", "detail": error_detail},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
