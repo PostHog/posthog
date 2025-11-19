@@ -336,6 +336,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
+    should_use_current_session: Optional[bool] = Field(default=None)
+    """
+    Whether to use the current session ID from user's UI (the session they are viewing) to summarize.
+    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
