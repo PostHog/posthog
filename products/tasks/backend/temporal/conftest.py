@@ -83,9 +83,8 @@ def test_task(team, user, github_integration):
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,
-        position=0,
         github_integration=github_integration,
-        repository_config={"organization": "PostHog", "repository": "posthog-js"},
+        repository="PostHog/posthog-js",
     )
 
     yield task

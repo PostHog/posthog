@@ -37,19 +37,19 @@ def get_task_details(task_id: str) -> TaskDetails:
             cause=RuntimeError(f"Task {task_id} missing github_integration_id"),
         )
 
-    if not task.primary_repository:
+    if not task.repository:
         raise TaskInvalidStateError(
-            f"Task {task_id} has no primary repository configured",
+            f"Task {task_id} has no repository configured",
             {"task_id": task_id},
-            cause=RuntimeError(f"Task {task_id} missing primary_repository"),
+            cause=RuntimeError(f"Task {task_id} missing repository"),
         )
 
-    repository_full_name = task.primary_repository.get("full_name")
+    repository_full_name = task.repository
     if not repository_full_name:
         raise TaskInvalidStateError(
-            f"Task {task_id} primary repository missing full_name",
+            f"Task {task_id} repository missing value",
             {"task_id": task_id},
-            cause=RuntimeError(f"Task {task_id} primary_repository missing full_name field"),
+            cause=RuntimeError(f"Task {task_id} repository field is empty"),
         )
 
     if not task.created_by:
