@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { tasksLogic } from '../../tasksLogic'
+import { taskTrackerSceneLogic } from '../../logics/taskTrackerSceneLogic'
 import { UserDisplay, UserSelect } from './UserSelect'
 
 export const UserFilter = (): JSX.Element => {
-    const { createdBy } = useValues(tasksLogic)
-    const { setCreatedBy } = useActions(tasksLogic)
+    const { createdBy } = useValues(taskTrackerSceneLogic)
+    const { setCreatedBy } = useActions(taskTrackerSceneLogic)
 
     return (
         <UserSelect userId={createdBy} onChange={setCreatedBy}>

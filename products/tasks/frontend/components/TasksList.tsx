@@ -1,21 +1,32 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, type LemonSelectOption, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    type LemonSelectOption,
+    ProfilePicture,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
-import { tasksLogic } from '../tasksLogic'
+import { TASK_STATUS_CONFIG } from '../lib/task-status'
+import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
+import { tasksLogic } from '../logics/tasksLogic'
 import { Task, TaskRunStatus } from '../types'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskStatusBadge } from './TaskStatusBadge'
 import { UserFilter } from './UserFilter'
 
 export function TasksList(): JSX.Element {
-    const { filteredTasks, tasksLoading, repositories, searchQuery, repository, status, isCreateModalOpen } =
-        useValues(tasksLogic)
-    const { setSearchQuery, setRepository, setStatus, openTask, openCreateModal, closeCreateModal } =
-        useActions(tasksLogic)
+    const { filteredTasks, searchQuery, repository, status, isCreateModalOpen } = useValues(taskTrackerSceneLogic)
+    const { tasksLoading, repositories } = useValues(tasksLogic)
+    const { setSearchQuery, setRepository, setStatus, openCreateModal, closeCreateModal } =
+        useActions(taskTrackerSceneLogic)
+    const { openTask } = useActions(tasksLogic)
 
     const columns: LemonTableColumn<Task, keyof Task | undefined>[] = [
         {
@@ -50,9 +61,17 @@ export function TasksList(): JSX.Element {
             title: 'Created by',
             key: 'created_by',
             width: '15%',
-            render: (_: any, task: Task) => (
-                <span className="text-sm">{task.created_by?.first_name || task.created_by?.email || '-'}</span>
-            ),
+            render: (_: any, task: Task) => {
+                if (!task.created_by) {
+                    return <span className="text-sm text-muted">-</span>
+                }
+                return (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={task.created_by} size="sm" />
+                        <span className="text-sm truncate">{task.created_by.first_name || task.created_by.email}</span>
+                    </div>
+                )
+            },
         },
         {
             title: 'Created',
@@ -77,12 +96,23 @@ export function TasksList(): JSX.Element {
     ]
 
     const statusOptions: LemonSelectOption<TaskRunStatus | 'all'>[] = [
-        { label: 'All', value: 'all' },
-        { label: 'Started', value: TaskRunStatus.STARTED },
-        { label: 'In progress', value: TaskRunStatus.IN_PROGRESS },
-        { label: 'Completed', value: TaskRunStatus.COMPLETED },
-        { label: 'Failed', value: TaskRunStatus.FAILED },
-    ]
+        'all',
+        TaskRunStatus.STARTED,
+        TaskRunStatus.IN_PROGRESS,
+        TaskRunStatus.COMPLETED,
+        TaskRunStatus.FAILED,
+    ].map((key) => {
+        const config = TASK_STATUS_CONFIG[key as TaskRunStatus | 'all']
+        return {
+            value: key as TaskRunStatus | 'all',
+            label: (
+                <div className="flex items-center gap-2">
+                    <LemonBadge status={config.status} size="small" />
+                    <span>{config.label}</span>
+                </div>
+            ),
+        }
+    })
 
     return (
         <div>
@@ -100,7 +130,7 @@ export function TasksList(): JSX.Element {
                             value={repository}
                             onChange={setRepository}
                             options={[
-                                { label: 'All repositories', value: '' },
+                                { label: 'All repositories', value: 'all' },
                                 ...repositories.map((repo) => ({ label: repo, value: repo })),
                             ]}
                             className="min-w-48"

@@ -16,7 +16,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { taskDetailLogic } from '../taskDetailLogic'
+import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { TaskRunItem } from './TaskRunItem'
 import { TaskRunLogs } from './TaskRunLogs'
 
@@ -25,17 +25,9 @@ export interface TaskDetailPageProps {
 }
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
-    const logic = taskDetailLogic({ taskId })
-    const { task, taskLoading, runs, runsLoading, selectedRunId, logs, logsLoading } = useValues(logic)
-    const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(logic)
-
-    if (taskLoading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <Spinner />
-            </div>
-        )
-    }
+    const sceneLogic = taskDetailSceneLogic({ taskId })
+    const { task, taskLoading, runs, selectedRunId, logs, logsLoading, runsLoading } = useValues(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(sceneLogic)
 
     if (!task) {
         return <div className="text-center py-8 text-muted">Task not found</div>
@@ -112,8 +104,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 description={task?.description}
                 resourceType={{ type: 'task' }}
                 isLoading={taskLoading}
-                onNameChange={(value) => updateTask({ title: value })}
-                onDescriptionChange={(value) => updateTask({ description: value })}
+                onNameChange={(value) => updateTask({ data: { title: value } })}
+                onDescriptionChange={(value) => updateTask({ data: { description: value } })}
                 canEdit={canEdit}
                 renameDebounceMs={500}
                 saveOnBlur={true}
