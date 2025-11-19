@@ -163,6 +163,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "title": "New Task",
                 "description": "New Description",
                 "origin_product": "user_created",
+                "repository": "posthog/posthog",
             },
             format="json",
         )
@@ -171,6 +172,7 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
+        self.assertEqual(data["repository"], "posthog/posthog")
 
     def test_update_task(self):
         task = self.create_task("Original Task")
@@ -189,20 +191,9 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertFalse(Task.objects.filter(id=task.id).exists())
-
-    def test_update_position(self):
-        task = self.create_task()
-
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/update_position/",
-            {"position": 5},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         task.refresh_from_db()
-        self.assertEqual(task.position, 5)
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
@@ -546,15 +537,20 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
 
         endpoints = [
+            # TaskViewSet endpoints
             ("/api/projects/@current/tasks/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/", "GET"),
             ("/api/projects/@current/tasks/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/update_position/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            # TaskRunViewSet endpoints
             (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
         ]
 
         for url, method in endpoints:
