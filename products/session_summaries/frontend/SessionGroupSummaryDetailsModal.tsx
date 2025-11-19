@@ -106,7 +106,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                                     <h4 className="text-sm font-medium text-muted mb-1">Where it happened</h4>
                                     <p
                                         className="text-sm mb-0 break-all truncate"
-                                        title={event.target_event.current_url}
+                                        title={event.target_event.current_url || undefined}
                                     >
                                         {event.target_event.current_url || 'unknown'}
                                     </p>
