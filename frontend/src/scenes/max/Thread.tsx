@@ -581,7 +581,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col text-xs">
             <div
                 className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
