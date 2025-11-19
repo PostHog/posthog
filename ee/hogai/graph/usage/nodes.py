@@ -85,14 +85,7 @@ class UsageNode(AssistantNode):
 
         except Exception as e:
             capture_exception(e)
-            return PartialAssistantState(
-                messages=[
-                    AssistantMessage(
-                        content="Sorry, I encountered an error while retrieving PostHog AI usage information. Please try again later.",
-                        id=str(uuid4()),
-                    )
-                ]
-            )
+            raise Exception("PostHog AI usage information query failed. Please try again later.")
 
     def router(self, state: AssistantState) -> AssistantNodeName | list[Send]:
         last_message = state.messages[-1] if state.messages else None
