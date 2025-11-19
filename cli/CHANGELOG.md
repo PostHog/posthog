@@ -1,8 +1,12 @@
 # posthog-cli
 
-# 0.5.12
+# 0.5.13
 
 - Add `--include` option on sourcemap commands to match specific files inside directory
+
+# 0.5.12
+
+- Bug fixes and improvements
 
 # 0.5.11
 
