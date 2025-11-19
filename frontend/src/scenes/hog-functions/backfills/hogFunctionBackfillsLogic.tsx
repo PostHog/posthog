@@ -1,9 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { batchExportConfigurationLogic } from 'scenes/data-pipelines/batch-exports/batchExportConfigurationLogic'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import type { hogFunctionBackfillsLogicType } from './hogFunctionBackfillsLogicType'
@@ -17,46 +16,36 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
     key(({ id }: HogFunctionBackfillsLogicProps) => id),
     path((key) => ['scenes', 'pipeline', 'hogFunctionBackfillsLogic', key]),
     connect((props) => ({
-        values: [
-            hogFunctionConfigurationLogic(props),
-            ['configuration', 'type', 'loading', 'loaded', 'teamHasCohortFilters', 'currentProjectId'],
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig', 'batchExportConfigLoading'],
-        ],
-        actions: [
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['loadBatchExportConfig'],
-        ],
+        values: [hogFunctionConfigurationLogic(props), ['configuration']],
+        actions: [hogFunctionConfigurationLogic(props), ['setConfigurationValues', 'loadHogFunction']],
     })),
     actions({
         enableHogFunctionBackfills: () => true,
+        setLoading: (loading: boolean) => ({ loading }),
     }),
-    listeners(({ actions, values, props }) => ({
+    reducers({
+        isLoading: [
+            false,
+            {
+                setLoading: (_, { loading }) => loading,
+            },
+        ],
+    }),
+    listeners(({ actions, props }) => ({
         enableHogFunctionBackfills: async () => {
-            const batchExportConfig = {
-                id: props.id,
-                paused: true,
-                name: values.configuration.name,
-                interval: 'once' as const,
-                model: 'events',
-                filters: [...values.configuration.filters.events],
-                destination: {
-                    type: 'PostHogRealtimeDestinations' as const,
-                    config: {},
-                },
+            try {
+                actions.setLoading(true)
+                await api.hogFunctions.enableBackfills(props.id)
+
+                // Reload page to get the updated config and render <BatchExportBackfills />
+                await actions.loadHogFunction()
+
+                lemonToast.success('Backfills enabled for this destination.')
+            } catch {
+                lemonToast.error('Failed to enable backfills for this destination.')
+            } finally {
+                actions.setLoading(false)
             }
-
-            await api.batchExports.create(batchExportConfig)
-            lemonToast.success('Backfills enabled for this destination.')
-
-            // Reload page to get the updated config and render <BatchExportBackfills />
-            await actions.loadBatchExportConfig()
         },
     })),
 ])
