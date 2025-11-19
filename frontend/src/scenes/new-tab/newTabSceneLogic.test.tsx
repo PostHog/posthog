@@ -5,9 +5,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from './newTabSceneLogic'
+import { getNewTabProjectTreeLogicProps, matchesFolderSearch, newTabSceneLogic } from './newTabSceneLogic'
 
 describe('newTabSceneLogic - recents search', () => {
     const defaultResponse = {
@@ -287,5 +288,24 @@ describe('newTabSceneLogic - recents search', () => {
 
         expect(logic.values.folderCategoryItems).toHaveLength(0)
         expect(logic.values.folderHasResults).toBe(false)
+    })
+})
+
+describe('matchesFolderSearch', () => {
+    const folderEntry = {
+        path: 'project://dashboards/unfiled/weekly',
+        type: 'folder',
+    } as FileSystemEntry
+
+    it('matches the final folder segment', () => {
+        expect(matchesFolderSearch(folderEntry, 'weekly')).toBe(true)
+    })
+
+    it('ignores partial matches in parent folder names', () => {
+        expect(matchesFolderSearch(folderEntry, 'unfiled')).toBe(false)
+    })
+
+    it('always matches with an empty search term', () => {
+        expect(matchesFolderSearch(folderEntry, '')).toBe(true)
     })
 })

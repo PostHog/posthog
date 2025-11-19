@@ -183,6 +183,21 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
     )
 }
 
+/**
+ * Determines if the search term matches the last segment of a folder path.
+ * The provided search term should already be normalized to lowercase.
+ */
+export function matchesFolderSearch(entry: FileSystemEntry, normalizedSearchTerm: string): boolean {
+    if (!normalizedSearchTerm) {
+        return true
+    }
+
+    const folderName = splitPath(entry.path).pop() || entry.path
+    const normalizedName = folderName.toLowerCase()
+
+    return normalizedName.includes(normalizedSearchTerm)
+}
+
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
@@ -362,6 +377,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         parent: normalizedFolder !== '' ? normalizedFolder : undefined,
                         search: trimmed,
                         limit: PAGINATION_LIMIT + 1,
+                        searchNameOnly: true,
                     })
 
                     breakpoint()
@@ -1644,15 +1660,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }, new Map<string, FileSystemEntry>())
                 const uniqueFolderEntries = Array.from(allFolderEntries.values())
 
-                const matchesSearch = (entry: FileSystemEntry): boolean => {
-                    if (!hasSearch) {
-                        return true
-                    }
-                    const folderName = splitPath(entry.path).pop() || entry.path
-                    const normalizedName = folderName.toLowerCase()
-                    const normalizedPath = entry.path.toLowerCase()
-                    return normalizedName.includes(searchLower) || normalizedPath.includes(searchLower)
-                }
+                const matchesSearch = (entry: FileSystemEntry): boolean =>
+                    matchesFolderSearch(entry, hasSearch ? searchLower : '')
 
                 const projectRootMatchesSearch = !hasSearch || 'project root'.includes(searchLower)
 
