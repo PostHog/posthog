@@ -282,3 +282,14 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one log entry is required")
         return value
+
+
+class TaskListQuerySerializer(serializers.Serializer):
+    """Query parameters for listing tasks"""
+
+    origin_product = serializers.CharField(required=False, help_text="Filter by origin product")
+    stage = serializers.CharField(required=False, help_text="Filter by task run stage")
+    organization = serializers.CharField(required=False, help_text="Filter by repository organization")
+    repository = serializers.CharField(
+        required=False, help_text="Filter by repository name (can include org/repo format)"
+    )

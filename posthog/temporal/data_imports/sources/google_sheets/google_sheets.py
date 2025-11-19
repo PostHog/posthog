@@ -130,4 +130,4 @@ def google_sheets_source(
 
         yield table_from_py_list(values)
 
-    return SourceResponse(name=worksheet_name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(name=worksheet_name, items=get_rows, primary_keys=primary_keys)

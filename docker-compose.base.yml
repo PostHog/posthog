@@ -113,7 +113,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.13.41}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.8.11.66}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -296,17 +296,15 @@ services:
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             # Shared Redis for non-critical path (analytics, billing, cookieless)
             REDIS_URL: 'redis://redis:6379/'
-            # Optional: Use separate Redis URLs for read/write separation
+            # Optional: Use separate Redis URL for read replicas
             # REDIS_READER_URL: 'redis://redis-replica:6379/'
-            # REDIS_WRITER_URL: 'redis://redis-primary:6379/'
             # Optional: Increase Redis timeout (default is 100ms)
             # REDIS_TIMEOUT_MS: 200
             # Dedicated Redis database for critical path (team cache + flags cache)
             # Hobby deployments start in Mode 1 (shared-only). Developers override in docker-compose.dev.yml for Mode 2.
             # FLAGS_REDIS_URL: 'redis://redis:6379/1'
-            # Optional: Use separate Flags Redis URLs for read/write separation
+            # Optional: Use separate Flags Redis URL for read replicas
             # FLAGS_REDIS_READER_URL: 'redis://redis-replica:6379/1'
-            # FLAGS_REDIS_WRITER_URL: 'redis://redis-primary:6379/1'
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
             COOKIELESS_REDIS_HOST: redis7
@@ -484,6 +482,14 @@ services:
             - DEBUG=${DEBUG:-0}
         volumes:
             - '/var/run/docker.sock:/var/run/docker.sock'
+
+    seaweedfs:
+        container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
+        image: chrislusf/seaweedfs:latest
+        ports:
+            - '127.0.0.1:8333:8333' # S3 API
+            - '127.0.0.1:9333:9333' # Master server (for admin UI)
+        command: server -s3 -s3.port=8333 -dir=/data
 
 networks:
     otel_network:

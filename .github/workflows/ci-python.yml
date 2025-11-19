@@ -5,6 +5,7 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
 
 jobs:
     # Job to decide if we should run python ci
@@ -134,11 +135,6 @@ jobs:
               shell: bash -e {0}
               run: |
                   mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
-
-            - name: Check if "schema.py" is up to date
-              shell: bash
-              run: |
-                  npm run schema:build:python && git diff --exit-code
 
             - name: Check hogli manifest completeness
               shell: bash

@@ -84,6 +84,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
@@ -126,6 +127,7 @@ export const manifest: ProductManifest = {
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
+        llmAnalyticsErrors: (): string => '/llm-analytics/errors',
         llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
         llmAnalyticsSession: (
             id: string,

@@ -22,11 +22,13 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
     AssistantMessage,
     AssistantMessageType,
+    AssistantToolCallMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightShortId } from '~/types'
+import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
+import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
@@ -655,7 +657,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'query_insights' as ToolRegistration['identifier'],
             name: 'Query insights',
-            description: 'Max can query insights and their properties',
+            description: 'PostHog AI can query insights and their properties',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
                 active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
@@ -669,7 +671,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'manage_cohorts' as ToolRegistration['identifier'],
             name: 'Manage cohorts',
-            description: 'Max can manage cohorts and their properties',
+            description: 'PostHog AI can manage cohorts and their properties',
             context: {
                 existing_cohorts: [
                     { id: 1, name: 'Power Users', size: 1250 },
@@ -685,7 +687,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'feature_flags' as ToolRegistration['identifier'],
             name: 'Feature flags',
-            description: 'Max can manage feature flags and their properties',
+            description: 'PostHog AI can manage feature flags and their properties',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
                 flag_stats: { total: 15, active: 8, inactive: 7 },
@@ -1307,6 +1309,245 @@ export const ThreadWithSQLQueryOverflow: StoryFn = () => {
     }
 
     return <Template />
+}
+
+export const SearchSessionRecordingsEmpty: StoryFn = () => {
+    // This story demonstrates the search_session_recordings tool with nested filter groups
+    // showcasing the fix for proper rendering of nested OR/AND groups
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those recordings...',
+        id: 'search-recordings-msg',
+        tool_calls: [
+            {
+                id: 'search_tool_1',
+                name: 'search_session_recordings',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call result with nested filter groups: (Chrome AND Mac) OR (Firefox AND Windows)
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_tool_1',
+        content: 'Found recordings matching your criteria',
+        id: 'tool-result-1',
+        ui_payload: {
+            search_session_recordings: {
+                date_from: '-7d',
+                date_to: null,
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: 'browser',
+                                    value: 'Chrome',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Mac OS X',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: 'browser',
+                                    value: 'Firefox',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Windows',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchSessionRecordingsEmpty.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const SearchSessionRecordingsWithResults: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those recordings...',
+        id: 'search-recordings-with-results-msg',
+        tool_calls: [
+            {
+                id: 'search_tool_1',
+                name: 'search_session_recordings',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call result with filter for Microsoft Edge on Linux
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_tool_1',
+        content: 'Found 2 recordings matching your criteria',
+        id: 'tool-result-with-recordings-1',
+        ui_payload: {
+            search_session_recordings: {
+                date_from: '-7d',
+                date_to: null,
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$browser',
+                                    value: 'Microsoft Edge',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Linux',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me recordings where users are on Microsoft Edge with Linux',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me recordings where users are on Microsoft Edge with Linux')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchSessionRecordingsWithResults.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings': (req) => {
+                const version = req.url.searchParams.get('version')
+                return [
+                    200,
+                    {
+                        has_next: false,
+                        results: recordings,
+                        version,
+                    },
+                ]
+            },
+        },
+    }),
+]
+SearchSessionRecordingsWithResults.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 function generateChunk(events: string[]): string {

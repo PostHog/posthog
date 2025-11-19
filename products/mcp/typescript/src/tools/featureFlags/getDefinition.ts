@@ -1,12 +1,16 @@
+import type { z } from 'zod'
+
 import { FeatureFlagGetDefinitionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = FeatureFlagGetDefinitionSchema
 
 type Params = z.infer<typeof schema>
 
-export const getDefinitionHandler = async (context: Context, { flagId, flagKey }: Params) => {
+export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
+    context: Context,
+    { flagId, flagKey }: Params
+) => {
     if (!flagId && !flagKey) {
         return {
             content: [
@@ -21,9 +25,7 @@ export const getDefinitionHandler = async (context: Context, { flagId, flagKey }
     const projectId = await context.stateManager.getProjectId()
 
     if (flagId) {
-        const flagResult = await context.api
-            .featureFlags({ projectId })
-            .get({ flagId: String(flagId) })
+        const flagResult = await context.api.featureFlags({ projectId }).get({ flagId: String(flagId) })
         if (!flagResult.success) {
             throw new Error(`Failed to get feature flag: ${flagResult.error.message}`)
         }
