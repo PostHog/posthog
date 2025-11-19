@@ -163,4 +163,16 @@ describe('newTabSceneLogic - recents search', () => {
 
         expect(logic.values.sectionItemLimits.recents).toBe(initialLimit + PAGINATION_LIMIT)
     })
+
+    it('clears the search input when opening a folder', async () => {
+        logic.actions.setSearch('funnel dashboard')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.search).toBe('funnel dashboard')
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeExplorerFolderPath).toBe('project://dashboards')
+        expect(logic.values.search).toBe('')
+    })
 })

@@ -495,6 +495,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+                setActiveExplorerFolderPath: (state, { path }) => (path === null ? state : ''),
             },
         ],
         selectedCategory: [
