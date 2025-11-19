@@ -175,4 +175,13 @@ describe('newTabSceneLogic - recents search', () => {
         expect(logic.values.activeExplorerFolderPath).toBe('project://dashboards')
         expect(logic.values.search).toBe('')
     })
+    it('exposes folder breadcrumbs for the explorer', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setActiveExplorerFolderPath('top-level/reports')
+
+        await expectLogic(logic).toMatchValues({
+            breadcrumbs: [expect.objectContaining({ name: 'reports' })],
+        })
+    })
 })

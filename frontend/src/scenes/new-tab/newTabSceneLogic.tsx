@@ -24,6 +24,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import {
@@ -39,7 +40,7 @@ import {
     SearchResults,
     projectTreeLogic,
 } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -48,7 +49,15 @@ import {
     FileSystemImport,
     FileSystemViewLogEntry,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
+import {
+    ActivityTab,
+    Breadcrumb,
+    EventDefinition,
+    Group,
+    GroupTypeIndex,
+    PersonType,
+    PropertyDefinition,
+} from '~/types'
 
 import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
@@ -754,6 +763,35 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [s.newTabSceneDataInclude],
             (newTabSceneDataInclude: NEW_TAB_COMMANDS[]): boolean =>
                 newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders'),
+        ],
+        breadcrumbs: [
+            (s) => [(_, props: { tabId?: string }) => props.tabId, s.activeExplorerFolderPath],
+            (tabId, activeExplorerFolderPath): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [
+                    {
+                        key: [Scene.NewTab, 'default'],
+                        name: 'Search',
+                        path: urls.newTab(),
+                        iconType: 'search',
+                    },
+                ]
+
+                if (activeExplorerFolderPath !== null) {
+                    const segments = splitPath(activeExplorerFolderPath)
+                    const folderNameRaw = segments.length > 0 ? segments[segments.length - 1] : ''
+                    const folderName = folderNameRaw ? unescapePath(folderNameRaw) : 'Project root'
+
+                    return [
+                        {
+                            key: [Scene.NewTab, 'folder'],
+                            name: folderName,
+                            iconType: 'search',
+                        } as Breadcrumb,
+                    ]
+                }
+
+                return crumbs
+            },
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
