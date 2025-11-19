@@ -104,8 +104,12 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Current execution status",
     )
-    branch = serializers.CharField(required=False, allow_null=True, help_text="Git branch name to associate with the task")
-    stage = serializers.CharField(required=False, allow_null=True, help_text="Current stage of the run (e.g. research, plan, build)")
+    branch = serializers.CharField(
+        required=False, allow_null=True, help_text="Git branch name to associate with the task"
+    )
+    stage = serializers.CharField(
+        required=False, allow_null=True, help_text="Current stage of the run (e.g. research, plan, build)"
+    )
     output = serializers.JSONField(required=False, allow_null=True, help_text="Output from the run")
     state = serializers.JSONField(required=False, help_text="State of the run")
     error_message = serializers.CharField(
