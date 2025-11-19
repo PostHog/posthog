@@ -1,0 +1,121 @@
+import {
+    ActionsNode,
+    EventsNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+    RetentionQuery,
+    StickinessQuery,
+} from '~/queries/schema/schema-general'
+import { EntityTypes, IntervalType, RetentionPeriod } from '~/types'
+
+export type FollowUpSuggestion = {
+    title: string
+    description?: string
+    targetQuery: InsightVizNode
+}
+
+/**
+ * Get suggested follow-up insights for a given query.
+ * Returns an array of suggestions that help users dive deeper into their data.
+ */
+export function getSuggestedFollowUps(query: InsightQueryNode): FollowUpSuggestion[] {
+    if (query.kind === NodeKind.RetentionQuery) {
+        return getRetentionFollowUps(query)
+    }
+
+    // Future: Add handlers for other insight types
+    // if (query.kind === NodeKind.FunnelsQuery) { return getFunnelFollowUps(query) }
+    // if (query.kind === NodeKind.TrendsQuery) { return getTrendsFollowUps(query) }
+
+    return []
+}
+
+/**
+ * Get follow-up suggestions for retention insights.
+ * Currently suggests a stickiness insight for the return event.
+ */
+function getRetentionFollowUps(query: RetentionQuery): FollowUpSuggestion[] {
+    const { retentionFilter } = query
+    const returningEntity = retentionFilter?.returningEntity
+
+    if (!returningEntity) {
+        return []
+    }
+
+    // Build the series for stickiness based on the returning entity
+    let series: (EventsNode | ActionsNode)[] = []
+    let entityDisplayName = 'event'
+
+    if (returningEntity.type === EntityTypes.EVENTS || returningEntity.kind === NodeKind.EventsNode) {
+        const eventName = returningEntity.id || returningEntity.name || 'event'
+        entityDisplayName = typeof eventName === 'string' ? eventName : 'event'
+
+        series = [
+            {
+                kind: NodeKind.EventsNode,
+                event: typeof eventName === 'string' ? eventName : null,
+                name: returningEntity.name,
+                custom_name: returningEntity.custom_name,
+                properties: returningEntity.properties,
+            },
+        ]
+    } else if (returningEntity.type === EntityTypes.ACTIONS || returningEntity.kind === NodeKind.ActionsNode) {
+        const actionId =
+            typeof returningEntity.id === 'number'
+                ? returningEntity.id
+                : parseInt(String(returningEntity.id || '0'), 10)
+        entityDisplayName = returningEntity.name || `Action ${actionId}`
+
+        series = [
+            {
+                kind: NodeKind.ActionsNode,
+                id: actionId,
+                name: returningEntity.name,
+                custom_name: returningEntity.custom_name,
+                properties: returningEntity.properties,
+            },
+        ]
+    } else {
+        // Unknown entity type
+        return []
+    }
+
+    // Auto-detect interval based on retention period
+    const retentionPeriod = retentionFilter?.period ?? RetentionPeriod.Day
+    let interval: IntervalType
+    let intervalDescription: string
+
+    if (retentionPeriod === RetentionPeriod.Month) {
+        interval = 'week'
+        intervalDescription = 'weeks per month'
+    } else {
+        // For Day and Week retention periods, use day interval
+        interval = 'day'
+        intervalDescription = 'days per week'
+    }
+
+    // Build the stickiness query
+    const stickinessQuery: StickinessQuery = {
+        kind: NodeKind.StickinessQuery,
+        series,
+        interval,
+        dateRange: query.dateRange,
+        properties: query.properties,
+        filterTestAccounts: query.filterTestAccounts,
+        stickinessFilter: {},
+    }
+
+    const targetQuery: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: stickinessQuery,
+    }
+
+    return [
+        {
+            title: `Stickiness of ${entityDisplayName}`,
+            description: `See how frequently retained users perform this event (${intervalDescription})`,
+            targetQuery,
+        },
+    ]
+}
