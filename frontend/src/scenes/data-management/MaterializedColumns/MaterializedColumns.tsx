@@ -61,7 +61,7 @@ export function MaterializedColumns(): JSX.Element {
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
             return (
                 <div className="font-mono">
-                    mat_{slot.property_type?.toLowerCase()}_{slot.slot_index}
+                    dmat_{slot.property_type?.toLowerCase()}_{slot.slot_index}
                 </div>
             )
         },

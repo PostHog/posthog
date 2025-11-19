@@ -8,19 +8,19 @@ def generate_add_columns_sharded_events() -> str:
 
     # Add string columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_string_{i}` Nullable(String)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)")
 
     # Add float columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_float_{i}` Nullable(Float64)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_float_{i}` Nullable(Float64)")
 
     # Add bool columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_bool_{i}` Nullable(UInt8)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_bool_{i}` Nullable(UInt8)")
 
     # Add datetime columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
 
     return f"ALTER TABLE sharded_events\n{',\n'.join(statements)}"
 
@@ -31,19 +31,19 @@ def generate_add_columns_events() -> str:
 
     # Add string columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_string_{i}` Nullable(String)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)")
 
     # Add float columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_float_{i}` Nullable(Float64)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_float_{i}` Nullable(Float64)")
 
     # Add bool columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_bool_{i}` Nullable(UInt8)")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_bool_{i}` Nullable(UInt8)")
 
     # Add datetime columns (0-9)
     for i in range(10):
-        statements.append(f"ADD COLUMN IF NOT EXISTS `mat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
+        statements.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
 
     return f"ALTER TABLE events\n{',\n'.join(statements)}"
 

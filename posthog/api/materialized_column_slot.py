@@ -359,6 +359,14 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         """Delete a materialized column slot with activity logging."""
         slot = self.get_object()
+
+        # Prevent deletion during active backfill
+        if slot.state == MaterializedColumnSlotState.BACKFILL:
+            return response.Response(
+                {"error": "Cannot delete slot while backfill is in progress. Wait for completion or failure."},
+                status=http_status.HTTP_400_BAD_REQUEST,
+            )
+
         property_name = slot.property_definition.name if slot.property_definition else "Unknown"
 
         # Log activity before deletion

@@ -105,7 +105,7 @@ def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
         raise ValueError(f"MaterializedColumnSlot {inputs.slot_id} has no property_definition")
 
     type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type, slot.property_type.lower())
-    mat_column_name = f"mat_{type_name}_{slot.slot_index}"
+    mat_column_name = f"dmat_{type_name}_{slot.slot_index}"
 
     logger.info(
         "Retrieved slot details",
