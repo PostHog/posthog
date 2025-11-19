@@ -201,22 +201,22 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <LemonButton
                             size="small"
                             icon={<IconShare />}
-                            tooltip={
-                                <>
-                                    Share link to chat
-                                    <br />
-                                    <em>
-                                        <IconLock /> Requires organization access
-                                    </em>
-                                </>
-                            }
                             onClick={() => {
                                 copyToClipboard(
                                     urls.absolute(urls.currentProject(urls.max(conversationId))),
                                     'conversation sharing link'
                                 )
                             }}
-                            tooltipPlacement="bottom"
+                            tooltip={
+                                <>
+                                    Copy link to chat
+                                    <br />
+                                    <em>
+                                        <IconLock /> Requires organization access
+                                    </em>
+                                </>
+                            }
+                            tooltipPlacement="bottom-end"
                         />
                     )}
                     <LemonButton
@@ -254,7 +254,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                     )
                                 }}
                             >
-                                Share link to chat
+                                Copy link to chat
                             </LemonButton>
                         ) : undefined}
                         {tabId ? (
