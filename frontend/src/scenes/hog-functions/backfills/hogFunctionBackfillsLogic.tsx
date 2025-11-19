@@ -1,8 +1,10 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+
+import { HogFunctionConfigurationType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import type { hogFunctionBackfillsLogicType } from './hogFunctionBackfillsLogicType'
@@ -15,7 +17,7 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
     props({} as HogFunctionBackfillsLogicProps),
     key(({ id }: HogFunctionBackfillsLogicProps) => id),
     path((key) => ['scenes', 'pipeline', 'hogFunctionBackfillsLogic', key]),
-    connect((props) => ({
+    connect((props: HogFunctionBackfillsLogicProps) => ({
         values: [hogFunctionConfigurationLogic(props), ['configuration']],
         actions: [hogFunctionConfigurationLogic(props), ['setConfigurationValues', 'loadHogFunction']],
     })),
@@ -31,6 +33,14 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             },
         ],
     }),
+    selectors({
+        isReady: [
+            (s) => [s.configuration, s.isLoading],
+            (configuration: HogFunctionConfigurationType, isLoading: boolean) => {
+                return !!configuration.batch_export_id && !isLoading
+            },
+        ],
+    }),
     listeners(({ actions, props }) => ({
         enableHogFunctionBackfills: async () => {
             try {
@@ -38,7 +48,7 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 await api.hogFunctions.enableBackfills(props.id)
 
                 // Reload page to get the updated config and render <BatchExportBackfills />
-                await actions.loadHogFunction()
+                actions.loadHogFunction()
 
                 lemonToast.success('Backfills enabled for this destination.')
             } catch {
@@ -48,4 +58,9 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.configuration.batch_export_id) {
+            actions.enableHogFunctionBackfills()
+        }
+    }),
 ])
