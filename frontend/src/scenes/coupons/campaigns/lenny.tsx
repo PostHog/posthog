@@ -40,25 +40,24 @@ const LennyHero: React.FC = () => {
 export const lennyCampaign: CampaignConfig = {
     name: "Lenny's Newsletter",
     heroTitle: 'Get FREE PostHog Scale for 12 months (worth $9,000)',
-    heroSubtitle: "Redeem your offer for annual subscribers of Lenny's Newsletter",
+    heroSubtitle: "We like Lenny's Newsletter so much we made this exclusive off for annual subscribers",
     HeroImage: LennyHero,
     benefits: [
         {
             title: 'Priority support',
-            description: 'Get help from our team with a 24-hour target response time',
+            description: "Get help from our team. You'll speak to an actual engineer too!",
         },
         {
-            title: 'SAML SSO & advanced permissions',
-            description:
-                'Enterprise single sign-on with fine-grained access control, SSO enforcement, and 2FA requirements',
+            title: 'SAML, SSO & advanced permissions',
+            description: 'Fine-grained access control, SSO enforcement, and 2FA requirements',
         },
         {
             title: 'Audit logs',
-            description: 'Track all changes in your organization with 2 months of retention',
+            description: '2 months of retention so you can track changes in your organization',
         },
         {
             title: 'Extended session replay retention',
-            description: 'Keep your session replay data for up to 12 months instead of the standard 3',
+            description: 'Keep your session replay data for 12 months instead of the standard 3',
         },
         {
             title: 'Managed reverse proxy',
