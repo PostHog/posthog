@@ -118,7 +118,7 @@ export enum Scene {
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
-    LennyCoupon = 'LennyCoupon',
+    Coupons = 'Coupons',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',

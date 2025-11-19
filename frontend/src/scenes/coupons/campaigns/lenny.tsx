@@ -3,20 +3,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand/Logo'
 
-export interface CampaignBenefit {
-    title: string
-    description: string
-}
-
-export interface CampaignConfig {
-    name: string
-    heroTitle: string
-    heroSubtitle: string
-    benefits: CampaignBenefit[]
-    eligibilityCriteria: string[]
-    footerNote?: string | JSX.Element
-    HeroImage?: React.FC<any>
-}
+import { CampaignConfig } from './types'
 
 const LennyHero: React.FC = () => {
     return (
@@ -66,7 +53,7 @@ export const lennyCampaign: CampaignConfig = {
     ],
     eligibilityCriteria: [
         "Active Lenny's Newsletter annual subscriber",
-        'PostHog organization created after November 10, 2025',
+        'PostHog organization created after December 2, 2025',
         'Active paid subscription to PostHog',
     ],
     footerNote: (

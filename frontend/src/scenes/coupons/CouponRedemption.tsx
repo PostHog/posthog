@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
-import { CampaignConfig } from './campaigns/lenny'
+import { CampaignConfig } from './campaigns/types'
 import { couponLogic } from './couponLogic'
 
 interface CouponRedemptionProps {
