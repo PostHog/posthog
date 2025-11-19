@@ -35,8 +35,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const metricsWithResults = isSecondary ? orderedSecondaryMetricsWithResults : orderedPrimaryMetricsWithResults
 
     const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
-    const results = metricsWithResults.map(({ result }: { result: NewExperimentQueryResponse[] }) => result)
-    const errors = metricsWithResults.map(({ error }: { error: string[] }) => error)
+    const results = metricsWithResults.map(({ result }: { result: NewExperimentQueryResponse }) => result)
+    const errors = metricsWithResults.map(({ error }: { error: any }) => error)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
