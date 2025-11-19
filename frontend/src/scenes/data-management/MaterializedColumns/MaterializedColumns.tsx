@@ -18,7 +18,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CreateSlotModal } from './CreateSlotModal'
 import {
-    AutoMaterializedColumn,
     MaterializedColumnSlot,
     MaterializedColumnSlotState,
     materializedColumnsLogic,
@@ -226,45 +225,26 @@ export function MaterializedColumns(): JSX.Element {
                         <LemonDivider />
 
                         <div>
-                            <h3 className="text-lg font-semibold mb-2">Auto-Materialized Columns</h3>
+                            <h3 className="text-lg font-semibold mb-2">Auto-Materialized Properties</h3>
                             <p className="text-sm text-muted mb-4">
-                                Properties that PostHog has automatically materialized for performance. These are
-                                managed by PostHog and cannot be modified here.
+                                These properties are already automatically materialized by PostHog. You're already
+                                getting all the performance gains we can provide!
                             </p>
-                            <LemonTable
-                                loading={autoMaterializedColumnsLoading}
-                                columns={[
-                                    {
-                                        title: 'Property Name',
-                                        render: (_, column: AutoMaterializedColumn) => (
-                                            <span className="font-semibold">{column.property_name}</span>
-                                        ),
-                                    },
-                                    {
-                                        title: 'Column Name',
-                                        render: (_, column: AutoMaterializedColumn) => (
-                                            <span className="font-mono text-xs">{column.column_name}</span>
-                                        ),
-                                    },
-                                    {
-                                        title: 'Table Column',
-                                        render: (_, column: AutoMaterializedColumn) => (
-                                            <LemonTag>{column.table_column}</LemonTag>
-                                        ),
-                                    },
-                                    {
-                                        title: 'Status',
-                                        render: (_, column: AutoMaterializedColumn) => (
-                                            <LemonTag type={column.is_disabled ? 'default' : 'success'}>
-                                                {column.is_disabled ? 'DISABLED' : 'ACTIVE'}
-                                            </LemonTag>
-                                        ),
-                                    },
-                                ]}
-                                dataSource={autoMaterializedColumns}
-                                pagination={{ pageSize: 20 }}
-                                emptyState="No auto-materialized columns found."
-                            />
+                            {autoMaterializedColumnsLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Spinner />
+                                </div>
+                            ) : autoMaterializedColumns.length === 0 ? (
+                                <div className="text-muted text-sm">No auto-materialized properties found.</div>
+                            ) : (
+                                <div className="flex flex-wrap gap-2">
+                                    {autoMaterializedColumns.map((column) => (
+                                        <LemonTag key={column.column_name} type="default">
+                                            {column.property_name}
+                                        </LemonTag>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {showCreateModal && <CreateSlotModal />}

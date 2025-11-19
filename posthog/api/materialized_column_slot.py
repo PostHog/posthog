@@ -188,17 +188,19 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             # This is the same cache that HogQL uses (15 minute TTL with background refresh)
             materialized_columns = get_materialized_columns("events")
 
+            # Only show properties column materialized columns (exclude person_properties)
             results = []
             for column in materialized_columns.values():
-                results.append(
-                    {
-                        "column_name": column.name,
-                        "property_name": column.details.property_name,
-                        "table_column": column.details.table_column,
-                        "is_disabled": column.details.is_disabled,
-                        "is_nullable": column.is_nullable,
-                    }
-                )
+                if column.details.table_column == "properties":
+                    results.append(
+                        {
+                            "column_name": column.name,
+                            "property_name": column.details.property_name,
+                            "table_column": column.details.table_column,
+                            "is_disabled": column.details.is_disabled,
+                            "is_nullable": column.is_nullable,
+                        }
+                    )
 
             return response.Response(results)
         except Exception as e:
