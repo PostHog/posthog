@@ -220,8 +220,7 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
 
         await execute_batch_export_using_internal_stage(
             insert_into_kafka_activity_from_stage,
-            insert_inputs,
+            insert_inputs,  # type: ignore[arg-type]
             interval=inputs.interval,
-            maximum_retry_interval_seconds=240,
             num_partitions=1,
         )
