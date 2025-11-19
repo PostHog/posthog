@@ -47,11 +47,13 @@ def update_team_service_flags_cache(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for service flags cache update", team_id=team_id)
-        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="feature_flags", result="team_not_found").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="feature_flags", operation="update", result="failure").inc()
         return
 
     success = update_flags_cache(team)
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="feature_flags", result="success" if success else "failure").inc()
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+        namespace="feature_flags", operation="update", result="success" if success else "failure"
+    ).inc()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

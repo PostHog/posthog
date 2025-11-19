@@ -48,11 +48,13 @@ def update_team_metadata_cache_task(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for metadata cache update", team_id=team_id)
-        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", result="team_not_found").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", operation="update", result="failure").inc()
         return
 
     success = update_team_metadata_cache(team)
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", result="success" if success else "failure").inc()
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+        namespace="team_metadata", operation="update", result="success" if success else "failure"
+    ).inc()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -125,7 +127,9 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
         try:
             update_team_metadata_cache_task.delay(instance.id)
         except Exception as e:
-            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", result="enqueue_failure").inc()
+            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+                namespace="team_metadata", operation="enqueue", result="failure"
+            ).inc()
             logger.exception(
                 "Failed to enqueue cache update task",
                 team_id=instance.id,
