@@ -15,6 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use chrono::Utc;
 use serde_json;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -123,6 +124,7 @@ fn get_minimal_flags_response(
         flags: HashMap::new(),
         quota_limited: None,
         request_id,
+        evaluated_at: Utc::now().timestamp_millis(),
         config,
     };
 

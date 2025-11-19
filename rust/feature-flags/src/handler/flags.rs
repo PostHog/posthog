@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use axum::extract::State;
+use chrono::Utc;
 use common_types::ProjectId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -258,11 +259,23 @@ pub async fn evaluate_for_request(
 ) -> FlagsResponse {
     // If flags are disabled, return empty FlagsResponse
     if disable_flags {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return FlagsResponse::new(
+            false,
+            HashMap::new(),
+            None,
+            request_id,
+            Utc::now().timestamp_millis(),
+        );
     }
 
     if filtered_flags.flags.is_empty() {
-        return FlagsResponse::new(false, HashMap::new(), None, request_id);
+        return FlagsResponse::new(
+            false,
+            HashMap::new(),
+            None,
+            request_id,
+            Utc::now().timestamp_millis(),
+        );
     }
 
     let ctx = FeatureFlagEvaluationContext {

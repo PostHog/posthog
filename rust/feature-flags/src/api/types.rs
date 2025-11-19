@@ -204,6 +204,7 @@ pub struct FlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    pub evaluated_at: i64, //ISO 8601 timestamp
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -320,12 +321,14 @@ impl FlagsResponse {
         flags: HashMap<String, FlagDetails>,
         quota_limited: Option<Vec<String>>,
         request_id: Uuid,
+        evaluated_at: i64,
     ) -> Self {
         Self {
             errors_while_computing_flags,
             flags,
             quota_limited,
             request_id,
+            evaluated_at,
             config: ConfigResponse::default(),
         }
     }
@@ -564,6 +567,7 @@ mod tests {
     use super::*;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
+    use chrono::Utc;
     use rstest::rstest;
     use serde_json::json;
 
@@ -717,7 +721,8 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse::new(false, flags, None, request_id);
+        let evaluated_at = Utc::now().timestamp_millis();
+        let response = FlagsResponse::new(false, flags, None, request_id, evaluated_at);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -750,7 +755,13 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_skipped_when_none() {
-        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let response = FlagsResponse::new(
+            false,
+            HashMap::new(),
+            None,
+            Uuid::new_v4(),
+            Utc::now().timestamp_millis(),
+        );
 
         let json = serde_json::to_value(&response).unwrap();
         let obj = json.as_object().unwrap();
@@ -768,7 +779,13 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_included_when_set() {
-        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let mut response = FlagsResponse::new(
+            false,
+            HashMap::new(),
+            None,
+            Uuid::new_v4(),
+            Utc::now().timestamp_millis(),
+        );
 
         // Set some config fields
         response.config.analytics = Some(AnalyticsConfig {

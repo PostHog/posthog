@@ -17,6 +17,7 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
+use chrono::Utc;
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
 
@@ -130,7 +131,13 @@ async fn process_request_inner(
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
-            FlagsResponse::new(false, HashMap::new(), None, context.request_id)
+            FlagsResponse::new(
+                false,
+                HashMap::new(),
+                None,
+                context.request_id,
+                Utc::now().timestamp_millis(),
+            )
         } else if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
@@ -290,6 +297,7 @@ mod metrics_tests {
             HashMap::new(),
             None,
             Uuid::new_v4(),
+            Utc::now().timestamp_millis(),
         ));
         let data = MetricsData {
             team_id: Some(123),
@@ -335,6 +343,7 @@ mod metrics_tests {
             HashMap::new(),
             None,
             Uuid::new_v4(),
+            Utc::now().timestamp_millis(),
         ));
         let data = MetricsData {
             team_id: None,

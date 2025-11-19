@@ -9,6 +9,7 @@ use crate::{
         flag_request::FlagRequestType,
     },
 };
+use chrono::Utc;
 use common_metrics::inc;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
@@ -31,6 +32,7 @@ pub async fn check_limits(
             flags: HashMap::new(),
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
             request_id: context.request_id,
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }));
     }

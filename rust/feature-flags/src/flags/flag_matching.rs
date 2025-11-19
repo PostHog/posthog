@@ -29,6 +29,7 @@ use crate::utils::graph_utils::{
     log_dependency_graph_operation_error, DependencyGraph,
 };
 use anyhow::Result;
+use chrono::Utc;
 use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -273,6 +274,7 @@ impl FeatureFlagMatcher {
             flags: flags_response.flags,
             quota_limited: None,
             request_id,
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }
     }
@@ -477,6 +479,7 @@ impl FeatureFlagMatcher {
                         flags: evaluated_flags_map,
                         quota_limited: None,
                         request_id,
+                        evaluated_at: Utc::now().timestamp_millis(),
                         config: ConfigResponse::default(),
                     }
                 }
@@ -492,6 +495,7 @@ impl FeatureFlagMatcher {
                         flags: evaluated_flags_map,
                         quota_limited: None,
                         request_id,
+                        evaluated_at: Utc::now().timestamp_millis(),
                         config: ConfigResponse::default(),
                     }
                 }
@@ -522,6 +526,7 @@ impl FeatureFlagMatcher {
             flags: evaluated_flags_map,
             quota_limited: None,
             request_id,
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }
     }
