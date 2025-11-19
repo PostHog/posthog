@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { debounce } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -70,17 +71,13 @@ function SessionExampleCard({
 
     return (
         <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
-            <div className="flex items-center justify-between gap-2">
-                <h4 className="mb-0">{target_event.description}</h4>
-                <Link
-                    onClick={(e) => {
-                        e.preventDefault()
-                        onViewDetails()
-                    }}
-                    className="text-sm font-medium whitespace-nowrap cursor-pointer"
-                >
-                    View details
-                </Link>
+            <div className="flex items-center gap-2">
+                <h4 className="mb-0 text-link hover:underline cursor-pointer" onClick={onViewDetails}>
+                    {target_event.description}
+                    <span className="text-link ml-1">
+                        <IconPlayCircle />
+                    </span>
+                </h4>
             </div>
             <div className="mb-2">
                 <SessionGroupSummaryDetailsMetadata event={event} />
