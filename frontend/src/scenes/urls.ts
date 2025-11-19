@@ -83,6 +83,7 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
+    feed: (): string => '/feed',
     max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
     maxHistory: (): string => '/max/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
