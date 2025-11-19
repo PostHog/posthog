@@ -219,6 +219,7 @@ pub struct LegacyFlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    pub evaluated_at: i64, //ISO 8601 timestamp
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -246,6 +247,7 @@ impl LegacyFlagsResponse {
             feature_flag_payloads,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -259,6 +261,7 @@ pub struct DecideV1Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64, //ISO 8601 timestamp
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -278,6 +281,7 @@ impl DecideV1Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -291,6 +295,7 @@ pub struct DecideV2Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
+    pub evaluated_at: i64, //ISO 8601 timestamp
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -310,6 +315,7 @@ impl DecideV2Response {
             feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
             config: response.config,
         }
     }
@@ -800,5 +806,29 @@ mod tests {
         // Config fields should be present when set
         assert!(obj.contains_key("analytics"));
         assert!(obj.contains_key("supportedCompression"));
+    }
+
+    #[test]
+    fn test_evaluated_at_field_is_present() {
+        let before = Utc::now().timestamp_millis();
+        let response = FlagsResponse::new(
+            false,
+            HashMap::new(),
+            None,
+            Uuid::new_v4(),
+            Utc::now().timestamp_millis(),
+        );
+        let after = Utc::now().timestamp_millis();
+
+        let json = serde_json::to_value(&response).unwrap();
+        let obj = json.as_object().unwrap();
+
+        // evaluated_at field should always be present
+        assert!(obj.contains_key("evaluatedAt"));
+
+        // Verify it's a number and within a reasonable range
+        let evaluated_at = obj.get("evaluatedAt").unwrap().as_i64().unwrap();
+        assert!(evaluated_at >= before);
+        assert!(evaluated_at <= after);
     }
 }
