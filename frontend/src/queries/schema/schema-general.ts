@@ -4399,6 +4399,67 @@ export const externalDataSources = [
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
+// Marketing Analytics Integration Constants
+// IMPORTANT: Keep in sync with backend adapters in:
+// - products/marketing_analytics/backend/hogql_queries/adapters/
+
+/**
+ * Map integration names to their campaign field names.
+ * Sync with: Each adapter's _get_campaign_name_field() and _get_campaign_id_field() methods
+ */
+export const MARKETING_INTEGRATION_FIELD_MAP: Record<string, { nameField: string; idField: string }> = {
+    GoogleAds: { nameField: 'campaign_name', idField: 'campaign_id' },
+    LinkedinAds: { nameField: 'name', idField: 'id' },
+    MetaAds: { nameField: 'name', idField: 'id' },
+    TikTokAds: { nameField: 'campaign_name', idField: 'campaign_id' },
+    RedditAds: { nameField: 'name', idField: 'id' },
+}
+
+/**
+ * Campaign table keyword patterns for each integration.
+ * Sync with: Each adapter's table detection logic
+ */
+export const MARKETING_CAMPAIGN_TABLE_PATTERNS: Record<string, { keywords: string[]; exclusions: string[] }> = {
+    GoogleAds: { keywords: ['campaign'], exclusions: ['stats'] },
+    LinkedinAds: { keywords: ['campaigns'], exclusions: ['stats'] },
+    MetaAds: { keywords: ['campaigns'], exclusions: ['stats'] },
+    TikTokAds: { keywords: ['campaigns'], exclusions: ['report'] },
+    RedditAds: { keywords: ['campaigns'], exclusions: ['report'] },
+}
+
+/**
+ * Default UTM source mappings for each integration.
+ * Sync with: Each adapter's get_source_identifier_mapping() class method
+ */
+export const MARKETING_DEFAULT_SOURCE_MAPPINGS: Record<string, string[]> = {
+    GoogleAds: [
+        'google',
+        'adwords',
+        'youtube',
+        'display',
+        'gmail',
+        'google_maps',
+        'google_play',
+        'google_discover',
+        'admob',
+        'waze',
+    ],
+    LinkedinAds: ['linkedin', 'li'],
+    MetaAds: [
+        'meta',
+        'facebook',
+        'instagram',
+        'messenger',
+        'fb',
+        'whatsapp',
+        'audience_network',
+        'facebook_marketplace',
+        'threads',
+    ],
+    TikTokAds: ['tiktok'],
+    RedditAds: ['reddit'],
+}
+
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
