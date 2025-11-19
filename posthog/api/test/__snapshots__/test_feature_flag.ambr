@@ -4859,15 +4859,15 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+  SELECT (("posthog_person_new"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
+          AND "posthog_person_new"."properties" ? 'email'
+          AND NOT (("posthog_person_new"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
@@ -4938,7 +4938,7 @@
        target_person_ids
   WHERE EXISTS
       (SELECT 1
-       FROM posthog_person
+       FROM posthog_person_new
        WHERE id = person_id
          AND team_id = 99999) ON CONFLICT DO NOTHING
   '''
@@ -4969,15 +4969,15 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+  SELECT (("posthog_person_new"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
+          AND "posthog_person_new"."properties" ? 'email'
+          AND NOT (("posthog_person_new"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
@@ -5079,17 +5079,17 @@
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
   '''
-  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
-         (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+  SELECT (("posthog_person_new"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
+          AND "posthog_person_new"."properties" ? 'email'
+          AND NOT (("posthog_person_new"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
+         (("posthog_person_new"."properties" -> 'email') = '"tim@posthog.com"'::jsonb
+          AND "posthog_person_new"."properties" ? 'email'
+          AND NOT (("posthog_person_new"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
