@@ -213,6 +213,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
         query = re.sub(r"(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1 \2 (1, 2, 3, 4, 5 /* ... */)", query)
         query = re.sub(r"(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1 \2 [1, 2, 3, 4, 5 /* ... */]", query)
+        # Handle nested tuples: IN ((1, 2), (3, 4)) -> IN ((1, 2) /* ... */)
+        query = re.sub(
+            r"(in|IN) \(\(\d+(, ?\d+)*\)(, ?\(\d+(, ?\d+)*\))*\)",
+            r"\1 ((1, 2) /* ... */)",
+            query,
+        )
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
             r"\"uuid\" (in|IN) \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
