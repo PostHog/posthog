@@ -111,7 +111,7 @@ function FilterBar({
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
-                    placeholder="Filter pattern examples by keyword..."
+                    placeholder="Filter session issues by keyword..."
                     value={searchValue}
                     onChange={onSearchChange}
                     prefix={<IconSearch />}
