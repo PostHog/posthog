@@ -133,6 +133,11 @@ if not persons_db_writer_url and DEBUG and not TEST:
     # A default is needed for generate_demo_data to properly populate the correct databases
     # with the demo data
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
+elif not persons_db_writer_url and TEST:
+    # In test mode, use a separate test_posthog_persons database (mirrors production architecture)
+    # The conftest.py fixture runs sqlx migrations to create posthog_person_new there
+    test_persons_db = PG_DATABASE + "_persons"
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
     DATABASES["persons_db_writer"] = dj_database_url.config(

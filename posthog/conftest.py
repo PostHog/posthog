@@ -147,14 +147,16 @@ def reset_clickhouse_tables():
 
 
 def run_persons_sqlx_migrations():
-    """Run sqlx migrations for persons tables in test database.
+    """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
     This creates posthog_person_new and related tables needed for dual-table
     person model migration. Mirrors production migrations in rust/persons_migrations/.
+    Uses a separate database to mirror production setup where persons live in their own DB.
     """
-    # Build database URL from Django test database settings
+    # Build database URL for test_posthog_persons (separate from main test_posthog)
     db_config = settings.DATABASES["default"]
-    db_name = db_config["NAME"]
+    # Use separate persons database name to mirror production
+    persons_db_name = db_config["NAME"] + "_persons"
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -162,7 +164,7 @@ def run_persons_sqlx_migrations():
 
     # URL encode password to handle special characters
     password_part = f":{quote_plus(db_password)}" if db_password else ""
-    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
+    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{persons_db_name}"
 
     # Get path to migrations (relative to this file)
     # conftest.py is at posthog/conftest.py, go up one level to repo root
