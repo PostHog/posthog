@@ -136,11 +136,11 @@ class TestConfirmationFeature:
 
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
-    def test_requires_confirmation_prompts_user(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
-        """Test command with requires_confirmation prompts user."""
+    def test_destructive_prompts_user(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test command with destructive prompts user."""
         mock_confirm.return_value = True
 
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "requires_confirmation": True})
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
 
         cmd._confirm(yes=False)
 
@@ -148,9 +148,9 @@ class TestConfirmationFeature:
 
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
-    def test_requires_confirmation_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+    def test_destructive_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test --yes flag skips confirmation prompt."""
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "requires_confirmation": True})
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
 
         cmd._confirm(yes=True)
 
@@ -159,7 +159,7 @@ class TestConfirmationFeature:
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
     def test_no_confirmation_for_normal_commands(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
-        """Test commands without requires_confirmation don't prompt."""
+        """Test commands without destructive don't prompt."""
         cmd = DirectCommand("test:safe", {"cmd": "echo hello"})
 
         cmd._confirm(yes=False)
@@ -172,7 +172,7 @@ class TestConfirmationFeature:
         """Test aborting confirmation exits with code 0."""
         mock_confirm.return_value = False
 
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "requires_confirmation": True})
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
 
         with pytest.raises(SystemExit) as exc_info:
             cmd._confirm(yes=False)
@@ -189,7 +189,7 @@ class TestConfirmationFeature:
 
         cmd = CompositeCommand(
             "reset",
-            {"steps": ["docker:services:down", "docker:services:up"], "requires_confirmation": True},
+            {"steps": ["docker:services:down", "docker:services:up"], "destructive": True},
         )
         cmd._confirmed = True
 
@@ -215,7 +215,7 @@ class TestConfirmationFeature:
 
         cmd = CompositeCommand(
             "reset",
-            {"steps": ["docker:services:down"], "requires_confirmation": True},
+            {"steps": ["docker:services:down"], "destructive": True},
         )
         # Simulate user confirming via prompt (not --yes flag)
         confirmed = cmd._confirm(yes=False)

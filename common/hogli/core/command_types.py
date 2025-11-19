@@ -89,7 +89,7 @@ class Command:
 
         Returns True if confirmation was given (via --yes flag or user prompt), False otherwise.
         """
-        if not self.config.get("requires_confirmation", False):
+        if not self.config.get("destructive", False):
             return False
 
         if yes:
