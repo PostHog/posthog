@@ -347,6 +347,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
         storage_policy=STORAGE_POLICY(),
