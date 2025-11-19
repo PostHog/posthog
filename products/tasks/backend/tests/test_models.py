@@ -41,111 +41,6 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
-        self.assertEqual(task.position, 0)
-
-    def test_repository_list_with_config(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        repo_list = task.repository_list
-        self.assertEqual(len(repo_list), 1)
-        self.assertEqual(repo_list[0]["org"], "PostHog")
-        self.assertEqual(repo_list[0]["repo"], "posthog")
-        self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
-
-    def test_repository_list_empty(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        self.assertEqual(task.repository_list, [])
-
-    @parameterized.expand(
-        [
-            ("PostHog", "posthog", True),
-            ("PostHog", "other-repo", False),
-            ("OtherOrg", "posthog", False),
-        ]
-    )
-    def test_can_access_repository(self, org, repo, expected):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        self.assertEqual(task.can_access_repository(org, repo), expected)
-
-    def test_primary_repository(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-            repository_config={
-                "organization": "PostHog",
-                "repository": "posthog",
-            },
-        )
-
-        primary_repo = task.primary_repository
-        assert primary_repo is not None
-        self.assertEqual(primary_repo["org"], "PostHog")
-        self.assertEqual(primary_repo["repo"], "posthog")
-
-    def test_primary_repository_none(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        self.assertIsNone(task.primary_repository)
-
-    def test_legacy_github_integration_from_task(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=integration,
-        )
-
-        self.assertEqual(task.legacy_github_integration, integration)
-
-    def test_legacy_github_integration_from_team(self):
-        integration = Integration.objects.create(team=self.team, kind="github", config={})
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        self.assertEqual(task.legacy_github_integration, integration)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -167,7 +62,7 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
-        self.assertEqual(task.repository_config, {"organization": "posthog", "repository": "posthog"})
+        self.assertEqual(task.repository, "posthog/posthog")
 
         mock_execute_workflow.assert_called_once_with(
             task_id=str(task.id),
@@ -189,8 +84,7 @@ class TestTask(TestCase):
             repository="posthog/posthog-js",
         )
 
-        self.assertEqual(task.repository_config["organization"], "posthog")
-        self.assertEqual(task.repository_config["repository"], "posthog-js")
+        self.assertEqual(task.repository, "posthog/posthog-js")
 
         mock_execute_workflow.assert_called_once()
 
@@ -199,7 +93,7 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(ValidationError) as cm:
             Task.create_and_run(
                 team=self.team,
                 title="Test Task",
@@ -209,7 +103,7 @@ class TestTask(TestCase):
                 repository="invalid-format",
             )
 
-        self.assertIn("Repository must be in format 'organization/repository'", str(cm.exception))
+        self.assertIn("Format for repository is organization/repo", str(cm.exception))
         mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
