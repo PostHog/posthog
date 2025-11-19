@@ -1143,6 +1143,7 @@ class TestSurvey(APIBaseTest):
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
+                    "linked_insight_id": None,
                     "conditions": None,
                     "archived": False,
                     "start_date": None,

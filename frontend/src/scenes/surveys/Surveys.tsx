@@ -48,9 +48,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a product-market fit survey for trial users',
                 'Create a quick satisfaction survey for support interactions',
             ]}
-            context={{
-                user_id: user?.uuid,
-            }}
+            context={{}}
             callback={(toolOutput: {
                 survey_id?: string
                 survey_name?: string

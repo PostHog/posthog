@@ -21,7 +21,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insight.short_id}`,
     }))
 
-    return { content: [{ type: 'text', text: JSON.stringify(insightsWithUrls) }] }
+    return insightsWithUrls
 }
 
 const tool = (): ToolBase<typeof schema> => ({

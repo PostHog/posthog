@@ -185,8 +185,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     let component: JSX.Element | null = null
 
-    // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!response || responseLoading) {
+    if (responseError) {
+        component = (
+            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+                <InsightErrorState
+                    query={props.query}
+                    excludeDetail
+                    title={
+                        queryCancelled
+                            ? 'The query was cancelled'
+                            : response && 'error' in response
+                              ? (response as any).error
+                              : responseError
+                    }
+                />
+            </div>
+        )
+    } else if (!response || responseLoading) {
+        // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
@@ -294,25 +310,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <VariablesForInsight />
 
                 <div className="flex flex-1 flex-row gap-4">
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
-                        {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
-                                <InsightErrorState
-                                    query={props.query}
-                                    excludeDetail
-                                    title={
-                                        queryCancelled
-                                            ? 'The query was cancelled'
-                                            : response && 'error' in response
-                                              ? (response as any).error
-                                              : responseError
-                                    }
-                                />
-                            </div>
-                        ) : (
-                            component
-                        )}
-                    </div>
+                    <div className="w-full h-full flex-1 overflow-auto">{component}</div>
                 </div>
             </div>
         </div>

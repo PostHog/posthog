@@ -21,9 +21,7 @@ export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Co
 
     const formattedSurvey = formatSurvey(surveyResult.data, context, projectId)
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(formattedSurvey) }],
-    }
+    return formattedSurvey
 }
 
 const tool = (): ToolBase<typeof schema> => ({

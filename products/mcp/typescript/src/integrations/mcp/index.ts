@@ -4,6 +4,7 @@ import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { getPostHogClient } from '@/integrations/mcp/utils/client'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
@@ -200,7 +201,15 @@ export class MyMCP extends McpAgent<Env> {
                     input: params,
                     output: result,
                 })
-                return result
+
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: formatResponse(result),
+                        },
+                    ],
+                }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
                 return handleToolError(

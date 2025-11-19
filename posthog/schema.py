@@ -32,7 +32,8 @@ class MathGroupTypeIndex(float, Enum):
 
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
-    NOOP = "noop"
+    SQL = "sql"
+    SESSION_REPLAY = "session_replay"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -287,6 +288,10 @@ class AssistantTool(StrEnum):
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
@@ -1462,6 +1467,8 @@ class FileSystemCount(BaseModel):
         extra="forbid",
     )
     count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
 
 
 class Tag(StrEnum):
@@ -2844,6 +2851,14 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     questions: list[str]
+
+
+class SuggestedTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    table: str
+    tooltip: Optional[str] = None
 
 
 class SurveyAnalysisResponseItem(BaseModel):
@@ -4506,7 +4521,9 @@ class MaxExperimentSummaryContext(BaseModel):
     description: Optional[str] = None
     experiment_id: Union[float, str]
     experiment_name: str
-    metrics_results: list[MaxExperimentMetricResult]
+    exposures: Optional[dict[str, float]] = None
+    primary_metrics_results: list[MaxExperimentMetricResult]
+    secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
 
@@ -4665,17 +4682,6 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
-
-
-class WebAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    doPathCleaning: Optional[bool] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
@@ -11889,6 +11895,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -12082,6 +12089,17 @@ class VectorSearchQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class WebAnalyticsAssistantFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    doPathCleaning: Optional[bool] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class WebAnalyticsExternalSummaryQuery(BaseModel):
@@ -16435,6 +16453,9 @@ class SourceConfig(BaseModel):
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
+    suggestedTables: Optional[list[SuggestedTable]] = Field(
+        default=[], description="Tables to suggest enabling, with optional tooltip explaining why"
+    )
     unreleasedSource: Optional[bool] = None
 
 

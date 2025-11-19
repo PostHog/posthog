@@ -1045,6 +1045,8 @@ interface DataTableNodeViewProps {
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show a recording column for events with session recordings */
+    showRecordingColumn?: boolean
     /** Show date range selector */
     showDateRange?: boolean
     /** Show the export button */
@@ -2604,6 +2606,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
@@ -2783,8 +2787,10 @@ export interface MaxExperimentSummaryContext {
     experiment_id: ExperimentIdType
     experiment_name: string
     description: string | null
+    exposures: Record<string, number> | null
     variants: string[]
-    metrics_results: MaxExperimentMetricResult[]
+    primary_metrics_results: MaxExperimentMetricResult[]
+    secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
 }
 
@@ -4342,6 +4348,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4355,6 +4366,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [
