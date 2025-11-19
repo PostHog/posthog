@@ -12,7 +12,7 @@ import urllib3
 import requests
 import digitalocean
 
-DOMAIN = "posthog.cc"
+DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 
 
 class HobbyTester:
@@ -23,7 +23,6 @@ class HobbyTester:
         region="sfo3",
         image="ubuntu-22-04-x64",
         size="s-8vcpu-16gb",
-        release_tag="latest-release",
         branch=None,
         hostname=None,
         domain=DOMAIN,
@@ -36,12 +35,11 @@ class HobbyTester:
             token = os.getenv("DIGITALOCEAN_TOKEN")
         self.token = token
         self.branch = branch
-        self.release_tag = release_tag
-
-        random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
 
         if not name:
-            name = f"do-ci-hobby-deploy-{self.release_tag}-{random_bit}"
+            random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
+            branch_part = self.branch[:7] if self.branch is not None else "none"
+            name = f"do-ci-hobby-deploy-{branch_part}-{random_bit}"
         self.name = name
 
         if not hostname:
@@ -80,13 +78,8 @@ class HobbyTester:
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
             'echo "$LOG_PREFIX Starting deployment script" \n'
-            f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
-            f'    echo "$LOG_PREFIX Using commit hash for feature branch deployment" \n'
-            f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
-            f"else \n"
-            f'     echo "$LOG_PREFIX Installing PostHog version: {self.release_tag}" \n'
-            f"    ./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
-            f"fi \n"
+            'echo "$LOG_PREFIX Using commit hash for feature branch deployment" \n'
+            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
             "DEPLOY_EXIT=$? \n"
             'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT" \n'
             "exit $DEPLOY_EXIT \n"
@@ -350,8 +343,14 @@ class HobbyTester:
 def main():
     command = sys.argv[1]
     if command == "create":
-        print("Creating droplet on Digitalocean for testing Hobby Deployment")
-        ht = HobbyTester()
+        if len(sys.argv) < 3:
+            print("Please provide the branch name to test")
+            exit(1)
+        branch = sys.argv[2]
+        print(f"Creating droplet on Digitalocean for testing Hobby Deployment, on branch {branch}")
+        ht = HobbyTester(
+            branch=branch,
+        )
         ht.ensure_droplet(ssh_enabled=True)
         print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
         print(f"https://{ht.hostname}")
@@ -365,19 +364,14 @@ def main():
         HobbyTester.destroy_environment(droplet_id=droplet_id, record_id=domain_record_id)
 
     if command == "test":
-        if len(sys.argv) < 3:
-            print("Please provide the branch name to test")
-            exit(1)
-        branch = sys.argv[2]
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        print(f"Testing the deployment for {name} on branch {branch}")
+        print("Waiting for deployment to become healthy")
         print(f"Record ID: {record_id}")
         print(f"Droplet ID: {droplet_id}")
 
         ht = HobbyTester(
-            branch=branch,
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
