@@ -202,12 +202,15 @@ def doctor_disk(
             id="rust",
             title="🦀 Rust Cargo targets",
             description=[
-                "Removes Cargo 'target' directories from anywhere in the repository.",
+                "Runs 'cargo clean' in all Rust workspaces to remove build artifacts.",
                 "Feature flag debug builds can accumulate ~400MB each.",
             ],
             estimate=_estimate_rust_targets,
-            cleanup=_cleanup_items,
+            cleanup=_cleanup_rust,
             confirmation_prompt="Clean up Rust target directories?",
+            include_in_total=False,
+            skip_if_empty=False,
+            dry_run_message="Would run: cargo clean in all Rust workspaces",
         ),
         CleanupCategory(
             id="pnpm_store",
@@ -433,19 +436,42 @@ def _estimate_node_artifacts(repo_root: Path) -> CleanupEstimate:
 
 
 def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
-    """Identify Cargo target directories in the rust/ workspace."""
+    """Identify Cargo workspaces and their target directories."""
 
+    # Check if cargo is available
+    try:
+        subprocess.run(["cargo", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   Cargo not available; skipping."],
+            available=False,
+        )
+
+    # Find all Cargo workspace roots (directories with Cargo.toml that have workspaces or are standalone)
+    workspace_roots = _find_cargo_workspaces(repo_root)
+
+    if not workspace_roots:
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   No Cargo workspaces detected."],
+        )
+
+    # Collect target directories to estimate size
     items = _collect_rust_target_dirs(repo_root)
     total = sum(item.size for item in items)
 
-    if items:
-        details = [
-            f"   Found {len(items)} Cargo target director{'ies' if len(items) != 1 else 'y'} to remove.",
-        ]
-        details.extend(_describe_items(items, repo_root, "   Sample directories:"))
-    else:
-        details = ["   No Cargo target directories detected."]
+    details = [
+        f"   Found {len(workspace_roots)} Cargo workspace(s) to clean.",
+    ]
 
+    if items:
+        details.append(f"   Total target directory size: {_format_size(total)}")
+        details.extend(_describe_items(items, repo_root, "   Target directories:"))
+
+    # Store workspace roots in items for cleanup function
     return CleanupEstimate(total_size=total, items=items, details=details)
 
 
@@ -620,6 +646,43 @@ def _cleanup_docker(_: CleanupEstimate, __: Path) -> CleanupStats:
     return CleanupStats(deleted_anything=False)
 
 
+def _cleanup_rust(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    """Execute cargo clean in all Rust workspaces."""
+
+    workspace_roots = _find_cargo_workspaces(repo_root)
+
+    if not workspace_roots:
+        return CleanupStats(deleted_anything=False)
+
+    click.echo()
+    success = True
+    cleaned_any = False
+
+    for workspace in workspace_roots:
+        try:
+            relative = workspace.relative_to(repo_root)
+        except ValueError:
+            relative = workspace
+
+        click.echo(f"   Running cargo clean in {relative}...")
+        result = subprocess.run(["cargo", "clean"], cwd=workspace, capture_output=True, check=False)
+
+        if result.returncode == 0:
+            cleaned_any = True
+        else:
+            success = False
+            click.echo(f"   ⚠️  Failed to clean {relative}")
+
+    if success and cleaned_any:
+        click.echo("   ✓ Cargo cleanup completed")
+    elif cleaned_any:
+        click.echo("   ✓ Cargo cleanup completed with some errors")
+    else:
+        click.echo("   ⚠️  Cargo cleanup failed")
+
+    return CleanupStats(deleted_anything=cleaned_any)
+
+
 def _collect_python_cache_dirs(repo_root: Path) -> Iterable[CleanupItem]:
     """Yield CleanupItem objects for Python cache directories."""
 
@@ -720,6 +783,52 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
         items.append(CleanupItem(target_dir, size, is_dir=True))
 
     return items
+
+
+def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
+    """Find all Cargo workspace roots in the repository.
+
+    Returns directories containing Cargo.toml files that are workspace roots
+    or standalone packages.
+    """
+
+    workspaces: list[Path] = []
+    seen: set[Path] = set()
+
+    for cargo_toml in repo_root.glob("**/Cargo.toml"):
+        workspace_dir = cargo_toml.parent
+
+        # Skip if in .git, node_modules, or .flox (dependencies)
+        if any(part in {".git", "node_modules", ".flox"} for part in workspace_dir.parts):
+            continue
+
+        try:
+            resolved = workspace_dir.resolve()
+        except (FileNotFoundError, PermissionError, RuntimeError):
+            continue
+
+        if resolved in seen:
+            continue
+
+        # Check if this is a workspace root or standalone package
+        # We look for workspace roots (rust/, cli/, funnel-udf/) and skip members
+        try:
+            cargo_content = cargo_toml.read_text()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+
+        # If it has [workspace], it's a workspace root
+        # If it has package but no workspace.package reference in parent, it's standalone
+        is_workspace_root = "[workspace]" in cargo_content
+
+        # For simplicity, we'll run cargo clean on directories that either:
+        # 1. Have [workspace] section (workspace roots)
+        # 2. Have a target directory (standalone or workspace members with built artifacts)
+        if is_workspace_root or (workspace_dir / "target").exists():
+            seen.add(resolved)
+            workspaces.append(workspace_dir)
+
+    return workspaces
 
 
 def _iter_named_directories(base: Path, name: str) -> Iterable[Path]:
