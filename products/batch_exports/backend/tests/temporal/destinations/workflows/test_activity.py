@@ -33,7 +33,7 @@ async def _run_activity(
     activity_environment,
     topic: str,
     hosts: list[str],
-    security_protocol: str,
+    security_protocol: typing.Literal["SSL", "PLAINTEXT"],
     clickhouse_client,
     team,
     data_interval_start,
