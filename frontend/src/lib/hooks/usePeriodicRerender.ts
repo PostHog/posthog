@@ -3,18 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 export function usePeriodicRerender(milliseconds: number): void {
     const [, setTick] = useState(0)
     const intervalIdRef = useRef<NodeJS.Timeout | null>(null)
-    const isInitialMount = useRef(true)
 
     useEffect(() => {
-        const isPageActive = (): boolean => {
-            return !document.hidden && document.hasFocus()
-        }
+        const isPageActive = (): boolean => !document.hidden && document.hasFocus()
 
-        const startInterval = (triggerImmediately: boolean = false): void => {
-            if (intervalIdRef.current !== null) {
+        const startInterval = (triggerImmediately: boolean): void => {
+            if (intervalIdRef.current) {
                 return
             }
-            // Trigger an immediate rerender if requested (when resuming from paused state)
             if (triggerImmediately) {
                 setTick((state) => state + 1)
             }
@@ -22,7 +18,7 @@ export function usePeriodicRerender(milliseconds: number): void {
         }
 
         const stopInterval = (): void => {
-            if (intervalIdRef.current !== null) {
+            if (intervalIdRef.current) {
                 clearInterval(intervalIdRef.current)
                 intervalIdRef.current = null
             }
@@ -30,22 +26,17 @@ export function usePeriodicRerender(milliseconds: number): void {
 
         const handleVisibilityOrFocusChange = (): void => {
             if (isPageActive()) {
-                // When resuming from paused state, trigger immediate rerender
                 startInterval(true)
             } else {
                 stopInterval()
             }
         }
 
-        // Start interval if page is currently active (no immediate trigger on mount)
         if (isPageActive()) {
             startInterval(false)
         }
-        isInitialMount.current = false
 
-        // Listen to visibility changes
         document.addEventListener('visibilitychange', handleVisibilityOrFocusChange)
-        // Listen to focus/blur events
         window.addEventListener('focus', handleVisibilityOrFocusChange)
         window.addEventListener('blur', handleVisibilityOrFocusChange)
 
