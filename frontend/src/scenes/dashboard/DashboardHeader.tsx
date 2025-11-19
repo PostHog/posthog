@@ -98,8 +98,6 @@ export function DashboardHeader(): JSX.Element | null {
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
-    // Check if text tile modal is currently open
-
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
