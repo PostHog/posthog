@@ -17,3 +17,15 @@ ADD COLUMN IF NOT EXISTS has_autocapture SimpleAggregateFunction(max, Boolean) A
 ;
 
 """
+
+
+ADD_EVENT_NAMES = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)) AFTER flag_values
+"""
+
+
+ADD_EVENT_NAMES_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+ADD INDEX IF NOT EXISTS event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1
+"""

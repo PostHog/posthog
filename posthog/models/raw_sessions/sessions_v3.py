@@ -162,6 +162,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
 
+    -- Event names - store unique event names seen in this session
+    event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
@@ -178,8 +181,19 @@ def SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3():
 
 
 def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
+    # For the sharded table, we need to add the index definition in the column list
+    # Remove the closing parenthesis and ENGINE from base SQL
+    base_sql = RAW_SESSIONS_TABLE_BASE_SQL_V3.replace(
+        ") ENGINE = {engine}",
+        """,
+
+    -- Indexes
+    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1
+) ENGINE = {engine}""",
+    )
+
     return (
-        RAW_SESSIONS_TABLE_BASE_SQL_V3
+        base_sql
         + """
 PARTITION BY toYYYYMM(session_timestamp)
 ORDER BY (
@@ -358,6 +372,9 @@ SELECT
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
 
+    -- event names
+    [event] as event_names,
+
     false as has_replay_events
 FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
@@ -475,6 +492,9 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+
+    -- event names
+    CAST([], 'Array(String)') as event_names,
 
     -- replay
     true as has_replay_events
@@ -636,6 +656,9 @@ SELECT
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
+
+    -- event names
+    arrayDistinct(arrayFlatten(groupArray(event_names))) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events
