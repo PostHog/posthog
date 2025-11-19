@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { BindLogic, useActions } from 'kea'
-import { useEffect } from 'react'
+import { BindLogic } from 'kea'
+import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -14,7 +14,12 @@ import {
     type UserBasicType,
 } from '~/types'
 
-import { DefinitionPopover } from './DefinitionPopover'
+import {
+    eventTaxonomicGroupProps,
+    propertyTaxonomicGroupProps,
+    taxonomicFilterLogic,
+} from '../TaxonomicFilter/taxonomicFilterLogic'
+import { ControlledDefinitionPopover } from './DefinitionPopoverContents'
 import { type DefinitionPopoverLogicProps, definitionPopoverLogic } from './definitionPopoverLogic'
 
 const mockUser: UserBasicType = {
@@ -74,7 +79,7 @@ const mockActionDefinition: ActionType = {
 
 const meta: Meta = {
     title: 'Components/Definition popover',
-    component: DefinitionPopover.Wrapper,
+    component: ControlledDefinitionPopover,
     decorators: [
         mswDecorator({
             get: {
@@ -92,59 +97,48 @@ export default meta
 
 interface StoryWrapperProps {
     logicProps: DefinitionPopoverLogicProps
-    definition: EventDefinition | PropertyDefinition | ActionType
-    icon?: React.ReactNode
-    title: React.ReactNode
-    headerTitle: React.ReactNode
-    editHeaderTitle: React.ReactNode
+    item: EventDefinition | PropertyDefinition | ActionType
+    groupType: TaxonomicFilterGroupType
 }
 
-const StoryWrapper: React.FC<StoryWrapperProps> = ({
-    logicProps,
-    definition,
-    icon,
-    title,
-    headerTitle,
-    editHeaderTitle,
-}) => {
-    const { setDefinition } = useActions(definitionPopoverLogic(logicProps))
+const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType }) => {
+    const divRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
-        setDefinition(definition)
-    }, [definition, setDefinition])
+    const group = {
+        name: groupType,
+        searchPlaceholder: '',
+        type: groupType,
+        getValue: (instance: any) => instance.name,
+        ...(groupType === TaxonomicFilterGroupType.Events
+            ? eventTaxonomicGroupProps
+            : groupType === TaxonomicFilterGroupType.EventProperties
+              ? propertyTaxonomicGroupProps()
+              : {
+                    getPopoverHeader: () => 'Action',
+                    getIcon: undefined,
+                }),
+    }
 
-    const createdAt = 'created_at' in definition ? definition.created_at : undefined
-    const createdBy =
-        'owner' in definition && definition.owner && typeof definition.owner !== 'boolean'
-            ? definition.owner
-            : 'created_by' in definition && definition.created_by && typeof definition.created_by !== 'boolean'
-              ? definition.created_by
-              : undefined
-    const updatedAt = 'updated_at' in definition ? definition.updated_at : undefined
-    const updatedBy =
-        'updated_by' in definition && definition.updated_by && typeof definition.updated_by !== 'boolean'
-            ? definition.updated_by
-            : undefined
+    const taxonomicFilterLogicProps = {
+        taxonomicFilterLogicKey: 'definition-popover-story',
+        taxonomicGroupTypes: [groupType],
+    }
 
     return (
         <BindLogic logic={definitionPopoverLogic} props={logicProps}>
-            <div className="p-4 bg-surface-primary" style={{ width: 400 }}>
-                <DefinitionPopover.Wrapper>
-                    <DefinitionPopover.Header
-                        title={title}
-                        headerTitle={headerTitle}
-                        editHeaderTitle={editHeaderTitle}
-                        icon={icon}
+            <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+                <div className="p-4 bg-surface-primary" style={{ width: 400, height: 600 }}>
+                    <div ref={divRef} className="p-2 border border-border rounded">
+                        Hover target
+                    </div>
+                    <ControlledDefinitionPopover
+                        visible={true}
+                        item={item}
+                        group={group}
+                        highlightedItemElement={divRef.current}
                     />
-                    <DefinitionPopover.Description description={definition.description} />
-                    <DefinitionPopover.TimeMeta
-                        createdAt={createdAt}
-                        createdBy={createdBy}
-                        updatedAt={updatedAt}
-                        updatedBy={updatedBy}
-                    />
-                </DefinitionPopover.Wrapper>
-            </div>
+                </div>
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -156,10 +150,8 @@ Event.args = {
     logicProps: {
         type: TaxonomicFilterGroupType.Events,
     },
-    definition: mockEventDefinition,
-    title: mockEventDefinition.name,
-    headerTitle: 'Event',
-    editHeaderTitle: 'Edit event',
+    item: mockEventDefinition,
+    groupType: TaxonomicFilterGroupType.Events,
 }
 
 export const Property = Template.bind({})
@@ -167,10 +159,8 @@ Property.args = {
     logicProps: {
         type: TaxonomicFilterGroupType.EventProperties,
     },
-    definition: mockPropertyDefinition,
-    title: mockPropertyDefinition.name,
-    headerTitle: 'Property',
-    editHeaderTitle: 'Edit property',
+    item: mockPropertyDefinition,
+    groupType: TaxonomicFilterGroupType.EventProperties,
 }
 
 export const Action = Template.bind({})
@@ -178,10 +168,8 @@ Action.args = {
     logicProps: {
         type: TaxonomicFilterGroupType.Actions,
     },
-    definition: mockActionDefinition,
-    title: mockActionDefinition.name,
-    headerTitle: 'Action',
-    editHeaderTitle: 'Edit action',
+    item: mockActionDefinition,
+    groupType: TaxonomicFilterGroupType.Actions,
 }
 
 export const WithoutDescription = Template.bind({})
@@ -189,13 +177,11 @@ WithoutDescription.args = {
     logicProps: {
         type: TaxonomicFilterGroupType.Events,
     },
-    definition: {
+    item: {
         ...mockEventDefinition,
         description: '',
     },
-    title: mockEventDefinition.name,
-    headerTitle: 'Event',
-    editHeaderTitle: 'Edit event',
+    groupType: TaxonomicFilterGroupType.Events,
 }
 
 export const WithMarkdownDescription: StoryFn<StoryWrapperProps> = () => {
@@ -221,10 +207,8 @@ posthog.capture('$pageview', { url: window.location.href })
     return (
         <StoryWrapper
             logicProps={logicProps}
-            definition={definitionWithMarkdown}
-            title={definitionWithMarkdown.name}
-            headerTitle="Event"
-            editHeaderTitle="Edit event"
+            item={definitionWithMarkdown}
+            groupType={TaxonomicFilterGroupType.Events}
         />
     )
 }
@@ -234,81 +218,11 @@ WithoutTimestamps.args = {
     logicProps: {
         type: TaxonomicFilterGroupType.Events,
     },
-    definition: {
+    item: {
         id: 'event-new',
         name: 'new_event',
         description: 'A newly created event with no timestamps',
         tags: [],
     } as EventDefinition,
-    title: 'new_event',
-    headerTitle: 'Event',
-    editHeaderTitle: 'Edit event',
-}
-
-export const ComponentShowcase: StoryFn = () => {
-    return (
-        <div className="flex flex-col gap-8 p-4 bg-surface-primary">
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Description - String</h3>
-                <DefinitionPopover.Description description="This is a simple text description" />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Description - Markdown</h3>
-                <DefinitionPopover.Description description="**Bold text** and *italic text* with [links](https://posthog.com)" />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Description empty</h3>
-                <BindLogic logic={definitionPopoverLogic} props={{ type: TaxonomicFilterGroupType.Events }}>
-                    <DefinitionPopover.DescriptionEmpty />
-                </BindLogic>
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Time meta - With update</h3>
-                <DefinitionPopover.TimeMeta
-                    createdAt="2024-01-15T10:00:00Z"
-                    createdBy={mockUser}
-                    updatedAt="2024-04-20T14:30:00Z"
-                    updatedBy={mockUser}
-                />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Time meta - Only created</h3>
-                <DefinitionPopover.TimeMeta createdAt="2024-01-15T10:00:00Z" createdBy={mockUser} />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Horizontal line</h3>
-                <DefinitionPopover.HorizontalLine />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Horizontal line - With label</h3>
-                <DefinitionPopover.HorizontalLine label="Metadata" />
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Grid - 2 columns</h3>
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="First seen" value="2024-01-15" />
-                    <DefinitionPopover.Card title="Last seen" value="2024-05-01" />
-                </DefinitionPopover.Grid>
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Section (Grid - 1 column)</h3>
-                <DefinitionPopover.Section>
-                    <DefinitionPopover.Card title="Property type" value="String" />
-                </DefinitionPopover.Section>
-            </div>
-
-            <div>
-                <h3 className="text-lg font-semibold mb-2">Card - With alignItems</h3>
-                <DefinitionPopover.Card title="Aligned to center" value="Center value" alignItems="center" />
-            </div>
-        </div>
-    )
+    groupType: TaxonomicFilterGroupType.Events,
 }

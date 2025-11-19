@@ -2,8 +2,10 @@ import './DefinitionPopover.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -104,6 +106,51 @@ function DescriptionEmpty(): JSX.Element {
     return <div className="definition-popover-description empty">Add a description for this {singularType}</div>
 }
 
+function ImageCarousel({ images }: { images: string[] }): JSX.Element {
+    const [currentIndex, setCurrentIndex] = useState(0)
+
+    const goToPrevious = (): void => {
+        setCurrentIndex((prevIndex) => (prevIndex === 0 ? images.length - 1 : prevIndex - 1))
+    }
+
+    const goToNext = (): void => {
+        setCurrentIndex((prevIndex) => (prevIndex === images.length - 1 ? 0 : prevIndex + 1))
+    }
+
+    if (images.length === 0) {
+        return <></>
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconChevronLeft />}
+                onClick={goToPrevious}
+                disabledReason={images.length <= 1 ? 'Only one image' : undefined}
+            />
+            <div className="flex-1 flex justify-center overflow-hidden">
+                <img
+                    key={currentIndex}
+                    src={images[currentIndex]}
+                    alt={`Screenshot ${currentIndex + 1} of ${images.length}`}
+                    loading="lazy"
+                    className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out"
+                    style={{ maxWidth: '600px' }}
+                />
+            </div>
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconChevronRight />}
+                onClick={goToNext}
+                disabledReason={images.length <= 1 ? 'Only one image' : undefined}
+            />
+        </div>
+    )
+}
+
 function Example({ value }: { value?: string }): JSX.Element {
     const { type } = useValues(definitionPopoverLogic)
     let data: CoreFilterDefinition | null = null
@@ -123,10 +170,25 @@ function Example({ value }: { value?: string }): JSX.Element {
         data = getCoreFilterDefinition(value, type)
     }
 
-    return data?.examples?.[0] ? (
+    const textExample = data?.examples?.[0] ? (
         <div className="definition-popover-examples">Example: {data?.examples?.join(', ')}</div>
     ) : (
         <></>
+    )
+
+    const mockImages = [
+        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZTBmMmZlIi8+PC9zdmc+',
+        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZmVlMmUyIi8+PC9zdmc+',
+        'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjZTBmZWU4Ii8+PC9zdmc+',
+    ]
+
+    const imageExample = mockImages.length > 0 ? <ImageCarousel images={mockImages} /> : <></>
+
+    return (
+        <div className="flex flex-col gap-2">
+            {textExample}
+            {imageExample}
+        </div>
     )
 }
 

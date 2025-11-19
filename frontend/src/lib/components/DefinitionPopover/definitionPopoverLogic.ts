@@ -5,7 +5,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
@@ -42,7 +44,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
+        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
@@ -270,6 +272,12 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     return urls.cohort((definition as CohortType).id)
                 }
                 return undefined
+            },
+        ],
+        showExampleMedia: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.EVENT_EXAMPLES]
             },
         ],
     }),
