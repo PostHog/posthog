@@ -47,6 +47,9 @@ Otherwise:
 - DO NOT truncate, summarize, or extract keywords from the user's query
 - The query is used to find relevant sessions - context helps find better matches
 - Use explicit tool definition to make a decision
+- IMPORTANT: `should_use_current_filters` and `should_use_current_session` are mutually exclusive - only one can be `true` at a time:
+  * If the user refers to a specific session they are viewing (e.g., "this session", "current recording") → set `should_use_current_session=true` and `should_use_current_filters=false`
+  * If the user refers to multiple sessions or wants to use filters (e.g., "these sessions", "all sessions", "sessions from yesterday") → set `should_use_current_filters` appropriately and `should_use_current_session=false`
 """.strip()
 
 
