@@ -348,10 +348,10 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
     pub cookieless_force_stateless: bool,
 
-    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "7200")]
+    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
-    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
+    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "345600")]
     pub cookieless_salt_ttl_seconds: u64,
 
     #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
@@ -451,6 +451,12 @@ pub struct Config {
     // The `default_test_config()` sets this to true for test/development scenarios.
     #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
     pub redis_compression_enabled: FlexBool,
+
+    // Number of times to retry creating a Redis client before giving up
+    // Helps handle transient network issues during startup
+    // Set to 0 to disable retries (fail immediately on first error)
+    #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
+    pub redis_client_retry_count: u32,
 }
 
 impl Config {
@@ -495,8 +501,8 @@ impl Config {
             flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
-            cookieless_identifies_ttl_seconds: 7200,
-            cookieless_salt_ttl_seconds: 86400,
+            cookieless_identifies_ttl_seconds: 345600,
+            cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
             cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
@@ -524,6 +530,7 @@ impl Config {
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
             redis_compression_enabled: FlexBool(true),
+            redis_client_retry_count: 3,
         }
     }
 

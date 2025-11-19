@@ -88,6 +88,7 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
@@ -387,6 +388,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        setHogfettiTrigger: (trigger: (() => void) | null) => ({ trigger }),
         // METRICS
         setMetric: ({
             uuid,
@@ -840,6 +842,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setCreateExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        hogfettiTrigger: [
+            null as (() => void) | null,
+            {
+                setHogfettiTrigger: (_, { trigger }) => trigger,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
@@ -1068,7 +1076,12 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
+                // For running experiments, refresh results if any of these fields are updated
+                const forceRefresh =
+                    payload?.start_date !== undefined ||
+                    payload?.end_date !== undefined ||
+                    payload?.metrics !== undefined ||
+                    payload?.metrics_secondary !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1093,7 +1106,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.reportExperimentVariantShipped(values.experiment)
 
-            actions.openStopExperimentModal()
+            // Trigger Hogfetti celebration with cascading delays
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+            }
         },
         shipVariantFailure: ({ error }) => {
             lemonToast.error(error)
@@ -1985,44 +2002,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        getOrderedMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment) =>
-                (isSecondary: boolean): ExperimentMetric[] => {
-                    if (!experiment) {
-                        return []
-                    }
-
-                    const metricType = isSecondary ? 'secondary' : 'primary'
-                    const regularMetrics = isSecondary
-                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-                        : ((experiment.metrics || []) as ExperimentMetric[])
-
-                    const sharedMetrics = (experiment.saved_metrics || [])
-                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
-                        .map((sharedMetric) => ({
-                            ...sharedMetric.query,
-                            name: sharedMetric.name,
-                            sharedMetricId: sharedMetric.saved_metric,
-                            isSharedMetric: true,
-                        })) as ExperimentMetric[]
-
-                    const allMetrics = [...regularMetrics, ...sharedMetrics]
-
-                    const metricsMap = new Map()
-                    allMetrics.forEach((metric: any) => {
-                        const uuid = metric.uuid || metric.query?.uuid
-                        if (uuid) {
-                            metricsMap.set(uuid, metric)
-                        }
-                    })
-
-                    const orderedUuids = isSecondary
-                        ? experiment.secondary_metrics_ordered_uuids || []
-                        : experiment.primary_metrics_ordered_uuids || []
-
-                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
-                },
+        getOrderedMetricsWithResults: [
+            (s) => [
+                s.experiment,
+                s.primaryMetricsResults,
+                s.primaryMetricsResultsErrors,
+                s.secondaryMetricsResults,
+                s.secondaryMetricsResultsErrors,
+            ],
+            (
+                    experiment,
+                    primaryMetricsResults,
+                    primaryMetricsResultsErrors,
+                    secondaryMetricsResults,
+                    secondaryMetricsResultsErrors
+                ) =>
+                (isSecondary: boolean) =>
+                    getOrderedMetricsWithResults(
+                        experiment,
+                        primaryMetricsResults,
+                        primaryMetricsResultsErrors,
+                        secondaryMetricsResults,
+                        secondaryMetricsResultsErrors,
+                        isSecondary
+                    ),
+        ],
+        orderedPrimaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(false),
+        ],
+        orderedSecondaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(true),
         ],
         statsMethod: [
             (s) => [s.experiment],

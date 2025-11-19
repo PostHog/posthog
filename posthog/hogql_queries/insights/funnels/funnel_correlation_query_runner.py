@@ -31,7 +31,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql_queries.insights.funnels import FunnelUDF
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
@@ -42,6 +41,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     use_udf,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
@@ -300,6 +300,14 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
         return events, skewed_totals, hogql, response
 
+    def _date_range(self) -> QueryDateRange:
+        return QueryDateRange(
+            date_range=self.context.query.dateRange,
+            team=self.context.team,
+            interval=self.context.query.interval,
+            now=self.context.now,
+        )
+
     def serialize_event_odds_ratio(self, odds_ratio: EventOddsRatio) -> EventOddsRatioSerialized:
         event_definition = self.serialize_event_with_property(event=odds_ratio["event"])
         return EventOddsRatioSerialized(
@@ -375,9 +383,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         target_event = self.correlation_actors_query.funnelCorrelationPersonEntity.event
         funnel_step_names = self._get_funnel_step_names()
         funnel_persons_query = self.get_funnel_actors_cte()
-        funnel_event_query = FunnelEventQuery(context=self.context)
-        date_from = funnel_event_query._date_range().date_from_as_hogql()
-        date_to = funnel_event_query._date_range().date_to_as_hogql()
+        date_from = self._date_range().date_from_as_hogql()
+        date_to = self._date_range().date_to_as_hogql()
 
         properties = self.correlation_actors_query.funnelCorrelationPersonEntity.properties
         prop_query = None
@@ -477,9 +484,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         event_join_query = self._get_events_join_query()
         target_step = self.context.max_steps
         funnel_step_names = self._get_funnel_step_names()
-        funnel_event_query = FunnelEventQuery(context=self.context)
-        date_from = funnel_event_query._date_range().date_from_as_hogql()
-        date_to = funnel_event_query._date_range().date_to_as_hogql()
+        date_from = self._date_range().date_from_as_hogql()
+        date_to = self._date_range().date_to_as_hogql()
 
         event_correlation_query = parse_select(
             f"""
@@ -558,9 +564,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         event_join_query = self._get_events_join_query()
         target_step = self.context.max_steps
         funnel_step_names = self._get_funnel_step_names()
-        funnel_event_query = FunnelEventQuery(context=self.context)
-        date_from = funnel_event_query._date_range().date_from_as_hogql()
-        date_to = funnel_event_query._date_range().date_to_as_hogql()
+        date_from = self._date_range().date_from_as_hogql()
+        date_to = self._date_range().date_to_as_hogql()
         event_names = self.query.funnelCorrelationEventNames
         exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
 

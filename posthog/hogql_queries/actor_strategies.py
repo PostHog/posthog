@@ -13,6 +13,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
+from posthog.models.person import Person, PersonDistinctId
 
 
 class ActorStrategy:
@@ -50,10 +51,12 @@ class PersonStrategy(ActorStrategy):
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         # If actor queries start quietly dying again, this might need batching at some point
         # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
-            FROM posthog_person
-            WHERE posthog_person.uuid = ANY(%(uuids)s)
-            AND posthog_person.team_id = %(team_id)s"""
+        person_table = Person._meta.db_table
+        pdi_table = PersonDistinctId._meta.db_table
+        persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+            FROM {person_table}
+            WHERE {person_table}.uuid = ANY(%(uuids)s)
+            AND {person_table}.team_id = %(team_id)s"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
 
@@ -66,10 +69,10 @@ class PersonStrategy(ActorStrategy):
             )
             people = cursor.fetchall()
             cursor.execute(
-                """SELECT posthog_persondistinctid.person_id, posthog_persondistinctid.distinct_id
-            FROM posthog_persondistinctid
-            WHERE posthog_persondistinctid.person_id = ANY(%(people_ids)s)
-            AND posthog_persondistinctid.team_id = %(team_id)s""",
+                f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
+            FROM {pdi_table}
+            WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
+            AND {pdi_table}.team_id = %(team_id)s""",
                 {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
             )
             distinct_ids = cursor.fetchall()

@@ -10,7 +10,6 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
-from django.dispatch import receiver
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -66,7 +65,7 @@ from posthog.models.feature_flag.local_evaluation import (
 )
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import Property
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -905,11 +904,11 @@ class FeatureFlagSerializer(
             and validated_data[field] != getattr(current_instance, field)
         ]
 
-    def _find_dependent_flags(self, flag_to_delete: FeatureFlag) -> list[FeatureFlag]:
+    def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
         return list(
-            FeatureFlag.objects.filter(team=flag_to_delete.team, deleted=False, active=True)
-            .exclude(id=flag_to_delete.id)
+            FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+            .exclude(id=flag_to_check.id)
             .extra(
                 where=[
                     """
@@ -921,7 +920,7 @@ class FeatureFlagSerializer(
                     )
                     """
                 ],
-                params=[str(flag_to_delete.id)],
+                params=[str(flag_to_check.id)],
             )
             .order_by("key")
         )
@@ -1401,6 +1400,43 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
+    @action(methods=["POST"], detail=True)
+    def has_active_dependents(self, request: request.Request, **kwargs):
+        """Check if this flag has other active flags that depend on it."""
+        feature_flag: FeatureFlag = self.get_object()
+
+        # Use the serializer class method to find dependent flags
+        serializer = self.serializer_class()
+        dependent_flags = serializer._find_dependent_flags(feature_flag)
+
+        has_dependents = len(dependent_flags) > 0
+
+        if not has_dependents:
+            return Response({"has_active_dependents": False, "dependent_flags": []}, status=200)
+
+        dependent_flag_data = [
+            {
+                "id": flag.id,
+                "key": flag.key,
+                "name": flag.name or flag.key,
+            }
+            for flag in dependent_flags
+        ]
+
+        return Response(
+            {
+                "has_active_dependents": True,
+                "dependent_flags": dependent_flag_data,
+                "warning": (
+                    f"This feature flag is used by {len(dependent_flags)} other active "
+                    f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
+                    f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
+                    f"to evaluate this condition as false."
+                ),
+            },
+            status=200,
+        )
+
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
@@ -1755,7 +1791,7 @@ class FeatureFlagViewSet(
         return activity_page_response(activity_page, limit, page, request)
 
 
-@receiver(model_activity_signal, sender=FeatureFlag)
+@mutable_receiver(model_activity_signal, sender=FeatureFlag)
 def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
     # Extract scheduled change context if present
     scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})
@@ -1773,6 +1809,15 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             payload={"scheduled_change_id": scheduled_change_id},
         )
 
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    resolved_activity = activity
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        if bool(deleted_change.after):
+            resolved_activity = "deleted"
+        elif bool(deleted_change.before):
+            resolved_activity = "restored"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -1780,9 +1825,9 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
-        activity=activity,
+        activity=resolved_activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=after_update.key,
             trigger=trigger,
         ),

@@ -19,11 +19,13 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
+    AnyResponseType,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
+    EndpointRunRequest,
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
@@ -81,7 +83,9 @@ import {
     DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryRunHistory,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -107,6 +111,7 @@ import {
     ExternalDataSourceSyncSchema,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
@@ -514,6 +519,10 @@ export class ApiRequest {
 
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('count')
+    }
+
+    public fileSystemUndoDelete(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('undo_delete')
     }
 
     public fileSystemShortcut(teamId?: TeamType['id']): ApiRequest {
@@ -1526,6 +1535,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
     }
 
+    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
+        return this.messagingCategories().addPathComponent('import_from_customerio')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
@@ -1714,6 +1727,9 @@ const api = {
         async update(name: string, data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpointDetail(name).update({ data })
         },
+        async run(name: string, data: EndpointRunRequest): Promise<AnyResponseType> {
+            return await new ApiRequest().endpointDetail(name).withAction('run').create({ data })
+        },
         async getLastExecutionTimes(data: EndpointLastExecutionTimesRequest): Promise<Record<string, string>> {
             if (data.names.length === 0) {
                 return {}
@@ -1839,8 +1855,22 @@ const api = {
         async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemDetail(id).delete()
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemDeleteResponse | null> {
+            const response = await new ApiRequest().fileSystemDetail(id).delete()
+
+            if (typeof Response !== 'undefined' && response instanceof Response) {
+                if (response.status === 204) {
+                    return null
+                }
+
+                try {
+                    return (await response.clone().json()) as FileSystemDeleteResponse
+                } catch {
+                    return null
+                }
+            }
+
+            return (response as FileSystemDeleteResponse) ?? null
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
@@ -1850,6 +1880,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async undoDelete(items: { type: string; ref: string; path?: string }[]): Promise<void> {
+            await new ApiRequest().fileSystemUndoDelete().create({ data: { items } })
         },
     },
 
@@ -3744,6 +3777,14 @@ const api = {
                 .withAction('descendants')
                 .create({ data: { level } })
         },
+        async dependencies(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQueryDependencies> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('dependencies').get()
+        },
+        async runHistory(
+            viewId: DataWarehouseSavedQuery['id']
+        ): Promise<{ run_history: DataWarehouseSavedQueryRunHistory[] }> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run_history').get()
+        },
         dataWarehouseDataModelingJobs: {
             async list(
                 savedQueryId: DataWarehouseSavedQuery['id'],
@@ -4226,11 +4267,12 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
             return await new ApiRequest()
                 .messagingPreferencesOptOuts()
                 .withQueryString({
                     category_key: categoryKey,
+                    page: page || 1,
                 })
                 .get()
         },
@@ -4400,7 +4442,13 @@ const api = {
     },
 
     evaluationRuns: {
-        async create(data: { evaluation_id: string; target_event_id: string; timestamp: string }): Promise<{
+        async create(data: {
+            evaluation_id: string
+            target_event_id: string
+            timestamp: string
+            event: string
+            distinct_id?: string
+        }): Promise<{
             workflow_id: string
             status: string
             evaluation: { id: string; name: string }

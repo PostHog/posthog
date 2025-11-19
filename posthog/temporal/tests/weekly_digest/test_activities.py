@@ -467,7 +467,7 @@ async def test_generate_recording_lookup(mock_redis, common_input, digest):
 
     mock_ch_response = AsyncMock()
     mock_ch_response.content.read = AsyncMock(
-        return_value=b'{"meta": [], "data": [{"session_id": "session123", "recording_ttl": 10}], "statistics": {}, "rows": 1}'
+        return_value=b'{"meta": [], "data": [{"recording_count": 10}], "statistics": {}, "rows": 1}'
     )
     mock_ch_response.__aenter__ = AsyncMock(return_value=mock_ch_response)
     mock_ch_response.__aexit__ = AsyncMock(return_value=None)
@@ -559,7 +559,7 @@ async def test_generate_organization_digest_batch(mock_redis, common_input, dige
     await mock_redis.setex(f"{digest.key}-external-data-sources-1", 3600, "[]")
     await mock_redis.setex(f"{digest.key}-feature-flags-1", 3600, "[]")
     await mock_redis.setex(f"{digest.key}-saved-filters-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-expiring-recordings-1", 3600, "[]")
+    await mock_redis.setex(f"{digest.key}-expiring-recordings-1", 3600, '{"recording_count": 0}')
     await mock_redis.setex(f"{digest.key}-surveys-launched-1", 3600, "[]")
 
     mock_org_queryset = MockAsyncQuerySet([mock_org])
@@ -578,7 +578,9 @@ async def test_generate_organization_digest_batch(mock_redis, common_input, dige
 async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
     """Test sending weekly digest batch with mock Redis and PostHog client."""
     batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(batch=batch, dry_run=False, digest=digest, common=common_input)
+    input_data = SendWeeklyDigestBatchInput(
+        batch=batch, dry_run=False, allow_already_sent=False, digest=digest, common=common_input
+    )
 
     mock_org = MagicMock()
     mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
@@ -602,12 +604,17 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
-                "recordings": [],
+                "expiring_recordings": {"recording_count": 0},
                 "surveys_launched": []
             }
         ]
@@ -632,7 +639,7 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 
     with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
         with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_regional_ph_client", return_value=mock_ph_client):
+            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
                 with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
                     with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
                         await send_weekly_digest_batch(input_data)
@@ -648,7 +655,9 @@ async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
 async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest):
     """Test sending weekly digest batch in dry run mode."""
     batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(batch=batch, dry_run=True, digest=digest, common=common_input)
+    input_data = SendWeeklyDigestBatchInput(
+        batch=batch, dry_run=True, allow_already_sent=False, digest=digest, common=common_input
+    )
 
     mock_org = MagicMock()
     mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
@@ -672,12 +681,17 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
                 "name": "Test Team",
                 "dashboards": [{"name": "Test Dashboard", "id": 1}],
                 "event_definitions": [],
-                "experiments_launched": [],
+                "experiments_launched": [
+                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
+                ],
                 "experiments_completed": [],
-                "external_data_sources": [],
+                "external_data_sources": [
+                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
+                ],
                 "feature_flags": [],
                 "filters": [],
-                "recordings": [],
+                "expiring_recordings": {"recording_count": 0},
                 "surveys_launched": []
             }
         ]
@@ -701,7 +715,7 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 
     with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
         with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_regional_ph_client", return_value=mock_ph_client):
+            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
                 with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
                     with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
                         await send_weekly_digest_batch(input_data)

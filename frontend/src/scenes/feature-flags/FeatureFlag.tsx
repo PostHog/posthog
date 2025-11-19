@@ -962,9 +962,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         removeVariant,
         setMultivariateEnabled,
         setFeatureFlag,
-        saveFeatureFlag,
         setRemoteConfigEnabled,
         resetEncryptedPayload,
+        toggleFeatureFlagActive,
     } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -1052,30 +1052,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 onChange={(newValue) => {
-                                                    LemonDialog.open({
-                                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                        description: `This flag will be immediately ${
-                                                            newValue === true ? 'rolled out to' : 'rolled back from'
-                                                        } the users matching the release conditions.`,
-                                                        primaryButton: {
-                                                            children: 'Confirm',
-                                                            type: 'primary',
-                                                            onClick: () => {
-                                                                const updatedFlag = {
-                                                                    ...featureFlag,
-                                                                    active: newValue,
-                                                                }
-                                                                setFeatureFlag(updatedFlag)
-                                                                saveFeatureFlag(updatedFlag)
-                                                            },
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
                                                 disabledReason={

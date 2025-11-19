@@ -55,6 +55,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance.get_serializer_context = Mock(return_value={})
 
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {
             "event": "$pageview",
             "distinct_id": "user_123",
@@ -66,7 +67,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "ok"
         assert response.data["distinct_id"] == "user_123"
-        assert mock_request.validated_data["event"] == "$pageview"
+        assert mock_request.data["event"] == "$pageview"
 
     def test_request_validation_with_missing_required_field(self):
         """Missing required field, should raise validation error"""
@@ -82,6 +83,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         view_instance = Mock()
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview"}  # Missing 'distinct_id'
 
         with pytest.raises(Exception) as exc_info:
@@ -108,6 +110,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         response = mock_endpoint(view_instance, mock_request)
@@ -134,6 +137,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should log a warning and return the response
@@ -172,6 +176,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should log a warning and return the response
@@ -207,6 +212,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         view_instance = Mock()
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         response = mock_endpoint(view_instance, mock_request)
@@ -230,6 +236,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should log a warning and return the result
@@ -269,6 +276,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Test with DEBUG=False (production mode)
@@ -310,6 +318,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should raise ValidationError regardless of DEBUG setting
@@ -336,6 +345,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should raise ValidationError with serializer errors
@@ -369,6 +379,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
 
         # Should work normally with valid data
@@ -402,6 +413,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview"}  # Missing required 'distinct_id'
 
         # Should log a warning but not raise
@@ -414,7 +426,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 mock_logger.warning.assert_called_once()
                 call_args = mock_logger.warning.call_args
                 assert (
-                    "Request data does not match declared serializer in @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date"
+                    "Request body does not match declared serializer in @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date"
                     in call_args[0][0]
                 )
                 assert call_args[1]["view_func"] == "mock_endpoint"
@@ -439,7 +451,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 {
                     "status": "ok",
                     "event_id": str(uuid.uuid4()),
-                    "distinct_id": request.validated_data.get("distinct_id", "unknown"),
+                    "distinct_id": request.data.get("distinct_id", "unknown"),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -447,6 +459,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {"event": "$pageview"}  # Missing required 'distinct_id'
 
         # Should not log warning when DEBUG=False
@@ -485,6 +498,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {
             "event": "$pageview",
             "distinct_id": "user_123",
@@ -497,7 +511,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "ok"
         assert response.data["distinct_id"] == "user_123"
-        assert mock_request.validated_data["event"] == "$pageview"
+        assert mock_request.data["event"] == "$pageview"
 
     def test_no_body_response_declared_as_none_succeeds(self):
         """When status code is declared as None (no body), response with no body should succeed"""
@@ -512,6 +526,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         view_instance = Mock()
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {}
 
         response = mock_endpoint(view_instance, mock_request)
@@ -532,6 +547,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         view_instance = Mock()
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {}
 
         with patch("posthog.api.mixins.settings") as mock_settings:
@@ -563,9 +579,191 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         view_instance = Mock()
         mock_request = Mock()
+        mock_request._full_data = {}
         mock_request.data = {}
 
         with pytest.raises(serializers.ValidationError) as exc_info:
             mock_endpoint(view_instance, mock_request)
 
         assert "Response status code 204 is declared with no body, but response contains data" in str(exc_info.value)
+
+    def test_query_parameter_validation_with_valid_data(self):
+        """Query parameter validation: valid query params should work"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            page = serializers.IntegerField(required=False, default=1)
+            limit = serializers.IntegerField(required=False, default=10, max_value=100)
+
+        @validated_request(
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            page = request.query_params.get("page", 1)
+            limit = request.query_params.get("limit", 10)
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                    "page": int(page),
+                    "limit": int(limit),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("page=2&limit=20")
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["page"] == 2
+        assert response.data["limit"] == 20
+
+    def test_query_parameter_validation_with_invalid_data_raises(self):
+        """Query parameter validation: invalid query params should raise exception"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            limit = serializers.IntegerField(required=True, max_value=100)
+
+        @validated_request(
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("limit=200")  # Exceeds max_value
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "limit" in str(exc_info.value)
+
+    def test_post_request_with_query_parameters(self):
+        """POST request with query parameters: both should be validated"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            dry_run = serializers.BooleanField(required=False, default=False)
+            force = serializers.BooleanField(required=False, default=False)
+
+        class PostRequestSerializer(serializers.Serializer):
+            action = serializers.ChoiceField(choices=["create", "update", "delete"])
+            payload = serializers.DictField(required=False)
+
+        @validated_request(
+            request_serializer=PostRequestSerializer,
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            action = request.validated_data["action"]
+            # Query params remain as strings, need to convert
+            dry_run = request.query_params.get("dry_run", "false").lower() == "true"
+            force = request.query_params.get("force", "false").lower() == "true"
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                    "action": action,
+                    "dry_run": dry_run,
+                    "force": force,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"action": "create", "payload": {"key": "value"}}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("dry_run=true&force=false")
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["action"] == "create"
+        assert response.data["dry_run"] is True
+        assert response.data["force"] is False
+
+    def test_post_request_with_invalid_query_parameters_raises(self):
+        """POST request with invalid query parameters: should raise exception"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            timeout = serializers.IntegerField(required=True, min_value=1, max_value=3600)
+
+        class PostRequestSerializer(serializers.Serializer):
+            action = serializers.CharField()
+
+        @validated_request(
+            request_serializer=PostRequestSerializer,
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"action": "test"}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("timeout=5000")  # Exceeds max_value
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "timeout" in str(exc_info.value)

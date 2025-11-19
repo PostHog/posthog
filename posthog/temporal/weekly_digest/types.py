@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, RootModel
 
+from posthog.utils import get_instance_region
+
 
 class CommonInput(BaseModel):
     redis_ttl: int = 3600 * 24 * 3  # 3 days
@@ -30,6 +32,7 @@ class WeeklyDigestInput(BaseModel):
     dry_run: bool = False
     skip_generate: bool = False
     digest_key_override: str | None = None
+    allow_already_sent: bool = False
     common: CommonInput = CommonInput()
 
 
@@ -52,6 +55,7 @@ class GenerateOrganizationDigestInput(BaseModel):
 
 class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 
@@ -59,6 +63,7 @@ class SendWeeklyDigestInput(BaseModel):
 class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 
@@ -107,11 +112,6 @@ class DigestFilter(BaseModel):
         }
 
 
-class DigestRecording(BaseModel):
-    session_id: str
-    recording_ttl: int
-
-
 class DigestSurvey(BaseModel):
     name: str
     id: UUID
@@ -146,8 +146,8 @@ class FilterList(RootModel):
         return FilterList(root=sorted(self.root, key=lambda f: f.recording_count, reverse=True))
 
 
-class RecordingList(RootModel):
-    root: list[DigestRecording]
+class RecordingCount(BaseModel):
+    recording_count: int
 
 
 class SurveyList(RootModel):
@@ -164,7 +164,6 @@ DigestResourceType: TypeAlias = (
     | type[ExternalDataSourceList]
     | type[FeatureFlagList]
     | type[FilterList]
-    | type[RecordingList]
     | type[SurveyList]
 )
 
@@ -179,7 +178,7 @@ class TeamDigest(BaseModel):
     external_data_sources: ExternalDataSourceList
     feature_flags: FeatureFlagList
     filters: FilterList
-    recordings: RecordingList
+    expiring_recordings: RecordingCount
     surveys_launched: SurveyList
 
     def _fields(self) -> list[RootModel]:
@@ -191,17 +190,16 @@ class TeamDigest(BaseModel):
             self.external_data_sources,
             self.feature_flags,
             self.filters,
-            self.recordings,
             self.surveys_launched,
         ]
 
     def is_empty(self) -> bool:
-        return sum(len(f.root) for f in self._fields()) == 0
+        return self.count_items() == 0
 
-    def count_nonempty(self) -> int:
-        return sum(1 if len(field.root) > 0 else 0 for field in self._fields())
+    def count_items(self) -> int:
+        return sum(len(f.root) for f in self._fields())
 
-    def render_payload(self) -> dict[str, str | int | dict[str, list]]:
+    def render_payload(self) -> dict[str, str | int | dict[str, list | dict]]:
         return {
             "team_name": self.name,
             "team_id": self.id,
@@ -213,7 +211,7 @@ class TeamDigest(BaseModel):
                 "new_external_data_sources": self.external_data_sources.model_dump(),
                 "new_feature_flags": self.feature_flags.model_dump(),
                 "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
-                "expiring_recordings": self.recordings.model_dump(),
+                "expiring_recordings": self.expiring_recordings.model_dump(),
                 "new_surveys_launched": self.surveys_launched.model_dump(),
             },
         }
@@ -239,18 +237,18 @@ class OrganizationDigest(BaseModel):
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
 
-    def count_nonempty(self) -> int:
-        return sum(td.count_nonempty() for td in self.team_digests)
+    def count_items(self) -> int:
+        return sum(td.count_items() for td in self.team_digests)
 
-    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int]:
+    def render_payload(self, digest: Digest) -> dict[str, str | list | dict[str, str] | int | None]:
         return {
             "organization_name": self.name,
             "organization_id": str(self.id),
-            "teams": [td.render_payload() for td in self.team_digests],
+            "teams": [td.render_payload() for td in self.team_digests if not td.is_empty()],
             "scope": "user",
             "template_name": "weekly_digest_report",
             "period": digest.render_payload(),
-            "nonempty_items": self.count_nonempty(),
+            "digest_region": get_instance_region(),
         }
 
 

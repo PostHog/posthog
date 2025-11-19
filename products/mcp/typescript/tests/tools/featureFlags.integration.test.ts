@@ -47,7 +47,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Test Feature Flag',
                 key: generateUniqueKey('test-flag'),
                 description: 'Integration test flag',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
             }
 
@@ -68,7 +75,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Tagged Feature Flag',
                 key: generateUniqueKey('tagged-flag'),
                 description: 'Flag with tags',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
                 tags: ['test', 'integration'],
             }
@@ -128,7 +142,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Original Name',
                 key: generateUniqueKey('update-test'),
                 description: 'Original description',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
             }
 
@@ -160,7 +181,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Filter Update Test',
                 key: generateUniqueKey('filter-update'),
                 description: 'Testing filter updates',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
             }
 
@@ -204,7 +232,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                     name: `List Test Flag ${i}`,
                     key: generateUniqueKey(`list-test-${i}`),
                     description: `Test flag ${i}`,
-                    filters: { groups: [] },
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
                     active: true,
                 }
 
@@ -253,7 +288,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Definition Test Flag',
                 key: generateUniqueKey('definition-test'),
                 description: 'Test flag for definition',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
                 tags: ['test-tag'],
             }
@@ -291,7 +333,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Delete Test Flag',
                 key: generateUniqueKey('delete-test'),
                 description: 'Test flag for deletion',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: true,
             }
 
@@ -336,7 +385,14 @@ describe('Feature Flags', { concurrent: false }, () => {
                 name: 'Workflow Test Flag',
                 key: flagKey,
                 description: 'Testing full workflow',
-                filters: { groups: [] },
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
                 active: false,
             }
 

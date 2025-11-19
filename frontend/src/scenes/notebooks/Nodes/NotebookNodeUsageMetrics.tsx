@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
@@ -44,6 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
 
     useEffect(() => {
         setActions([
@@ -52,8 +53,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 icon: <IconPlusSmall />,
                 onClick: () => toggleEditing(true),
             },
+            {
+                text: 'Refresh',
+                icon: <IconRefresh />,
+                onClick: loadData,
+            },
         ])
-    }, [])
+    }, [setActions, loadData, toggleEditing])
 
     if (!expanded) {
         return null
