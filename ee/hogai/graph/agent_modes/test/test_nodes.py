@@ -379,7 +379,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Test with contextual tools
             config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
+                configurable={
+                    "contextual_tools": {
+                        "search_session_recordings": {
+                            "current_filters": {"duration": ">"},
+                            "current_session_id": "00000000-0000-0000-0000-000000000001",
+                        }
+                    }
+                }
             )
             # Set config before calling arun
             node._config = config
