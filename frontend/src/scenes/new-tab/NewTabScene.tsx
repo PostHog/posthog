@@ -71,6 +71,69 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         setNewTabSearchInputRef(commandInputRef)
     }, [setNewTabSearchInputRef])
 
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            const inputHandle = commandInputRef.current
+            const inputRef = inputHandle?.getInputRef().current
+            if (!inputRef) {
+                return
+            }
+
+            const target = event.target as HTMLElement | null
+            const isEditableTarget = target?.closest(
+                'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
+            )
+            if (isEditableTarget || document.activeElement === inputRef) {
+                return
+            }
+
+            const isCharacterKey = event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey
+            const isArrowKey = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+            const isBackspace = event.key === 'Backspace'
+
+            if (!isCharacterKey && !isArrowKey && !isBackspace) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            inputHandle.focus()
+
+            if (isArrowKey || isBackspace) {
+                const syntheticEvent = new KeyboardEvent('keydown', {
+                    key: event.key,
+                    code: event.code,
+                    shiftKey: event.shiftKey,
+                    metaKey: event.metaKey,
+                    ctrlKey: event.ctrlKey,
+                    altKey: event.altKey,
+                    bubbles: true,
+                    cancelable: true,
+                })
+                inputRef.dispatchEvent(syntheticEvent)
+                return
+            }
+
+            const selectionStart = inputRef.selectionStart ?? inputRef.value.length
+            const selectionEnd = inputRef.selectionEnd ?? selectionStart
+            if (typeof inputRef.setRangeText === 'function') {
+                inputRef.setRangeText(event.key, selectionStart, selectionEnd, 'end')
+            } else {
+                const newValue =
+                    inputRef.value.slice(0, selectionStart) + event.key + inputRef.value.slice(selectionEnd)
+                inputRef.value = newValue
+                inputRef.setSelectionRange(newValue.length, newValue.length)
+            }
+            inputRef.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+
+        document.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [])
+
     return (
         <>
             <ListBox

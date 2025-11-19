@@ -3,24 +3,41 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { MouseEvent, useEffect, useMemo } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabSceneLogic'
 
 const CHILD_INDENT_PX = 24
+
+const convertEntryToTreeDataItem = (entry: FileSystemEntry): TreeDataItem => ({
+    id: String(entry.id || entry.path || 'entry'),
+    name: splitPath(entry.path).pop() || entry.path || 'Unnamed entry',
+    record: {
+        ...entry,
+    },
+})
 
 interface ExplorerRow {
     entry: FileSystemEntry
@@ -225,11 +242,27 @@ export function ProjectExplorer({
     return (
         <div className="flex flex-col gap-3 p-3">
             <div className="rounded bg-bg-300">
-                <div className={clsx('border-b border-border px-3 py-2 text-xs uppercase text-muted', rowGridClass)}>
+                {isSearchActive && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
+                        <span className="truncate">
+                            Searching {folderDisplayName} for “{trimmedSearch}”
+                        </span>
+                        {explorerSearchResultsLoading && <Spinner size="small" />}
+                    </div>
+                )}
+                <div
+                    className={clsx(
+                        'grid grid-cols-[minmax(0,1fr)_200px_160px_auto] border-b border-border px-3 py-2 text-xs uppercase text-muted',
+                        rowGridClass
+                    )}
+                >
                     <div className="pr-3 pl-6">Name</div>
                     {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
+                    <div className="px-3 text-right">
+                        <span className="sr-only">Actions</span>
+                    </div>
                 </div>
                 <ListBox.Group groupId="project-explorer">
                     {displayRows.map(
@@ -261,20 +294,22 @@ export function ProjectExplorer({
                                 }
                             }
                             const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
-                            return (
+                            const treeItem = isParentNavigationRow ? null : convertEntryToTreeDataItem(entry)
+                            const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
+                            const listBoxItem = (
                                 <ListBox.Item
                                     asChild
                                     row={rowIndex}
                                     column={0}
                                     focusKey={`${focusBase}-row`}
                                     index={rowIndex}
-                                    key={`${entry.id ?? entry.path}-${rowIndex}`}
+                                    key={rowKey}
                                 >
                                     <Link
                                         to={entry.href || '#'}
                                         className={clsx(
                                             rowGridClass,
-                                            'border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            'group/explorer-row grid grid-cols-[minmax(0,1fr)_200px_160px_auto] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
                                         style={rowIndent ? { paddingLeft: rowIndent } : undefined}
@@ -322,8 +357,62 @@ export function ProjectExplorer({
                                         <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-muted">
                                             {renderCreatedAt(entry)}
                                         </div>
+                                        <div className="flex items-center justify-end px-2 py-2">
+                                            {!isParentNavigationRow && treeItem ? (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <ButtonPrimitive
+                                                            size="xxs"
+                                                            iconOnly
+                                                            onClick={(event) => {
+                                                                event.preventDefault()
+                                                                event.stopPropagation()
+                                                            }}
+                                                            className="opacity-0 transition-opacity group-hover/explorer-row:opacity-100 group-focus-visible/explorer-row:opacity-100"
+                                                            aria-label="Open file actions"
+                                                        >
+                                                            <IconEllipsis className="size-3" />
+                                                        </ButtonPrimitive>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="max-w-[250px]">
+                                                        <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                                                            <MenuItems
+                                                                item={treeItem}
+                                                                type="dropdown"
+                                                                root={projectTreeLogicProps.root}
+                                                                logicKey={projectTreeLogicProps.key}
+                                                                onlyTree={false}
+                                                                showSelectMenuOption={false}
+                                                            />
+                                                        </DropdownMenuGroup>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            ) : null}
+                                        </div>
                                     </Link>
                                 </ListBox.Item>
+                            )
+
+                            if (isParentNavigationRow || !treeItem) {
+                                return listBoxItem
+                            }
+
+                            return (
+                                <ContextMenu key={rowKey}>
+                                    <ContextMenuTrigger asChild>{listBoxItem}</ContextMenuTrigger>
+                                    <ContextMenuContent loop className="max-w-[250px]">
+                                        <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                                            <MenuItems
+                                                item={treeItem}
+                                                type="context"
+                                                root={projectTreeLogicProps.root}
+                                                logicKey={projectTreeLogicProps.key}
+                                                onlyTree={false}
+                                                showSelectMenuOption={false}
+                                            />
+                                        </ContextMenuGroup>
+                                    </ContextMenuContent>
+                                </ContextMenu>
                             )
                         }
                     )}
