@@ -194,10 +194,10 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     println!("\nNext steps:");
     println!("  1. Import PostHog from your generated module:");
     println!("     import posthog from './{output_path}'");
-    println!("  2. Use typed events with autocomplete and type safety:");
-    println!("     posthog.captureTyped('event_name', {{ property: 'value' }})");
-    println!("  3. Or use regular capture() for flexibility:");
-    println!("     posthog.capture('dynamic_event', {{ any: 'data' }})");
+    println!("  2. Use typed events with autocomplete and type safety on known events:");
+    println!("     posthog.capture('event_name', {{ property: 'value' }})");
+    println!("  3. Use captureRaw() when you need to bypass type checking:");
+    println!("     posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})");
     println!();
 
     Ok(())
