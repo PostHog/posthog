@@ -699,7 +699,7 @@ class Database(BaseModel):
         with timings.measure("group_type_mapping"):
             _setup_group_key_fields(database, team)
             events_table = database.get_table("events")
-            for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
+            for mapping in GroupTypeMapping.objects.using("persons_db_writer").filter(project_id=team.project_id):
                 if events_table.fields.get(mapping.group_type) is None:
                     events_table.fields[mapping.group_type] = FieldTraverser(
                         chain=[f"group_{mapping.group_type_index}"]
@@ -1108,7 +1108,10 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+    group_mappings = {
+        mapping.group_type_index: mapping
+        for mapping in GroupTypeMapping.objects.using("persons_db_writer").filter(team=team)
+    }
     table = database.get_table("events")
 
     for group_index in range(5):
