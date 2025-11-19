@@ -93,7 +93,7 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
 }
 
 export function HogFunctionFiltersInternal(): JSX.Element {
-    const { contextId, hogFunction } = useValues(hogFunctionConfigurationLogic)
+    const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getProductEventFilterOptions(contextId), [contextId])
 
@@ -108,8 +108,6 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
-        } else if (hogFunction?.filters?.source === 'data-warehouse') {
-            return [TaxonomicFilterGroupType.DataWarehouseProperties]
         }
         return []
     }, [contextId])
