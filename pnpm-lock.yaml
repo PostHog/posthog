@@ -2374,8 +2374,8 @@ importers:
   products/session_summaries:
     dependencies:
       '@posthog/icons':
-        specifier: 0.35.0
-        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.2
+        version: 0.35.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
