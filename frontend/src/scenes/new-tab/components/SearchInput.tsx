@@ -26,6 +26,11 @@ export interface SearchInputCommand<T = string> {
     displayName: string
 }
 
+export interface SearchInputBreadcrumb {
+    label: string
+    path: string
+}
+
 interface SearchInputProps<T = string> {
     commands: SearchInputCommand<T>[]
     placeholder?: string
@@ -36,6 +41,9 @@ interface SearchInputProps<T = string> {
     onSelectedCommandsChange?: (commands: SearchInputCommand<T>[]) => void
     activeCommands?: T[]
     onClearAll?: () => void
+    explorerBreadcrumbs?: SearchInputBreadcrumb[] | null
+    onExplorerBreadcrumbClick?: (path: string) => void
+    onExitExplorer?: () => void
 }
 
 export interface SearchInputHandle {
@@ -54,6 +62,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         onSelectedCommandsChange,
         activeCommands = [],
         onClearAll,
+        explorerBreadcrumbs = null,
+        onExplorerBreadcrumbClick,
+        onExitExplorer,
     }: SearchInputProps<T>,
     ref: React.Ref<SearchInputHandle>
 ) {
@@ -286,7 +297,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg',
+                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1',
                     isFocused && 'animate-input-focus-pulse'
                 )}
             >
@@ -376,6 +387,27 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     </DropdownMenuContent>
                 </DropdownMenu>
 
+                {explorerBreadcrumbs?.length ? (
+                    <div className="flex flex-wrap items-center gap-1 pr-1 text-xs font-medium text-primary">
+                        {explorerBreadcrumbs.map((crumb, index) => (
+                            <React.Fragment key={`${crumb.path}-${index}`}>
+                                <ButtonPrimitive
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-primary max-w-[150px] truncate"
+                                    onClick={() => onExplorerBreadcrumbClick?.(crumb.path)}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                >
+                                    {crumb.label || 'Untitled'}
+                                </ButtonPrimitive>
+                                {index < explorerBreadcrumbs.length - 1 && (
+                                    <IconChevronRight className="size-3 text-tertiary" />
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </div>
+                ) : null}
+
                 {/* Selected inline tags */}
                 {/* for mobile we hide this and show the dot on the top right of the dropdown button above */}
                 {selectedCommands.length === 0 || isMobileLayout ? null : selectedCommands.length === 1 ||
@@ -455,6 +487,20 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         )
                     }
                 />
+
+                {onExitExplorer ? (
+                    <ButtonPrimitive
+                        size="xs"
+                        variant="tertiary"
+                        className="ml-auto whitespace-nowrap"
+                        onClick={() => {
+                            onExitExplorer()
+                            inputRef.current?.focus()
+                        }}
+                    >
+                        ← Back to results
+                    </ButtonPrimitive>
+                ) : null}
             </div>
         </div>
     )

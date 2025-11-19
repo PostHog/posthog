@@ -82,14 +82,6 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
           }
         : null
     const displayRows = parentRow ? [parentRow, ...rows] : rows
-    const breadcrumbs = [
-        { label: 'Project root', path: '' },
-        ...breadcrumbSegments.map((segment, index) => ({
-            label: segment,
-            path: breadcrumbSegments.slice(0, index + 1).join('/'),
-        })),
-    ]
-
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
@@ -115,7 +107,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
         const createdById = entry.meta?.created_by
         const createdBy = createdById ? users[createdById] : undefined
         if (!createdBy) {
-            return <span className="text-sm text-muted">Unknown</span>
+            return <span className="text-sm text-muted">—</span>
         }
         return (
             <span className="flex items-center gap-2 min-w-0">
@@ -132,36 +124,11 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
 
     return (
         <div className="flex flex-col gap-3 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1 text-sm font-medium">
-                    {breadcrumbs.map((crumb, index) => (
-                        <span key={`${crumb.path}-${index}`} className="flex items-center gap-1">
-                            <button
-                                type="button"
-                                className="text-primary hover:underline"
-                                onClick={() => setActiveExplorerFolderPath(crumb.path)}
-                            >
-                                {crumb.label || 'Untitled'}
-                            </button>
-                            {index < breadcrumbs.length - 1 && <span className="text-muted">/</span>}
-                        </span>
-                    ))}
-                </div>
-                <ButtonPrimitive
-                    size="xs"
-                    onClick={() => {
-                        setActiveExplorerFolderPath(null)
-                        setHighlightedExplorerEntryPath(null)
-                    }}
-                >
-                    ← Back to results
-                </ButtonPrimitive>
-            </div>
-            <div className="rounded bg-bg-300">
-                <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border text-xs uppercase text-muted">
-                    <div className="py-2 pr-3 pl-6">Name</div>
-                    <div className="px-3 py-2">Created by</div>
-                    <div className="px-3 py-2">Created at</div>
+            <div className="rounded bg-bg-300 overflow-hidden">
+                <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border px-3 py-2 text-xs uppercase text-muted">
+                    <div className="pr-3 pl-6">Name</div>
+                    <div className="px-3 pl-6">Created by</div>
+                    <div className="px-3 pl-6">Created at</div>
                 </div>
                 {isLoadingCurrentFolder && rows.length === 0 ? (
                     <div className="flex items-center gap-2 px-3 py-4 text-muted">

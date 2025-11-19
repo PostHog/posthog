@@ -14,9 +14,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { Results } from './components/Results'
-import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
+import { SearchInput, SearchInputBreadcrumb, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
 export const scene: SceneExport = {
     component: NewTabScene,
@@ -26,10 +27,14 @@ export const scene: SceneExport = {
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setNewTabSearchInputRef } = useActions(
-        newTabSceneLogic({ tabId })
-    )
+    const { search, newTabSceneDataInclude, activeExplorerFolderPath } = useValues(newTabSceneLogic({ tabId }))
+    const {
+        setSearch,
+        toggleNewTabSceneDataInclude,
+        refreshDataAfterToggle,
+        setNewTabSearchInputRef,
+        setActiveExplorerFolderPath,
+    } = useActions(newTabSceneLogic({ tabId }))
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
     useMountedLogic(projectTreeLogic(projectTreeLogicProps))
 
@@ -49,6 +54,17 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
+
+    const explorerBreadcrumbs: SearchInputBreadcrumb[] | null =
+        activeExplorerFolderPath === null
+            ? null
+            : [
+                  { label: 'Project root', path: '' },
+                  ...splitPath(activeExplorerFolderPath).map((segment, index, arr) => ({
+                      label: segment,
+                      path: joinPath(arr.slice(0, index + 1)),
+                  })),
+              ]
 
     // Set the ref in the logic so it can be accessed from other components
     useEffect(() => {
@@ -110,6 +126,11 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 })
                                 refreshDataAfterToggle()
                             }}
+                            explorerBreadcrumbs={explorerBreadcrumbs}
+                            onExplorerBreadcrumbClick={(path) => setActiveExplorerFolderPath(path)}
+                            onExitExplorer={
+                                activeExplorerFolderPath !== null ? () => setActiveExplorerFolderPath(null) : undefined
+                            }
                         />
                     </div>
                 </div>
