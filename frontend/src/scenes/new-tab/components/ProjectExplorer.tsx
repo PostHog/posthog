@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { MouseEvent, useEffect, useMemo } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -104,7 +105,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
         entry.created_at ? dayjs(entry.created_at).format('MMM D, YYYY') : '—'
 
     return (
-        <div className="flex flex-col gap-3 border border-border rounded p-3">
+        <div className="flex flex-col gap-3 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1 text-sm font-medium">
                     {breadcrumbs.map((crumb, index) => (
@@ -124,7 +125,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                     ← Back to results
                 </ButtonPrimitive>
             </div>
-            <div className="rounded border bg-bg-300 overflow-hidden">
+            <div className="rounded bg-bg-300 overflow-hidden">
                 <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] px-3 py-2 text-xs uppercase text-muted">
                     <span>Name</span>
                     <span>Created by</span>
@@ -144,25 +145,28 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                         const isExpanded = !!explorerExpandedFolders[entry.path]
                         const icon = iconForType((entry.type as FileSystemIconType) || 'default_icon_type')
                         const focusBase = String(entry.id ?? entry.path ?? rowIndex)
-                        const baseCellClasses =
-                            'flex items-center gap-2 px-3 py-2 min-w-0 border-t border-border text-sm data-[focused=true]:bg-bg-300 data-[focused=true]:text-primary'
                         const nameLabel = splitPath(entry.path).pop() || entry.path
+                        const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
+                            event.preventDefault()
+                            handleEntryActivate(entry)
+                        }
                         return (
-                            <div
+                            <ListBox.Item
+                                asChild
+                                row={rowIndex}
+                                column={0}
+                                focusKey={`${focusBase}-row`}
+                                index={rowIndex}
                                 key={`${entry.id ?? entry.path}-${rowIndex}`}
-                                className="grid grid-cols-[minmax(0,1fr)_200px_160px]"
                             >
-                                <ListBox.Item asChild row={rowIndex} column={0} focusKey={`${focusBase}-name`}>
+                                <Link
+                                    to={entry.href || '#'}
+                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline data-[focused=true]:bg-bg-300 data-[focused=true]:text-primary"
+                                    onClick={handleRowClick}
+                                >
                                     <div
-                                        className={`${baseCellClasses} text-primary`}
+                                        className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm"
                                         style={{ paddingLeft: 12 + depth * 16 }}
-                                        onDoubleClick={() => handleEntryActivate(entry)}
-                                        onKeyDown={(event) => {
-                                            if (event.key === 'Enter') {
-                                                event.preventDefault()
-                                                handleEntryActivate(entry)
-                                            }
-                                        }}
                                     >
                                         {isFolder ? (
                                             <ButtonPrimitive
@@ -173,6 +177,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                                                 onMouseDown={(event) => event.preventDefault()}
                                                 onClick={(event) => {
                                                     event.stopPropagation()
+                                                    event.preventDefault()
                                                     handleToggleFolder(entry.path)
                                                 }}
                                                 aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
@@ -185,27 +190,19 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                                             <span className="w-4" />
                                         )}
                                         <span className="shrink-0 text-primary">{icon}</span>
-                                        <span
-                                            className="truncate cursor-pointer"
-                                            onClick={(event) => {
-                                                event.stopPropagation()
-                                                handleEntryActivate(entry)
-                                            }}
-                                        >
-                                            {nameLabel}
-                                        </span>
+                                        <span className="truncate">{nameLabel}</span>
                                         {isFolder && folderStates[entry.path] === 'loading' ? (
                                             <Spinner className="size-3" />
                                         ) : null}
                                     </div>
-                                </ListBox.Item>
-                                <ListBox.Item asChild row={rowIndex} column={1} focusKey={`${focusBase}-created-by`}>
-                                    <div className={`${baseCellClasses} text-primary`}>{renderCreatedBy(entry)}</div>
-                                </ListBox.Item>
-                                <ListBox.Item asChild row={rowIndex} column={2} focusKey={`${focusBase}-created-at`}>
-                                    <div className={`${baseCellClasses} text-muted`}>{renderCreatedAt(entry)}</div>
-                                </ListBox.Item>
-                            </div>
+                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
+                                        {renderCreatedBy(entry)}
+                                    </div>
+                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-muted">
+                                        {renderCreatedAt(entry)}
+                                    </div>
+                                </Link>
+                            </ListBox.Item>
                         )
                     })}
                 </ListBox.Group>

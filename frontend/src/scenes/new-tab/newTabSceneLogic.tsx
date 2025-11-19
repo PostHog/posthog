@@ -1836,14 +1836,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         },
     })),
     tabAwareActionToUrl(({ values }) => {
-        const buildParams = (): Record<string, any> => {
+        const buildParams = (overrides: { folderPath?: string | null } = {}): Record<string, any> => {
             const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
             const includeParam = includeItems.length > 0 ? includeItems.join(',') : undefined
+            const folderPath = 'folderPath' in overrides ? overrides.folderPath : values.activeExplorerFolderPath
+            const folderParam = folderPath === null || folderPath === undefined ? undefined : folderPath
 
             return {
                 search: values.search || undefined,
                 category: undefined,
                 include: includeParam,
+                folder: folderParam,
             }
         }
 
@@ -1852,6 +1855,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             setSelectedCategory: () => [router.values.location.pathname, buildParams()],
             setNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
             toggleNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+            setActiveExplorerFolderPath: ({ path }) => [
+                router.values.location.pathname,
+                buildParams({ folderPath: path ?? null }),
+            ],
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -1946,6 +1953,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     })
                 }
+            }
+
+            const folderParamExists = Object.prototype.hasOwnProperty.call(searchParams, 'folder')
+            if (folderParamExists) {
+                const folderFromUrlRaw = searchParams.folder
+                const folderPathFromUrl =
+                    folderFromUrlRaw === undefined || folderFromUrlRaw === null ? '' : String(folderFromUrlRaw)
+
+                if (folderPathFromUrl !== values.activeExplorerFolderPath) {
+                    actions.setActiveExplorerFolderPath(folderPathFromUrl)
+                }
+            } else if (values.activeExplorerFolderPath !== null) {
+                actions.setActiveExplorerFolderPath(null)
             }
 
             // Reset search, category, and include array to defaults if no URL params
