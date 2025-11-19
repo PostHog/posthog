@@ -211,6 +211,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         focusNewTabSearchInput: true,
         setActiveExplorerFolderPath: (path: string | null) => ({ path }),
         toggleExplorerFolderExpansion: (path: string) => ({ path }),
+        setHighlightedExplorerEntryPath: (path: string | null) => ({ path }),
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -637,6 +638,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     [path]: !state[path],
                 }),
                 setActiveExplorerFolderPath: () => ({}),
+            },
+        ],
+        highlightedExplorerEntryPath: [
+            null as string | null,
+            {
+                setHighlightedExplorerEntryPath: (_, { path }) => path,
             },
         ],
     }),

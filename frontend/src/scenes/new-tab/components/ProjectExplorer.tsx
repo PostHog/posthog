@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { MouseEvent, useEffect, useMemo } from 'react'
@@ -28,8 +29,12 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
     const { folders, folderStates, users } = useValues(projectTreeLogic(projectTreeLogicProps))
     const { loadFolder } = useActions(projectTreeLogic(projectTreeLogicProps))
-    const { activeExplorerFolderPath, explorerExpandedFolders } = useValues(newTabSceneLogic({ tabId }))
-    const { setActiveExplorerFolderPath, toggleExplorerFolderExpansion } = useActions(newTabSceneLogic({ tabId }))
+    const { activeExplorerFolderPath, explorerExpandedFolders, highlightedExplorerEntryPath } = useValues(
+        newTabSceneLogic({ tabId })
+    )
+    const { setActiveExplorerFolderPath, toggleExplorerFolderExpansion, setHighlightedExplorerEntryPath } = useActions(
+        newTabSceneLogic({ tabId })
+    )
 
     useEffect(() => {
         if (activeExplorerFolderPath === null) {
@@ -92,10 +97,16 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
         }
     }
 
-    const handleEntryActivate = (entry: FileSystemEntry): void => {
+    const handleEntryActivate = (entry: FileSystemEntry, isParentNavigationRow?: boolean): void => {
         if (entry.type === 'folder') {
+            if (isParentNavigationRow && activeExplorerFolderPath) {
+                setHighlightedExplorerEntryPath(activeExplorerFolderPath)
+            } else {
+                setHighlightedExplorerEntryPath(null)
+            }
             setActiveExplorerFolderPath(entry.path)
         } else if (entry.href) {
+            setHighlightedExplorerEntryPath(null)
             router.actions.push(entry.href)
         }
     }
@@ -136,7 +147,13 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                         </span>
                     ))}
                 </div>
-                <ButtonPrimitive size="xs" onClick={() => setActiveExplorerFolderPath(null)}>
+                <ButtonPrimitive
+                    size="xs"
+                    onClick={() => {
+                        setActiveExplorerFolderPath(null)
+                        setHighlightedExplorerEntryPath(null)
+                    }}
+                >
                     ← Back to results
                 </ButtonPrimitive>
             </div>
@@ -151,9 +168,6 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                         <Spinner /> Loading folder...
                     </div>
                 ) : null}
-                {!isLoadingCurrentFolder && rows.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted">No files in this folder yet.</div>
-                ) : null}
                 <ListBox.Group groupId="project-explorer">
                     {displayRows.map(({ entry, depth, isParentNavigation }, rowIndex) => {
                         const isParentNavigationRow = !!isParentNavigation
@@ -163,9 +177,10 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                         const icon = iconForType((entry.type as FileSystemIconType) || 'default_icon_type')
                         const focusBase = String(entry.id ?? entry.path ?? rowIndex)
                         const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
+                        const isHighlighted = highlightedExplorerEntryPath === entry.path
                         const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
                             event.preventDefault()
-                            handleEntryActivate(entry)
+                            handleEntryActivate(entry, isParentNavigationRow)
                         }
                         return (
                             <ListBox.Item
@@ -178,7 +193,10 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                             >
                                 <Link
                                     to={entry.href || '#'}
-                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary"
+                                    className={clsx(
+                                        'grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                        isHighlighted && 'bg-primary-alt-highlight text-primary'
+                                    )}
                                     onClick={handleRowClick}
                                 >
                                     <div
@@ -222,6 +240,11 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                             </ListBox.Item>
                         )
                     })}
+                    {!isLoadingCurrentFolder && rows.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-muted border-t border-border">
+                            No files in this folder yet.
+                        </div>
+                    ) : null}
                 </ListBox.Group>
             </div>
         </div>
