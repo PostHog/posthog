@@ -13,7 +13,7 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabSceneLogic'
@@ -21,6 +21,7 @@ import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabScene
 interface ExplorerRow {
     entry: FileSystemEntry
     depth: number
+    isParentNavigation?: boolean
 }
 
 export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | null {
@@ -62,6 +63,20 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
     const isLoadingCurrentFolder = folderStates[activeExplorerFolderPath] === 'loading'
 
     const breadcrumbSegments = splitPath(activeExplorerFolderPath)
+    const parentBreadcrumbSegments = breadcrumbSegments.slice(0, -1)
+    const parentFolderPath = joinPath(parentBreadcrumbSegments)
+    const parentRow: ExplorerRow | null = breadcrumbSegments.length
+        ? {
+              entry: {
+                  id: `__parent-${activeExplorerFolderPath || 'root'}`,
+                  path: parentFolderPath,
+                  type: 'folder',
+              },
+              depth: 0,
+              isParentNavigation: true,
+          }
+        : null
+    const displayRows = parentRow ? [parentRow, ...rows] : rows
     const breadcrumbs = [
         { label: 'Project root', path: '' },
         ...breadcrumbSegments.map((segment, index) => ({
@@ -140,12 +155,14 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                     <div className="px-3 py-4 text-sm text-muted">No files in this folder yet.</div>
                 ) : null}
                 <ListBox.Group groupId="project-explorer">
-                    {rows.map(({ entry, depth }, rowIndex) => {
+                    {displayRows.map(({ entry, depth, isParentNavigation }, rowIndex) => {
+                        const isParentNavigationRow = !!isParentNavigation
                         const isFolder = entry.type === 'folder'
-                        const isExpanded = !!explorerExpandedFolders[entry.path]
+                        const isExpandableFolder = isFolder && !isParentNavigationRow
+                        const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
                         const icon = iconForType((entry.type as FileSystemIconType) || 'default_icon_type')
                         const focusBase = String(entry.id ?? entry.path ?? rowIndex)
-                        const nameLabel = splitPath(entry.path).pop() || entry.path
+                        const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
                         const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
                             event.preventDefault()
                             handleEntryActivate(entry)
@@ -161,14 +178,14 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                             >
                                 <Link
                                     to={entry.href || '#'}
-                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline data-[focused=true]:bg-bg-300 data-[focused=true]:text-primary"
+                                    className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary"
                                     onClick={handleRowClick}
                                 >
                                     <div
                                         className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm"
                                         style={{ paddingLeft: 12 + depth * 16 }}
                                     >
-                                        {isFolder ? (
+                                        {isExpandableFolder ? (
                                             <ButtonPrimitive
                                                 size="xs"
                                                 iconOnly
@@ -191,7 +208,7 @@ export function ProjectExplorer({ tabId }: { tabId: string }): JSX.Element | nul
                                         )}
                                         <span className="shrink-0 text-primary">{icon}</span>
                                         <span className="truncate">{nameLabel}</span>
-                                        {isFolder && folderStates[entry.path] === 'loading' ? (
+                                        {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
                                             <Spinner className="size-3" />
                                         ) : null}
                                     </div>
