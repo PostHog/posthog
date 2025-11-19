@@ -94,13 +94,13 @@ class MarketingSourceFactory:
             custom_mappings = team_config.custom_source_mappings
             for integration_type, custom_utm_sources in custom_mappings.items():
                 # Get the adapter class for this integration type
-                adapter_class = cls._adapter_registry.get(integration_type)
-                if not adapter_class:
+                custom_adapter_class = cls._adapter_registry.get(integration_type)
+                if not custom_adapter_class:
                     # Skip if integration type not found in registry
                     continue
 
                 # Get the source identifier mapping for this adapter
-                adapter_mapping = adapter_class.get_source_identifier_mapping()
+                adapter_mapping = custom_adapter_class.get_source_identifier_mapping()
                 if not adapter_mapping:
                     continue
 

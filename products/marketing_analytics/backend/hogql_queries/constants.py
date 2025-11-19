@@ -3,6 +3,8 @@
 import math
 from typing import Optional, Union
 
+from pydantic import BaseModel
+
 from posthog.schema import (
     GoogleAdsDefaultSources,
     GoogleAdsTableExclusions,
@@ -199,7 +201,7 @@ _ALL_CONFIG_MODELS = [
 ]
 
 
-def _get_field_default(model: type, field_name: str):
+def _get_field_default(model: type[BaseModel], field_name: str):
     """Extract default value from a Pydantic model field."""
     return model.model_fields[field_name].default
 
