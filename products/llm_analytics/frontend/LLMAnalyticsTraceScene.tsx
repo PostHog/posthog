@@ -52,6 +52,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
@@ -71,6 +72,7 @@ import {
 enum TraceViewMode {
     Conversation = 'conversation',
     Raw = 'raw',
+    Summary = 'summary',
     Evals = 'evals',
 }
 
@@ -683,6 +685,8 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
+        const showSummaryTab = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION]
+
         const handleTryInPlayground = (): void => {
             if (!event) {
                 return
@@ -901,6 +905,28 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
+                                ...(showSummaryTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Summary,
+                                              label: (
+                                                  <>
+                                                      Summary{' '}
+                                                      <LemonTag className="ml-1" type="completion">
+                                                          Alpha
+                                                      </LemonTag>
+                                                  </>
+                                              ),
+                                              content: (
+                                                  <SummaryViewDisplay
+                                                      trace={!isLLMEvent(event) ? event : undefined}
+                                                      event={isLLMEvent(event) ? event : undefined}
+                                                      tree={tree}
+                                                  />
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                                 ...(showEvalsTab
                                     ? [
                                           {
@@ -910,6 +936,8 @@ const EventContent = React.memo(
                                                   <EvalsTabContent
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
+                                                      event={event.event}
+                                                      distinctId={trace.person.distinct_id}
                                                   />
                                               ),
                                           },

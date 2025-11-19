@@ -150,6 +150,17 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "404 Not Found": None,
+            "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            "MFA authentication is required": None,
+            "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
+            "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+        }
+
     def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
