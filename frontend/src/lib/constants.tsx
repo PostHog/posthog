@@ -248,6 +248,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_LAYOUT_V2: 'error-tracking-issue-layout-v2', // owner: @david #team-error-tracking
+    AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
@@ -343,6 +344,10 @@ export const FEATURE_FLAGS = {
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+
+export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
+    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE
+)
 
 export const INSIGHT_VISUAL_ORDER = {
     trends: 10,
