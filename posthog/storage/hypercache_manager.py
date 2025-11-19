@@ -55,7 +55,7 @@ HYPERCACHE_TEAMS_PROCESSED_COUNTER = Counter(
 HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
     "Cache updates triggered by Django signals",
-    labelnames=["namespace", "result"],
+    labelnames=["namespace", "operation", "result"],
 )
 
 HYPERCACHE_INVALIDATION_COUNTER = Counter(
