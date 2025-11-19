@@ -523,7 +523,9 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def customer_analytics_config(self):
-        from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
+        from products.customer_analytics.backend.models.team_customer_analytics_config import (
+            TeamCustomerAnalyticsConfig,
+        )
 
         config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
             team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}

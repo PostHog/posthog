@@ -35,7 +35,6 @@ from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
-from posthog.models.team.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -58,6 +57,8 @@ from posthog.session_recordings.data_retention import (
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+
+from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
