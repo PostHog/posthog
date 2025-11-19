@@ -1,20 +1,24 @@
 import {
+    type DecompressionMode,
     DecompressionWorkerManager,
     getDecompressionWorkerManager,
     terminateDecompressionWorker,
 } from './DecompressionWorkerManager'
 
+jest.mock('snappy-wasm')
+
 describe('DecompressionWorkerManager', () => {
     describe.each([
-        ['main-thread mode', false],
+        ['blocking mode', 'blocking' as DecompressionMode],
+        ['yielding mode', 'yielding' as DecompressionMode],
         // Worker mode requires a real browser environment with Worker support
         // Skip for now since Jest runs in Node.js environment
-        // ['worker mode', true],
-    ])('%s', (_modeName, useWorker) => {
+        // ['worker mode', 'worker' as DecompressionMode],
+    ])('%s', (_modeName, mode) => {
         let manager: DecompressionWorkerManager
 
         beforeEach(() => {
-            manager = new DecompressionWorkerManager(useWorker)
+            manager = new DecompressionWorkerManager(mode)
         })
 
         afterEach(() => {
@@ -74,11 +78,10 @@ describe('DecompressionWorkerManager', () => {
                 await manager.decompress(data)
 
                 const stats = manager.getStats()
-                const modeStats = useWorker ? stats.worker : stats.mainThread
 
-                expect(modeStats.count).toBe(2)
-                expect(modeStats.totalSize).toBe(10)
-                expect(modeStats.totalTime).toBeGreaterThan(0)
+                expect(stats.count).toBe(2)
+                expect(stats.totalSize).toBe(10)
+                expect(stats.totalTime).toBeGreaterThan(0)
             })
         })
     })
@@ -103,9 +106,9 @@ describe('DecompressionWorkerManager', () => {
             expect(instance1).not.toBe(instance2)
         })
 
-        it('recreates instance when useWorker config changes', () => {
-            const instance1 = getDecompressionWorkerManager(false)
-            const instance2 = getDecompressionWorkerManager(true)
+        it('recreates instance when mode config changes', () => {
+            const instance1 = getDecompressionWorkerManager('blocking')
+            const instance2 = getDecompressionWorkerManager('yielding')
 
             expect(instance1).not.toBe(instance2)
         })
@@ -114,8 +117,8 @@ describe('DecompressionWorkerManager', () => {
             const mockPosthog1 = {} as any
             const mockPosthog2 = {} as any
 
-            const instance1 = getDecompressionWorkerManager(false, mockPosthog1)
-            const instance2 = getDecompressionWorkerManager(false, mockPosthog2)
+            const instance1 = getDecompressionWorkerManager('blocking', mockPosthog1)
+            const instance2 = getDecompressionWorkerManager('blocking', mockPosthog2)
 
             expect(instance1).not.toBe(instance2)
         })
@@ -123,8 +126,8 @@ describe('DecompressionWorkerManager', () => {
         it('returns same instance when config has not changed', () => {
             const mockPosthog = {} as any
 
-            const instance1 = getDecompressionWorkerManager(false, mockPosthog)
-            const instance2 = getDecompressionWorkerManager(false, mockPosthog)
+            const instance1 = getDecompressionWorkerManager('blocking', mockPosthog)
+            const instance2 = getDecompressionWorkerManager('blocking', mockPosthog)
 
             expect(instance1).toBe(instance2)
         })

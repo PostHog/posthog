@@ -393,6 +393,13 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent): void => {
+            const isModKeyPressed = e.metaKey || e.ctrlKey
+
+            // Allow native browser functionality with modifier keys
+            if (isModKeyPressed) {
+                return
+            }
+
             if (!containerRef.current?.contains(document.activeElement)) {
                 return
             }
@@ -639,7 +646,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 role="listbox"
                 tabIndex={0}
                 onKeyDown={handleKeyDown}
-                className={cn(className)}
+                className={cn(className, 'focus-visible:outline-none')}
                 aria-orientation="vertical"
                 {...props}
             >

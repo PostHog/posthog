@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { SurveyUpdateSchema } from '@/schema/tool-inputs'
 import { formatSurvey } from '@/tools/surveys/utils/survey-utils'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = SurveyUpdateSchema
 type Params = z.infer<typeof schema>
 
-export const updateHandler = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { surveyId, ...data } = params
 
     const projectId = await context.stateManager.getProjectId()
