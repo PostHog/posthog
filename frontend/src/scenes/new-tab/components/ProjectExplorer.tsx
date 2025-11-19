@@ -242,9 +242,6 @@ export function ProjectExplorer({
         return <SearchHighlightMultiple string={text} substring={trimmedSearch} />
     }
 
-    const folderDisplayName =
-        breadcrumbSegments.length === 0 ? 'project root' : breadcrumbSegments[breadcrumbSegments.length - 1]
-
     const rowGridClass = shouldUseSearchRows
         ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_200px_160px_48px]'
         : 'grid grid-cols-[minmax(0,1fr)_200px_160px_48px]'
@@ -252,14 +249,6 @@ export function ProjectExplorer({
     return (
         <div className="flex flex-col gap-3 p-3">
             <div className="rounded bg-bg-300">
-                {isSearchActive && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
-                        <span className="truncate">
-                            Searching {folderDisplayName} for “{trimmedSearch}”
-                        </span>
-                        {explorerSearchResultsLoading && <Spinner size="small" />}
-                    </div>
-                )}
                 <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
                     <div className="pr-3 pl-6">Name</div>
                     {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
