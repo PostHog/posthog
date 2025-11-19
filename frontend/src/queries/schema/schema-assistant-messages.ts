@@ -1,5 +1,3 @@
-import { PlanningMessage } from '.'
-
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
