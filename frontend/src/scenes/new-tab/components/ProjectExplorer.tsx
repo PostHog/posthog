@@ -25,6 +25,7 @@ interface ExplorerRow {
     entry: FileSystemEntry
     depth: number
     isParentNavigation?: boolean
+    navigatesToSearch?: boolean
 }
 
 export function ProjectExplorer({
@@ -79,18 +80,20 @@ export function ProjectExplorer({
     const parentBreadcrumbSegments = breadcrumbSegments.slice(0, -1)
     const parentFolderPath = joinPath(parentBreadcrumbSegments)
     const parentRow: ExplorerRow | null = useMemo(() => {
-        if (!hasActiveFolder || breadcrumbSegments.length === 0) {
+        if (!hasActiveFolder) {
             return null
         }
 
+        const isAtProjectRoot = breadcrumbSegments.length === 0
         return {
             entry: {
                 id: `__parent-${explorerFolderPath || 'root'}`,
-                path: parentFolderPath,
+                path: isAtProjectRoot ? explorerFolderPath : parentFolderPath,
                 type: 'folder',
             },
             depth: 0,
             isParentNavigation: true,
+            navigatesToSearch: isAtProjectRoot,
         }
     }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
     const displayRows = useMemo(() => (parentRow ? [parentRow, ...rows] : rows), [parentRow, rows])
@@ -101,7 +104,16 @@ export function ProjectExplorer({
         }
     }
 
-    const handleEntryActivate = (entry: FileSystemEntry, isParentNavigationRow?: boolean): void => {
+    const handleEntryActivate = (
+        entry: FileSystemEntry,
+        isParentNavigationRow?: boolean,
+        navigatesToSearch?: boolean
+    ): void => {
+        if (isParentNavigationRow && navigatesToSearch) {
+            setHighlightedExplorerEntryPath(null)
+            setActiveExplorerFolderPath(null)
+            return
+        }
         if (entry.type === 'folder') {
             if (isParentNavigationRow && activeExplorerFolderPath) {
                 setHighlightedExplorerEntryPath(activeExplorerFolderPath)
@@ -174,8 +186,9 @@ export function ProjectExplorer({
                     <div className="px-3 pl-6">Created at</div>
                 </div>
                 <ListBox.Group groupId="project-explorer">
-                    {displayRows.map(({ entry, depth, isParentNavigation }, rowIndex) => {
+                    {displayRows.map(({ entry, depth, isParentNavigation, navigatesToSearch }, rowIndex) => {
                         const isParentNavigationRow = !!isParentNavigation
+                        const isExitNavigationRow = !!navigatesToSearch
                         const isFolder = entry.type === 'folder'
                         const isExpandableFolder = isFolder && !isParentNavigationRow
                         const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
@@ -189,7 +202,7 @@ export function ProjectExplorer({
                         const isHighlighted = highlightedExplorerEntryPath === entry.path
                         const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
                             event.preventDefault()
-                            handleEntryActivate(entry, isParentNavigationRow)
+                            handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                         }
                         const handleRowFocus = (): void => {
                             if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
