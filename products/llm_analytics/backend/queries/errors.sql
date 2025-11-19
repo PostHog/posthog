@@ -6,6 +6,7 @@ extract
 --> normalize timestamps
 --> normalize paths
 --> normalize response IDs
+--> normalize JSON "id" fields
 --> normalize tool call IDs
 --> normalize function call IDs
 --> normalize user IDs
@@ -96,9 +97,20 @@ response_ids_normalized AS (
         replaceRegexpAll(error_text, '"responseId":"[a-zA-Z0-9_-]+"', '"responseId":"<RESPONSE_ID>"') as error_text
     FROM paths_normalized
 ),
+json_id_fields_normalized AS (
+    -- Step 6: Normalize generic "id" JSON fields with various ID formats
+    SELECT
+        distinct_id,
+        timestamp,
+        event,
+        ai_trace_id,
+        ai_session_id,
+        replaceRegexpAll(error_text, '"id":\s*"[a-zA-Z0-9_-]+"', '"id": "<ID>"') as error_text
+    FROM response_ids_normalized
+),
 
 tool_call_ids_normalized AS (
-    -- Step 6: Normalize tool_call_id values
+    -- Step 7: Normalize tool_call_id values
     SELECT
         distinct_id,
         timestamp,
@@ -106,11 +118,11 @@ tool_call_ids_normalized AS (
         ai_trace_id,
         ai_session_id,
         replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
-    FROM response_ids_normalized
+    FROM json_id_fields_normalized
 ),
 
 call_ids_normalized AS (
-    -- Step 7: Normalize function call IDs (call_xxx pattern)
+    -- Step 8: Normalize function call IDs (call_xxx pattern)
     SELECT
         distinct_id,
         timestamp,
@@ -122,7 +134,7 @@ call_ids_normalized AS (
 ),
 
 user_ids_normalized AS (
-    -- Step 8: Normalize user IDs (user_xxx pattern)
+    -- Step 9: Normalize user IDs (user_xxx pattern)
     SELECT
         distinct_id,
         timestamp,
@@ -134,7 +146,7 @@ user_ids_normalized AS (
 ),
 
 object_ids_normalized AS (
-    -- Step 9: Normalize memory object IDs (0x... hexadecimal addresses)
+    -- Step 10: Normalize memory object IDs (0x... hexadecimal addresses)
     SELECT
         distinct_id,
         timestamp,
@@ -146,7 +158,7 @@ object_ids_normalized AS (
 ),
 
 generic_ids_normalized AS (
-    -- Step 10: Normalize generic ID patterns - catches any id='...' or id="..." pattern
+    -- Step 11: Normalize generic ID patterns - catches any id='...' or id="..." pattern
     SELECT
         distinct_id,
         timestamp,
@@ -158,7 +170,7 @@ generic_ids_normalized AS (
 ),
 
 token_counts_normalized AS (
-    -- Step 11: Normalize token count values
+    -- Step 12: Normalize token count values
     SELECT
         distinct_id,
         timestamp,
@@ -170,7 +182,7 @@ token_counts_normalized AS (
 ),
 
 ids_normalized AS (
-    -- Step 12: Normalize large numeric IDs (9+ digits)
+    -- Step 13: Normalize large numeric IDs (9+ digits)
     SELECT
         distinct_id,
         timestamp,
@@ -182,7 +194,7 @@ ids_normalized AS (
 ),
 
 all_numbers_normalized AS (
-    -- Step 13: Normalize all remaining numbers as final fallback
+    -- Step 14: Normalize all remaining numbers as final fallback
     SELECT
         distinct_id,
         timestamp,

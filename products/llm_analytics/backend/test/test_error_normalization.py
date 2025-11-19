@@ -222,6 +222,15 @@ ORDER BY occurrences DESC""",
     @parameterized.expand(
         [
             (
+                "JSON ID field normalization",
+                [
+                    '{"id": "oJf6eVw-z1gNr-99c2d11d156dff07", "error": "test"}',
+                    '{"id": "abc123xyz789", "error": "test"}',
+                    '{"id":"different-id-format", "error": "test"}',
+                ],
+                '{"id": "<ID>", "error": "test"}',
+            ),
+            (
                 "Call ID normalization",
                 [
                     "No tool output found for function call call_edLiisyOJybNZLouC6MCNxyC.",
@@ -273,11 +282,11 @@ ORDER BY occurrences DESC""",
     def test_new_patterns_combined(self):
         """Test that new normalization patterns work together with existing ones."""
         error_variants = [
-            "BadRequestError: No tool output found for function call call_edLiisyOJybNZLouC6MCNxyC for user_32yQoBNWxpvzxVJG0S0zxnnVSCJ at <object object at 0xfffced405130>",
-            "BadRequestError: No tool output found for function call call_abc123xyz789 for user_xyz789abc123def456 at <object object at 0xaaabec123456>",
+            '{"id": "oJf6eVw-z1gNr-99c2d11d156dff07"} call call_edLiisyOJybNZLouC6MCNxyC for user_32yQoBNWxpvzxVJG0S0zxnnVSCJ at <object object at 0xfffced405130>',
+            '{"id": "abc123xyz789"} call call_abc123xyz789 for user_xyz789abc123def456 at <object object at 0xaaabec123456>',
         ]
 
-        expected = "BadRequestError: No tool output found for function call call_<CALL_ID> for user_<USER_ID> at <object object at <OBJECT_ID>>"
+        expected = '{"id": "<ID>"} call call_<CALL_ID> for user_<USER_ID> at <object object at <OBJECT_ID>>'
 
         for error in error_variants:
             self._create_ai_event_with_error(error)
