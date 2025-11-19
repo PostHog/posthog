@@ -752,7 +752,8 @@ class SchemaTransformer:
         exception is raised when `self.raise_on_incompatible` is `True`, otherwise we
         optimistically assume the destination can handle the inconsistency.
         """
-        field_names = [field.name for field in self.table.fields]
+        schema_names = {field.name for field in record_batch.schema}
+        field_names = [field.name for field in self.table.fields if field.name in schema_names]
 
         arrays = []
         for field_name, array in zip(field_names, record_batch.select(field_names).itercolumns()):

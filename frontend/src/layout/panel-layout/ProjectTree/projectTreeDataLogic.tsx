@@ -1,7 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconPlus } from '@posthog/icons'
+import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
@@ -9,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +46,89 @@ const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
 
+type DeleteFolderDialogContentProps = {
+    folderName: string
+    folderPath: string
+    entries: FileSystemEntry[]
+    totalCount: number
+    hasMore: boolean
+}
+
+const DeleteFolderDialogContent = ({
+    folderName,
+    folderPath,
+    entries,
+    totalCount,
+    hasMore,
+}: DeleteFolderDialogContentProps): JSX.Element => {
+    const prefix = folderPath ? `${folderPath}/` : ''
+    const relativeEntries = entries.map((entry) => {
+        const relativePath = prefix && entry.path.startsWith(prefix) ? entry.path.slice(prefix.length) : entry.path
+        return { entry, relativePath }
+    })
+
+    const remainingCount = Math.max(totalCount - entries.length, 0)
+
+    return (
+        <div className="space-y-3">
+            <p className="text-sm">
+                Deleting <span className="font-semibold">"{folderName}"</span> will permanently remove{' '}
+                {pluralize(totalCount, 'item')}.
+            </p>
+            {relativeEntries.length ? (
+                <>
+                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-bg-light">
+                        <ul>
+                            {relativeEntries.map(({ entry, relativePath }) => {
+                                const IconComponent = entry.type === 'folder' ? IconFolder : IconDocument
+                                return (
+                                    <li
+                                        key={entry.id}
+                                        className="flex items-center gap-3 px-3 py-2 text-sm border-b border-border last:border-b-0"
+                                    >
+                                        <IconComponent className="size-4 text-muted-alt" />
+                                        <div className="flex-1">
+                                            <div className="font-medium leading-tight">
+                                                {relativePath || entry.path}
+                                            </div>
+                                            {entry.type ? (
+                                                <div className="text-xs text-muted-alt">
+                                                    {identifierToHuman(entry.type)}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                    </div>
+                    {hasMore && remainingCount > 0 ? (
+                        <p className="text-xs text-muted-alt">
+                            Plus {pluralize(remainingCount, 'additional item')} not shown here.
+                        </p>
+                    ) : null}
+                </>
+            ) : (
+                <p className="text-sm text-muted-alt">This folder does not contain any additional items.</p>
+            )}
+        </div>
+    )
+}
+
+const humanizeFileSystemEntryType = (type?: string): string => {
+    if (!type) {
+        return 'item'
+    }
+
+    const humanizedType = identifierToHuman(type).toLowerCase()
+
+    if (humanizedType.startsWith('hog function ')) {
+        return humanizedType.replace('hog function ', '')
+    }
+
+    return humanizedType
+}
+
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
     connect(() => ({
@@ -61,14 +145,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     actions({
         loadUnfiledItems: true,
 
-        loadFolder: (folder: string) => ({ folder }),
+        loadFolder: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
         loadFolderIfNotLoaded: (folderId: string) => ({ folderId }),
-        loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean, offsetIncrease: number) => ({
+        loadFolderStart: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
+        loadFolderSuccess: (
+            folder: string,
+            entries: FileSystemEntry[],
+            hasMore: boolean,
+            offsetIncrease: number,
+            forceReload: boolean = false
+        ) => ({
             folder,
             entries,
             hasMore,
             offsetIncrease,
+            forceReload,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
 
@@ -218,12 +309,31 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             const response = await api.fileSystem.count(action.item.id)
                             actions.removeQueuedAction(action)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `Delete the folder "${splitPath(
-                                    action.item.path
-                                ).pop()}" and move ${response.count} items back into "Unfiled"?`
-                                if (!confirm(confirmMessage)) {
-                                    return false
-                                }
+                                const folderName =
+                                    splitPath(action.item.path).pop() ?? action.item.path ?? 'this folder'
+                                LemonDialog.open({
+                                    title: `Delete "${folderName}"?`,
+                                    content: (
+                                        <DeleteFolderDialogContent
+                                            folderName={folderName}
+                                            folderPath={action.item.path ?? ''}
+                                            entries={response.entries ?? []}
+                                            totalCount={response.count}
+                                            hasMore={response.has_more ?? false}
+                                        />
+                                    ),
+                                    primaryButton: {
+                                        children: 'Delete folder',
+                                        status: 'danger',
+                                        onClick: () => {
+                                            actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                                return false
                             }
                             actions.queueAction({ ...action, type: 'delete' }, projectTreeLogicKey)
                         } catch (error) {
@@ -233,10 +343,80 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                     } else if (action.type === 'delete' && action.item.id) {
                         try {
-                            await api.fileSystem.delete(action.item.id)
+                            const deletionResult = await api.fileSystem.delete(action.item.id)
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
-                            lemonToast.success('Item deleted successfully')
+                            const deletionSummary = deletionResult?.deleted ?? []
+                            const countsByType = new Map<string, number>()
+                            for (const entry of deletionSummary) {
+                                countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
+                            }
+                            const summaryParts = Array.from(countsByType.entries()).map(([type, count]) =>
+                                pluralize(count, humanizeFileSystemEntryType(type), undefined, count !== 1)
+                            )
+                            const message =
+                                summaryParts.length > 0
+                                    ? `Deleted ${humanList(summaryParts)}.`
+                                    : 'Item deleted successfully'
+                            const undoableEntries = deletionSummary.filter(
+                                (entry) => entry.can_undo && Boolean(entry.ref)
+                            )
+                            lemonToast.success(message, {
+                                button: undoableEntries.length
+                                    ? {
+                                          label: 'Undo',
+                                          dataAttr: 'project-tree-undo-delete',
+                                          action: async () => {
+                                              try {
+                                                  await api.fileSystem.undoDelete(
+                                                      undoableEntries.map((entry) => ({
+                                                          type: entry.type,
+                                                          ref: entry.ref as string,
+                                                          ...(entry.path !== undefined ? { path: entry.path } : {}),
+                                                      }))
+                                                  )
+                                                  const foldersToReload = new Set(
+                                                      undoableEntries.map((entry) =>
+                                                          joinPath(splitPath(entry.path || '').slice(0, -1))
+                                                      )
+                                                  )
+                                                  for (const folder of foldersToReload) {
+                                                      actions.loadFolder(folder, true)
+                                                      if (folder) {
+                                                          projectTreeLogic
+                                                              .findMounted({ key: projectTreeLogicKey })
+                                                              ?.actions.expandProjectFolder(folder)
+                                                      }
+                                                  }
+                                                  const restoreCountsByType = new Map<string, number>()
+                                                  for (const entry of undoableEntries) {
+                                                      restoreCountsByType.set(
+                                                          entry.type,
+                                                          (restoreCountsByType.get(entry.type) ?? 0) + 1
+                                                      )
+                                                  }
+                                                  const restoreParts = Array.from(restoreCountsByType.entries()).map(
+                                                      ([type, count]) =>
+                                                          pluralize(
+                                                              count,
+                                                              humanizeFileSystemEntryType(type),
+                                                              undefined,
+                                                              count !== 1
+                                                          )
+                                                  )
+                                                  const restoreMessage =
+                                                      restoreParts.length > 0
+                                                          ? `Restored ${humanList(restoreParts)}.`
+                                                          : 'Item restored.'
+                                                  lemonToast.success(restoreMessage)
+                                              } catch (undoError) {
+                                                  console.error('Error undoing delete:', undoError)
+                                                  lemonToast.error(`Error undoing delete: ${undoError}`)
+                                              }
+                                          },
+                                      }
+                                    : undefined,
+                            })
                         } catch (error) {
                             console.error('Error deleting item:', error)
                             lemonToast.error(`Error deleting item: ${error}`)
@@ -374,8 +554,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folderLoadOffset: [
             {} as Record<string, number>,
             {
-                loadFolderSuccess: (state, { folder, offsetIncrease }) => {
-                    return { ...state, [folder]: offsetIncrease + (state[folder] ?? 0) }
+                loadFolderSuccess: (state, { folder, offsetIncrease, forceReload }) => {
+                    const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
+                    return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
             },
         ],
@@ -759,15 +940,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadFolder: async ({ folder }) => {
+        loadFolder: async ({ folder, forceReload }) => {
             const currentState = values.folderStates[folder]
-            if (currentState === 'loading' || currentState === 'loaded') {
+            if (!forceReload && (currentState === 'loading' || currentState === 'loaded')) {
                 return
             }
-            actions.loadFolderStart(folder)
+            actions.loadFolderStart(folder, forceReload)
             try {
-                const previousFiles = values.folders[folder] || []
-                const offset = values.folderLoadOffset[folder] ?? 0
+                const previousFiles = forceReload ? [] : values.folders[folder] || []
+                const offset = forceReload ? 0 : (values.folderLoadOffset[folder] ?? 0)
                 const response = await api.fileSystem.list({
                     parent: folder,
                     depth: splitPath(folder).length + 1,
@@ -782,13 +963,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     hasMore = true
                 }
                 const fileIds = new Set(files.map((file) => file.id))
-                const previousUniqueFiles = previousFiles.filter(
-                    (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
-                )
+                const previousUniqueFiles = forceReload
+                    ? []
+                    : previousFiles.filter((prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder)
                 if (response.users?.length > 0) {
                     actions.addLoadedUsers(response.users)
                 }
-                actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
+                actions.loadFolderSuccess(
+                    folder,
+                    [...previousUniqueFiles, ...files],
+                    hasMore,
+                    files.length,
+                    !!forceReload
+                )
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
