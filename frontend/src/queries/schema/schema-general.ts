@@ -4473,3 +4473,11 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
 }
+
+export interface CustomerAnalyticsConfig {
+    activity_event: EventsNode | ActionsNode
+    signup_pageview_event: EventsNode | ActionsNode
+    signup_event: EventsNode | ActionsNode
+    subscription_event: EventsNode | ActionsNode
+    payment_event: EventsNode | ActionsNode
+}

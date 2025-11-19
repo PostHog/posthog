@@ -8182,6 +8182,69 @@
             "required": ["customEventName"],
             "type": "object"
         },
+        "CustomerAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "activity_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "payment_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_pageview_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "subscription_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "activity_event",
+                "signup_pageview_event",
+                "signup_event",
+                "subscription_event",
+                "payment_event"
+            ],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {

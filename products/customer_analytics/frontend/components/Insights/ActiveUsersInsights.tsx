@@ -61,7 +61,7 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { activityEvent, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { dauSeries, tabId } = useValues(customerAnalyticsSceneLogic)
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -74,7 +74,7 @@ function PowerUsersTable(): JSX.Element {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
                     kind: NodeKind.TrendsQuery,
-                    series: [activityEvent],
+                    series: [dauSeries],
                     dateRange: {
                         date_from: '-30d',
                     },
@@ -107,6 +107,11 @@ function PowerUsersTable(): JSX.Element {
                 uniqueKey={`power-users-${tabId}`}
                 attachTo={customerAnalyticsSceneLogic}
                 query={{ ...query, showTimings: false, showOpenEditorButton: false }}
+                context={{
+                    columns: {
+                        event_count: { title: 'Event count' },
+                    },
+                }}
             />
         </>
     )
