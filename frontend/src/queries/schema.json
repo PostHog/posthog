@@ -14016,9 +14016,18 @@
             "properties": {
                 "count": {
                     "type": "number"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/FileSystemEntry"
+                    },
+                    "type": "array"
+                },
+                "has_more": {
+                    "type": "boolean"
                 }
             },
-            "required": ["count"],
+            "required": ["count", "entries", "has_more"],
             "type": "object"
         },
         "FileSystemEntry": {
