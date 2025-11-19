@@ -14,15 +14,31 @@ interface CustomerAnalyticsQueryCardProps {
     tabId?: string
 }
 
+function anyValueIsNull(object: object): boolean {
+    return Object.values(object).some((value) => value === null)
+}
+
+function getEmptySeriesNames(requiredSeries: object): string[] {
+    return Object.entries(requiredSeries)
+        .filter(([, value]) => !value)
+        .map(([key]) => key)
+}
+
 export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
-    if (insight?.needsConfig) {
+    const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
+
+    if (needsConfig) {
+        const missingSeries = insight?.requiredSeries ? getEmptySeriesNames(insight.requiredSeries) : []
+
         return (
             <LemonCard hoverEffect={false} className="h-[400px] p-0">
                 <CardMeta
                     topHeading={<TopHeading query={insight.query} />}
                     content={<InsightMetaContent title={insight.name} description={insight.description} />}
                 />
-                <LemonBanner type="warning">This insight requires configuration.</LemonBanner>
+                <LemonBanner type="warning">
+                    This insight requires {missingSeries.join(', ')} configuration.
+                </LemonBanner>
             </LemonCard>
         )
     }

@@ -1,6 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     BreakdownAttributionType,
     ChartDisplayType,
@@ -63,7 +63,7 @@ export interface InsightDefinition {
     name: string
     description?: string
     query: InsightVizNode
-    needsConfig?: boolean
+    requiredSeries?: Record<string, (EventsNode | ActionsNode)[]>
     className?: string
 }
 
@@ -114,6 +114,70 @@ export const CUSTOMER_ANALYTICS_ENGAGEMENT_AND_CONVERSION_INSIGHTS: InsightDefin
                     funnelWindowInterval: 6,
                     breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
+                },
+                breakdownFilter: {
+                    breakdown_type: 'event',
+                },
+                filterTestAccounts: true,
+            },
+        },
+    },
+    {
+        name: 'Acquisition Conversion',
+        description: 'Website pageview event, Signup pageview event, Signup event',
+        needsConfig: true,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [VISIT, VIEWED_SIGNUP, SIGNED_UP],
+                dateRange: {
+                    date_from: '-90d',
+                    explicitDate: false,
+                },
+                properties: [],
+                funnelsFilter: {
+                    layout: FunnelLayout.horizontal,
+                    exclusions: [],
+                    funnelVizType: FunnelVizType.Steps,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
+                    funnelWindowInterval: 6,
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
+                },
+                breakdownFilter: {
+                    breakdown_type: 'event',
+                },
+                filterTestAccounts: true,
+            },
+        },
+    },
+    {
+        name: 'What percentage of people on the signup page click the CTA?',
+        description: 'Pricing pageview, Signup CTA click event',
+        needsConfig: true,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [VIEWED_PRICING, CLICKED_PRICING_CTA],
+                interval: 'week',
+                dateRange: {
+                    date_to: null,
+                    date_from: '-180d',
+                    explicitDate: false,
+                },
+                properties: [],
+                funnelsFilter: {
+                    layout: FunnelLayout.vertical,
+                    exclusions: [],
+                    funnelVizType: FunnelVizType.Trends,
+                    funnelOrderType: StepOrderValue.ORDERED,
+                    funnelStepReference: FunnelStepReference.total,
+                    funnelWindowInterval: 2,
+                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',
@@ -313,70 +377,6 @@ export const CUSTOMER_ANALYTICS_SIGNUP_AND_SUBS_INSIGHTS: InsightDefinition[] = 
                     funnelOrderType: StepOrderValue.ORDERED,
                     funnelStepReference: FunnelStepReference.total,
                     funnelWindowInterval: 14,
-                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                },
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                },
-                filterTestAccounts: true,
-            },
-        },
-    },
-    {
-        name: 'Acquisition Conversion',
-        description: 'Website pageview event, Signup pageview event, Signup event',
-        needsConfig: true,
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.FunnelsQuery,
-                series: [VISIT, VIEWED_SIGNUP, SIGNED_UP],
-                dateRange: {
-                    date_from: '-90d',
-                    explicitDate: false,
-                },
-                properties: [],
-                funnelsFilter: {
-                    layout: FunnelLayout.horizontal,
-                    exclusions: [],
-                    funnelVizType: FunnelVizType.Steps,
-                    funnelOrderType: StepOrderValue.ORDERED,
-                    funnelStepReference: FunnelStepReference.total,
-                    funnelWindowInterval: 6,
-                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
-                },
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                },
-                filterTestAccounts: true,
-            },
-        },
-    },
-    {
-        name: 'What percentage of people on the signup page click the CTA?',
-        description: 'Pricing pageview, Signup CTA click event',
-        needsConfig: true,
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.FunnelsQuery,
-                series: [VIEWED_PRICING, CLICKED_PRICING_CTA],
-                interval: 'week',
-                dateRange: {
-                    date_to: null,
-                    date_from: '-180d',
-                    explicitDate: false,
-                },
-                properties: [],
-                funnelsFilter: {
-                    layout: FunnelLayout.vertical,
-                    exclusions: [],
-                    funnelVizType: FunnelVizType.Trends,
-                    funnelOrderType: StepOrderValue.ORDERED,
-                    funnelStepReference: FunnelStepReference.total,
-                    funnelWindowInterval: 2,
                     breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },

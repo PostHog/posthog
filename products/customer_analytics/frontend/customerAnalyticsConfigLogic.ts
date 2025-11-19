@@ -20,6 +20,16 @@ export const customerAnalyticsConfigLogic = kea<customerAnalyticsConfigLogicType
     })),
     selectors({
         activityEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.activity_event],
+        signupEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.signup_event],
+        signupPageviewEvent: [
+            (s) => [s.customerAnalyticsConfig],
+            (config: CustomerAnalyticsConfig) => config.signup_pageview_event,
+        ],
+        subscriptionEvent: [
+            (s) => [s.customerAnalyticsConfig],
+            (config: CustomerAnalyticsConfig) => config.subscription_event,
+        ],
+        paymentEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.payment_event],
     }),
 
     listeners(({ actions }) => ({
