@@ -40,7 +40,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -251,7 +251,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                     id={message.id || key}
                                     completed={isThinkingComplete}
                                     showCompletionIcon={false}
-                                    animate={message.id === 'loader'}
+                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
                                 />
                             )
                         }
@@ -809,7 +809,7 @@ function ReasoningAnswer({
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
             icon={<IconBrain />}
-            animate={animate}
+            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
             showCompletionIcon={showCompletionIcon}
         />
     )
