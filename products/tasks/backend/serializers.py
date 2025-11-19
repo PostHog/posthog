@@ -138,6 +138,7 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "stage",
             "branch",
             "status",
+            "environment",
             "log_url",
             "error_message",
             "output",

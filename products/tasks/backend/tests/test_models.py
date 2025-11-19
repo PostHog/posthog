@@ -294,7 +294,7 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
-            (TaskRun.Status.STARTED,),
+            (TaskRun.Status.QUEUED,),
             (TaskRun.Status.IN_PROGRESS,),
             (TaskRun.Status.COMPLETED,),
             (TaskRun.Status.FAILED,),
