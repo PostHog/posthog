@@ -315,7 +315,7 @@ export function ProjectExplorer({
                                         to={entry.href || '#'}
                                         className={clsx(
                                             rowGridClass,
-                                            'group/explorer-row grid grid-cols-[minmax(0,1fr)_200px_160px_auto] rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
                                         style={rowIndent ? { paddingLeft: rowIndent } : undefined}
