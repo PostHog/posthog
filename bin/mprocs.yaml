@@ -107,7 +107,7 @@ procs:
     sync-feature-flags:
         shell: |-
             bin/check_postgres_up && \
-            ./manage.py sync_feature_Flags
+            ./manage.py sync_feature_flags
         autostart: false
 
     storybook:
