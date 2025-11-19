@@ -111,17 +111,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Soft deleting task {task.id}")
         task.soft_delete()
 
-    def _trigger_workflow(self, task: Task) -> None:
+    def _trigger_workflow(self, task: Task, task_run: TaskRun) -> None:
         try:
-            logger.info(f"Attempting to trigger task processing workflow for task {task.id}")
+            logger.info(f"Attempting to trigger task processing workflow for task {task.id}, run {task_run.id}")
             execute_task_processing_workflow(
                 task_id=str(task.id),
+                run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
             )
-            logger.info(f"Workflow trigger completed for task {task.id}")
+            logger.info(f"Workflow trigger completed for task {task.id}, run {task_run.id}")
         except Exception as e:
-            logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
+            logger.exception(f"Failed to trigger task processing workflow for task {task.id}, run {task_run.id}: {e}")
 
             logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
 
@@ -136,21 +137,25 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=None,
         responses={
-            200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Task run created and queued"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",
-        description="Kick off the workflow for the task in its current stage.",
+        description="Create a new task run and kick off the workflow.",
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
 
-        logger.info(f"Triggering workflow for task {task.id}")
+        logger.info(f"Creating task run for task {task.id}")
 
-        self._trigger_workflow(task)
+        task_run = task.create_run()
 
-        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+        logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
+
+        self._trigger_workflow(task, task_run)
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
 
 @extend_schema(tags=["task-runs"])

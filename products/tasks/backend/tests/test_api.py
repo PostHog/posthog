@@ -82,7 +82,7 @@ class TestTaskAPI(BaseTaskAPITest):
         task2 = self.create_task("Task 2")
 
         # Create runs for task1
-        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
         run1_latest = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         # Task2 has no runs
@@ -128,7 +128,7 @@ class TestTaskAPI(BaseTaskAPITest):
         _run1 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskRun.Status.STARTED,
+            status=TaskRun.Status.QUEUED,
         )
 
         run2 = TaskRun.objects.create(
@@ -202,15 +202,19 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        data = response.json()
+        run_id = data["id"]
+
         mock_workflow.assert_called_once_with(
             task_id=str(task.id),
+            run_id=run_id,
             team_id=task.team.id,
             user_id=self.user.id,
         )
 
-        data = response.json()
-        self.assertEqual(data["id"], str(task.id))
-        self.assertEqual(data["title"], task.title)
+        self.assertEqual(data["task"], str(task.id))
+        self.assertEqual(data["status"], "queued")
+        self.assertEqual(data["environment"], "cloud")
 
     @parameterized.expand(
         [
@@ -286,7 +290,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run1 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskRun.Status.STARTED,
+            status=TaskRun.Status.QUEUED,
         )
 
         run2 = TaskRun.objects.create(
@@ -331,8 +335,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
 
-        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
-        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
+        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -345,7 +349,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
 
-        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -449,7 +453,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         endpoints = [
             # TaskViewSet endpoints
@@ -556,7 +560,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         api_key_value = generate_random_token_personal()
 

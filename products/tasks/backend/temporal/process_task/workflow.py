@@ -54,15 +54,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> str:
         loaded = json.loads(inputs[0])
-        return loaded["task_id"]
+        return loaded["run_id"]
 
     @temporalio.workflow.run
-    async def run(self, task_id: str) -> ProcessTaskOutput:
+    async def run(self, run_id: str) -> ProcessTaskOutput:
         sandbox_id = None
         personal_api_key_id = None
 
         try:
-            self._task_details = await self._get_task_details(task_id)
+            self._task_details = await self._get_task_details(run_id)
 
             await self._track_workflow_event(
                 "process_task_workflow_started",

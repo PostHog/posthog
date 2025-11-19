@@ -100,6 +100,14 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
+    def create_run(self, environment: "TaskRun.Environment" = None) -> "TaskRun":
+        return TaskRun.objects.create(
+            task=self,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=environment or TaskRun.Environment.CLOUD,
+        )
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
@@ -140,8 +148,11 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
+        task_run = task.create_run()
+
         execute_task_processing_workflow(
             task_id=str(task.id),
+            run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=user_id,
         )
@@ -151,16 +162,23 @@ class Task(DeletedMetaFields, models.Model):
 
 class TaskRun(models.Model):
     class Status(models.TextChoices):
-        STARTED = "started", "Started"
+        QUEUED = "queued", "Queued"
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+
+    class Environment(models.TextChoices):
+        LOCAL = "local", "Local"
+        CLOUD = "cloud", "Cloud"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
+    environment = models.CharField(
+        max_length=10, choices=Environment.choices, default=Environment.CLOUD, help_text="Execution environment"
+    )
 
     # Stage tracking
     stage = models.CharField(
@@ -170,7 +188,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
 
     log_storage_path = models.CharField(max_length=500, blank=True, null=True, help_text="S3 path to log file")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")

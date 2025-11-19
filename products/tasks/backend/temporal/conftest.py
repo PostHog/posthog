@@ -89,7 +89,7 @@ def test_task(team, user, github_integration):
 
     yield task
 
-    task.delete()
+    task.soft_delete()
 
 
 @pytest.fixture(autouse=True)
