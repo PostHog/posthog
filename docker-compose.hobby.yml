@@ -186,9 +186,6 @@ services:
         restart: on-failure
         volumes:
             - seaweedfs:/data
-        ports:
-            - '8333:8333'
-            - '9333:9333'
 
     asyncmigrationscheck:
         extends:

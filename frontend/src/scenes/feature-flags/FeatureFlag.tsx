@@ -64,6 +64,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -125,6 +126,10 @@ export function createMaxToolSurveyConfig(
     initialMaxPrompt: string
     suggestions: string[]
     context: Record<string, any>
+    contextDescription: {
+        text: string
+        icon: JSX.Element
+    }
     callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
 } {
     return {
@@ -147,7 +152,6 @@ export function createMaxToolSurveyConfig(
                       `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
                   ],
         context: {
-            user_id: user?.uuid,
             feature_flag_key: featureFlag.key,
             feature_flag_id: featureFlag.id,
             feature_flag_name: featureFlag.name,
@@ -163,6 +167,10 @@ export function createMaxToolSurveyConfig(
                       }))
                     : [],
             variant_count: variants?.length || 0,
+        },
+        contextDescription: {
+            text: featureFlag.name,
+            icon: iconForType('feature_flag'),
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
             addProductIntent({
@@ -962,9 +970,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         removeVariant,
         setMultivariateEnabled,
         setFeatureFlag,
-        saveFeatureFlag,
         setRemoteConfigEnabled,
         resetEncryptedPayload,
+        toggleFeatureFlagActive,
     } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -1052,30 +1060,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 onChange={(newValue) => {
-                                                    LemonDialog.open({
-                                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                        description: `This flag will be immediately ${
-                                                            newValue === true ? 'rolled out to' : 'rolled back from'
-                                                        } the users matching the release conditions.`,
-                                                        primaryButton: {
-                                                            children: 'Confirm',
-                                                            type: 'primary',
-                                                            onClick: () => {
-                                                                const updatedFlag = {
-                                                                    ...featureFlag,
-                                                                    active: newValue,
-                                                                }
-                                                                setFeatureFlag(updatedFlag)
-                                                                saveFeatureFlag(updatedFlag)
-                                                            },
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
                                                 disabledReason={

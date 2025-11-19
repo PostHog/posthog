@@ -44,9 +44,18 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
     # If asset has an exception, return an error block instead of an image
     if asset.exception:
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+
+        # Slack text blocks have a 3000 character limit
+        # Reserve space for the insight name, formatting, and support message
+        max_error_length = 2000
+        exception_text = str(asset.exception)
+
+        if len(exception_text) > max_error_length:
+            exception_text = exception_text[:max_error_length] + "... (truncated)"
+
         error_text = (
-            f"❌ *{insight_name}*\n"
-            f"There was an error generating your asset: {asset.exception}\n"
+            f"*{insight_name}*\n"
+            f"There was an error generating your asset: {exception_text}\n"
             f"_If this issue persists, please contact support._"
         )
 

@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "noop"],
+            "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1852,7 +1852,11 @@
                 "filter_revenue_analytics",
                 "filter_web_analytics",
                 "create_feature_flag",
-                "create_experiment"
+                "create_experiment",
+                "execute_sql",
+                "switch_mode",
+                "summarize_sessions",
+                "create_insight"
             ],
             "type": "string"
         },
@@ -14016,9 +14020,18 @@
             "properties": {
                 "count": {
                     "type": "number"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/FileSystemEntry"
+                    },
+                    "type": "array"
+                },
+                "has_more": {
+                    "type": "boolean"
                 }
             },
-            "required": ["count"],
+            "required": ["count", "entries", "has_more"],
             "type": "object"
         },
         "FileSystemEntry": {
@@ -18194,7 +18207,26 @@
                 "experiment_name": {
                     "type": "string"
                 },
-                "metrics_results": {
+                "exposures": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "primary_metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "secondary_metrics_results": {
                     "items": {
                         "$ref": "#/definitions/MaxExperimentMetricResult"
                     },
@@ -18214,8 +18246,10 @@
                 "experiment_id",
                 "experiment_name",
                 "description",
+                "exposures",
                 "variants",
-                "metrics_results",
+                "primary_metrics_results",
+                "secondary_metrics_results",
                 "stats_method"
             ],
             "type": "object"
@@ -23924,6 +23958,10 @@
                     },
                     "type": "array"
                 },
+                "session_recording_id": {
+                    "description": "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters",
+                    "type": "string"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -26284,6 +26322,14 @@
                 "name": {
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
+                "suggestedTables": {
+                    "default": [],
+                    "description": "Tables to suggest enabling, with optional tooltip explaining why",
+                    "items": {
+                        "$ref": "#/definitions/SuggestedTable"
+                    },
+                    "type": "array"
+                },
                 "unreleasedSource": {
                     "type": "boolean"
                 }
@@ -26866,6 +26912,19 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SuggestedTable": {
+            "additionalProperties": false,
+            "properties": {
+                "table": {
+                    "type": "string"
+                },
+                "tooltip": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["table"],
             "type": "object"
         },
         "SurveyAnalysisQuestionGroup": {
@@ -28568,6 +28627,35 @@
                     "type": "object"
                 }
             },
+            "type": "object"
+        },
+        "WebAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

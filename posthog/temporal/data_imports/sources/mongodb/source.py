@@ -30,6 +30,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"The DNS query name does not exist": None, "authentication failed": None}
+
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 

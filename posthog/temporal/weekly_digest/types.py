@@ -32,6 +32,7 @@ class WeeklyDigestInput(BaseModel):
     dry_run: bool = False
     skip_generate: bool = False
     digest_key_override: str | None = None
+    allow_already_sent: bool = False
     common: CommonInput = CommonInput()
 
 
@@ -54,6 +55,7 @@ class GenerateOrganizationDigestInput(BaseModel):
 
 class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 
@@ -61,6 +63,7 @@ class SendWeeklyDigestInput(BaseModel):
 class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
+    allow_already_sent: bool
     digest: Digest
     common: CommonInput
 
@@ -245,7 +248,7 @@ class OrganizationDigest(BaseModel):
             "scope": "user",
             "template_name": "weekly_digest_report",
             "period": digest.render_payload(),
-            "region": get_instance_region(),
+            "digest_region": get_instance_region(),
         }
 
 
