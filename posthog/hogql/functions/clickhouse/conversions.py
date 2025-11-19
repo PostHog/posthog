@@ -81,6 +81,9 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((DateTimeType(), StringType()), StringType()),
         ],
     ),
+    "toNullableString": HogQLFunctionMeta(
+        "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
+    ),
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),

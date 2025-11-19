@@ -31,6 +31,14 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "PERMISSION_DENIED": None,
+            "UNAUTHENTICATED": None,
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
+            "Account has been deleted": None,
+        }
+
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
         if "google_ads_integration_id" in job_inputs.keys():

@@ -39,8 +39,8 @@ import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries
 import { UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
+import { customProductsLogic } from './customProductsLogic'
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
-import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
@@ -139,6 +139,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ['projectTreeRef'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
+            customProductsLogic,
+            ['customProducts', 'customProductPaths'],
         ],
         actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
@@ -906,7 +908,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
-                        ['products://', getExperimentalProductsTree(featureFlags) || getDefaultTreeProducts()],
+                        ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
@@ -937,6 +939,63 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.shortcutData],
             (shortcutData) =>
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
+        ],
+        getCustomProductTreeItems: [
+            (s) => [s.customProducts, s.featureFlags, s.getShortcutTreeItems, s.folderStates, s.users],
+            (
+                customProducts,
+                featureFlags,
+                getShortcutTreeItems,
+                folderStates,
+                users
+            ): ((searchTerm: string) => TreeDataItem[]) => {
+                return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
+                    const allProducts = getDefaultTreeProducts()
+                    const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
+
+                    const selectedProducts = customProducts
+                        .map((item) => {
+                            const product = productMap.get(item.product_path)
+                            return product || null
+                        })
+                        .filter((p): p is FileSystemImport => p !== null)
+
+                    const convert = (imports: FileSystemImport[], protocol: string): TreeDataItem[] =>
+                        convertFileSystemEntryToTreeDataItem({
+                            root: protocol,
+                            imports: imports
+                                .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                                .map((i) => ({
+                                    ...i,
+                                    protocol,
+                                })),
+                            checkedItems: {},
+                            folderStates,
+                            users,
+                            foldersFirst: false,
+                            searchTerm,
+                        })
+
+                    const result: TreeDataItem[] = []
+
+                    // Shortcuts above the custom products to keep them all together here
+                    const shortcutItems = getShortcutTreeItems(searchTerm, false)
+                    if (shortcutItems.length > 0) {
+                        result.push({
+                            id: 'custom-products://-shortcuts-category',
+                            name: 'Shortcuts',
+                            displayName: <>Shortcuts</>,
+                            type: 'category',
+                        })
+                        result.push(...shortcutItems)
+                    }
+
+                    const customProductItems = convert(selectedProducts, 'custom-products://')
+                    result.push(...customProductItems)
+
+                    return result
+                }
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
