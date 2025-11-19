@@ -173,11 +173,6 @@ export function ProjectExplorer({
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
                 </div>
-                {isLoadingCurrentFolder && rows.length === 0 ? (
-                    <div className="flex items-center gap-2 px-3 py-4 text-muted">
-                        <Spinner /> Loading folder...
-                    </div>
-                ) : null}
                 <ListBox.Group groupId="project-explorer">
                     {displayRows.map(({ entry, depth, isParentNavigation }, rowIndex) => {
                         const isParentNavigationRow = !!isParentNavigation
@@ -257,9 +252,14 @@ export function ProjectExplorer({
                             </ListBox.Item>
                         )
                     })}
+                    {isLoadingCurrentFolder && rows.length === 0 ? (
+                        <div className="flex items-center gap-2 px-3 py-2 ml-6 text-muted border-t border-border">
+                            <Spinner /> Loading folder...
+                        </div>
+                    ) : null}
                     {!isLoadingCurrentFolder && rows.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-muted border-t border-border">
-                            No files in this folder yet.
+                        <div className="px-3 py-2 ml-12 text-sm text-muted border-t border-border">
+                            No files in this folder.
                         </div>
                     ) : null}
                 </ListBox.Group>
