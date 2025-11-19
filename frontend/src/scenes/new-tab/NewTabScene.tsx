@@ -98,7 +98,11 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     setSearch(value)
                                 }
                             }}
-                            placeholder="Search or ask an AI question"
+                            placeholder={
+                                activeExplorerFolderPath !== null
+                                    ? 'Search in folder...'
+                                    : 'Search or ask an AI question'
+                            }
                             activeCommands={activeCommands}
                             selectedCommands={selectedCommands}
                             onCommandSelect={(command) => {

@@ -12,6 +12,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -117,12 +118,11 @@ export function ProjectExplorer({
         }
     }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
     const contentRows = shouldUseSearchRows ? searchRows : rows
-    const displayRows = useMemo(() => (parentRow ? [parentRow, ...contentRows] : contentRows), [parentRow, contentRows])
+    const displayRows = useMemo(
+        () => (parentRow && !shouldUseSearchRows ? [parentRow, ...contentRows] : contentRows),
+        [parentRow, contentRows, shouldUseSearchRows]
+    )
     const isLoadingRows = isSearchActive ? explorerSearchResultsLoading : isLoadingCurrentFolder
-    const folderDisplayName =
-        breadcrumbSegments.length === 0
-            ? 'Project root'
-            : splitPath(explorerFolderPath).pop() || breadcrumbSegments[breadcrumbSegments.length - 1]
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
@@ -203,19 +203,31 @@ export function ProjectExplorer({
         return null
     }
 
+    const getEntryFolderLabel = (entry: FileSystemEntry): string => {
+        const segments = splitPath(entry.path)
+        if (segments.length <= 1) {
+            return 'Project root'
+        }
+        return joinPath(segments.slice(0, -1))
+    }
+
+    const highlightSearchText = (text: string): JSX.Element | string => {
+        if (!shouldUseSearchRows || !trimmedSearch) {
+            return text
+        }
+        return <SearchHighlightMultiple string={text} substring={trimmedSearch} />
+    }
+
+    const rowGridClass = shouldUseSearchRows
+        ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_200px_160px]'
+        : 'grid grid-cols-[minmax(0,1fr)_200px_160px]'
+
     return (
         <div className="flex flex-col gap-3 p-3">
             <div className="rounded bg-bg-300">
-                {isSearchActive && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
-                        <span className="truncate">
-                            Searching {folderDisplayName} for “{trimmedSearch}”
-                        </span>
-                        {explorerSearchResultsLoading && <Spinner size="small" />}
-                    </div>
-                )}
-                <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border px-3 py-2 text-xs uppercase text-muted">
+                <div className={clsx('border-b border-border px-3 py-2 text-xs uppercase text-muted', rowGridClass)}>
                     <div className="pr-3 pl-6">Name</div>
+                    {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
                 </div>
@@ -233,7 +245,11 @@ export function ProjectExplorer({
                                     : (entry.type as FileSystemIconType) || 'default_icon_type'
                             )
                             const focusBase = String(entry.id ?? entry.path ?? rowIndex)
-                            const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
+                            const rawNameLabel = isParentNavigationRow
+                                ? '..'
+                                : splitPath(entry.path).pop() || entry.path
+                            const nameLabel = highlightSearchText(rawNameLabel)
+                            const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
                             const isHighlighted = highlightedExplorerEntryPath === entry.path
                             const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
                                 event.preventDefault()
@@ -257,7 +273,8 @@ export function ProjectExplorer({
                                     <Link
                                         to={entry.href || '#'}
                                         className={clsx(
-                                            'grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            rowGridClass,
+                                            'border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
                                             isHighlighted && 'bg-primary-alt-highlight text-primary'
                                         )}
                                         style={rowIndent ? { paddingLeft: rowIndent } : undefined}
@@ -294,6 +311,11 @@ export function ProjectExplorer({
                                                 <Spinner className="size-3" />
                                             ) : null}
                                         </div>
+                                        {shouldUseSearchRows && (
+                                            <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
+                                                <span className="truncate">{folderLabel}</span>
+                                            </div>
+                                        )}
                                         <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
                                             {renderCreatedBy(entry)}
                                         </div>
