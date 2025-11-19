@@ -1,55 +1,64 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { urls } from 'scenes/urls'
 
-import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
+import { eventConfigModalLogic } from 'products/customer_analytics/frontend/components/Insights/eventConfigModalLogic'
 
 export function EventConfigModal(): JSX.Element {
-    const { isEventConfigModalOpen, activityEventFilters, hasActivityEventChanged } =
-        useValues(customerAnalyticsSceneLogic)
-    const { toggleEventConfigModal, setActivityEventSelection, saveActivityEvent } =
-        useActions(customerAnalyticsSceneLogic)
-
-    const handleClose = (): void => {
-        toggleEventConfigModal(false)
-    }
+    const { activityEventFilters, hasActivityEventChanged, isOpen } = useValues(eventConfigModalLogic)
+    const { saveActivityEvent, setActivityEventSelection, toggleModalOpen } = useActions(eventConfigModalLogic)
 
     const handleSave = (): void => {
         saveActivityEvent()
-        toggleEventConfigModal(false)
+        toggleModalOpen(false)
     }
 
     return (
         <LemonModal
-            isOpen={isEventConfigModalOpen}
-            onClose={handleClose}
+            isOpen={isOpen}
+            onClose={toggleModalOpen}
             title="Configure activity event"
-            width={600}
+            width={800}
             hasUnsavedInput={hasActivityEventChanged}
         >
-            <LemonModal.Content>
-                <p className="mb-4">
-                    Select which event or action define user activity for your customer analytics dashboard.
+            <LemonModal.Header>
+                <p className="mb-2">
+                    Select which event or action defines user activity for your customer analytics dashboard.
                 </p>
+                <div className="flex items-center gap-1 text-muted text-xs">
+                    <IconInfo className="text-base" />
+                    <span>
+                        To track multiple events as activity, you can{' '}
+                        <Link to={urls.createAction()} target="_blank">
+                            create an action
+                        </Link>{' '}
+                        that combines them.
+                    </span>
+                </div>
+            </LemonModal.Header>
+            <LemonModal.Content>
                 <ActionFilter
                     filters={activityEventFilters}
                     setFilters={setActivityEventSelection}
                     typeKey="customer-analytics-event-config-modal"
                     mathAvailability={MathAvailability.None}
-                    hideDeleteBtn={true}
                     hideRename={true}
-                    hideDuplicate={true}
+                    hideDuplicate={false}
                     hideFilter={true}
-                    entitiesLimit={1}
+                    propertyFiltersPopover={true}
                     actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                    buttonCopy="Select event or action"
+                    entitiesLimit={1}
                 />
             </LemonModal.Content>
             <LemonModal.Footer>
-                <LemonButton type="secondary" onClick={handleClose}>
+                <LemonButton type="secondary" onClick={() => toggleModalOpen()}>
                     Cancel
                 </LemonButton>
                 <LemonButton

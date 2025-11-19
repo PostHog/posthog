@@ -13,11 +13,11 @@ import { ChartDisplayType } from '~/types'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { InsightDefinition } from '../../insightDefinitions'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
-import { EventConfigModal } from './EventConfigModal'
+import { eventConfigModalLogic } from './eventConfigModalLogic'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
+    const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
     // Check if using pageview as default
     const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
@@ -29,7 +29,7 @@ export function ActiveUsersInsights(): JSX.Element {
                     You are currently using the pageview event to define user activity. Consider using a more specific
                     event or action to track activity accurately.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton type="primary" onClick={() => toggleEventConfigModal()}>
+                        <LemonButton type="primary" onClick={() => toggleModalOpen()}>
                             Configure activity event
                         </LemonButton>
                     </div>
@@ -42,7 +42,7 @@ export function ActiveUsersInsights(): JSX.Element {
                         icon={<IconGear />}
                         size="small"
                         noPadding
-                        onClick={() => toggleEventConfigModal()}
+                        onClick={() => toggleModalOpen()}
                         tooltip="Configure dashboard"
                     />
                 )}
@@ -55,7 +55,6 @@ export function ActiveUsersInsights(): JSX.Element {
                 })}
             </div>
             <PowerUsersTable />
-            <EventConfigModal />
         </div>
     )
 }

@@ -1,26 +1,20 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 
 import { FunnelLayout } from 'lib/constants'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
-import { isDataWarehouseNode } from '~/queries/utils'
 import {
     BaseMathType,
     Breadcrumb,
     BreakdownAttributionType,
     ChartDisplayType,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelStepReference,
     FunnelVizType,
-    InsightType,
     PropertyMathType,
     StepOrderValue,
 } from '~/types'
@@ -52,27 +46,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         actions: [customerAnalyticsConfigLogic, ['updateActivityEvent']],
     })),
-    actions({
-        setActivityEventSelection: (filters: FilterType | null) => ({
-            filters,
-        }),
-        saveActivityEvent: true,
-        toggleEventConfigModal: (isOpen?: boolean) => ({ isOpen }),
-    }),
-    reducers({
-        activityEventSelection: [
-            null as FilterType | null,
-            {
-                setActivityEventSelection: (_, { filters }) => filters,
-            },
-        ],
-        isEventConfigModalOpen: [
-            false,
-            {
-                toggleEventConfigModal: (state, { isOpen }) => (isOpen !== undefined ? isOpen : !state),
-            },
-        ],
-    }),
     selectors({
         tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],
         breadcrumbs: [
@@ -85,12 +58,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 },
             ],
-        ],
-        hasActivityEventChanged: [
-            (s) => [s.activityEventSelection],
-            (activityEventSelection): boolean => {
-                return activityEventSelection !== null
-            },
         ],
         dauSeries: [
             (s) => [s.activityEvent],
@@ -624,34 +591,5 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
             ],
         ],
-        activityEventFilters: [
-            (s) => [s.activityEvent, s.activityEventSelection],
-            (activityEvent, activityEventSelection): FilterType => {
-                if (activityEventSelection) {
-                    return activityEventSelection
-                }
-                return {
-                    insight: InsightType.TRENDS,
-                    ...seriesToActionsAndEvents(activityEvent ? [activityEvent] : []),
-                }
-            },
-        ],
     }),
-    listeners(({ actions, values }) => ({
-        saveActivityEvent: () => {
-            const filters = values.activityEventSelection
-            const activityEvents = actionsAndEventsToSeries(filters as any, true, MathAvailability.None)
-
-            if (activityEvents.length > 0 && !isDataWarehouseNode(activityEvents[0])) {
-                actions.updateActivityEvent(activityEvents[0])
-                actions.setActivityEventSelection(null)
-            }
-        },
-        toggleEventConfigModal: ({ isOpen }) => {
-            const isClosing = isOpen === false || (isOpen === undefined && values.isEventConfigModalOpen)
-            if (isClosing) {
-                actions.setActivityEventSelection(null)
-            }
-        },
-    })),
 ])

@@ -4,6 +4,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { EventConfigModal } from 'products/customer_analytics/frontend/components/Insights/EventConfigModal'
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
@@ -33,6 +34,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                 <ActiveUsersInsights />
                 <SignupInsights />
                 <SessionInsights />
+                <EventConfigModal />
             </div>
         </SceneContent>
     )
