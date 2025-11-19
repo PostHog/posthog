@@ -68,10 +68,10 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { InsightType } from '~/types'
 
+import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
 import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
-import { openCHQueriesDebugModal } from './DebugCHQueries'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
