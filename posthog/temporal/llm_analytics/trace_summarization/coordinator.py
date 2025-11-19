@@ -40,33 +40,40 @@ class TeamsWithTracesResult:
     team_ids: list[int]
 
 
+def query_teams_with_traces(lookback_hours: int) -> list[int]:
+    """
+    Query ClickHouse for teams that have LLM trace events in the lookback window.
+
+    Shared logic used by both the coordinator activity and manual trigger script.
+    """
+    from posthog.clickhouse.client import sync_execute
+
+    result = sync_execute(
+        """
+        SELECT DISTINCT team_id
+        FROM events
+        WHERE event IN (
+            '$ai_trace', '$ai_span', '$ai_generation',
+            '$ai_embedding', '$ai_metric', '$ai_feedback'
+        )
+          AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
+        ORDER BY team_id
+        """,
+        {"lookback_hours": lookback_hours},
+    )
+    return [row[0] for row in result]
+
+
 @temporalio.activity.defn
 async def get_teams_with_recent_traces_activity(
     inputs: BatchTraceSummarizationCoordinatorInputs,
 ) -> TeamsWithTracesResult:
     """Query for teams that have LLM trace events in the lookback window."""
-    from django.db import connection
-
     from posthog.temporal.llm_analytics.trace_summarization.constants import ALLOWED_TEAM_IDS
 
     @database_sync_to_async
     def get_teams():
-        with connection.cursor() as cursor:
-            # Query for teams with trace events in the lookback window
-            cursor.execute(
-                """
-                SELECT DISTINCT team_id
-                FROM events
-                WHERE event IN (
-                    '$ai_trace', '$ai_span', '$ai_generation',
-                    '$ai_embedding', '$ai_metric', '$ai_feedback'
-                )
-                  AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
-                ORDER BY team_id
-                """,
-                {"lookback_hours": inputs.lookback_hours},
-            )
-            return [row[0] for row in cursor.fetchall()]
+        return query_teams_with_traces(inputs.lookback_hours)
 
     team_ids = await get_teams()
 

@@ -38,35 +38,25 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import Batch
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
 
-def find_teams_with_traces():
-    """Find teams that have LLM trace data."""
-    from django.db import connection
+def find_teams_with_traces(lookback_hours: int = 24):
+    """Find teams that have LLM trace data in the lookback window."""
+    from posthog.temporal.llm_analytics.trace_summarization.coordinator import query_teams_with_traces
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT team_id, COUNT(*) as trace_count
-            FROM events
-            WHERE event = '$ai_trace'
-            GROUP BY team_id
-            ORDER BY trace_count DESC
-            LIMIT 10
-            """
-        )
-        results = cursor.fetchall()
+    team_ids = query_teams_with_traces(lookback_hours)
 
-    if not results:
+    if not team_ids:
         print("No teams found with trace data.")
         print("You need to seed your local PostHog with LLM trace data first.")
         return []
 
     print("\nTeams with trace data:")
     print("=" * 50)
-    for team_id, count in results:
-        print(f"Team ID: {team_id:4d} | Trace count: {count:6d}")
+    for team_id in team_ids:
+        print(f"Team ID: {team_id:4d}")
     print("=" * 50)
+    print(f"Total teams: {len(team_ids)}")
 
-    return results
+    return team_ids
 
 
 def trigger_coordinator(
