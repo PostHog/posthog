@@ -336,9 +336,27 @@ class _SessionSearch:
             "search_session_recordings", {}
         )
         current_filters = search_session_recordings_context.get("current_filters")
-        # TODO: Actually use current_session_id
-        # current_session_id = search_session_recordings_context.get("current_session_id")
+        current_session_id = search_session_recordings_context.get("current_session_id")
         try:
+            # Check what to use - filters or current session, as they are mutually exclusive
+            if state.should_use_current_session and state.should_use_current_filters:
+                self._node._log_failure(
+                    f"should_use_current_session and should_use_current_filters cannot be True at the same time",
+                    conversation_id,
+                    start_time,
+                )
+                return self._node._create_error_response(self._node._base_error_instructions, state)
+            # Use current session, if provided
+            if state.should_use_current_session:
+                if not current_session_id:
+                    self._node._log_failure(
+                        f"Use current session decision was set to True, but current session ID was not provided when summarizing sessions: {state.should_use_current_session}",
+                        conversation_id,
+                        start_time,
+                    )
+                    return self._node._create_error_response(self._node._base_error_instructions, state)
+                # Return session ids right away to use in the next step
+                return [current_session_id]
             # Use current filters, if provided
             if state.should_use_current_filters:
                 if not current_filters:
