@@ -7,7 +7,7 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 
-import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
@@ -35,13 +35,13 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const metricsWithResults = isSecondary ? orderedSecondaryMetricsWithResults : orderedPrimaryMetricsWithResults
 
     const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
-    const results = metricsWithResults.map(({ result }: { result: NewExperimentQueryResponse }) => result)
+    const results = metricsWithResults.map(({ result }: { result: CachedNewExperimentQueryResponse }) => result)
     const errors = metricsWithResults.map(({ error }: { error: any }) => error)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
         results?.some(
-            (result: NewExperimentQueryResponse) => result?.variant_results && result.variant_results.length > 0
+            (result: CachedNewExperimentQueryResponse) => result?.variant_results && result.variant_results.length > 0
         ) && hasMinimumExposureForResults
 
     return (
