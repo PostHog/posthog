@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
@@ -27,16 +28,54 @@ export const scene: SceneExport = {
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { search, newTabSceneDataInclude, activeExplorerFolderPath } = useValues(newTabSceneLogic({ tabId }))
+    const { search, newTabSceneDataInclude, activeExplorerFolderPath, explorerExpandedFolders } = useValues(
+        newTabSceneLogic({ tabId })
+    )
     const {
         setSearch,
         toggleNewTabSceneDataInclude,
         refreshDataAfterToggle,
         setNewTabSearchInputRef,
         setActiveExplorerFolderPath,
+        toggleExplorerFolderExpansion,
     } = useActions(newTabSceneLogic({ tabId }))
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
     useMountedLogic(projectTreeLogic(projectTreeLogicProps))
+    const { loadFolder } = useActions(projectTreeLogic(projectTreeLogicProps))
+    const trimmedSearch = search.trim()
+
+    const handleListBoxFinishedKeyDown = useCallback(
+        ({ e, activeElement }: { e: ReactKeyboardEvent; activeElement: HTMLElement | null }) => {
+            const isSpaceKey = e.key === ' ' || e.code === 'Space' || e.key === 'Spacebar'
+            if (!isSpaceKey) {
+                return
+            }
+
+            if (activeExplorerFolderPath === null || trimmedSearch !== '') {
+                return
+            }
+
+            const target = activeElement
+            const entryPath = target?.getAttribute('data-explorer-entry-path')
+            const entryType = target?.getAttribute('data-explorer-entry-type')
+            const isParentRow = target?.getAttribute('data-explorer-entry-parent') === 'true'
+            const isExpandable = target?.getAttribute('data-explorer-entry-expandable') === 'true'
+
+            if (!entryPath || entryType !== 'folder' || isParentRow || !isExpandable) {
+                return
+            }
+
+            e.preventDefault()
+            e.stopPropagation()
+
+            const wasExpanded = !!explorerExpandedFolders[entryPath]
+            toggleExplorerFolderExpansion(entryPath)
+            if (!wasExpanded) {
+                loadFolder(entryPath)
+            }
+        },
+        [activeExplorerFolderPath, trimmedSearch, explorerExpandedFolders, toggleExplorerFolderExpansion, loadFolder]
+    )
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
@@ -141,6 +180,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
                 virtualFocus
                 autoSelectFirst
+                onFinishedKeyDown={handleListBoxFinishedKeyDown}
             >
                 <div className="sr-only">
                     <p>

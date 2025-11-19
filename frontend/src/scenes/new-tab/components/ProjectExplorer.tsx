@@ -250,7 +250,10 @@ export function ProjectExplorer({
         <div className="flex flex-col gap-3 p-3">
             <div className="rounded bg-bg-300">
                 <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
-                    <div className="pr-3 pl-6">Name</div>
+                    <div className="flex items-center gap-2 pr-3 pl-6">
+                        <span>Name</span>
+                        {isLoadingRows && <Spinner size="small" />}
+                    </div>
                     {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
@@ -302,6 +305,10 @@ export function ProjectExplorer({
                                 >
                                     <Link
                                         to={entry.href || '#'}
+                                        data-explorer-entry-path={entry.path}
+                                        data-explorer-entry-type={entry.type}
+                                        data-explorer-entry-parent={isParentNavigationRow ? 'true' : 'false'}
+                                        data-explorer-entry-expandable={isExpandableFolder ? 'true' : 'false'}
                                         className={clsx(
                                             rowGridClass,
                                             'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
