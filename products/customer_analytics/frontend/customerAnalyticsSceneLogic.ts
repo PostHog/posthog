@@ -44,7 +44,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 'paymentEvent',
             ],
         ],
-        actions: [customerAnalyticsConfigLogic, ['updateActivityEvent']],
     })),
     selectors({
         tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],

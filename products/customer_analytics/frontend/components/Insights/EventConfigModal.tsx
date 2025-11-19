@@ -1,35 +1,43 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconInfo, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { urls } from 'scenes/urls'
 
+import { EntityTypes, FilterType } from '~/types'
+
 import { eventConfigModalLogic } from 'products/customer_analytics/frontend/components/Insights/eventConfigModalLogic'
 
 export function EventConfigModal(): JSX.Element {
-    const { activityEventFilters, hasActivityEventChanged, isOpen } = useValues(eventConfigModalLogic)
-    const { saveActivityEvent, setActivityEventSelection, toggleModalOpen } = useActions(eventConfigModalLogic)
+    const { eventSelectors, hasChanges, isOpen } = useValues(eventConfigModalLogic)
+    const { saveEvents, toggleModalOpen, clearFilterSelections } = useActions(eventConfigModalLogic)
 
     const handleSave = (): void => {
-        saveActivityEvent()
+        saveEvents()
         toggleModalOpen(false)
+    }
+
+    const onClose = (): void => {
+        toggleModalOpen(false)
+        clearFilterSelections()
     }
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={toggleModalOpen}
-            title="Configure activity event"
+            onClose={onClose}
+            title="Configure customer analytics events"
             width={800}
-            hasUnsavedInput={hasActivityEventChanged}
+            hasUnsavedInput={hasChanges}
         >
             <LemonModal.Header>
                 <p className="mb-2">
-                    Select which event or action defines user activity for your customer analytics dashboard.
+                    Configure the events or actions that define different user behaviors for your customer analytics
+                    dashboard
                 </p>
                 <div className="flex items-center gap-1 text-muted text-xs">
                     <IconInfo className="text-base" />
@@ -43,32 +51,71 @@ export function EventConfigModal(): JSX.Element {
                 </div>
             </LemonModal.Header>
             <LemonModal.Content>
+                <div className="space-y-4">
+                    {eventSelectors.map((eventSelector, index) => (
+                        <EventSelector key={index} {...eventSelector} />
+                    ))}
+                </div>
+            </LemonModal.Content>
+            <LemonModal.Footer>
+                <LemonButton type="secondary" onClick={onClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton type="primary" onClick={handleSave} disabledReason={hasChanges ? null : 'No changes'}>
+                    Save events
+                </LemonButton>
+            </LemonModal.Footer>
+        </LemonModal>
+    )
+}
+
+export interface EventSelectorProps {
+    caption?: string
+    filters: FilterType | null
+    setFilters: (filters: FilterType) => void
+    title: string
+}
+
+function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
+    return (
+        <div className="space-y-1">
+            <div className="ml-1">
+                <LemonLabel>{title}</LemonLabel>
+                <p className="text-xs text-muted-alt">{caption}</p>
+            </div>
+            {filters ? (
                 <ActionFilter
-                    filters={activityEventFilters}
-                    setFilters={setActivityEventSelection}
-                    typeKey="customer-analytics-event-config-modal"
+                    hideRename
+                    hideDuplicate
+                    hideFilter
+                    propertyFiltersPopover
+                    filters={filters}
+                    setFilters={setFilters}
+                    typeKey={`customer-analytics-${title.toLowerCase()}`}
                     mathAvailability={MathAvailability.None}
-                    hideRename={true}
-                    hideDuplicate={false}
-                    hideFilter={true}
-                    propertyFiltersPopover={true}
                     actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     buttonCopy="Select event or action"
                     entitiesLimit={1}
                 />
-            </LemonModal.Content>
-            <LemonModal.Footer>
-                <LemonButton type="secondary" onClick={() => toggleModalOpen()}>
-                    Cancel
-                </LemonButton>
+            ) : (
                 <LemonButton
-                    type="primary"
-                    onClick={handleSave}
-                    disabledReason={hasActivityEventChanged ? null : 'No changes'}
+                    type="tertiary"
+                    icon={<IconPlusSmall />}
+                    onClick={() => {
+                        setFilters({
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: EntityTypes.EVENTS,
+                                },
+                            ],
+                        })
+                    }}
                 >
-                    Save activity event
+                    Select event or action
                 </LemonButton>
-            </LemonModal.Footer>
-        </LemonModal>
+            )}
+        </div>
     )
 }
