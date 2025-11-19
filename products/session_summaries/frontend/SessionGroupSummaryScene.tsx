@@ -41,7 +41,7 @@ function getSeverityConfig(severity: SeverityLevel): SeverityConfig {
         // bg-danger
         critical: { type: 'danger', color: 'bg-danger' },
         high: { type: 'warning', color: 'bg-yellow-700' },
-        medium: { type: 'success', color: 'bg-warning' },
+        medium: { type: 'warning', color: 'bg-warning' },
         low: { type: 'default', color: 'bg-muted' },
     }
     return configs[severity]
