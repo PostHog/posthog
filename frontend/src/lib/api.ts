@@ -4420,7 +4420,13 @@ const api = {
     },
 
     evaluationRuns: {
-        async create(data: { evaluation_id: string; target_event_id: string; timestamp: string }): Promise<{
+        async create(data: {
+            evaluation_id: string
+            target_event_id: string
+            timestamp: string
+            event: string
+            distinct_id?: string
+        }): Promise<{
             workflow_id: string
             status: string
             evaluation: { id: string; name: string }
