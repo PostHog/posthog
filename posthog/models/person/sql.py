@@ -557,7 +557,7 @@ COMMENT_DISTINCT_ID_COLUMN_SQL = (
 SELECT_PERSON_PROP_VALUES_SQL = """
 SELECT
     value,
-    count(value)
+    uniq(id) - uniqIf(id, is_deleted)  as c
 FROM (
     SELECT
         {property_field} as value
@@ -565,35 +565,37 @@ FROM (
         person
     WHERE
         team_id = %(team_id)s AND
-        is_deleted = 0 AND
         {property_field} IS NOT NULL AND
         {property_field} != ''
     ORDER BY id DESC
     LIMIT 100000
 )
 GROUP BY value
-ORDER BY count(value) DESC
+HAVING c > 0
+ORDER BY c DESC
 LIMIT 20
 """
 
 SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT
     value,
-    count(value)
+    uniq(id) - uniqIf(id, is_deleted)  as c
 FROM (
     SELECT
-        {property_field} as value
+        {property_field} as value,
+        is_deleted,
+        id
     FROM
         person
     WHERE
         team_id = %(team_id)s AND
-        is_deleted = 0 AND
         {property_field} ILIKE %(value)s
     ORDER BY id DESC
     LIMIT 100000
 )
 GROUP BY value
-ORDER BY count(value) DESC
+HAVING c > 0
+ORDER BY c DESC
 LIMIT 20
 """
 
