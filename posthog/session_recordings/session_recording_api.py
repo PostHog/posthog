@@ -1716,10 +1716,20 @@ def list_recordings_from_query(
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
+        # Use prefetch_related with explicit Person filter to include team_id in Person query
+        from django.db.models import Prefetch
+
+        from posthog.models.person.person import Person
+
         person_distinct_ids = (
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(distinct_id__in=distinct_ids, team=team)
-            .select_related("person")
+            .prefetch_related(
+                Prefetch(
+                    "person",
+                    queryset=Person.objects.filter(team_id=team.id),
+                )
+            )
         )
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):

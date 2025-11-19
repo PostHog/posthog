@@ -3,6 +3,7 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
 
 name: Security
 
