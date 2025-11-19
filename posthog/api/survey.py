@@ -132,6 +132,7 @@ SurveyStats = TypedDict(
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_insight_id = serializers.IntegerField(required=False, allow_null=True, source="linked_insight.id")
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
@@ -168,6 +169,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "schedule",
             "linked_flag",
             "linked_flag_id",
+            "linked_insight_id",
             "targeting_flag",
             "internal_targeting_flag",
             "questions",
@@ -208,6 +210,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
+    linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
@@ -232,6 +235,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "schedule",
             "linked_flag",
             "linked_flag_id",
+            "linked_insight_id",
             "targeting_flag_id",
             "targeting_flag",
             "internal_targeting_flag",
