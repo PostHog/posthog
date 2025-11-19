@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Breadcrumb } from '~/types'
 
 import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
 import { SessionGroupSummaryDetailsModal } from './SessionGroupSummaryDetailsModal'
@@ -303,12 +302,6 @@ export function SessionGroupSummary(): JSX.Element {
     const handleCloseModal = (): void => {
         closeSessionDetails()
     }
-    const backBreadcrumb: Breadcrumb = {
-        key: Scene.SessionGroupSummariesTable,
-        name: 'Session summaries',
-        path: urls.sessionSummaries(),
-        iconType: 'insight/hog',
-    }
     if (sessionGroupSummaryLoading) {
         return (
             <SceneContent>
@@ -355,7 +348,12 @@ export function SessionGroupSummary(): JSX.Element {
                         Share
                     </LemonButton>
                 }
-                forceBackTo={backBreadcrumb}
+                forceBackTo={{
+                    key: Scene.SessionGroupSummariesTable,
+                    name: 'Session summaries',
+                    path: urls.sessionSummaries(),
+                    iconType: 'notebook',
+                }}
             />
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
                 <span>{totalSessions} sessions analyzed</span>
