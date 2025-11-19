@@ -23,6 +23,13 @@ export interface SummaryViewDisplayProps {
     tree?: any[]
 }
 
+interface SummaryViewLogicValues {
+    summaryData: { summary: any; text_repr: string } | null
+    summaryDataLoading: boolean
+    summaryMode: 'minimal' | 'detailed'
+    summaryDataFailure?: Error | string | unknown
+}
+
 export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayProps): JSX.Element {
     const logic = summaryViewLogic({ trace, event, tree })
     const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
@@ -56,11 +63,12 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
     }
 
     // Extract error message from loader failure if any
-    const errorMessage = (logic.values as any).summaryDataFailure
-        ? (logic.values as any).summaryDataFailure instanceof Error
-            ? (logic.values as any).summaryDataFailure.message
-            : typeof (logic.values as any).summaryDataFailure === 'string'
-              ? (logic.values as any).summaryDataFailure
+    const logicValues = logic.values as SummaryViewLogicValues
+    const errorMessage = logicValues.summaryDataFailure
+        ? logicValues.summaryDataFailure instanceof Error
+            ? logicValues.summaryDataFailure.message
+            : typeof logicValues.summaryDataFailure === 'string'
+              ? logicValues.summaryDataFailure
               : 'An unexpected error occurred'
         : null
 
