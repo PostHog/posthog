@@ -207,14 +207,11 @@ function PatternCard({
                             Show fewer examples
                         </LemonButton>
                     )}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => setVisibleCount((prev) => prev + 3)}
-                        disabled={visibleCount >= pattern.events.length}
-                    >
-                        Show more examples
-                    </LemonButton>
+                    {visibleCount < pattern.events.length && (
+                        <LemonButton type="secondary" size="small" onClick={() => setVisibleCount((prev) => prev + 3)}>
+                            Show more examples
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>
@@ -351,6 +348,7 @@ export function SessionGroupSummary(): JSX.Element {
                 actions={
                     <LemonButton
                         type="secondary"
+                        size="small"
                         icon={<IconShare />}
                         onClick={() => void copyToClipboard(window.location.href, 'link')}
                     >
