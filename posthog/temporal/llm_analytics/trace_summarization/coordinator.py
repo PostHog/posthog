@@ -47,6 +47,8 @@ async def get_teams_with_recent_traces_activity(
     """Query for teams that have LLM trace events in the lookback window."""
     from django.db import connection
 
+    from posthog.temporal.llm_analytics.trace_summarization.constants import ALLOWED_TEAM_IDS
+
     @database_sync_to_async
     def get_teams():
         with connection.cursor() as cursor:
@@ -67,7 +69,20 @@ async def get_teams_with_recent_traces_activity(
             return [row[0] for row in cursor.fetchall()]
 
     team_ids = await get_teams()
-    logger.info("Found teams with recent trace activity", team_count=len(team_ids))
+
+    # Filter by allowlist if configured
+    if ALLOWED_TEAM_IDS:
+        original_count = len(team_ids)
+        team_ids = [team_id for team_id in team_ids if team_id in ALLOWED_TEAM_IDS]
+        logger.info(
+            "Filtered teams by allowlist",
+            original_count=original_count,
+            filtered_count=len(team_ids),
+            allowed_teams=ALLOWED_TEAM_IDS,
+        )
+    else:
+        logger.info("Found teams with recent trace activity", team_count=len(team_ids))
+
     return TeamsWithTracesResult(team_ids=team_ids)
 
 

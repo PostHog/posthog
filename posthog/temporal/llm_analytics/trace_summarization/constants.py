@@ -34,6 +34,14 @@ PROP_SUMMARY_INTERESTING_NOTES = "$ai_summary_interesting_notes"
 PROP_TEXT_REPR_LENGTH = "$ai_text_repr_length"
 PROP_EVENT_COUNT = "$ai_event_count"
 
+# Team allowlist - only these teams will be processed by the coordinator
+# Empty list means all teams are allowed
+ALLOWED_TEAM_IDS: list[int] = [
+    1,  # Local development
+    2,  # Internal PostHog project
+    112495,  # Dogfooding project
+]
+
 # Temporal configuration
 WORKFLOW_NAME = "batch-trace-summarization"
 TASK_QUEUE = "llm-analytics-queue"

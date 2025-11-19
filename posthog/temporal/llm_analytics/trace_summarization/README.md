@@ -208,6 +208,22 @@ You can verify the schedule is running:
 # Look for schedule: "batch-trace-summarization-schedule"
 ```
 
+**Team allowlist:**
+
+By default, the workflow is limited to specific teams via `ALLOWED_TEAM_IDS` in `constants.py`:
+
+```python
+ALLOWED_TEAM_IDS: list[int] = [
+    1,  # Local development
+    2,  # Internal PostHog project
+    112495,  # Dogfooding project
+]
+```
+
+- Non-empty list: Only specified teams will be processed by the coordinator
+- Empty list (`[]`): All teams with trace activity will be processed
+- Manual triggers can still target any team regardless of allowlist
+
 **Manual schedule for specific team (advanced):**
 
 If you need to create a separate schedule for a specific team:
@@ -251,6 +267,7 @@ Key constants in `constants.py`:
 - `DEFAULT_MODE = "minimal"` - Summary detail level
 - `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
 - `DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"` - Default LLM model (slower but better quality than UI default)
+- `ALLOWED_TEAM_IDS` - Team allowlist for coordinator (empty list = all teams allowed)
 
 ## Processing Flow
 
