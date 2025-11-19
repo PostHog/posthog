@@ -4,10 +4,9 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 
 const SEPARATOR = ','
 

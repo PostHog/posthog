@@ -4400,64 +4400,155 @@ export const externalDataSources = [
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 // Marketing Analytics Integration Constants
-// IMPORTANT: Keep in sync with backend adapters in:
-// - products/marketing_analytics/backend/hogql_queries/adapters/
+// Python constants in products/marketing_analytics/backend/hogql_queries/constants.py
+// are automatically derived from the generated types
 
-/**
- * Map integration names to their campaign field names.
- * Sync with: Each adapter's _get_campaign_name_field() and _get_campaign_id_field() methods
- */
-export const MARKETING_INTEGRATION_FIELD_MAP: Record<string, { nameField: string; idField: string }> = {
-    GoogleAds: { nameField: 'campaign_name', idField: 'campaign_id' },
-    LinkedinAds: { nameField: 'name', idField: 'id' },
-    MetaAds: { nameField: 'name', idField: 'id' },
-    TikTokAds: { nameField: 'campaign_name', idField: 'campaign_id' },
-    RedditAds: { nameField: 'name', idField: 'id' },
-}
+/** Valid native marketing source integrations */
+export const VALID_NATIVE_MARKETING_SOURCES = ['GoogleAds', 'LinkedinAds', 'MetaAds', 'TikTokAds', 'RedditAds'] as const
+export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
 
-/**
- * Campaign table keyword patterns for each integration.
- * Sync with: Each adapter's table detection logic
- */
-export const MARKETING_CAMPAIGN_TABLE_PATTERNS: Record<string, { keywords: string[]; exclusions: string[] }> = {
-    GoogleAds: { keywords: ['campaign'], exclusions: ['stats'] },
-    LinkedinAds: { keywords: ['campaigns'], exclusions: ['stats'] },
-    MetaAds: { keywords: ['campaigns'], exclusions: ['stats'] },
-    TikTokAds: { keywords: ['campaigns'], exclusions: ['report'] },
-    RedditAds: { keywords: ['campaigns'], exclusions: ['report'] },
-}
+/** Configuration for each marketing integration */
+export const MARKETING_INTEGRATION_CONFIGS = {
+    GoogleAds: {
+        sourceType: 'GoogleAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'campaign',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaign'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: [
+            'google',
+            'adwords',
+            'youtube',
+            'display',
+            'gmail',
+            'google_maps',
+            'google_play',
+            'google_discover',
+            'admob',
+            'waze',
+        ] as const,
+        primarySource: 'google',
+    },
+    LinkedinAds: {
+        sourceType: 'LinkedinAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: ['linkedin', 'li'] as const,
+        primarySource: 'linkedin',
+    },
+    MetaAds: {
+        sourceType: 'MetaAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: [
+            'meta',
+            'facebook',
+            'instagram',
+            'messenger',
+            'fb',
+            'whatsapp',
+            'audience_network',
+            'facebook_marketplace',
+            'threads',
+        ] as const,
+        primarySource: 'meta',
+    },
+    TikTokAds: {
+        sourceType: 'TikTokAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['report'] as const,
+        defaultSources: ['tiktok'] as const,
+        primarySource: 'tiktok',
+    },
+    RedditAds: {
+        sourceType: 'RedditAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['report'] as const,
+        defaultSources: ['reddit'] as const,
+        primarySource: 'reddit',
+    },
+} as const
 
-/**
- * Default UTM source mappings for each integration.
- * Sync with: Each adapter's get_source_identifier_mapping() class method
- */
-export const MARKETING_DEFAULT_SOURCE_MAPPINGS: Record<string, string[]> = {
-    GoogleAds: [
-        'google',
-        'adwords',
-        'youtube',
-        'display',
-        'gmail',
-        'google_maps',
-        'google_play',
-        'google_discover',
-        'admob',
-        'waze',
-    ],
-    LinkedinAds: ['linkedin', 'li'],
-    MetaAds: [
-        'meta',
-        'facebook',
-        'instagram',
-        'messenger',
-        'fb',
-        'whatsapp',
-        'audience_network',
-        'facebook_marketplace',
-        'threads',
-    ],
-    TikTokAds: ['tiktok'],
-    RedditAds: ['reddit'],
+/** Type for a single integration config */
+export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+// Types derived from config - these become Python StrEnums
+// Default UTM sources for each integration
+export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
+export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
+export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['defaultSources'][number]
+export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
+export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
+
+// Table keywords for each integration
+export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
+export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
+export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
+export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
+export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
+
+// Table exclusions for each integration
+export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
+export type LinkedinAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
+export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
+export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
+export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
+
+// Derived constants for backward compatibility and convenience
+export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        {
+            nameField: MARKETING_INTEGRATION_CONFIGS[source].nameField,
+            idField: MARKETING_INTEGRATION_CONFIGS[source].idField,
+        },
+    ])
+) as unknown as Record<NativeMarketingSource, { nameField: string; idField: string }>
+
+export const MARKETING_CAMPAIGN_TABLE_PATTERNS = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        {
+            keywords: [...MARKETING_INTEGRATION_CONFIGS[source].tableKeywords],
+            exclusions: [...MARKETING_INTEGRATION_CONFIGS[source].tableExclusions],
+        },
+    ])
+) as unknown as Record<NativeMarketingSource, { keywords: string[]; exclusions: string[] }>
+
+export const MARKETING_DEFAULT_SOURCE_MAPPINGS = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [source, [...MARKETING_INTEGRATION_CONFIGS[source].defaultSources]])
+) as unknown as Record<NativeMarketingSource, string[]>
+
+/** Interface for integration config - generated to Python */
+export interface MarketingIntegrationConfigType {
+    sourceType: NativeMarketingSource
+    nameField: string
+    idField: string
+    campaignTableName: string
+    statsTableName: string
+    tableKeywords: string[]
+    tableExclusions: string[]
+    defaultSources: string[]
+    primarySource: string
 }
 
 export enum InfinityValue {

@@ -10,13 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import {
-    VALID_NATIVE_MARKETING_SOURCES,
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
-} from '../../logic/utils'
+import { VALID_NON_NATIVE_MARKETING_SOURCES, VALID_SELF_MANAGED_MARKETING_SOURCES } from '../../logic/utils'
 
 interface AddIntegrationButtonProps {
     onIntegrationSelect?: (integrationId: string) => void
@@ -33,7 +30,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     } | null>(null)
 
     const groupedIntegrations = {
-        native: VALID_NATIVE_MARKETING_SOURCES,
+        native: [...VALID_NATIVE_MARKETING_SOURCES],
         external: VALID_NON_NATIVE_MARKETING_SOURCES,
         'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }

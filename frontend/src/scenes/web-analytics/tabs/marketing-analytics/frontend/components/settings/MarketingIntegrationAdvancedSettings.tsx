@@ -1,6 +1,5 @@
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
-import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 import { IntegrationSettingsCard } from './IntegrationSettingsCard'
 
 export function MarketingIntegrationAdvancedSettings(): JSX.Element {

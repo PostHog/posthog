@@ -4,45 +4,15 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { MARKETING_DEFAULT_SOURCE_MAPPINGS, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 
 const SEPARATOR = ','
 
-// Default UTM source mappings for each integration (from backend adapters)
-const DEFAULT_SOURCE_MAPPINGS: Record<string, string[]> = {
-    GoogleAds: [
-        'google',
-        'adwords',
-        'youtube',
-        'display',
-        'gmail',
-        'google_maps',
-        'google_play',
-        'google_discover',
-        'admob',
-        'waze',
-    ],
-    LinkedinAds: ['linkedin', 'li'],
-    MetaAds: [
-        'meta',
-        'facebook',
-        'instagram',
-        'messenger',
-        'fb',
-        'whatsapp',
-        'audience_network',
-        'facebook_marketplace',
-        'threads',
-    ],
-    TikTokAds: ['tiktok'],
-    RedditAds: ['reddit'],
-}
-
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string
+    compact?: boolean
 }
 
 export function CustomSourceMappingsConfiguration({
@@ -54,12 +24,8 @@ export function CustomSourceMappingsConfiguration({
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
     const [newUtmSources, setNewUtmSources] = useState('')
 
-    const availableIntegrations = externalDataSources.filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
-
     // Get integrations to display
-    const integrationsToShow = sourceFilter ? [sourceFilter] : availableIntegrations
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 
     const updateMappings = (newMappings: Record<string, string[]>): void => {
         updateCustomSourceMappings(newMappings)
@@ -76,7 +42,8 @@ export function CustomSourceMappingsConfiguration({
             .filter((v) => v.length > 0)
 
         // Check for conflicts with defaults
-        const defaultSources = DEFAULT_SOURCE_MAPPINGS[integration] || []
+        const defaultSources =
+            MARKETING_DEFAULT_SOURCE_MAPPINGS[integration as keyof typeof MARKETING_DEFAULT_SOURCE_MAPPINGS] || []
         const conflictsWithDefaults = utmSourcesArray.filter((source) =>
             defaultSources.some((def) => def.toLowerCase() === source.toLowerCase())
         )
@@ -170,7 +137,10 @@ export function CustomSourceMappingsConfiguration({
                     </thead>
                     <tbody>
                         {integrationsToShow.map((integration) => {
-                            const defaults = DEFAULT_SOURCE_MAPPINGS[integration] || []
+                            const defaults =
+                                MARKETING_DEFAULT_SOURCE_MAPPINGS[
+                                    integration as keyof typeof MARKETING_DEFAULT_SOURCE_MAPPINGS
+                                ] || []
                             const custom = customMappings[integration] || []
 
                             const validationError = getValidationError(integration)

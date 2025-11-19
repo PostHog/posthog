@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
 
 export interface CampaignFieldPreferencesConfigurationProps {
     sourceFilter?: string
@@ -21,12 +20,8 @@ export function CampaignFieldPreferencesConfiguration({
 
     const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
 
-    const availableIntegrations = externalDataSources.filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
-
     // Get integrations to display
-    const integrationsToShow = sourceFilter ? [sourceFilter] : availableIntegrations
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 
     const updatePreference = (integration: string, matchField: 'campaign_name' | 'campaign_id'): void => {
         updateCampaignFieldPreferences({

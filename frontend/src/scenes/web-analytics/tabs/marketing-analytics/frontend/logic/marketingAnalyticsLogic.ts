@@ -17,8 +17,10 @@ import {
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    NativeMarketingSource,
     NodeKind,
     SourceMap,
+    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
@@ -31,8 +33,6 @@ import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
     generateUniqueName,
     validColumnsForTiles,
 } from './utils'

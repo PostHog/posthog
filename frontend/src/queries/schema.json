@@ -15150,6 +15150,29 @@
             "required": ["label", "value"],
             "type": "object"
         },
+        "GoogleAdsDefaultSources": {
+            "enum": [
+                "google",
+                "adwords",
+                "youtube",
+                "display",
+                "gmail",
+                "google_maps",
+                "google_play",
+                "google_discover",
+                "admob",
+                "waze"
+            ],
+            "type": "string"
+        },
+        "GoogleAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "GoogleAdsTableKeywords": {
+            "enum": ["campaign"],
+            "type": "string"
+        },
         "GroupMathType": {
             "const": "unique_group",
             "type": "string"
@@ -17161,6 +17184,18 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LinkedinAdsDefaultSources": {
+            "enum": ["linkedin", "li"],
+            "type": "string"
+        },
+        "LinkedinAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "LinkedinAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "LogEntryPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -17797,6 +17832,483 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MarketingIntegrationConfig": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaign",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "google",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "adwords",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "youtube",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "display",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "gmail",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_maps",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_play",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_discover",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "admob",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "waze",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 10,
+                            "minItems": 10,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "google",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "GoogleAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaign",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "linkedin",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "li",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "linkedin",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "LinkedinAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "meta",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "facebook",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "instagram",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "messenger",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "fb",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "whatsapp",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "audience_network",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "facebook_marketplace",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "threads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 9,
+                            "minItems": 9,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "meta",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "MetaAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "tiktok",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "tiktok",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TikTokAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "report",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "reddit",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "reddit",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "RedditAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "report",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                }
+            ],
+            "description": "Type for a single integration config"
+        },
+        "MarketingIntegrationConfigType": {
+            "additionalProperties": false,
+            "description": "Interface for integration config - generated to Python",
+            "properties": {
+                "campaignTableName": {
+                    "type": "string"
+                },
+                "defaultSources": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "idField": {
+                    "type": "string"
+                },
+                "nameField": {
+                    "type": "string"
+                },
+                "primarySource": {
+                    "type": "string"
+                },
+                "sourceType": {
+                    "$ref": "#/definitions/NativeMarketingSource"
+                },
+                "statsTableName": {
+                    "type": "string"
+                },
+                "tableExclusions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tableKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "sourceType",
+                "nameField",
+                "idField",
+                "campaignTableName",
+                "statsTableName",
+                "tableKeywords",
+                "tableExclusions",
+                "defaultSources",
+                "primarySource"
+            ],
             "type": "object"
         },
         "MatchedRecording": {
@@ -18512,6 +19024,28 @@
                 }
             ]
         },
+        "MetaAdsDefaultSources": {
+            "enum": [
+                "meta",
+                "facebook",
+                "instagram",
+                "messenger",
+                "fb",
+                "whatsapp",
+                "audience_network",
+                "facebook_marketplace",
+                "threads"
+            ],
+            "type": "string"
+        },
+        "MetaAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "MetaAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -18579,6 +19113,10 @@
         },
         "MultipleBreakdownType": {
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
+            "type": "string"
+        },
+        "NativeMarketingSource": {
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -23993,6 +24531,18 @@
             "required": ["results", "has_next"],
             "type": "object"
         },
+        "RedditAdsDefaultSources": {
+            "enum": ["reddit"],
+            "type": "string"
+        },
+        "RedditAdsTableExclusions": {
+            "enum": ["report"],
+            "type": "string"
+        },
+        "RedditAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "RefreshType": {
             "enum": [
                 "async",
@@ -27601,6 +28151,18 @@
             },
             "required": ["success", "test_name"],
             "type": "object"
+        },
+        "TikTokAdsDefaultSources": {
+            "enum": ["tiktok"],
+            "type": "string"
+        },
+        "TikTokAdsTableExclusions": {
+            "enum": ["report"],
+            "type": "string"
+        },
+        "TikTokAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
         },
         "TileFilters": {
             "additionalProperties": false,
