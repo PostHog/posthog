@@ -545,6 +545,11 @@ export class ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
     }
 
+    // # User product list
+    public userProductList(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -1933,6 +1938,26 @@ const api = {
         },
         async delete(id: PersistedFolder['id']): Promise<void> {
             return await new ApiRequest().persistedFolderDetail(id).delete()
+        },
+    },
+
+    userProductList: {
+        async list(): Promise<
+            CountedPaginatedResponse<{
+                id: string
+                product_path: string
+                enabled: boolean
+                created_at: string
+                updated_at: string
+            }>
+        > {
+            return await new ApiRequest().userProductList().get()
+        },
+        async updateByPath(data: {
+            product_path: string
+            enabled: boolean
+        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
     },
 

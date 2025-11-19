@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "noop"],
+            "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1858,7 +1858,11 @@
                 "filter_revenue_analytics",
                 "filter_web_analytics",
                 "create_feature_flag",
-                "create_experiment"
+                "create_experiment",
+                "execute_sql",
+                "switch_mode",
+                "summarize_sessions",
+                "create_insight"
             ],
             "type": "string"
         },
@@ -26324,6 +26328,14 @@
                 "name": {
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
+                "suggestedTables": {
+                    "default": [],
+                    "description": "Tables to suggest enabling, with optional tooltip explaining why",
+                    "items": {
+                        "$ref": "#/definitions/SuggestedTable"
+                    },
+                    "type": "array"
+                },
                 "unreleasedSource": {
                     "type": "boolean"
                 }
@@ -26906,6 +26918,19 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SuggestedTable": {
+            "additionalProperties": false,
+            "properties": {
+                "table": {
+                    "type": "string"
+                },
+                "tooltip": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["table"],
             "type": "object"
         },
         "SurveyAnalysisQuestionGroup": {
