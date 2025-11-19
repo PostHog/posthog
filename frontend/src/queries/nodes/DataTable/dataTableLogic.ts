@@ -239,6 +239,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 ? context.showOpenEditorButton
                                 : (query.showOpenEditorButton ?? true),
                         showResultsTable: query.showResultsTable ?? true,
+                        showRecordingColumn: query.showRecordingColumn ?? false,
                     }),
                 }
             },

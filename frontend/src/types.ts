@@ -378,6 +378,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    allow_sidebar_suggestions?: boolean
     role_at_organization?: string
 }
 
@@ -3307,6 +3308,13 @@ export enum SurveyPosition {
     NextToTrigger = 'next_to_trigger',
 }
 
+export enum SurveyTabPosition {
+    Top = 'top',
+    Left = 'left',
+    Right = 'right',
+    Bottom = 'bottom',
+}
+
 export enum SurveyWidgetType {
     Button = 'button',
     Tab = 'tab',
@@ -3333,6 +3341,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
@@ -4137,6 +4146,19 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
     symbol: React.ReactElement
     path?: never
 }
+
+export interface FileSystemDeletionSummary {
+    type: string
+    ref: string | null
+    mode: 'soft' | 'hard'
+    undo: string
+    path: string
+    can_undo: boolean
+}
+
+export interface FileSystemDeleteResponse {
+    deleted: FileSystemDeletionSummary[]
+}
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
     name: string
@@ -4415,6 +4437,7 @@ export const INTEGRATION_KINDS = [
     'reddit-ads',
     'databricks',
     'tiktok-ads',
+    'bing-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4606,6 +4629,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4756,6 +4780,7 @@ export enum ActivityScope {
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_TRACE = 'LLMTrace',
 }
 
 export type CommentType = {
