@@ -71,6 +71,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
+    linked_insight_id = models.IntegerField(null=True, blank=True)
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,

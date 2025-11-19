@@ -2165,6 +2165,9 @@ importers:
 
   products/mcp/typescript:
     dependencies:
+      '@byjohann/toon':
+        specifier: ^0.4.0
+        version: 0.4.1
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.3
         version: 1.19.1
@@ -3834,6 +3837,9 @@ packages:
 
   '@bufbuild/protobuf@2.3.0':
     resolution: {integrity: sha512-WK6zH4MtBp/uesX8KGCnwDDRVnEVHUvwjsigKXcSR57Oo8Oyv1vRS9qyUlSP+6KWRl5z8tNAU5qpf3QodeVYxA==}
+
+  '@byjohann/toon@0.4.1':
+    resolution: {integrity: sha512-d3E5Ebq2W/+KV0kLnoy5xHPyiZqPCONlp+eZ12PZmXJAnjxoVD8DRhhlAqh0tc8FhmYreV9OAnBkhGaYwvYnGA==}
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
@@ -22486,6 +22492,8 @@ snapshots:
   '@bufbuild/protobuf@1.7.2': {}
 
   '@bufbuild/protobuf@2.3.0': {}
+
+  '@byjohann/toon@0.4.1': {}
 
   '@cfworker/json-schema@4.1.1': {}
 
