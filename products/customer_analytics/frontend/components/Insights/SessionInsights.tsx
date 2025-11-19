@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { ActivityTab } from '~/types'
@@ -13,7 +13,7 @@ import { InsightDefinition } from 'products/customer_analytics/frontend/insightD
 
 export function SessionInsights(): JSX.Element {
     const { sessionInsights, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { featureFlags } = useValues(featureFlagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="space-y-2">
