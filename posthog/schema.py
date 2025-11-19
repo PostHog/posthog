@@ -1466,15 +1466,6 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
-
-
 class Tag(StrEnum):
     ALPHA = "alpha"
     BETA = "beta"
@@ -4239,6 +4230,15 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
 
 
 class FunnelCorrelationResult(BaseModel):
