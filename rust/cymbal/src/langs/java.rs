@@ -195,3 +195,105 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
         f
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use mockall::predicate;
+    use posthog_symbol_data::write_symbol_data;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    use crate::{
+        config::Config,
+        langs::{java::RawJavaFrame, CommonFrameMetadata},
+        symbol_store::{
+            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
+            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
+        },
+    };
+
+    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/composed_example.map");
+
+    async fn test_java_resolution(db: PgPool) {
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+
+        record.save(&db).await.unwrap();
+
+        let mut client = S3Client::default();
+
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
+            )
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+
+        let client = Arc::new(client);
+
+        let hmp = HermesMapProvider {};
+        let hmp = ChunkIdFetcher::new(
+            hmp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let smp = SourcemapProvider::new(&config);
+        let smp = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp);
+
+        let frame = RawJavaFrame {
+            exception_type: Some("c".to_string()),
+            module: "a1.d".to_string(),
+            filename: Some("SourceFile".to_string()),
+            function: "onClick".to_string(),
+            lineno: Some(14),
+            map_id: Some("com.posthog.android.sample@3.0+3".to_string()),
+            method_synthetic: false,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let res = frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
+        println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
+        assert!(res.resolved);
+    }
+
+    fn get_symbol_data_bytes() -> Vec<u8> {
+        write_symbol_data(posthog_symbol_data::ProguardMapping {
+            content: PROGUARD_MAP.to_string(),
+        })
+        .unwrap()
+    }
+}
