@@ -352,13 +352,13 @@ export function HogFunctionScene(): JSX.Element {
                   content: <HogFunctionTesting />,
               },
 
-        type === 'site_app' || type === 'site_destination'
-            ? null
-            : {
+        type === 'destination'
+            ? {
                   label: 'Backfills',
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
-              },
+              }
+            : null,
 
         {
             label: 'History',
