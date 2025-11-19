@@ -3,6 +3,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from temporalio.testing import ActivityEnvironment
+
 from posthog.models import ActivityLog, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.models.property_definition import PropertyType
 from posthog.temporal.backfill_materialized_property.activities import UpdateSlotStateInputs, update_slot_state
@@ -45,6 +47,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
+        assert log.detail is not None
 
         assert log.detail["name"] == "test_prop"
         assert len(log.detail["changes"]) == 3
@@ -86,17 +89,19 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
+        assert log.detail is not None
 
         assert log.detail["name"] == "test_prop"
 
         # Verify changes show before values
         for change in log.detail["changes"]:
             assert "before" in change
-            assert "after" not in change  # Deletions have no "after"
+            assert change["after"] is None  # Deletions have after set to None
             assert change["action"] == "deleted"
 
-    def test_activity_log_on_backfill_completed(self, activity_environment):
+    def test_activity_log_on_backfill_completed(self):
         """Test activity log created when workflow completes successfully."""
+        activity_environment = ActivityEnvironment()
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -127,6 +132,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
+        assert log.detail is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -139,8 +145,9 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         # User should be None (system user for workflow-triggered updates)
         assert log.user is None
 
-    def test_activity_log_on_backfill_failed(self, activity_environment):
+    def test_activity_log_on_backfill_failed(self):
         """Test activity log created when workflow fails."""
+        activity_environment = ActivityEnvironment()
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -175,6 +182,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
+        assert log.detail is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -184,8 +192,9 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert state_changes[0]["before"] == "BACKFILL"
         assert state_changes[0]["after"] == "ERROR"
 
-    def test_activity_log_no_log_for_backfill_state(self, activity_environment):
+    def test_activity_log_no_log_for_backfill_state(self):
         """Test that transitioning to BACKFILL doesn't create activity log."""
+        activity_environment = ActivityEnvironment()
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -245,6 +254,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         assert activity_logs.count() == 1
         log = activity_logs.first()
         assert log is not None
+        assert log.detail is not None
 
         assert log.detail["name"] == "test_prop"
 

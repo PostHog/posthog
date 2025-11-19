@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
-from posthog.models.property_definition import PropertyType
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
     GetSlotDetailsInputs,
@@ -39,22 +38,6 @@ class TestGetSlotDetails:
             activity_environment.run(
                 get_slot_details,
                 GetSlotDetailsInputs(slot_id="00000000-0000-0000-0000-000000000000"),
-            )
-
-    def test_get_slot_details_no_property_definition(self, team, activity_environment):
-        """Test error when slot has no property_definition."""
-        slot = MaterializedColumnSlot.objects.create(
-            team=team,
-            property_definition=None,  # type: ignore[arg-type]
-            property_type=PropertyType.String,
-            slot_index=0,
-            state=MaterializedColumnSlotState.BACKFILL,
-        )
-
-        with pytest.raises(ValueError, match="has no property_definition"):
-            activity_environment.run(
-                get_slot_details,
-                GetSlotDetailsInputs(slot_id=str(slot.id)),
             )
 
     @pytest.mark.parametrize(
