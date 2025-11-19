@@ -4,8 +4,9 @@ set -e
 
 # Check if flox is available
 if ! command -v flox &> /dev/null; then
-    echo "Error: flox not found. This script is optimized for flox environments."
-    exit 1
+    echo "Warning: flox not found. Video processing features will be unavailable."
+    echo "To enable video features, install flox: https://flox.dev"
+    exit 0
 fi
 
 # Determine the correct cache directory based on OS
