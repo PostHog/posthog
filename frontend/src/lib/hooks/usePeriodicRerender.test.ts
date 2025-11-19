@@ -10,7 +10,7 @@ describe('usePeriodicRerender', () => {
     })
 
     afterEach(() => {
-        jest.runOnlyPendingTimers()
+        jest.clearAllTimers()
         jest.useRealTimers()
     })
 
