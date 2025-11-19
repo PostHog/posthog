@@ -465,13 +465,17 @@ class FeatureFlagSerializer(
                 )
         elif request.method in ["PUT", "PATCH"] and self.instance:
             # Updating an existing flag: if it currently has evaluation tags, require at least one in the update
+            # TRICKY: This creates asymmetric behavior - flags WITH eval tags can't have them removed,
+            # but flags WITHOUT eval tags aren't required to add them on update (only on creation).
+            # This is intentional: we enforce eval tags going forward (new flags) without breaking
+            # existing workflows (updating old flags that were created before the requirement).
             existing_eval_tag_count = self.instance.evaluation_tags.count()
             if existing_eval_tag_count > 0:
                 # Flag currently has evaluation tags, so we need to enforce the requirement
                 # Only validate if evaluation_tags is explicitly provided in the request
                 if evaluation_tags is not None and len(evaluation_tags) == 0:
                     raise serializers.ValidationError(
-                        "cannot remove all evaluation environment tags. At least one tag is required because "
+                        "Cannot remove all evaluation environment tags. At least one tag is required because "
                         "this flag already has evaluation tags and the team requires them."
                     )
 
