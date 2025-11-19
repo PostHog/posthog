@@ -40,6 +40,8 @@ def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
             if model._meta.managed is False:
                 return True
         except LookupError:
+            # Model not found in app registry - likely a third-party app or model no longer exists
+            # Skip the check and let the operation be analyzed normally
             pass
 
     return False
