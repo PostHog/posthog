@@ -284,10 +284,11 @@ class InputsSerializer(serializers.DictField):
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "datawarehouse"], required=False, default="events"
+        choices=["events", "person-updates", "data-warehouse"], required=False, default="events"
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
+    data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
@@ -306,13 +307,18 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if data.get("source") == "events":
+            # Don't allow events or actions for person-updates
+            data.pop("data_warehouse", None)
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
             data.pop("actions", None)
+            data.pop("data_warehouse", None)
 
-        if data.get("source") == "datawarehouse":
-            # Don't allow events or actions for datawarehouse
+        if data.get("source") == "data-warehouse":
+            # Don't allow events or actions for data-warehouse
             data.pop("events", None)
             data.pop("actions", None)
 

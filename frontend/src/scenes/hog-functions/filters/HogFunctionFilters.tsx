@@ -37,6 +37,21 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
         }))
     }
 
+    if (filters.data_warehouse) {
+        sanitized.data_warehouse = filters.data_warehouse.map((f) => ({
+            id: f.id,
+            type: 'data_warehouse',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+            uuid: f.uuid,
+            table_name: f.table_name,
+            id_field: f.id_field,
+            timestamp_field: f.timestamp_field,
+            distinct_id_field: f.distinct_id_field,
+        }))
+    }
+
     if (filters.actions) {
         sanitized.actions = filters.actions.map((f) => ({
             id: f.id,
@@ -71,6 +86,7 @@ export function HogFunctionFilters({
     } = useActions(hogFunctionConfigurationLogic)
 
     const isTransformation = type === 'transformation'
+    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
     const excludedProperties: ExcludedProperties = {
@@ -106,8 +122,12 @@ export function HogFunctionFilters({
             )
         }
 
+        if (isDataWarehouse) {
+            types.push(TaxonomicFilterGroupType.DataWarehouseProperties)
+        }
+
         return types
-    }, [isTransformation, groupsTaxonomicTypes])
+    }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
     const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
 
@@ -117,7 +137,8 @@ export function HogFunctionFilters({
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
     const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
-    const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
+    const showEventMatchers =
+        !useMapping && ['events', 'data-warehouse'].includes(configuration?.filters?.source ?? 'events')
 
     const mainContent = (
         <div
@@ -147,6 +168,7 @@ export function HogFunctionFilters({
                                 options={[
                                     { value: 'events', label: 'Events' },
                                     { value: 'person-updates', label: 'Person updates' },
+                                    { value: 'data-warehouse', label: 'Data warehouse' },
                                 ]}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
@@ -236,7 +258,12 @@ export function HogFunctionFilters({
                                         actionsTaxonomicGroupTypes={
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
-                                                : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                                                : isDataWarehouse
+                                                  ? [
+                                                        TaxonomicFilterGroupType.DataWarehouse,
+                                                        TaxonomicFilterGroupType.Actions,
+                                                    ]
+                                                  : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
