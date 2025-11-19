@@ -402,7 +402,7 @@ export const SharedThread: StoryFn = () => {
         },
     })
 
-    const { setConversationId } = useActions(maxLogic)
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
 
     useEffect(() => {
         // Simulate loading a shared conversation via URL parameter
