@@ -125,7 +125,6 @@ export class CdpApi {
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
@@ -506,17 +505,6 @@ export class CdpApi {
                 if (error instanceof SourceWebhookError) {
                     return res.status(error.status).json({ error: error.message })
                 }
-                return res.status(500).json({ error: 'Internal error' })
-            }
-        }
-
-    private postMailjetWebhook =
-        () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            try {
-                const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
-                return res.status(status).json({ message })
-            } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

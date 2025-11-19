@@ -83,6 +83,7 @@ export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
+const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72 // if changing this, you will also need to change the TTLs
 
 interface CookielessConfig {
     disabled: boolean
@@ -683,7 +684,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     startOfDayMinus12.setUTCHours(-MAX_NEGATIVE_TIMEZONE_HOURS) // Start at UTC−12
 
     const endOfDayPlus14 = new Date(utcDate)
-    endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + 24) // End at UTC+14
+    endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + MAX_SUPPORTED_INGESTION_LAG_HOURS) // End at UTC+14 (72h ingestion lag buffer)
 
     const isGteMinimum = nowUTC >= startOfDayMinus12
     const isLtMaximum = nowUTC < endOfDayPlus14

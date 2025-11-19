@@ -3,7 +3,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     invocation_context::context,
@@ -77,7 +77,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
             .id_map
             .into_par_iter()
             .map(|(chunk_id, data)| {
-                info!("Uploading chunk {}", chunk_id);
+                debug!("uploading chunk {}", chunk_id);
                 let upload = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
                     "Got a chunk ID back from posthog that we didn't expect!"
                 ))?;

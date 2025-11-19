@@ -24,26 +24,25 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     return (
         <div className="flex items-start gap-x-1.5 group">
             <LemonTableLink
+                target="_blank"
                 title={record.name || 'Unknown Type'}
-                description={
-                    <div className="deprecated-space-y-1">
-                        <div className="line-clamp-1">{record.description}</div>
-                        <div className="deprecated-space-x-1">
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
-                        </div>
-                    </div>
-                }
-                className="flex-1"
+                description={<div className="line-clamp-1">{record.description}</div>}
+                className="flex"
                 to={urls.errorTrackingIssue(record.id)}
             />
         </div>
     )
 }
 
+const LastSeenColumn = ({ record }: { record: unknown }): JSX.Element => {
+    const last_seen = (record as ErrorTrackingIssue).last_seen
+    return <TZLabel time={last_seen} className="border-dotted border-b" />
+}
+
 const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
     const aggregations = (record as ErrorTrackingIssue).aggregations!
     const count = aggregations[columnName as 'occurrences' | 'users']
-    return <span className="text-lg font-medium">{humanFriendlyLargeNumber(count)}</span>
+    return <>{humanFriendlyLargeNumber(count)}</>
 }
 
 const context: QueryContext = {
@@ -52,7 +51,7 @@ const context: QueryContext = {
     showQueryEditor: false,
     columns: {
         error: {
-            width: '50%',
+            align: 'left',
             render: CustomGroupTitleColumn,
         },
         users: {
@@ -62,6 +61,11 @@ const context: QueryContext = {
         occurrences: {
             align: 'right',
             render: CountColumn,
+        },
+        last_seen: {
+            title: 'Last seen',
+            align: 'right',
+            render: LastSeenColumn,
         },
     },
 }

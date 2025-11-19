@@ -49,27 +49,33 @@ from ee.hogai.session_summaries.session_group.summary_notebooks import (
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.SESSION_SUMMARIZATION
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._session_search = _SessionSearch(self)
         self._session_summarizer = _SessionSummarizer(self)
 
-    async def _stream_progress(self, progress_message: str) -> None:
+    def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
             self.dispatcher.update(content)
+
+    def _stream_filters(self, filters: MaxRecordingUniversalFilters) -> None:
+        """Stream filters to the user"""
+        self.dispatcher.message(
+            AssistantToolCallMessage(
+                content="",
+                ui_payload={"search_session_recordings": filters.model_dump(exclude_none=True)},
+                # Randomized tool call ID, as we don't want this to be THE result of the actual session summarization tool call
+                # - it's OK because this is only dispatched ephemerally, so the tool message doesn't get added to the state
+                tool_call_id=str(uuid4()),
+            )
+        )
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
@@ -276,9 +282,7 @@ class _SessionSearch:
 
     def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
         """Convert current filters into recordings query format"""
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            convert_filters_to_recordings_query,
-        )
+        from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 
         # Create a temporary playlist object to use the conversion function
         temp_playlist = SessionRecordingPlaylist(filters=current_filters)
@@ -392,6 +396,7 @@ class _SessionSearch:
                         root_tool_call_id=None,
                     )
                 # Use filters when generated successfully
+                self._node._stream_filters(filter_generation_result)
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
             # Query the filters to get session ids
             query_limit = state.session_summarization_limit
@@ -435,13 +440,13 @@ class _SessionSummarizer:
             )
             completed += 1
             # Update the user on the progress
-            await self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
+            self._node._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
         # Run all tasks concurrently
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-        await self._node._stream_progress(progress_message=f"Generating a summary, almost there")
+        self._node._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
@@ -489,7 +494,7 @@ class _SessionSummarizer:
                 # Update intermediate state based on step enum (no content, as it's just a status message)
                 self._intermediate_state.update_step_progress(content=None, step=step)
                 # Status message - stream to user
-                await self._node._stream_progress(progress_message=data)
+                self._node._stream_progress(progress_message=data)
             # Notebook intermediate data update messages
             elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
                 if not isinstance(data, dict):
@@ -549,7 +554,7 @@ class _SessionSummarizer:
         base_message = f"Found sessions ({len(session_ids)})"
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            await self._node._stream_progress(
+            self._node._stream_progress(
                 progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
@@ -564,7 +569,7 @@ class _SessionSummarizer:
             state.notebook_short_id = notebook.short_id
         # For large groups, process in detail, searching for patterns
         # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
-        await self._node._stream_progress(
+        self._node._stream_progress(
             progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
         )
         summaries_content = await self._summarize_sessions_as_group(

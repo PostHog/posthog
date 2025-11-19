@@ -5,6 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.db.models.aggregates import Count
 
 import structlog
 import posthoganalytics
@@ -35,6 +36,15 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
         fields = ["id", "ref", "team_id", "created_at", "storage_ptr", "failure_reason"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingSymbolSetListSerializer(serializers.ModelSerializer):
+    frames_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ErrorTrackingSymbolSet
+        fields = ["id", "ref", "frames_count", "team_id", "created_at", "storage_ptr", "failure_reason"]
         read_only_fields = ["team_id"]
 
 
@@ -101,6 +111,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def list(self, request, *args, **kwargs) -> Response:
+        queryset = self.filter_queryset(self.get_queryset()).annotate(frames_count=Count("errortrackingstackframe"))
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = ErrorTrackingSymbolSetListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Fallback for non-paginated responses
+        serializer = ErrorTrackingSymbolSetListSerializer(queryset, many=True)
+        return Response(serializer.data)
 
     # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:

@@ -94,6 +94,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # A column, usually properties, exceeds the limit for a VARCHAR field,
     # usually the max of 65535 bytes
     "StringDataRightTruncation",
+    "StringLimitExceededError",
     # Raised by our PostgreSQL client when failing to connect after several attempts.
     "PostgreSQLConnectionError",
     # Column missing in Redshift, likely the schema was altered.
@@ -113,6 +114,16 @@ NON_RETRYABLE_ERROR_TYPES = (
     # compared.
     "UndefinedFunction",
 )
+
+
+class StringLimitExceededError(Exception):
+    """Error raised when exceeding Redshift VARCHAR limit."""
+
+    def __init__(self, column: str, table: str, schema: str):
+        msg = f"Column '{column}' in '{schema}.{table}' exceeds Redshift's 'VARCHAR' limit and cannot be exported"
+        if column in {"properties", "set", "set_once", "person_properties"}:
+            msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
+        super().__init__(msg)
 
 
 class ClientErrorGroup(ExceptionGroup):
@@ -400,7 +411,27 @@ class RedshiftClient(PostgreSQLClient):
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
-                await cursor.execute(copy_query)
+                try:
+                    await cursor.execute(copy_query)
+                except psycopg.errors.InternalError_ as err:
+                    msg_detail = err.diag.message_detail
+                    # This error is generic, and not well parsed by psycopg
+                    # so we have to do some awkward substring check.
+                    if msg_detail is not None and all(
+                        s in msg_detail
+                        for s in (
+                            "Spectrum Scan Error",
+                            "length of the data column",
+                            "longer than the length defined in the table",
+                        )
+                    ):
+                        try:
+                            column = msg_detail.split("length of the data column ", 1)[1].split(" ")[0]
+                        except Exception:
+                            column = "unknown"
+
+                        raise StringLimitExceededError(column, table_name, schema_name)
+                    raise
 
 
 def redshift_default_fields() -> list[BatchExportField]:

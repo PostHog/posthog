@@ -60,9 +60,9 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                         tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
                         onClick={() => {
                             addProductIntentForCrossSell({
-                                from: ProductKey.PRODUCT_ANALYTICS,
-                                to: ProductKey.DATA_WAREHOUSE,
-                                intent_context: ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE,
+                                from: ProductKey.DATA_WAREHOUSE,
+                                to: ProductKey.REVENUE_ANALYTICS,
+                                intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
                             })
                             router.actions.push(urls.revenueAnalytics())
                         }}
@@ -218,6 +218,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Enabled',
                         key: 'should_sync',
+                        sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                         render: function RenderShouldSync(_, schema) {
                             return (
                                 <LemonSwitch
