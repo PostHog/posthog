@@ -114,11 +114,6 @@ _task_queue_specs = [
         DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     ),
     (
-        settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
-        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    ),
-    (
         settings.DATA_MODELING_TASK_QUEUE,
         DATA_MODELING_WORKFLOWS,
         DATA_MODELING_ACTIVITIES,
@@ -276,6 +271,16 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
             help="Use Pydantic data converter for this worker",
         )
+        parser.add_argument(
+            "--target-memory-usage",
+            default=settings.TARGET_MEMORY_USAGE,
+            help="Fraction of available memory to use",
+        )
+        parser.add_argument(
+            "--target-cpu-usage",
+            default=settings.TARGET_CPU_USAGE,
+            help="Fraction of available CPU to use",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -289,6 +294,8 @@ class Command(BaseCommand):
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
         use_pydantic_converter = options["use_pydantic_converter"]
+        target_memory_usage = options.get("target_memory_usage", None)
+        target_cpu_usage = options.get("target_cpu_usage", None)
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -335,6 +342,8 @@ class Command(BaseCommand):
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
+                target_memory_usage=target_memory_usage,
+                target_cpu_usage=target_cpu_usage,
             )
             logger.info("Starting Temporal Worker")
 
@@ -359,6 +368,8 @@ class Command(BaseCommand):
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                     use_pydantic_converter=use_pydantic_converter,
+                    target_memory_usage=target_memory_usage,
+                    target_cpu_usage=target_cpu_usage,
                 )
             )
 

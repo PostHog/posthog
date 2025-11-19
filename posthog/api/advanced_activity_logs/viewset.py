@@ -1,12 +1,11 @@
 import json
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
-from django.utils.timezone import now
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
@@ -130,6 +129,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
 
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+
         return queryset
 
 
@@ -180,7 +181,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = ActivityLogPagination
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
-    scope_object = "INTERNAL"
+    scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
 
     def _should_skip_parents_filter(self) -> bool:
@@ -321,7 +322,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
-                expires_after=now() + timedelta(days=7),
             )
 
             exporter.export_asset.delay(exported_asset.id)

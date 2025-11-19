@@ -4,8 +4,7 @@ Integration tests for dispatcher usage in BaseAssistantNode and graph execution.
 These tests ensure that the dispatcher pattern works correctly end-to-end in real graph execution.
 """
 
-import uuid
-from typing import Any
+from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -14,30 +13,36 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage
 
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.dispatcher import MessageAction, NodeStartAction
-from ee.hogai.utils.types import AssistantNodeName
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantState, PartialAssistantState
+from ee.hogai.graph.base.node import BaseAssistantNode
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
+    AssistantGraphName,
+    AssistantNodeName,
+    AssistantState,
+    MessageAction,
+    NodeEndAction,
+    NodePath,
+    NodeStartAction,
+    PartialAssistantState,
+    UpdateAction,
+)
 
 
-class MockAssistantNode(BaseAssistantNode):
+class MockAssistantNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
     """Mock node for testing dispatcher integration."""
 
-    def __init__(self, team, user):
-        super().__init__(team, user)
+    def __init__(self, team, user, node_path=None):
+        super().__init__(team, user, node_path)
         self.arun_called = False
         self.messages_dispatched = []
 
-    @property
-    def node_name(self) -> AssistantNodeName:
-        return AssistantNodeName.ROOT
-
-    async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         self.arun_called = True
 
         # Simulate dispatching messages during execution
-        self.dispatcher.message(AssistantMessage(content="Processing..."))
-        self.dispatcher.message(AssistantMessage(content="Done!"))
+        self.dispatcher.update("Processing...")
+        self.dispatcher.message(AssistantMessage(content="Intermediate result"))
+        self.dispatcher.update("Done!")
 
         return PartialAssistantState(messages=[AssistantMessage(content="Final result")])
 
@@ -57,147 +62,160 @@ class TestDispatcherIntegration(BaseTest):
         node = MockAssistantNode(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_1"})
 
-        await node.arun(state, config)
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
+            await node(state, config)
 
         self.assertTrue(node.arun_called)
         self.assertIsNotNone(node.dispatcher)
+
+    async def test_node_path_propagation(self):
+        """Test that node_path is correctly set and propagated."""
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT),
+        )
+
+        node = MockAssistantNode(self.mock_team, self.mock_user, node_path=node_path)
+
+        self.assertEqual(node.node_path, node_path)
+
+    async def test_dispatcher_dispatches_node_start_and_end(self):
+        """Test that NODE_START and NODE_END actions are dispatched."""
+        node = MockAssistantNode(self.mock_team, self.mock_user)
+
+        state = AssistantState(messages=[])
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_2"})
+
+        dispatched_actions = []
+
+        def capture_write(event):
+            if isinstance(event, AssistantDispatcherEvent):
+                dispatched_actions.append(event)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+            await node(state, config)
+
+        # Should have dispatched actions in this order:
+        # 1. NODE_START
+        # 2. UpdateAction ("Processing...")
+        # 3. MessageAction (intermediate)
+        # 4. UpdateAction ("Done!")
+        # 5. NODE_END with final state
+        self.assertGreater(len(dispatched_actions), 0)
+
+        # Verify NODE_START is first
+        self.assertIsInstance(dispatched_actions[0].action, NodeStartAction)
+
+        # Verify NODE_END is last
+        last_action = dispatched_actions[-1].action
+        self.assertIsInstance(last_action, NodeEndAction)
+        self.assertIsNotNone(cast(NodeEndAction, last_action).state)
 
     async def test_messages_dispatched_during_node_execution(self):
         """Test that messages dispatched during node execution are sent to writer."""
         node = MockAssistantNode(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_3"})
 
         dispatched_actions = []
 
-        def capture_write(update: Any):
-            dispatched_actions.append(update)
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_actions.append(event)
 
-        # Mock get_stream_writer to return our test writer
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
-            # Call the node (not arun) to trigger __call__ which handles dispatching
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
-        # Should have:
-        # 1. NODE_START from __call__
-        # 2. Two MESSAGE actions from arun (Processing..., Done!)
-        # 3. One MESSAGE action from returned state (Final result)
+        # Find the update and message actions (excluding NODE_START and NODE_END)
+        update_actions = [e for e in dispatched_actions if isinstance(e.action, UpdateAction)]
+        message_actions = [e for e in dispatched_actions if isinstance(e.action, MessageAction)]
 
-        self.assertEqual(len(dispatched_actions), 4)
-        self.assertIsInstance(dispatched_actions[0], AssistantDispatcherEvent)
-        self.assertIsInstance(dispatched_actions[0].action, NodeStartAction)
-        self.assertIsInstance(dispatched_actions[1], AssistantDispatcherEvent)
-        self.assertIsInstance(dispatched_actions[1].action, MessageAction)
-        self.assertEqual(dispatched_actions[1].action.message.content, "Processing...")
-        self.assertIsInstance(dispatched_actions[2], AssistantDispatcherEvent)
-        self.assertIsInstance(dispatched_actions[2].action, MessageAction)
-        self.assertEqual(dispatched_actions[2].action.message.content, "Done!")
-        self.assertIsInstance(dispatched_actions[3], AssistantDispatcherEvent)
-        self.assertIsInstance(dispatched_actions[3].action, MessageAction)
-        self.assertEqual(dispatched_actions[3].action.message.content, "Final result")
+        # Should have 2 updates: "Processing..." and "Done!"
+        self.assertEqual(len(update_actions), 2)
+        self.assertEqual(cast(UpdateAction, update_actions[0].action).content, "Processing...")
+        self.assertEqual(cast(UpdateAction, update_actions[1].action).content, "Done!")
 
-    async def test_node_start_action_dispatched(self):
-        """Test that NODE_START action is dispatched at node entry."""
+        # Should have 1 message: intermediate (final message is in NODE_END state, not dispatched separately)
+        self.assertEqual(len(message_actions), 1)
+        msg = cast(MessageAction, message_actions[0].action).message
+        self.assertEqual(cast(AssistantMessage, msg).content, "Intermediate result")
+
+    async def test_node_path_included_in_dispatched_events(self):
+        """Test that node_path is included in all dispatched events."""
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT),
+        )
+
+        node = MockAssistantNode(self.mock_team, self.mock_user, node_path=node_path)
+
+        state = AssistantState(messages=[])
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_4"})
+
+        dispatched_events = []
+
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_events.append(event)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+            await node(state, config)
+
+        # Verify all events have the correct node_path
+        for event in dispatched_events:
+            self.assertEqual(event.node_path, node_path)
+
+    async def test_node_run_id_included_in_dispatched_events(self):
+        """Test that node_run_id is included in all dispatched events."""
         node = MockAssistantNode(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        checkpoint_ns = "checkpoint_xyz_789"
+        config = RunnableConfig(
+            metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": checkpoint_ns}
+        )
 
-        dispatched_actions = []
+        dispatched_events = []
 
-        def capture_write(update):
-            if isinstance(update, AssistantDispatcherEvent):
-                dispatched_actions.append(update.action)
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_events.append(event)
 
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
+        # Verify all events have the correct node_run_id
+        for event in dispatched_events:
+            self.assertEqual(event.node_run_id, checkpoint_ns)
 
-        # Should have at least one NODE_START action
-        from ee.hogai.utils.dispatcher import NodeStartAction
-
-        node_start_actions = [action for action in dispatched_actions if isinstance(action, NodeStartAction)]
-        self.assertGreater(len(node_start_actions), 0)
-
-    @patch("ee.hogai.graph.base.get_stream_writer")
-    async def test_parent_tool_call_id_propagation(self, mock_get_stream_writer):
-        """Test that parent_tool_call_id is propagated to dispatched messages."""
-        parent_tool_call_id = str(uuid.uuid4())
-
-        class NodeWithParent(BaseAssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
-                # Dispatch message - should inherit parent_tool_call_id from state
-                self.dispatcher.message(AssistantMessage(content="Child message"))
-                return PartialAssistantState(messages=[])
-
-        node = NodeWithParent(self.mock_team, self.mock_user)
-
-        state = {"messages": [], "parent_tool_call_id": parent_tool_call_id}
-        config = RunnableConfig()
-
-        dispatched_messages = []
-
-        def capture_write(update):
-            if isinstance(update, AssistantDispatcherEvent) and isinstance(update.action, MessageAction):
-                dispatched_messages.append(update.action.message)
-
-        mock_get_stream_writer.return_value = capture_write
-
-        await node.arun(state, config)
-
-        # Verify dispatched messages have parent_tool_call_id
-        assistant_messages = [msg for msg in dispatched_messages if isinstance(msg, AssistantMessage)]
-        for msg in assistant_messages:
-            # If the implementation propagates it, this should be true
-            # Otherwise this test will help catch that as a potential issue
-            if msg.parent_tool_call_id:
-                self.assertEqual(msg.parent_tool_call_id, parent_tool_call_id)
-
-    @patch("ee.hogai.graph.base.get_stream_writer")
-    async def test_dispatcher_error_handling(self, mock_get_stream_writer):
+    async def test_dispatcher_error_handling_does_not_crash_node(self):
         """Test that errors in dispatcher don't crash node execution."""
 
-        class FailingDispatcherNode(BaseAssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
+        class FailingDispatcherNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
+            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 # Try to dispatch - if writer fails, should handle gracefully
-                self.dispatcher.message(AssistantMessage(content="Test"))
+                self.dispatcher.update("Test")
                 return PartialAssistantState(messages=[AssistantMessage(content="Result")])
 
         node = FailingDispatcherNode(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_5"})
 
         # Make writer raise an error
         def failing_writer(data):
             raise RuntimeError("Writer failed")
 
-        mock_get_stream_writer.return_value = failing_writer
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=failing_writer):
+            # Should not crash - node should complete
+            result = await node(state, config)
+            self.assertIsNotNone(result)
 
-        # Should not crash - node should complete
-        result = await node.arun(state, config)
-        self.assertIsNotNone(result)
+    async def test_messages_in_partial_state_dispatched_via_node_end(self):
+        """Test that messages in PartialState are dispatched via NODE_END."""
 
-    async def test_messages_in_partial_state_are_auto_dispatched(self):
-        """Test that messages in PartialState are automatically dispatched."""
-
-        class NodeReturningMessages(BaseAssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
-                # Return messages in state - should be auto-dispatched
+        class NodeReturningMessages(BaseAssistantNode[AssistantState, PartialAssistantState]):
+            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+                # Return messages in state
                 return PartialAssistantState(
                     messages=[
                         AssistantMessage(content="Message 1"),
@@ -208,39 +226,136 @@ class TestDispatcherIntegration(BaseTest):
         node = NodeReturningMessages(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_6"})
 
-        dispatched_messages = []
+        dispatched_events = []
 
-        def capture_write(update):
-            if isinstance(update, AssistantDispatcherEvent) and isinstance(update.action, MessageAction):
-                dispatched_messages.append(update.action.message)
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_events.append(event)
 
-        with patch("ee.hogai.graph.base.get_stream_writer", return_value=capture_write):
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
             await node(state, config)
 
-        # Should have dispatched the messages from PartialState (and NODE_START)
-        # We expect at least 2 message actions (Message 1 and Message 2)
-        self.assertGreaterEqual(len(dispatched_messages), 2)
+        # Should have NODE_END action with state containing messages
+        node_end_actions = [e for e in dispatched_events if isinstance(e.action, NodeEndAction)]
+        self.assertEqual(len(node_end_actions), 1)
+
+        node_end_state = cast(NodeEndAction, node_end_actions[0].action).state
+        self.assertIsNotNone(node_end_state)
+        assert node_end_state is not None
+        self.assertEqual(len(node_end_state.messages), 2)
 
     async def test_node_returns_none_state_handling(self):
         """Test that node can return None state without errors."""
 
-        class NoneStateNode(BaseAssistantNode):
-            @property
-            def node_name(self):
-                return AssistantNodeName.ROOT
-
-            async def arun(self, state, config: RunnableConfig) -> None:
+        class NoneStateNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
+            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
                 # Dispatch a message but return None state
-                self.dispatcher.message(AssistantMessage(content="Test"))
+                self.dispatcher.update("Test")
                 return None
 
         node = NoneStateNode(self.mock_team, self.mock_user)
 
         state = AssistantState(messages=[])
-        config = RunnableConfig()
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_7"})
 
-        result = await node(state, config)
-        # Should handle None gracefully
-        self.assertIsNone(result)
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
+            result = await node(state, config)
+            # Should handle None gracefully
+            self.assertIsNone(result)
+
+    async def test_nested_node_path_in_dispatched_events(self):
+        """Test that nested nodes have correct node_path."""
+        # Simulate a nested node path (e.g., from a tool call)
+        parent_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id="msg_123", tool_call_id="tc_123"),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
+        )
+
+        node = MockAssistantNode(self.mock_team, self.mock_user, node_path=parent_path)
+
+        state = AssistantState(messages=[])
+        config = RunnableConfig(
+            metadata={"langgraph_node": AssistantNodeName.TRENDS_GENERATOR, "langgraph_checkpoint_ns": "cp_8"}
+        )
+
+        dispatched_events = []
+
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_events.append(event)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+            await node(state, config)
+
+        # Verify all events have the nested path
+        for event in dispatched_events:
+            self.assertIsNotNone(event.node_path)
+            assert event.node_path is not None
+            self.assertEqual(event.node_path, parent_path)
+            self.assertEqual(len(event.node_path), 4)
+            self.assertEqual(event.node_path[1].message_id, "msg_123")
+            self.assertEqual(event.node_path[1].tool_call_id, "tc_123")
+
+    async def test_update_actions_include_node_metadata(self):
+        """Test that update actions include correct node metadata."""
+        node = MockAssistantNode(self.mock_team, self.mock_user)
+
+        state = AssistantState(messages=[])
+        config = RunnableConfig(metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_9"})
+
+        dispatched_events = []
+
+        def capture_write(event: AssistantDispatcherEvent):
+            dispatched_events.append(event)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write):
+            await node(state, config)
+
+        # Find update actions
+        update_events = [e for e in dispatched_events if isinstance(e.action, UpdateAction)]
+
+        for event in update_events:
+            self.assertEqual(event.node_name, AssistantNodeName.ROOT)
+            self.assertEqual(event.node_run_id, "cp_9")
+            self.assertIsNotNone(event.node_path)
+
+    async def test_concurrent_node_executions_independent_dispatchers(self):
+        """Test that concurrent node executions use independent dispatchers."""
+        node1 = MockAssistantNode(self.mock_team, self.mock_user)
+        node2 = MockAssistantNode(self.mock_team, self.mock_user)
+
+        state = AssistantState(messages=[])
+        config1 = RunnableConfig(
+            metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_10a"}
+        )
+        config2 = RunnableConfig(
+            metadata={"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "cp_10b"}
+        )
+
+        events1 = []
+        events2 = []
+
+        def capture_write1(event: AssistantDispatcherEvent):
+            events1.append(event)
+
+        def capture_write2(event: AssistantDispatcherEvent):
+            events2.append(event)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write1):
+            await node1(state, config1)
+
+        with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=capture_write2):
+            await node2(state, config2)
+
+        # Verify events went to separate lists
+        self.assertGreater(len(events1), 0)
+        self.assertGreater(len(events2), 0)
+
+        # Verify node_run_ids are different
+        for event in events1:
+            self.assertEqual(event.node_run_id, "cp_10a")
+
+        for event in events2:
+            self.assertEqual(event.node_run_id, "cp_10b")

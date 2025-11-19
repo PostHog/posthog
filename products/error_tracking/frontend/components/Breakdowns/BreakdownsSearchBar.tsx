@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -11,14 +12,12 @@ import { dateMapping } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import { TAXONOMIC_GROUP_TYPES } from './consts'
-import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
+import { BreakdownsEvents, TAXONOMIC_GROUP_TYPES } from './consts'
 
 export function BreakdownsSearchBar(): JSX.Element {
-    const { dateRange, filterTestAccounts, filterOpen } = useValues(breakdownFiltersLogic)
-    const { setDateRange, setFilterTestAccounts, setFilterOpen } = useActions(breakdownFiltersLogic)
-    const { breakdownProperty } = useValues(errorTrackingBreakdownsLogic)
-    const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
+    const { dateRange, filterTestAccounts, filterOpen, breakdownProperty } = useValues(breakdownFiltersLogic)
+    const { setDateRange, setFilterTestAccounts, setFilterOpen, setBreakdownProperty } =
+        useActions(breakdownFiltersLogic)
 
     return (
         <div className="border rounded bg-surface-primary p-3 flex gap-2 items-center">
@@ -28,9 +27,9 @@ export function BreakdownsSearchBar(): JSX.Element {
                 dateTo={dateRange.date_to}
                 fullWidth={false}
                 dateOptions={dateMapping}
-                onChange={(changedDateFrom, changedDateTo) =>
+                onChange={(changedDateFrom, changedDateTo) => {
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }
+                }}
                 allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             />
             <Popover
@@ -40,6 +39,9 @@ export function BreakdownsSearchBar(): JSX.Element {
                         onChange={(_, value) => {
                             if (value) {
                                 setBreakdownProperty(String(value))
+                                posthog.capture(BreakdownsEvents.PropertySelected, {
+                                    property: String(value),
+                                })
                             }
                             setFilterOpen(false)
                         }}

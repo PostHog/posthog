@@ -1,7 +1,11 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { match } from 'ts-pattern'
 
-import { GitMetadataParser } from '@posthog/products-error-tracking/frontend/components/ExceptionAttributesPreview/ReleasesPreview/gitMetadataParser'
+import {
+    GitMetadataParser,
+    supportedProviders,
+} from '@posthog/products-error-tracking/frontend/components/ExceptionAttributesPreview/ReleasesPreview/gitMetadataParser'
 
 import api from 'lib/api'
 
@@ -46,7 +50,6 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
             const batchData: Record<string, SourceData | null> = {}
 
             const searchPromises = Object.entries(records).map(async ([rawId, record]) => {
-                // Skip if already computed or not in-app
                 if (values.frameSourceUrls[rawId] !== undefined || !record.contents?.in_app) {
                     return
                 }
@@ -67,23 +70,30 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
 
                 const parsed = GitMetadataParser.parseRemoteUrl(remoteUrl)
 
-                if (parsed?.provider === 'github') {
-                    const result = await api.gitProviderFileLinks.resolveGithub(
-                        parsed.owner,
-                        parsed.repository,
-                        codeSample,
-                        fileName
-                    )
-                    let url = result.found && result.url ? `${result.url}` : null
+                if (!parsed || !supportedProviders.includes(parsed.provider)) {
+                    return
+                }
 
-                    if (url && lineNumber) {
-                        url = `${url}#L${lineNumber + 1}`
-                    }
+                const resolveMethod = match(parsed.provider)
+                    .with('github', () => api.gitProviderFileLinks.resolveGithub)
+                    .with('gitlab', () => api.gitProviderFileLinks.resolveGitlab)
+                    .with('unknown', () => null)
+                    .exhaustive()
 
-                    batchData[rawId] = {
-                        url,
-                        provider: parsed.provider,
-                    }
+                if (!resolveMethod) {
+                    return
+                }
+
+                const result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
+                let url = result.url ?? null
+
+                if (url && lineNumber) {
+                    url = `${url}#L${lineNumber + 1}`
+                }
+
+                batchData[rawId] = {
+                    url,
+                    provider: parsed.provider,
                 }
             })
 

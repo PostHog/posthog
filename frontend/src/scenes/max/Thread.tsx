@@ -71,10 +71,12 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MessageTemplate } from './messages/MessageTemplate'
+import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
@@ -173,7 +175,7 @@ interface MessageProps {
 }
 
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
-    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -259,6 +261,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 <ToolCallsAnswer
                                     key={`${key}-tools`}
                                     toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                    registeredToolMap={registeredToolMap}
                                 />
                             ) : null
 
@@ -300,6 +303,20 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {toolCallElements}
                                 {actionsElement}
                             </div>
+                        )
+                    } else if (
+                        isAssistantToolCallMessage(message) &&
+                        message.ui_payload &&
+                        Object.keys(message.ui_payload).length > 0
+                    ) {
+                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
+                        return (
+                            <UIPayloadAnswer
+                                key={key}
+                                toolCallId={message.tool_call_id}
+                                toolName={toolName}
+                                toolPayload={toolPayload}
+                            />
                         )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
@@ -358,48 +375,6 @@ function MessageGroupSkeleton({
         </MessageContainer>
     )
 }
-
-interface MessageTemplateProps {
-    type: 'human' | 'ai'
-    action?: React.ReactNode
-    className?: string
-    boxClassName?: string
-    wrapperClassName?: string
-    children?: React.ReactNode
-    header?: React.ReactNode
-}
-
-const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, wrapperClassName, action, header },
-    ref
-) {
-    return (
-        <div
-            className={twMerge(
-                'flex flex-col gap-px w-full break-words scroll-mt-12',
-                type === 'human' ? 'items-end' : 'items-start',
-                className
-            )}
-            ref={ref}
-        >
-            <div className={twMerge('max-w-full', wrapperClassName)}>
-                {header}
-                {children && (
-                    <div
-                        className={twMerge(
-                            'border py-2 px-3 rounded-lg bg-surface-primary',
-                            type === 'human' && 'font-medium',
-                            boxClassName
-                        )}
-                    >
-                        {children}
-                    </div>
-                )}
-            </div>
-            {action}
-        </div>
-    )
-})
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
@@ -732,7 +707,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
@@ -744,7 +719,7 @@ function AssistantActionComponent({
                 aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
             >
                 {icon && (
-                    <div className="flex items-center justify-center size-6">
+                    <div className="flex items-center justify-center size-5">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
@@ -825,7 +800,7 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
+            icon={<IconBrain />}
             animate={true}
             showCompletionIcon={showCompletionIcon}
         />
@@ -834,9 +809,10 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
 
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
+    registeredToolMap: Record<string, ToolRegistration>
 }
 
-function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -867,7 +843,7 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
                         let description = `Executing ${toolCall.name}`
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall)
+                                description = definition.displayFormatter(toolCall, { registeredToolMap })
                             }
                             if (commentary) {
                                 description = commentary
@@ -1020,9 +996,18 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
+                      boxClassName="flex flex-col w-full"
                   >
-                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      {!isCollapsed && (
+                          <div
+                              className={clsx(
+                                  'flex flex-col overflow-auto',
+                                  isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
+                              )}
+                          >
+                              <Query query={query} readOnly embedded />
+                          </div>
+                      )}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                           <div className="flex items-center gap-1.5">
                               <LemonButton

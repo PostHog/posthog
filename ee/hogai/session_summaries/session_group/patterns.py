@@ -9,7 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.session.output_data import SessionSummaryIssueTypes, SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
@@ -255,9 +255,9 @@ def _enriched_event_from_session_summary_event(
         event_uuid=pattern_assigned_event.event_uuid,
         session_id=pattern_assigned_event.session_id,
         description=event["description"],
-        abandonment=event["abandonment"],
-        confusion=event["confusion"],
-        exception=event["exception"],
+        abandonment=event[SessionSummaryIssueTypes.ABANDONMENT.value],
+        confusion=event[SessionSummaryIssueTypes.CONFUSION.value],
+        exception=event[SessionSummaryIssueTypes.EXCEPTION.value],
         timestamp=event["timestamp"],
         milliseconds_since_start=event["milliseconds_since_start"],
         window_id=event["window_id"],

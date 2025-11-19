@@ -2,6 +2,7 @@ import dagster
 import structlog
 
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 from dags.common import JobOwners
 
@@ -28,7 +29,7 @@ def sync_managed_viewsets_op(
     queryset = DataWarehouseManagedViewSet.objects.all()
     kind = context.op_config.get("kind", "")
     if kind is not None and kind != "":
-        if kind not in DataWarehouseManagedViewSet.Kind.values:
+        if kind not in DataWarehouseManagedViewSetKind.values:
             raise ValueError(f"Invalid kind: {kind}")
         queryset = queryset.filter(kind=kind)
         context.log.info(f"Syncing ManagedViewsets for kind: {kind}")

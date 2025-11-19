@@ -210,11 +210,13 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: get_sourcelocation_context(&token),
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -258,11 +260,13 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             // why we thought a frame wasn't minified, they can see the error message
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -298,11 +302,13 @@ impl From<&RawJSFrame> for Frame {
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

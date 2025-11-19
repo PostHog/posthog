@@ -8,8 +8,9 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.settings import (
@@ -18,6 +19,7 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
+    StripeResumeConfig,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
@@ -26,7 +28,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class StripeSource(BaseSource[StripeSourceConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
@@ -70,6 +72,15 @@ You can also simplify the setup by selecting **read** for the **entire resource*
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "403 Client Error: Forbidden for url: https://api.stripe.com": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+            "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
+            "Invalid API Key provided": None,
+            "PermissionError": "Your API key does not have permissions to access endpoint. Please check your API key configuration and permissions in Stripe, then try again.",
+        }
+
     def get_schemas(self, config: StripeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
@@ -94,7 +105,15 @@ You can also simplify the setup by selecting **read** for the **entire resource*
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: StripeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
+        return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: StripeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,
@@ -103,4 +122,5 @@ You can also simplify the setup by selecting **read** for the **entire resource*
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

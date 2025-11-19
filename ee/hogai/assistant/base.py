@@ -9,7 +9,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
@@ -31,20 +30,19 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_stream_update
-from ee.hogai.utils.state import (
-    GraphValueUpdateTuple,
-    is_message_update,
-    is_state_update,
-    is_value_update,
-    validate_state_update,
+from ee.hogai.utils.state import validate_state_update
+from ee.hogai.utils.stream_processor import AssistantStreamProcessorProtocol
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    AssistantMode,
+    AssistantOutput,
+    AssistantResultUnion,
+    LangGraphUpdateEvent,
 )
-from ee.hogai.utils.stream_processor import AssistantStreamProcessor
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMode, AssistantResultUnion, MessageChunkAction
-from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
+from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
 from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -66,7 +64,7 @@ class BaseAssistant(ABC):
     _trace_id: Optional[str | UUID]
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
-    _stream_processor: AssistantStreamProcessor
+    _stream_processor: AssistantStreamProcessorProtocol
     """The stream processor that processes dispatcher actions and message chunks."""
 
     def __init__(
@@ -87,6 +85,7 @@ class BaseAssistant(ABC):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        stream_processor: AssistantStreamProcessorProtocol,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -121,22 +120,7 @@ class BaseAssistant(ABC):
         self._mode = mode
         self._initial_state = initial_state
         # Initialize the stream processor with node configuration
-        self._stream_processor = AssistantStreamProcessor(
-            streaming_nodes=self.STREAMING_NODES,
-            visualization_nodes=self.VISUALIZATION_NODES,
-        )
-
-    @property
-    @abstractmethod
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        """Nodes that can generate visualizations."""
-        pass
-
-    @property
-    @abstractmethod
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        """Nodes that can stream messages to the client."""
-        pass
+        self._stream_processor = stream_processor
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -175,7 +159,7 @@ class BaseAssistant(ABC):
         state = await self._init_or_update_state()
         config = self._get_config()
 
-        stream_mode: list[StreamMode] = ["values", "updates", "custom"]
+        stream_mode: list[StreamMode] = ["values", "custom"]
         if stream_message_chunks:
             stream_mode.append("messages")
 
@@ -286,11 +270,11 @@ class BaseAssistant(ABC):
         # Add existing ids to streamed messages, so we don't send the messages again.
         for message in saved_state.messages:
             if message.id is not None:
-                self._stream_processor._streamed_update_ids.add(message.id)
+                self._stream_processor.mark_id_as_streamed(message.id)
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:
-            self._stream_processor._streamed_update_ids.add(self._latest_message.id)
+            self._stream_processor.mark_id_as_streamed(self._latest_message.id)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":
@@ -322,29 +306,12 @@ class BaseAssistant(ABC):
     async def _process_update(self, update: Any) -> list[AssistantResultUnion] | None:
         update = extract_stream_update(update)
 
-        new_message: AssistantResultUnion | None = None
         if not isinstance(update, AssistantDispatcherEvent):
-            if is_state_update(update):
-                _, new_state = update
-                self._state = validate_state_update(new_state, self._state_type)
-            elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
-                return [new_message]
+            if updates := self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
+                return updates
+        elif new_message := self._stream_processor.process(update):
+            return new_message
 
-            if is_message_update(update):
-                # Convert the message chunk update to a dispatcher event to prepare for a bright future without LangGraph
-                message, state = update[1]
-                if not isinstance(message, AIMessageChunk):
-                    return None
-                update = AssistantDispatcherEvent(
-                    action=MessageChunkAction(message=message), node_name=state["langgraph_node"]
-                )
-
-        if isinstance(update, AssistantDispatcherEvent) and (new_message := self._stream_processor.process(update)):
-            return [new_message] if new_message else None
-
-        return None
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:

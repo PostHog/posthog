@@ -9,6 +9,7 @@ __pycache__/
 .env*
 .eslintcache
 .idea
+!.idea/posthog.iml
 .mypy_cache
 .parcel-cache
 # pyenv local config
@@ -70,6 +71,8 @@ gen/
 max-test-venv/
 node_modules/
 object_storage/
+data/seaweedfs/
+.migration-checkpoint.json
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 # pyright config (keep this until we have a standardized one)

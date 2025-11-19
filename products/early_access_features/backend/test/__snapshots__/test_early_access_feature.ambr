@@ -113,6 +113,45 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
+# name: TestPreviewList.test_early_access_features.10
+  '''
+  SELECT "posthog_earlyaccessfeature"."id",
+         "posthog_earlyaccessfeature"."team_id",
+         "posthog_earlyaccessfeature"."feature_flag_id",
+         "posthog_earlyaccessfeature"."name",
+         "posthog_earlyaccessfeature"."description",
+         "posthog_earlyaccessfeature"."stage",
+         "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."created_at",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."last_called_at"
+  FROM "posthog_earlyaccessfeature"
+  INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_earlyaccessfeature"."stage" IN ('beta')
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
 # name: TestPreviewList.test_early_access_features.2
   '''
   SELECT "posthog_integration"."id",
@@ -248,6 +287,14 @@
 # ---
 # name: TestPreviewList.test_early_access_features.8
   '''
+  SELECT "posthog_team"."id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.9
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -329,45 +376,6 @@
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.9
-  '''
-  SELECT "posthog_earlyaccessfeature"."id",
-         "posthog_earlyaccessfeature"."team_id",
-         "posthog_earlyaccessfeature"."feature_flag_id",
-         "posthog_earlyaccessfeature"."name",
-         "posthog_earlyaccessfeature"."description",
-         "posthog_earlyaccessfeature"."stage",
-         "posthog_earlyaccessfeature"."documentation_url",
-         "posthog_earlyaccessfeature"."created_at",
-         "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."last_called_at"
-  FROM "posthog_earlyaccessfeature"
-  INNER JOIN "posthog_team" ON ("posthog_earlyaccessfeature"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
-  WHERE ("posthog_earlyaccessfeature"."stage" IN ('beta')
-         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team
@@ -643,6 +651,14 @@
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.6
   '''
+  SELECT "posthog_team"."id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features_with_cached_team.7
+  '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
          "posthog_earlyaccessfeature"."feature_flag_id",
@@ -867,6 +883,14 @@
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5
+  '''
+  SELECT "posthog_team"."id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.6
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",

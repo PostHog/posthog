@@ -9,7 +9,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -25,10 +25,13 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
+class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"The DNS query name does not exist": None, "authentication failed": None}
 
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
@@ -78,10 +81,10 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
                 return False, "No collections found in database"
         except OperationFailure as e:
             capture_exception(e)
-            return False, "MongoDB authentication failed"
+            return False, f"MongoDB authentication failed: {str(e)}"
         except Exception as e:
             capture_exception(e)
-            return False, "Failed to connect to MongoDB database"
+            return False, f"Failed to connect to MongoDB database: {str(e)}"
 
         return True, None
 

@@ -1,9 +1,11 @@
-from typing import cast
+from typing import Optional, Union, cast
 
 from posthog.schema import (
     ActionsNode,
+    Breakdown,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -28,19 +30,17 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.team.team import Team
+
+# Constant for representing NULL breakdown values
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 
 
 def get_exposure_config_params_for_builder(
-    experiment: Experiment,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
-    """A helper function that takes an experiment and returns some of the required parameters for the query builder.
-
-    This is to decouple the relation a bit between experiments and the builder it self. The builder shouldn't need to know this
-    experiment specific stuff.
-    """
-    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    """Returns exposure-related parameters required by the query builder."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
@@ -62,13 +62,14 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
+        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
+        breakdowns: list[Breakdown] | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -79,11 +80,54 @@ class ExperimentQueryBuilder:
         self.exposure_config = exposure_config
         self.filter_test_accounts = filter_test_accounts
         self.multiple_variant_handling = multiple_variant_handling
+        self.breakdowns = breakdowns or []
+
+    def _has_breakdown(self) -> bool:
+        """Returns True if breakdown is configured"""
+        return len(self.breakdowns) > 0
+
+    def _get_breakdown_count(self) -> int:
+        """Returns the number of breakdowns configured"""
+        return len(self.breakdowns)
+
+    def _get_breakdown_aliases(self) -> list[str]:
+        """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""
+        return [f"breakdown_value_{i+1}" for i in range(len(self.breakdowns))]
+
+    def _build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
+        """
+        Returns list of (alias, expression) tuples for extracting breakdown properties from events.
+        Handles NULL values by replacing with BREAKDOWN_NULL_STRING_LABEL.
+        Returns empty list if no breakdowns configured.
+        """
+        if not self._has_breakdown():
+            return []
+
+        result = []
+        for i, breakdown in enumerate(self.breakdowns):
+            # Build the property chain - if table_alias is empty, just use properties.breakdown
+            if table_alias:
+                property_expr = ast.Field(chain=[table_alias, "properties", breakdown.property])
+            else:
+                property_expr = ast.Field(chain=["properties", breakdown.property])
+
+            expr = parse_expr(
+                "coalesce(toString({property_expr}), {null_label})",
+                placeholders={
+                    "property_expr": property_expr,
+                    "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                },
+            )
+            alias = f"breakdown_value_{i+1}"
+            result.append((alias, expr))
+
+        return result
 
     def build_query(self) -> ast.SelectQuery:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
+        assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
@@ -96,17 +140,99 @@ class ExperimentQueryBuilder:
                     f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
                 )
 
+    def get_exposure_timeseries_query(self) -> ast.SelectQuery:
+        """
+        Returns a query for exposure timeseries data.
+
+        Generates daily exposure counts per variant, counting each entity
+        only once on their first exposure day.
+
+        Returns:
+            SelectQuery with columns: day, variant, exposed_count
+        """
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.
         Returns 0 if no conversion window is configured.
         """
+        assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             return conversion_window_to_seconds(
                 self.metric.conversion_window,
                 self.metric.conversion_window_unit,
             )
         return 0
+
+    def _inject_funnel_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into funnel query AST.
+        Modifies query in-place.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        breakdown_exprs = self._build_breakdown_exprs(table_alias="")
+
+        # Inject into metric_events CTE SELECT
+        if query.ctes and "metric_events" in query.ctes:
+            metric_events_cte = query.ctes["metric_events"]
+            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    metric_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into entity_metrics CTE SELECT (attribution - extract from exposure events only)
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        parse_expr(f"argMinIf({alias}, timestamp, step_0 = 1) AS {alias}")
+                    )
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -116,33 +242,94 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
+        metric_events_cte_str = """
+                metric_events AS (
+                    SELECT
+                        {entity_key} AS entity_id,
+                        {variant_property} as variant,
+                        timestamp,
+                        uuid,
+                        properties.$session_id AS session_id,
+                        -- step_0, step_1, ... step_N columns added programmatically below
+                    FROM events
+                    WHERE ({exposure_predicate} OR {funnel_steps_filter})
+                )
+        """
+
+        is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+
+        # For unordered funnels, the UDF does _not_ filter out funnel steps that occur _before_ the
+        # exposure event. Thus, we need to filter them out with a left join. An attempt to do this with
+        # a window function has been tried, but it failed with a "column not found" issue due to how
+        # HogQL rewrites the query and hitting a bug with the ClickHouse analyzer
+        if is_unordered_funnel:
+            ctes_sql = f"""
+                exposures AS (
+                    {{exposure_select_query}}
+                ),
+
+                {metric_events_cte_str},
+
+                entity_metrics AS (
+                    SELECT
+                        exposures.entity_id AS entity_id,
+                        exposures.variant AS variant,
+                        exposures.exposure_event_uuid AS exposure_event_uuid,
+                        exposures.exposure_session_id AS exposure_session_id,
+                        exposures.first_exposure_time AS exposure_timestamp,
+                        {{funnel_aggregation}} AS value,
+                        {{uuid_to_session_map}} AS uuid_to_session,
+                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                    FROM exposures
+                    LEFT JOIN metric_events
+                        ON exposures.entity_id = metric_events.entity_id
+                        AND metric_events.timestamp >= exposures.first_exposure_time
+                    GROUP BY
+                        exposures.entity_id,
+                        exposures.variant,
+                        exposures.exposure_event_uuid,
+                        exposures.exposure_session_id,
+                        exposures.first_exposure_time
+                )
+            """
+        else:
+            ctes_sql = f"""
+                {metric_events_cte_str},
+
+                entity_metrics AS (
+                    SELECT
+                        entity_id,
+                        {{variant_expr}} as variant,
+                        argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
+                        argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
+                        argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
+                        {{funnel_aggregation}} AS value,
+                        {{uuid_to_session_map}} AS uuid_to_session,
+                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                    FROM metric_events
+                    GROUP BY entity_id
+                )
+            """
+
+        placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
+            "exposure_predicate": self._build_exposure_predicate(),
+            "variant_property": self._build_variant_property(),
+            "variant_expr": self._build_variant_expr_for_funnel(),
+            "entity_key": parse_expr(self.entity_key),
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "funnel_aggregation": self._build_funnel_aggregation_expr(),
+            "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+            "uuid_to_session_map": self._build_uuid_to_session_map(),
+            "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
+        }
+
+        if is_unordered_funnel:
+            placeholders["exposure_select_query"] = self._build_exposure_select_query()
+
         query = parse_select(
             f"""
-            WITH metric_events AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    {{variant_property}} as variant,
-                    timestamp,
-                    uuid,
-                    properties.$session_id AS session_id,
-                    -- step_0, step_1, ... step_N columns added programmatically below
-                FROM events
-                WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
-            ),
-
-            entity_metrics AS (
-                SELECT
-                    entity_id,
-                    {{variant_expr}} as variant,
-                    argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
-                    argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
-                    argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
-                    {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session,
-                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
-                FROM metric_events
-                GROUP BY entity_id
-            )
+            WITH
+            {ctes_sql}
 
             SELECT
                 entity_metrics.variant AS variant,
@@ -152,26 +339,21 @@ class ExperimentQueryBuilder:
                 -- num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
-                -- step_counts added programatically below
-                -- steps_event_data added programatically below
+                -- step_counts added programmatically below
+                -- steps_event_data added programmatically below
+                -- breakdown columns added programmatically below
             FROM entity_metrics
             WHERE notEmpty(variant)
             GROUP BY entity_metrics.variant
+            -- breakdown columns added programmatically below
             """,
-            placeholders={
-                "exposure_predicate": self._build_exposure_predicate(),
-                "variant_property": self._build_variant_property(),
-                "variant_expr": self._build_variant_expr_for_funnel(),
-                "entity_key": parse_expr(self.entity_key),
-                "funnel_steps_filter": self._build_funnel_steps_filter(),
-                "funnel_aggregation": self._build_funnel_aggregation_expr(),
-                "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-                "uuid_to_session_map": self._build_uuid_to_session_map(),
-                "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
-            },
+            placeholders=placeholders,
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        self._inject_funnel_breakdown_columns(query)
 
         # Inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
@@ -181,24 +363,6 @@ class ExperimentQueryBuilder:
                 # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
-
-                # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
-                # event. For ordered funnel metrics, the UDF does this for us.
-                # Here, we add the field we need, first_exposure_timestamp
-                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
-                    first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
-                    )
-                    metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
-
-        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
-            # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
-            # event. For ordered funnel metrics, the UDF does this for us.
-            # Here, we add the where condition to filter out those events
-            if query.ctes and "entity_metrics" in query.ctes:
-                entity_metrics_cte = query.ctes["entity_metrics"]
-                if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
-                    entity_metrics_cte.expr.where = parse_expr("timestamp >= first_exposure_timestamp")
 
         # Inject the additional selects we do for getting the data we need to render the funnel chart
         # Add step counts - how many users reached each step
@@ -257,6 +421,7 @@ class ExperimentQueryBuilder:
                     {{entity_key}} AS entity_id,
                     {timestamp_field} AS timestamp,
                     {{value_expr}} AS value
+                    -- breakdown columns added programmatically below
                 FROM {table}
                 WHERE {{metric_predicate}}
             ),
@@ -266,10 +431,12 @@ class ExperimentQueryBuilder:
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
                     {{value_agg}} AS value
+                    -- breakdown columns added programmatically below
                 FROM exposures
                 LEFT JOIN metric_events ON {join_condition}
                     AND {{conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
+                -- breakdown columns added programmatically below
             )
         """
 
@@ -320,6 +487,112 @@ class ExperimentQueryBuilder:
 
         return placeholders
 
+    def _inject_mean_breakdown_columns(self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics") -> None:
+        """
+        Injects breakdown columns into mean query AST.
+        Modifies query in-place.
+
+        Args:
+            query: The parsed SelectQuery AST
+            final_cte_name: Name of the final CTE before main SELECT ('entity_metrics' or 'winsorized_entity_metrics')
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # Get table name for metric_events based on metric source
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        breakdown_exprs = self._build_breakdown_exprs(table_alias="metric_events" if is_dw else "events")
+
+        # Inject into metric_events CTE SELECT
+        if query.ctes and "metric_events" in query.ctes:
+            metric_events_cte = query.ctes["metric_events"]
+            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    metric_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into entity_metrics CTE SELECT and GROUP BY
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias]))
+                    )
+                # Also add to GROUP BY
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into percentiles CTE (only for winsorization queries)
+        if query.ctes and "percentiles" in query.ctes:
+            percentiles_cte = query.ctes["percentiles"]
+            if isinstance(percentiles_cte, ast.CTE) and isinstance(percentiles_cte.expr, ast.SelectQuery):
+                # Add breakdown columns to SELECT
+                for alias in aliases:
+                    percentiles_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                    )
+                # Initialize and populate GROUP BY for per-breakdown percentiles
+                if percentiles_cte.expr.group_by is None:
+                    percentiles_cte.expr.group_by = []
+                for alias in aliases:
+                    percentiles_cte.expr.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+        # Inject into winsorized_entity_metrics CTE (only when final_cte_name is winsorized_entity_metrics)
+        if query.ctes and final_cte_name == "winsorized_entity_metrics":
+            winsorized_cte = query.ctes["winsorized_entity_metrics"]
+            if isinstance(winsorized_cte, ast.CTE) and isinstance(winsorized_cte.expr, ast.SelectQuery):
+                # Add breakdown columns to SELECT
+                for alias in aliases:
+                    winsorized_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                    )
+                # Convert CROSS JOIN to proper JOIN with breakdown conditions
+                if winsorized_cte.expr.select_from:
+                    join_expr = winsorized_cte.expr.select_from.next_join
+                    if join_expr and isinstance(join_expr, ast.JoinExpr):
+                        # Change from CROSS JOIN to INNER JOIN
+                        join_expr.join_type = "JOIN"
+                        # Build join condition: percentiles.bd1 = entity_metrics.bd1 AND ...
+                        join_conditions = []
+                        for alias in aliases:
+                            join_conditions.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["percentiles", alias]),
+                                    right=ast.Field(chain=["entity_metrics", alias]),
+                                )
+                            )
+                        # Combine conditions with AND
+                        condition_expr: ast.Expr
+                        if len(join_conditions) == 1:
+                            condition_expr = join_conditions[0]
+                        else:
+                            combined: ast.Expr = join_conditions[0]
+                            for condition in join_conditions[1:]:
+                                combined = ast.And(exprs=[combined, condition])
+                            condition_expr = combined
+                        # Wrap in JoinConstraint with ON clause
+                        join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=[final_cte_name, alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=[final_cte_name, alias]))
+
     def _build_mean_query(self) -> ast.SelectQuery:
         """
         Builds query for mean metrics (count, sum, avg, etc.)
@@ -345,13 +618,19 @@ class ExperimentQueryBuilder:
                 count(entity_metrics.entity_id) AS num_users,
                 sum(entity_metrics.value) AS total_sum,
                 sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+                -- breakdown columns added programmatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
+            -- breakdown columns added programmatically below
             """,
             placeholders=self._get_mean_query_common_placeholders(),
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        self._inject_mean_breakdown_columns(query, final_cte_name="entity_metrics")
+
         return query
 
     def _build_mean_query_with_winsorization(self) -> ast.SelectQuery:
@@ -401,7 +680,9 @@ class ExperimentQueryBuilder:
                 SELECT
                     {{lower_bound}} AS lower_bound,
                     {{upper_bound}} AS upper_bound
+                    -- breakdown columns added programmatically below
                 FROM entity_metrics
+                -- GROUP BY added programmatically below if breakdowns exist
             ),
 
             winsorized_entity_metrics AS (
@@ -409,8 +690,10 @@ class ExperimentQueryBuilder:
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
                     least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+                    -- breakdown columns added programmatically below
                 FROM entity_metrics
                 CROSS JOIN percentiles
+                -- JOIN conditions added programmatically below if breakdowns exist
             )
 
             SELECT
@@ -418,14 +701,132 @@ class ExperimentQueryBuilder:
                 count(winsorized_entity_metrics.entity_id) AS num_users,
                 sum(winsorized_entity_metrics.value) AS total_sum,
                 sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+                -- breakdown columns added programmatically below
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant
+            -- breakdown columns added programmatically below
             """,
             placeholders=placeholders,
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        self._inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
+
         return query
+
+    def _inject_ratio_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into ratio query AST.
+        Modifies query in-place.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # Get table names for numerator and denominator
+        assert isinstance(self.metric, ExperimentRatioMetric)
+
+        # Check if we're dealing with data warehouse sources
+        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+
+        # Build numerator events CTE
+        if num_is_dw:
+            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+            num_table = self.metric.numerator.table_name
+        else:
+            num_table = "events"
+
+        # Build denominator events CTE
+        if denom_is_dw:
+            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+            denom_table = self.metric.denominator.table_name
+        else:
+            denom_table = "events"
+
+        num_breakdown_exprs = self._build_breakdown_exprs(table_alias=num_table)
+        denom_breakdown_exprs = self._build_breakdown_exprs(table_alias=denom_table)
+
+        # Inject into numerator_events CTE SELECT
+        if query.ctes and "numerator_events" in query.ctes:
+            numerator_cte = query.ctes["numerator_events"]
+            if isinstance(numerator_cte, ast.CTE) and isinstance(numerator_cte.expr, ast.SelectQuery):
+                for alias, expr in num_breakdown_exprs:
+                    numerator_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into denominator_events CTE SELECT
+        if query.ctes and "denominator_events" in query.ctes:
+            denominator_cte = query.ctes["denominator_events"]
+            if isinstance(denominator_cte, ast.CTE) and isinstance(denominator_cte.expr, ast.SelectQuery):
+                for alias, expr in denom_breakdown_exprs:
+                    denominator_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into numerator_aggregated CTE SELECT and GROUP BY
+        if query.ctes and "numerator_aggregated" in query.ctes:
+            num_agg_cte = query.ctes["numerator_aggregated"]
+            if isinstance(num_agg_cte, ast.CTE) and isinstance(num_agg_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    num_agg_cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])))
+                if num_agg_cte.expr.group_by is None:
+                    num_agg_cte.expr.group_by = []
+                for alias in aliases:
+                    num_agg_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into denominator_aggregated CTE SELECT and GROUP BY
+        if query.ctes and "denominator_aggregated" in query.ctes:
+            denom_agg_cte = query.ctes["denominator_aggregated"]
+            if isinstance(denom_agg_cte, ast.CTE) and isinstance(denom_agg_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    denom_agg_cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])))
+                if denom_agg_cte.expr.group_by is None:
+                    denom_agg_cte.expr.group_by = []
+                for alias in aliases:
+                    denom_agg_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into entity_metrics CTE SELECT
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["numerator_aggregated", alias]))
+                    )
+                # Add breakdown join conditions to JOIN ON clause
+                # Find the LEFT JOIN in entity_metrics CTE
+                if isinstance(entity_metrics_cte.expr.select_from, ast.JoinExpr):
+                    join_expr = entity_metrics_cte.expr.select_from
+                    # Navigate to find the denominator_aggregated join
+                    if join_expr.next_join and join_expr.next_join.constraint:
+                        # Build all breakdown join conditions
+                        breakdown_conditions: list[ast.Expr] = [
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["numerator_aggregated", alias]),
+                                right=ast.Field(chain=["denominator_aggregated", alias]),
+                            )
+                            for alias in aliases
+                        ]
+                        # Combine existing constraint expr with all breakdown conditions using AND
+                        if breakdown_conditions:
+                            join_expr.next_join.constraint.expr = ast.And(
+                                exprs=[join_expr.next_join.constraint.expr, *breakdown_conditions]
+                            )
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
 
     def _build_ratio_query(self) -> ast.SelectQuery:
         """
@@ -519,6 +920,7 @@ class ExperimentQueryBuilder:
                     {{num_entity_key}} AS entity_id,
                     {num_timestamp_field} AS timestamp,
                     {{numerator_value_expr}} AS value
+                    -- breakdown columns added programmatically below
                 FROM {num_table}
                 WHERE {{numerator_predicate}}
             ),
@@ -528,6 +930,7 @@ class ExperimentQueryBuilder:
                     {{denom_entity_key}} AS entity_id,
                     {denom_timestamp_field} AS timestamp,
                     {{denominator_value_expr}} AS value
+                    -- breakdown columns added programmatically below
                 FROM {denom_table}
                 WHERE {{denominator_predicate}}
             ),
@@ -537,10 +940,12 @@ class ExperimentQueryBuilder:
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
                     {{numerator_agg}} AS numerator_value
+                    -- breakdown columns added programmatically below
                 FROM exposures
                 LEFT JOIN numerator_events ON {num_join_cond}
                     AND {{numerator_conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
+                -- breakdown columns added programmatically below
             ),
 
             denominator_aggregated AS (
@@ -548,10 +953,12 @@ class ExperimentQueryBuilder:
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
                     {{denominator_agg}} AS denominator_value
+                    -- breakdown columns added programmatically below
                 FROM exposures
                 LEFT JOIN denominator_events ON {denom_join_cond}
                     AND {{denominator_conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
+                -- breakdown columns added programmatically below
             ),
 
             entity_metrics AS (
@@ -560,10 +967,12 @@ class ExperimentQueryBuilder:
                     numerator_aggregated.entity_id AS entity_id,
                     numerator_aggregated.numerator_value AS numerator_value,
                     COALESCE(denominator_aggregated.denominator_value, 0) AS denominator_value
+                    -- breakdown columns added programmatically below
                 FROM numerator_aggregated
                 LEFT JOIN denominator_aggregated
                     ON numerator_aggregated.entity_id = denominator_aggregated.entity_id
                     AND numerator_aggregated.variant = denominator_aggregated.variant
+                    -- breakdown join conditions added programmatically below
             )
         """
 
@@ -579,8 +988,10 @@ class ExperimentQueryBuilder:
                 sum(entity_metrics.denominator_value) AS denominator_sum,
                 sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
                 sum(entity_metrics.numerator_value * entity_metrics.denominator_value) AS numerator_denominator_sum_product
+                -- breakdown columns added programmatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
+            -- breakdown columns added programmatically below
             """,
             placeholders={
                 "exposure_select_query": exposure_query,
@@ -610,6 +1021,10 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        self._inject_ratio_breakdown_columns(query)
+
         return query
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
@@ -629,7 +1044,8 @@ class ExperimentQueryBuilder:
             return parse_expr(
                 f"""
                 {events_alias}.timestamp >= exposures.first_exposure_time
-                AND {events_alias}.timestamp < exposures.first_exposure_time + toIntervalSecond({{conversion_window_seconds}})
+                AND {events_alias}.timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({{conversion_window_seconds}})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
@@ -821,11 +1237,14 @@ class ExperimentQueryBuilder:
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
                     min(timestamp) AS first_exposure_time,
+                    max(timestamp) AS last_exposure_time,
                     argMin(uuid, timestamp) AS exposure_event_uuid,
                     argMin(`$session_id`, timestamp) AS exposure_session_id
+                    -- breakdown columns added programmatically below
                 FROM events
                 WHERE {exposure_predicate}
                 GROUP BY entity_id
+                -- breakdown columns added programmatically below
             """,
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
@@ -834,6 +1253,21 @@ class ExperimentQueryBuilder:
             },
         )
         assert isinstance(exposure_query, ast.SelectQuery)
+
+        # Inject breakdown columns into the exposure query if needed
+        if self._has_breakdown():
+            breakdown_exprs = self._build_breakdown_exprs(table_alias="")
+
+            # Add breakdown columns to SELECT
+            for alias, expr in breakdown_exprs:
+                exposure_query.select.append(ast.Alias(alias=alias, expr=expr))
+
+            # Add breakdown columns to GROUP BY
+            if exposure_query.group_by is None:
+                exposure_query.group_by = []
+            for alias, _ in breakdown_exprs:
+                exposure_query.group_by.append(ast.Field(chain=[alias]))
+
         return exposure_query
 
     def _build_variant_expr_for_mean(self) -> ast.Expr:
@@ -862,15 +1296,17 @@ class ExperimentQueryBuilder:
         Builds list of step column AST expressions: step_0, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_criteria = ast.Alias(alias="step_0", expr=self._build_exposure_predicate())
-        step_columns = [exposure_criteria]
+
+        step_columns: list[ast.Alias] = [ast.Alias(alias="step_0", expr=self._build_exposure_predicate())]
+
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
-            step_column = ast.Alias(
-                alias=f"step_{i + 1}",
-                expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+            step_columns.append(
+                ast.Alias(
+                    alias=f"step_{i + 1}",
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                )
             )
-            step_columns.append(step_column)
 
         return step_columns
 

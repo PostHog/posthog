@@ -524,7 +524,7 @@ def login_from_new_device_notification(
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
 
-    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "SSO")
+    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "Unknown")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
@@ -578,7 +578,13 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     return users
 
 
-def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment, assigner: User) -> None:
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> None:
+    assignment = ErrorTrackingIssueAssignment.objects.select_related("issue__team", "user", "role").get(
+        id=assignment_id
+    )
+    assigner = User.objects.get(pk=assigner_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -619,7 +625,10 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
     message.send()
 
 
-def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
+    comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+
     if not is_email_available(with_absolute_urls=True):
         return
 

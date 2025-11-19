@@ -33,7 +33,7 @@ const validateExperiment = (
 
     const variantsValidation = validateVariants({
         flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters.feature_flag_variants,
+        variants: experiment.parameters?.feature_flag_variants ?? [],
         featureFlagKeyValidation,
         mode,
     })
@@ -297,7 +297,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 // Show toast with what's wrong
                 const validation = validateVariants({
                     flagKey: values.experiment.feature_flag_key,
-                    variants: values.experiment.parameters.feature_flag_variants,
+                    variants: values.experiment.parameters?.feature_flag_variants ?? [],
                     featureFlagKeyValidation: values.featureFlagKeyValidation,
                     mode: values.mode,
                 })

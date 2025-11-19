@@ -17,18 +17,33 @@ export function PropertyTypeTag({ propertyName, schemaPropertyType }: PropertyTy
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyDefinition = getPropertyDefinition(propertyName, PropertyDefinitionType.Event)
 
+    // Special case: 'Object' from schema matches 'String' from property definitions
+    // posthog-js automatically uses JSON.stringify()
     const hasTypeMismatch =
         propertyDefinition &&
         propertyDefinition.property_type &&
-        propertyDefinition.property_type !== schemaPropertyType
+        propertyDefinition.property_type !== schemaPropertyType &&
+        !(schemaPropertyType === 'Object' && propertyDefinition.property_type === 'String')
+
+    const getTooltipMessage = (): string => {
+        if (!propertyDefinition?.property_type) {
+            return ''
+        }
+
+        const baseMessage = `Type mismatch: Property management defines this as ${propertyDefinition.property_type}.`
+
+        if (schemaPropertyType === 'Object') {
+            return `${baseMessage} Objects expect String type in property management, as they are stored with JSON.stringify`
+        }
+
+        return baseMessage
+    }
 
     return (
         <div className="flex items-center gap-1">
             <LemonTag type="muted">{schemaPropertyType}</LemonTag>
             {hasTypeMismatch && (
-                <Tooltip
-                    title={`Type mismatch: Property management defines this as ${propertyDefinition.property_type}`}
-                >
+                <Tooltip title={getTooltipMessage()}>
                     <IconWarning className="text-warning text-base" />
                 </Tooltip>
             )}

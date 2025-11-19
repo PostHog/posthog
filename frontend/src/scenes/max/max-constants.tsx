@@ -1,4 +1,4 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
@@ -25,7 +25,10 @@ export interface ToolDefinition<N extends string = string> {
         ToolDefinition
     >
     icon: JSX.Element
-    displayFormatter?: (toolCall: EnhancedToolCall) => string
+    displayFormatter?: (
+        toolCall: EnhancedToolCall,
+        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+    ) => string
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -148,26 +151,19 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             },
         },
     },
-    navigate: {
-        name: 'Navigate',
-        description: 'Navigate to other places in PostHog',
-        icon: <IconCompass />,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Navigated to a different page'
-            }
-            return 'Navigating to a different page...'
-        },
-    },
     create_and_query_insight: {
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created an insight'
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
             }
-            return 'Creating an insight...'
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
     search_session_recordings: {
@@ -272,7 +268,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
-        flag: 'experiments-ai-summary',
+        flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -327,18 +323,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Fixing SQL...'
         },
     },
-    edit_current_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Edited the insight you are viewing'
-            }
-            return 'Editing the insight you are viewing...'
-        },
-    },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',
@@ -351,16 +335,28 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Filtering revenue analytics...'
         },
     },
+    filter_web_analytics: {
+        name: 'Filter web analytics',
+        description: 'Filter web analytics to analyze traffic patterns and user behavior',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered web analytics'
+            }
+            return 'Filtering web analytics...'
+        },
+    },
     edit_current_dashboard: {
-        name: 'Add insight to the dashboard',
-        description: "Add insight to the dashboard you're viewing",
+        name: 'Add an insight to the dashboard',
+        description: "Add an insight to the dashboard you're viewing",
         product: Scene.Dashboard,
         icon: iconForType('dashboard'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Added insight to the dashboard'
+                return 'Added an insight to the dashboard'
             }
-            return 'Adding insight to the dashboard...'
+            return 'Adding an insight to the dashboard...'
         },
     },
     create_feature_flag: {
@@ -373,6 +369,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Created feature flag'
             }
             return 'Creating feature flag...'
+        },
+    },
+    create_experiment: {
+        name: 'Create an experiment',
+        description: 'Create an experiment in seconds',
+        product: Scene.Experiments,
+        icon: iconForType('experiment'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created experiment'
+            }
+            return 'Creating experiment...'
         },
     },
 }

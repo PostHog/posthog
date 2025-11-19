@@ -1,21 +1,25 @@
 from typing import Literal, Optional
 
-from posthog.models.team.team import Team
-from posthog.models.user import User
-
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
-from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.utils.types.base import AssistantGraphName
 
 
-class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, DeepResearchState)
+class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDeepResearchState]):
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.DEEP_RESEARCH
+
+    @property
+    def state_type(self) -> type[DeepResearchState]:
+        return DeepResearchState
 
     def add_onboarding_node(
         self, node_map: Optional[dict[Literal["onboarding", "planning", "continue"], DeepResearchNodeName]] = None
@@ -80,13 +84,21 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         builder.add_edge(DeepResearchNodeName.REPORT, next_node)
         return self
 
+    def add_title_generator(self, end_node: DeepResearchNodeName = DeepResearchNodeName.END):
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user)
+        self._graph.add_node(DeepResearchNodeName.TITLE_GENERATOR, title_generator)
+        self._graph.add_edge(DeepResearchNodeName.START, DeepResearchNodeName.TITLE_GENERATOR)
+        self._graph.add_edge(DeepResearchNodeName.TITLE_GENERATOR, end_node)
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_onboarding_node()
             .add_notebook_nodes()
             .add_planner_nodes()
             .add_report_node()
-            .add_title_generator()
             .add_task_executor()
             .compile(checkpointer=checkpointer)
         )

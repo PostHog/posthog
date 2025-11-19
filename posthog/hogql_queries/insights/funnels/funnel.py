@@ -54,6 +54,7 @@ class Funnel(FunnelBase):
             select=select,
             select_from=ast.JoinExpr(table=self.get_step_counts_query()),
             group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
+            order_by=self._order_by() if len(breakdown_exprs) > 0 else None,
         )
 
     def get_step_counts_query(self):

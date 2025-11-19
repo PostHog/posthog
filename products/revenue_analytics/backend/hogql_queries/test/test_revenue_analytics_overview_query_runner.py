@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.schema import (
     CurrencyCode,
@@ -31,7 +32,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 
 from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
     RevenueAnalyticsOverviewQueryRunner,
 )
@@ -52,6 +55,12 @@ CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
+
+    def _create_managed_viewsets(self):
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        self.viewset.sync_views()
 
     def _create_purchase_events(self, data):
         person_result = []
@@ -244,6 +253,25 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_with_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self._create_managed_viewsets()
+
+            results = self._run_revenue_analytics_overview_query().results
+
+            self.assertEqual(
+                results,
+                [
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1621.0866070701")
+                    ),
+                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("540.3622023567")
+                    ),
+                ],
+            )
+
     def test_with_data_and_empty_interval(self):
         results = self._run_revenue_analytics_overview_query(
             date_range=DateRange(date_from="2025-01-01", date_to="2025-01-02")
@@ -403,44 +431,96 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_with_events_data_and_currency_aware_divider(self):
-        self.team.revenue_analytics_config.events = [
-            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
-        ]
+    def test_with_events_data_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            s1 = str(uuid7("2023-12-02"))
+            s2 = str(uuid7("2024-01-03"))
+            s3 = str(uuid7("2024-02-04"))
+            self._create_purchase_events(
+                [
+                    ("p1", [("2023-12-02", s1, 42, "USD"), ("2023-12-02", s1, 35456, "ARS")]),
+                    ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
+                ]
+            )
 
-        s1 = str(uuid7("2023-12-02"))
-        s2 = str(uuid7("2024-01-03"))
-        s3 = str(uuid7("2024-02-04"))
-        self._create_purchase_events(
-            [
-                ("p1", [("2023-12-02", s1, 4200, "USD")]),
-                ("p2", [("2024-01-01", s2, 4300, "BRL"), ("2024-01-02", s3, 8700, "BRL")]),  # 2 events, 1 customer
+            # Ignore events in ARS because they're considered tests
+            self.team.test_account_filters = [
+                {
+                    "key": "currency",
+                    "operator": "not_icontains",
+                    "value": "ARS",
+                    "type": "event",
+                }
             ]
-        )
+            self.team.save()
 
-        results = self._run_revenue_analytics_overview_query(
-            date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-            properties=[
-                RevenueAnalyticsPropertyFilter(
-                    key="source_label",
-                    operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.events.purchase"],
-                )
-            ],
-        ).results
+            # Make sure Revenue Analytics is configured to filter test accounts out
+            self.team.revenue_analytics_config.filter_test_accounts = True
+            self.team.revenue_analytics_config.save()
+            self._create_managed_viewsets()
 
-        self.assertEqual(
-            results,
-            [
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
-                ),
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
-                ),
-            ],
-        )
+            results = self._run_revenue_analytics_overview_query(
+                date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+                properties=[
+                    RevenueAnalyticsPropertyFilter(
+                        key="source_label",
+                        operator=PropertyOperator.EXACT,
+                        value=["revenue_analytics.events.purchase"],
+                    )
+                ],
+            ).results
+
+            self.assertEqual(
+                results,
+                [
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
+                    ),
+                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+                    ),
+                ],
+            )
+
+        def test_with_events_data_and_currency_aware_divider(self):
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
+            ]
+
+            s1 = str(uuid7("2023-12-02"))
+            s2 = str(uuid7("2024-01-03"))
+            s3 = str(uuid7("2024-02-04"))
+            self._create_purchase_events(
+                [
+                    ("p1", [("2023-12-02", s1, 4200, "USD")]),
+                    ("p2", [("2024-01-01", s2, 4300, "BRL"), ("2024-01-02", s3, 8700, "BRL")]),  # 2 events, 1 customer
+                ]
+            )
+
+            results = self._run_revenue_analytics_overview_query(
+                date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+                properties=[
+                    RevenueAnalyticsPropertyFilter(
+                        key="source_label",
+                        operator=PropertyOperator.EXACT,
+                        value=["revenue_analytics.events.purchase"],
+                    )
+                ],
+            ).results
+
+            self.assertEqual(
+                results,
+                [
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
+                    ),
+                    RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                    RevenueAnalyticsOverviewItem(
+                        key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+                    ),
+                ],
+            )
 
     def test_convertToProjectTimezone_date_range_sql_snapshot(self):
         self.team.timezone = "America/Los_Angeles"

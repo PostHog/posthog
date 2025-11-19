@@ -253,11 +253,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setManualLinkingProvider: (provider: ManualLinkSourceType) => ({ provider }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        updateSyncTimeOfDay: (schema: ExternalDataSourceSyncSchema, syncTimeOfDay: string) => ({
-            schema,
-            syncTimeOfDay,
-        }),
-        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
     }),
     connect(() => ({
@@ -324,12 +319,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                 },
-                updateSyncTimeOfDay: (state, { schema, syncTimeOfDay }) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_time_of_day: s.table === schema.table ? syncTimeOfDay : s.sync_time_of_day,
-                    }))
-                },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
                     return state.map((s) => ({
                         ...s,
@@ -390,12 +379,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
                 }),
-            },
-        ],
-        isProjectTime: [
-            false as boolean,
-            {
-                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     }),

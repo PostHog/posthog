@@ -20,6 +20,7 @@ export interface DecompressionResponse {
     id: number
     decompressedData: Uint8Array | null
     error?: string
+    workerDecompressDuration?: number
 }
 
 self.addEventListener('message', async (event: MessageEvent<DecompressionRequest>) => {
@@ -27,8 +28,18 @@ self.addEventListener('message', async (event: MessageEvent<DecompressionRequest
 
     try {
         await initSnappy()
+        const decompressStart = performance.now()
         const decompressed = decompress_raw(compressedData)
-        self.postMessage({ id, decompressedData: decompressed })
+        const decompressDuration = performance.now() - decompressStart
+
+        self.postMessage(
+            {
+                id,
+                decompressedData: decompressed,
+                workerDecompressDuration: decompressDuration,
+            },
+            { transfer: [decompressed.buffer] }
+        )
     } catch (error) {
         console.error('Decompression error:', error)
         self.postMessage({

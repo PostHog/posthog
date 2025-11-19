@@ -361,11 +361,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_managed_viewsets(self, obj):
         from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
 
-        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSet.Kind.choices}
+        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -546,6 +547,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        if value is None:
+            return value
+
+        request = self.context.get("request")
+        if not request:
+            return value
+
+        user = request.user
+
+        if self.instance:
+            try:
+                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
+                if membership.level < OrganizationMembership.Level.ADMIN:
+                    raise exceptions.PermissionDenied(
+                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                    )
+            except OrganizationMembership.DoesNotExist:
+                raise exceptions.PermissionDenied("You must be a member of this organization.")
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -708,10 +731,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "events" in validated_data:
             from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 

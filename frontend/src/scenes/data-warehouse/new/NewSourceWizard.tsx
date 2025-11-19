@@ -3,6 +3,7 @@ import { useCallback, useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -10,11 +11,11 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
+import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
@@ -62,7 +63,6 @@ function InternalNewSourceWizardScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
             <InternalSourcesWizard />
         </SceneContent>
     )
@@ -102,6 +102,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
+
+    const mainContainer = useFloatingContainer()
+
+    useEffect(() => {
+        mainContainer?.scrollTo({ top: 0, behavior: 'smooth' })
+    }, [currentStep, mainContainer])
 
     // Initialize wizard with initial source if provided
     useEffect(() => {
@@ -144,7 +150,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
 
     return (
-        <>
+        <div>
             {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
                 {selectedConnector && (
@@ -158,6 +164,8 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         </div>
                     </div>
                 )}
+
+                {selectedConnector && <FreeHistoricalSyncsBanner hideGetStarted={true} />}
 
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />
@@ -173,7 +181,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {footer()}
             </>
-        </>
+        </div>
     )
 }
 
