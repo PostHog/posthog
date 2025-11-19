@@ -59,9 +59,23 @@ export function MaterializedColumns(): JSX.Element {
     const slotIndexColumn: SlotColumn = {
         title: 'Slot Index',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
+            // Map property types to their column name prefixes
+            const typeToColumnName: Record<string, string> = {
+                String: 'string',
+                Numeric: 'float',
+                Boolean: 'bool',
+                DateTime: 'datetime',
+            }
+            const columnType = typeToColumnName[slot.property_type]
+            if (!columnType) {
+                throw new Error(
+                    `Unsupported property type '${slot.property_type}' for materialized column. ` +
+                        `Supported types: ${Object.keys(typeToColumnName).join(', ')}`
+                )
+            }
             return (
                 <div className="font-mono">
-                    dmat_{slot.property_type?.toLowerCase()}_{slot.slot_index}
+                    dmat_{columnType}_{slot.slot_index}
                 </div>
             )
         },

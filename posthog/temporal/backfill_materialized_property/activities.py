@@ -104,7 +104,12 @@ def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
     if not property_definition:
         raise ValueError(f"MaterializedColumnSlot {inputs.slot_id} has no property_definition")
 
-    type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type, slot.property_type.lower())
+    type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
+    if not type_name:
+        raise ValueError(
+            f"Unsupported property type '{slot.property_type}' for materialized column. "
+            f"Supported types: {', '.join(PROPERTY_TYPE_TO_COLUMN_NAME.keys())}"
+        )
     mat_column_name = f"dmat_{type_name}_{slot.slot_index}"
 
     logger.info(
