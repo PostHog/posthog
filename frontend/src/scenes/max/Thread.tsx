@@ -568,7 +568,7 @@ function SessionGroupSummaryAnswer({ message }: SessionGroupSummaryAnswerProps):
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                     <IconCheck className="text-success size-4" />
-                    <span>Summary: {message.title || 'Session group summary complete'}</span>
+                    <span>Report complete: {message.title || 'Session group summary complete'}</span>
                 </div>
                 <LemonButton
                     to={urls.sessionSummary(message.session_group_summary_id)}
