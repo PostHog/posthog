@@ -179,7 +179,11 @@ export function ProjectExplorer({
                         const isFolder = entry.type === 'folder'
                         const isExpandableFolder = isFolder && !isParentNavigationRow
                         const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
-                        const icon = iconForType((entry.type as FileSystemIconType) || 'default_icon_type')
+                        const icon = iconForType(
+                            isParentNavigationRow
+                                ? 'folder_open'
+                                : (entry.type as FileSystemIconType) || 'default_icon_type'
+                        )
                         const focusBase = String(entry.id ?? entry.path ?? rowIndex)
                         const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
                         const isHighlighted = highlightedExplorerEntryPath === entry.path

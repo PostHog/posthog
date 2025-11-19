@@ -14,6 +14,8 @@ import {
     IconExternal,
     IconFeatures,
     IconFlask,
+    IconFolder,
+    IconFolderOpen,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -247,6 +249,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     search: {
         icon: <IconSearch />,
+    },
+    folder: {
+        icon: <IconFolder />,
+    },
+    folder_open: {
+        icon: <IconFolderOpen />,
     },
 }
 
