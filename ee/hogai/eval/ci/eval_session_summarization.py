@@ -543,6 +543,21 @@ async def eval_session_summarization_current_session(
                     },
                 ),
             ),
+            # Ambiguous case - mentions filters but primary intent is current session
+            EvalCase(
+                input="review this session and tell me if it matches the behavior I'm filtering for",
+                expected=AssistantToolCall(
+                    id="5",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "review this session and tell me if it matches the behavior I'm filtering for",
+                        "should_use_current_filters": False,  # Mutually exclusive - current session takes priority
+                        "should_use_current_session": True,  # "this session" refers to current session
+                        "summary_title": "Current session review",
+                        "session_summarization_limit": -1,
+                    },
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )
