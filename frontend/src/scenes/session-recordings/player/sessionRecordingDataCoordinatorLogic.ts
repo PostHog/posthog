@@ -179,6 +179,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+
                 return snapshots || []
             },
         ],
