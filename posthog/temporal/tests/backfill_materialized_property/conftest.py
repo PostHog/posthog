@@ -60,7 +60,7 @@ def datetime_property_definition(team):
     return PropertyDefinition.objects.create(
         team=team,
         name=f"datetime_prop_{random.randint(1, 99999)}",
-        property_type=PropertyType.DateTime,
+        property_type=PropertyType.Datetime,
         type=PropertyDefinition.Type.EVENT,
     )
 

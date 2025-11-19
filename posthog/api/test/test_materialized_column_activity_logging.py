@@ -44,6 +44,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.detail["name"] == "test_prop"
         assert len(log.detail["changes"]) == 3
@@ -84,6 +85,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -124,6 +126,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -171,6 +174,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -240,6 +244,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.detail["name"] == "test_prop"
 
@@ -282,5 +287,6 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert activity_logs.count() == 1
         log = activity_logs.first()
+        assert log is not None
 
         assert log.was_impersonated is True

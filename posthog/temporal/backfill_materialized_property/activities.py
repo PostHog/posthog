@@ -77,7 +77,7 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
             ELSE NULL
         END"""
 
-    elif property_type == PropertyType.DateTime:
+    elif property_type == PropertyType.Datetime:
         # Try parsing as datetime, fallback to parsing first 10 chars (date only)
         return f"""coalesce(
             parseDateTimeBestEffortOrNull({base_extract}),

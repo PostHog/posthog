@@ -45,7 +45,7 @@ class TestGetSlotDetails:
         """Test error when slot has no property_definition."""
         slot = MaterializedColumnSlot.objects.create(
             team=team,
-            property_definition=None,
+            property_definition=None,  # type: ignore[arg-type]
             property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,

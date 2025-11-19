@@ -66,7 +66,7 @@ class MaterializedColumnSlot(UUIDTModel):
     def save(self, *args, **kwargs):
         # Sync property_type from property_definition on save
         if self.property_definition_id and not self.property_type:
-            self.property_type = self.property_definition.property_type
+            self.property_type = self.property_definition.property_type  # type: ignore[assignment]
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:

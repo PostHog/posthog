@@ -127,6 +127,7 @@ class TestBackfillMaterializedPropertyWorkflow:
         # Verify slot is in ERROR state
         slot = await MaterializedColumnSlot.objects.aget(id=slot_id)
         assert slot.state == MaterializedColumnSlotState.ERROR
+        assert slot.error_message is not None
         assert "Slot not found" in slot.error_message
 
     @pytest.mark.asyncio
@@ -181,6 +182,7 @@ class TestBackfillMaterializedPropertyWorkflow:
         # Verify slot is in ERROR state
         slot = await MaterializedColumnSlot.objects.aget(id=slot_id)
         assert slot.state == MaterializedColumnSlotState.ERROR
+        assert slot.error_message is not None
         assert "ClickHouse mutation failed" in slot.error_message
 
     @pytest.mark.asyncio
