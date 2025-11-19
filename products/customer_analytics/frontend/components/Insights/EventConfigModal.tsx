@@ -32,7 +32,9 @@ export function EventConfigModal(): JSX.Element {
             hasUnsavedInput={hasActivityEventChanged}
         >
             <LemonModal.Content>
-                <p className="mb-4">Select which event defines user activity for your customer analytics dashboard.</p>
+                <p className="mb-4">
+                    Select which event or action define user activity for your customer analytics dashboard.
+                </p>
                 <ActionFilter
                     filters={activityEventFilters}
                     setFilters={setActivityEventSelection}
@@ -43,7 +45,7 @@ export function EventConfigModal(): JSX.Element {
                     hideDuplicate={true}
                     hideFilter={true}
                     entitiesLimit={1}
-                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                 />
             </LemonModal.Content>
             <LemonModal.Footer>
