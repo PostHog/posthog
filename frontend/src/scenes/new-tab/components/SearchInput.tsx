@@ -325,7 +325,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                 inputRef.current?.focus()
                             }}
                         >
-                            <IconSearch className="size-3" />
+                            <IconSearch className="size-4" />
                         </ButtonPrimitive>
                         <IconChevronRight className="size-3 text-tertiary" />
                     </>

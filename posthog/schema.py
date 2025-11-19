@@ -1549,6 +1549,8 @@ class FileSystemIconType(StrEnum):
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
+    FOLDER = "folder"
+    FOLDER_OPEN = "folder_open"
 
 
 class FileSystemImport(BaseModel):
@@ -4667,17 +4669,6 @@ class RevenueAnalyticsAssistantFilters(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: list[RevenueAnalyticsPropertyFilter]
-
-
-class WebAnalyticsAssistantFilters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    doPathCleaning: Optional[bool] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
 
 
 class RevenueAnalyticsEventItem(BaseModel):
