@@ -31,9 +31,9 @@ class PopulateConfig(dagster.Config):
         default=[],
         description="List of product paths to add to users' product lists",
     )
-    reason: UserProductList.Reason | None = pydantic.Field(
+    reason: str | None = pydantic.Field(
         default=None,
-        description="Reason for creating UserProductList entries. Options: 'usage', 'new_product', 'sales_led'",
+        description="Reason for creating UserProductList entries",
         examples=UserProductList.Reason.values,
     )
     require_existing_product: str | None = pydantic.Field(
