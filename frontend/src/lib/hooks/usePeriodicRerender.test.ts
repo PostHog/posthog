@@ -43,9 +43,12 @@ describe('usePeriodicRerender', () => {
 
         Object.defineProperty(document, 'hidden', { value: true })
         act(() => document.dispatchEvent(new Event('visibilitychange')))
+        // Visibility change causes one extra rerender from state update
+        expect(renderCount).toBe(3)
 
         act(() => jest.advanceTimersByTime(2000))
-        expect(renderCount).toBe(2)
+        // Should not trigger any more rerenders
+        expect(renderCount).toBe(3)
     })
 
     it('should resume rerenders with immediate trigger when page becomes visible', () => {
@@ -59,13 +62,16 @@ describe('usePeriodicRerender', () => {
 
         Object.defineProperty(document, 'hidden', { value: true })
         act(() => document.dispatchEvent(new Event('visibilitychange')))
+        // Visibility change causes one extra rerender from state update
+        expect(renderCount).toBe(2)
 
         Object.defineProperty(document, 'hidden', { value: false })
         act(() => document.dispatchEvent(new Event('visibilitychange')))
-        expect(renderCount).toBe(2)
+        // Visibility change (state update) + immediate trigger = two more rerenders
+        expect(renderCount).toBe(4)
 
         act(() => jest.advanceTimersByTime(1000))
-        expect(renderCount).toBe(3)
+        expect(renderCount).toBe(5)
     })
 
     it('should not start interval if page is hidden on mount', () => {

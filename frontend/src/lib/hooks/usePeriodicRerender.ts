@@ -1,25 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { usePageVisibilityCb } from './usePageVisibility'
+import { usePageVisibility } from './usePageVisibility'
 
 export function usePeriodicRerender(milliseconds: number): void {
     const [, setTick] = useState(0)
     const intervalIdRef = useRef<NodeJS.Timeout | null>(null)
-    const isPageVisibleRef = useRef<boolean>(!document.hidden)
-
-    const checkAndUpdateInterval = useRef<(() => void) | null>(null)
-
-    usePageVisibilityCb((isVisible) => {
-        isPageVisibleRef.current = isVisible
-        checkAndUpdateInterval.current?.()
-    })
+    const { isVisible } = usePageVisibility()
+    const wasVisibleRef = useRef(isVisible)
 
     useEffect(() => {
-        const startInterval = (triggerImmediately: boolean): void => {
+        const startInterval = (): void => {
             if (intervalIdRef.current) {
                 return
             }
-            if (triggerImmediately) {
+            // Trigger immediate rerender only when visibility changes from hidden to visible
+            if (!wasVisibleRef.current && isVisible) {
                 setTick((state) => state + 1)
             }
             intervalIdRef.current = setInterval(() => setTick((state) => state + 1), milliseconds)
@@ -32,23 +27,14 @@ export function usePeriodicRerender(milliseconds: number): void {
             }
         }
 
-        const handleVisibilityChange = (): void => {
-            if (isPageVisibleRef.current) {
-                startInterval(true)
-            } else {
-                stopInterval()
-            }
-        }
-
-        checkAndUpdateInterval.current = handleVisibilityChange
-
-        if (isPageVisibleRef.current) {
-            startInterval(false)
-        }
-
-        return () => {
+        if (isVisible) {
+            startInterval()
+        } else {
             stopInterval()
-            checkAndUpdateInterval.current = null
         }
-    }, [milliseconds])
+
+        wasVisibleRef.current = isVisible
+
+        return stopInterval
+    }, [milliseconds, isVisible])
 }
