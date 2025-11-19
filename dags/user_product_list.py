@@ -36,6 +36,10 @@ class PopulateConfig(dagster.Config):
         description="Reason for creating UserProductList entries",
         examples=UserProductList.Reason.values,
     )
+    reason_text: str | None = pydantic.Field(
+        default=None,
+        description="Optional freeform text to be displayed to the user on hover",
+    )
     require_existing_product: str | None = pydantic.Field(
         default=None,
         description="Only create entries for users who already have this product enabled in their UserProductList",
@@ -58,6 +62,7 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     """
     Populate UserProductList with configurable options:
     - Set a specific reason for created entries
+    - Set optional reason_text for display to users
     - Only create for users who have a specific product enabled
     - Filter by user creation date
     - Option to process only users without existing entries
@@ -135,7 +140,7 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
                     team=team,
                     user=user,
                     product_path=product_path,
-                    defaults={"enabled": True, "reason": config.reason},
+                    defaults={"enabled": True, "reason": config.reason, "reason_text": config.reason_text},
                 )
 
                 if created:
@@ -166,6 +171,7 @@ def populate_user_product_list_job():
     Add products to users' product lists with configurable options.
     - product_paths: List of product paths to add (required)
     - reason: Optional reason ('usage', 'new_product', 'sales_led')
+    - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
     - user_created_before: Only process users created before this date (ISO format)
     - only_users_without_products: Only process users without existing entries
