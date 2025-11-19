@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -45,18 +45,12 @@ export interface SlotUsageSummary {
     }
 }
 
-export interface Team {
-    id: number
-    name: string
-}
-
 export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
-    path(['scenes', 'instance', 'MaterializedColumns', 'materializedColumnsLogic']),
+    path(['scenes', 'data-management', 'MaterializedColumns', 'materializedColumnsLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
     }),
     actions({
-        setSelectedTeamId: (teamId: number | null) => ({ teamId }),
         setShowCreateModal: (show: boolean) => ({ show }),
         deleteSlot: (slotId: string) => ({ slotId }),
     }),
@@ -65,10 +59,10 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
             [] as MaterializedColumnSlot[],
             {
                 loadSlots: async () => {
-                    if (!values.selectedTeamId) {
+                    if (!values.currentTeam) {
                         return []
                     }
-                    const response = await api.get(`api/materialized_column_slots/?team_id=${values.selectedTeamId}`)
+                    const response = await api.get(`api/materialized_column_slots/?team_id=${values.currentTeam.id}`)
                     return response.results || []
                 },
             },
@@ -77,10 +71,10 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
             null as SlotUsageSummary | null,
             {
                 loadSlotUsage: async () => {
-                    if (!values.selectedTeamId) {
+                    if (!values.currentTeam) {
                         return null
                     }
-                    return await api.get(`api/materialized_column_slots/slot_usage/?team_id=${values.selectedTeamId}`)
+                    return await api.get(`api/materialized_column_slots/slot_usage/?team_id=${values.currentTeam.id}`)
                 },
             },
         ],
@@ -88,32 +82,17 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
             [] as PropertyDefinition[],
             {
                 loadAvailableProperties: async () => {
-                    if (!values.selectedTeamId) {
+                    if (!values.currentTeam) {
                         return []
                     }
                     return await api.get(
-                        `api/materialized_column_slots/available_properties/?team_id=${values.selectedTeamId}`
+                        `api/materialized_column_slots/available_properties/?team_id=${values.currentTeam.id}`
                     )
-                },
-            },
-        ],
-        teams: [
-            [] as Team[],
-            {
-                loadTeams: async () => {
-                    const response = await api.get('api/organizations/@current/teams/')
-                    return response.results || []
                 },
             },
         ],
     })),
     reducers({
-        selectedTeamId: [
-            null as number | null,
-            {
-                setSelectedTeamId: (_, { teamId }) => teamId,
-            },
-        ],
         showCreateModal: [
             false,
             {
@@ -133,10 +112,6 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setSelectedTeamId: () => {
-            actions.loadSlots()
-            actions.loadSlotUsage()
-        },
         loadSlotsSuccess: () => {
             actions.loadSlotUsage()
         },
@@ -158,7 +133,8 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadTeams()
+            actions.loadSlots()
+            actions.loadSlotUsage()
         },
     })),
 ])

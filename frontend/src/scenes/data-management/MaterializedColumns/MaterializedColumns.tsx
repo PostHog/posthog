@@ -1,17 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconDatabase, IconPlus, IconRefresh } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -34,15 +32,9 @@ type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedCol
 
 export function MaterializedColumns(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { slots, slotsLoading, selectedTeamId, slotUsage, teams, showCreateModal } =
-        useValues(materializedColumnsLogic)
-    const { loadSlots, setSelectedTeamId, setShowCreateModal, deleteSlot } = useActions(materializedColumnsLogic)
-
-    useEffect(() => {
-        if (selectedTeamId) {
-            loadSlots()
-        }
-    }, [selectedTeamId, loadSlots])
+    const { currentTeam } = useValues(teamLogic)
+    const { slots, slotsLoading, slotUsage, showCreateModal } = useValues(materializedColumnsLogic)
+    const { loadSlots, setShowCreateModal, deleteSlot } = useActions(materializedColumnsLogic)
 
     const propertyColumn: SlotColumn = {
         title: 'Property',
@@ -168,8 +160,8 @@ export function MaterializedColumns(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Materialized Columns"
-                description="Manage materialized column slot assignments for teams."
+                name={`Materialized Columns - ${currentTeam?.name || 'Loading...'}`}
+                description="Manage materialized column slot assignments for this team."
                 markdown
                 resourceType={{
                     type: 'materialized_columns',
@@ -178,22 +170,7 @@ export function MaterializedColumns(): JSX.Element {
             />
 
             <div className="space-y-4">
-                <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                        <LemonLabel>Select Team</LemonLabel>
-                        <LemonSelect
-                            placeholder="Select a team..."
-                            options={teams.map((team) => ({
-                                label: `${team.name} (ID: ${team.id})`,
-                                value: team.id,
-                            }))}
-                            value={selectedTeamId}
-                            onChange={setSelectedTeamId}
-                        />
-                    </div>
-                </div>
-
-                {selectedTeamId && slotUsage && (
+                {currentTeam && slotUsage && (
                     <>
                         <div className="bg-bg-light rounded p-4">
                             <h3 className="text-lg font-semibold mb-2">Slot Usage Summary</h3>

@@ -7,24 +7,26 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
 
 export function CreateSlotModal(): JSX.Element {
-    const { selectedTeamId, availableProperties, availablePropertiesLoading } = useValues(materializedColumnsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { availableProperties, availablePropertiesLoading } = useValues(materializedColumnsLogic)
     const { setShowCreateModal, loadSlots } = useActions(materializedColumnsLogic)
     const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const handleSubmit = async (): Promise<void> => {
-        if (!selectedTeamId || !selectedPropertyId) {
+        if (!currentTeam || !selectedPropertyId) {
             return
         }
 
         setIsSubmitting(true)
         try {
             await api.create('api/materialized_column_slots/assign_slot/', {
-                team_id: selectedTeamId,
+                team_id: currentTeam.id,
                 property_definition_id: selectedPropertyId,
             })
             lemonToast.success('Slot assigned successfully')

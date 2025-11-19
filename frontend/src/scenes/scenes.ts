@@ -43,7 +43,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
-    [Scene.MaterializedColumns]: { instanceLevel: true },
+    [Scene.MaterializedColumns]: {
+        projectBased: true,
+        name: 'Materialized columns',
+        description: 'Manage materialized column slot assignments for your team.',
+    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
