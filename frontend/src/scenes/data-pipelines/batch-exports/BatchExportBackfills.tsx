@@ -13,7 +13,6 @@ import { BatchExportBackfill } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
@@ -33,7 +32,7 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
 }
 
 function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = batchExportConfigurationLogic({ id, service: null })
+    const logic = batchExportBackfillsLogic({ id })
     const { loading } = useValues(logic)
     const { loadBackfills, openBackfillModal } = useActions(logic)
 

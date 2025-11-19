@@ -1,7 +1,7 @@
 import { className } from '@medv/finder'
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { cn } from 'lib/utils/css-classes'
@@ -11,19 +11,11 @@ import { BatchExportBackfillsLogicProps } from 'scenes/data-pipelines/batch-expo
 import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
 export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
-    const logic = hogFunctionBackfillsLogic({ id, service: null })
+    const logic = hogFunctionBackfillsLogic({ id })
     const { enableHogFunctionBackfills } = useActions(logic)
-    const { batchExportConfig, batchExportConfigLoading } = useValues(logic)
+    const { configuration, isLoading } = useValues(logic)
 
-    if (batchExportConfigLoading) {
-        return (
-            <div className="flex justify-center">
-                <Spinner />
-            </div>
-        )
-    }
-
-    if (!batchExportConfig) {
+    if (!configuration.batch_export_id) {
         return (
             <>
                 <div
@@ -42,7 +34,7 @@ export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JS
                                 Destination backfills allow you to backfill historical data to your real-time data
                                 destinations configured in PostHog.
                             </span>
-                            <LemonButton type="primary" onClick={enableHogFunctionBackfills}>
+                            <LemonButton type="primary" loading={isLoading} onClick={enableHogFunctionBackfills}>
                                 Enable backfills
                             </LemonButton>
                         </div>
@@ -52,5 +44,5 @@ export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JS
         )
     }
 
-    return <BatchExportBackfills id={id} />
+    return <BatchExportBackfills id={configuration.batch_export_id} />
 }
