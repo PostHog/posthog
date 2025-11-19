@@ -2604,6 +2604,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
@@ -2783,8 +2785,10 @@ export interface MaxExperimentSummaryContext {
     experiment_id: ExperimentIdType
     experiment_name: string
     description: string | null
+    exposures: Record<string, number> | null
     variants: string[]
-    metrics_results: MaxExperimentMetricResult[]
+    primary_metrics_results: MaxExperimentMetricResult[]
+    secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
 }
 

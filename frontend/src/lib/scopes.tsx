@@ -34,6 +34,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
     { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
+    { key: 'logs', objectPlural: 'logs' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
     {
@@ -98,6 +99,11 @@ export const API_KEY_SCOPE_PRESETS: {
     isCloudOnly?: boolean
 }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    {
+        value: 'source_map_upload',
+        label: 'Source map upload',
+        scopes: ['organization:read', 'error_tracking:write'],
+    },
     {
         value: 'zapier',
         label: 'Zapier integration',
