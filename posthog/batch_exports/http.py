@@ -673,8 +673,10 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     log_source = "batch_exports"
 
     def safely_get_queryset(self, queryset):
-        """Filter out batch exports with PostHogRealtimeDestinations destination type."""
-        return queryset.exclude(destination__type="PostHogRealtimeDestinations")
+        """Filter out batch exports with PostHogRealtimeDestinations destination type if action is list."""
+        if self.action == "list":
+            return queryset.exclude(destination__type="PostHogRealtimeDestinations")
+        return queryset
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
