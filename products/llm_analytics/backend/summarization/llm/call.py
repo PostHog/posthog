@@ -142,4 +142,4 @@ async def summarize(
         return SummarizationResponse.model_validate_json(content)
     except Exception as e:
         logger.exception("OpenAI API call failed", error=str(e), team_id=team_id)
-        raise exceptions.APIException(f"Failed to generate summary: {str(e)}")
+        raise exceptions.APIException("Failed to generate summary")
