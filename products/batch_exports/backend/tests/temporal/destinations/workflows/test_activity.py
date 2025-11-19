@@ -2,8 +2,6 @@ import uuid
 
 import pytest
 
-from django.conf import settings
-
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -118,7 +116,7 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        hosts=[*settings.KAFKA_HOSTS, "localhost:9092"],
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        hosts=["kafka:9092"],
+        security_protocol="PLAINTEXT",
         sort_key="inserted_at",
     )
