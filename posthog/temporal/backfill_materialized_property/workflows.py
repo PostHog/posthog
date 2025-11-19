@@ -1,5 +1,6 @@
 """Workflow for backfilling materialized property columns."""
 
+import json
 import datetime as dt
 import dataclasses
 from typing import Optional
@@ -39,6 +40,12 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
     3. Run ClickHouse ALTER TABLE UPDATE to backfill historical events
     4. Update slot state to READY (or ERROR if failed)
     """
+
+    @classmethod
+    def parse_inputs(cls, inputs: list[str]) -> BackfillMaterializedPropertyInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return BackfillMaterializedPropertyInputs(**loaded)
 
     @workflow.run
     async def run(self, inputs: BackfillMaterializedPropertyInputs) -> None:

@@ -82,7 +82,7 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
 
 
 @activity.defn
-async def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
+def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
     """
     Get details about a materialized column slot from the database.
 
@@ -122,7 +122,7 @@ async def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
 
 
 @activity.defn
-async def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> int:
+def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> int:
     """
     Backfill a materialized column by running ALTER TABLE UPDATE on historical events.
 
@@ -178,7 +178,7 @@ async def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs)
 
 
 @activity.defn
-async def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
+def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
     """
     Update the state of a materialized column slot with activity logging.
 

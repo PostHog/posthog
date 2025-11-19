@@ -17,8 +17,12 @@ from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
 from posthog.permissions import IsStaffUserOrImpersonating
+from posthog.settings import EE_AVAILABLE
 from posthog.temporal.backfill_materialized_property.workflows import BackfillMaterializedPropertyInputs
 from posthog.temporal.common.client import async_connect
+
+if EE_AVAILABLE:
+    from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 
 logger = structlog.get_logger(__name__)
 
@@ -129,9 +133,13 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         # Duration properties are PostHog system properties and should never be materialized
         allowed_types = [t for t in PropertyType.values if t != PropertyType.Duration]
 
+        # Only show event properties since materialized columns are for the events table
         available_properties = (
             PropertyDefinition.objects.filter(
-                team_id=team_id, property_type__isnull=False, property_type__in=allowed_types
+                team_id=team_id,
+                property_type__isnull=False,
+                property_type__in=allowed_types,
+                type=PropertyDefinition.Type.EVENT,
             )
             .exclude(id__in=already_materialized)
             .order_by("property_type", "name")
@@ -144,6 +152,38 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         ]
 
         return response.Response(PropertyDefinitionSerializer(filtered_properties, many=True).data)
+
+    @action(methods=["GET"], detail=False)
+    def auto_materialized(self, request):
+        """Get properties that PostHog has automatically materialized.
+
+        These are managed by PostHog's automatic materialization system and cannot be modified here.
+        Uses the same cached function that HogQL uses for query rewriting.
+        """
+        if not EE_AVAILABLE:
+            return response.Response([])
+
+        try:
+            # Get all auto-materialized columns using the cached function
+            # This is the same cache that HogQL uses (15 minute TTL with background refresh)
+            materialized_columns = get_materialized_columns("events")
+
+            results = []
+            for column in materialized_columns.values():
+                results.append(
+                    {
+                        "column_name": column.name,
+                        "property_name": column.details.property_name,
+                        "table_column": column.details.table_column,
+                        "is_disabled": column.details.is_disabled,
+                        "is_nullable": column.is_nullable,
+                    }
+                )
+
+            return response.Response(results)
+        except Exception as e:
+            logger.exception("Failed to get auto-materialized columns", error=str(e))
+            return response.Response({"error": str(e)}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(methods=["POST"], detail=False)
     def assign_slot(self, request):

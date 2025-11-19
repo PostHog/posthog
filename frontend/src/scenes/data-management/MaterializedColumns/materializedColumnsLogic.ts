@@ -45,6 +45,14 @@ export interface SlotUsageSummary {
     }
 }
 
+export interface AutoMaterializedColumn {
+    column_name: string
+    property_name: string
+    table_column: string
+    is_disabled: boolean
+    is_nullable: boolean
+}
+
 export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
     path(['scenes', 'data-management', 'MaterializedColumns', 'materializedColumnsLogic']),
     connect({
@@ -88,6 +96,14 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     return await api.get(
                         `api/materialized_column_slots/available_properties/?team_id=${values.currentTeam.id}`
                     )
+                },
+            },
+        ],
+        autoMaterializedColumns: [
+            [] as AutoMaterializedColumn[],
+            {
+                loadAutoMaterializedColumns: async () => {
+                    return await api.get(`api/materialized_column_slots/auto_materialized/`)
                 },
             },
         ],
@@ -135,6 +151,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
         afterMount: () => {
             actions.loadSlots()
             actions.loadSlotUsage()
+            actions.loadAutoMaterializedColumns()
         },
     })),
 ])

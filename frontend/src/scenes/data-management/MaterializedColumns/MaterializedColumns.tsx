@@ -18,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CreateSlotModal } from './CreateSlotModal'
 import {
+    AutoMaterializedColumn,
     MaterializedColumnSlot,
     MaterializedColumnSlotState,
     materializedColumnsLogic,
@@ -33,7 +34,8 @@ type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedCol
 export function MaterializedColumns(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { slots, slotsLoading, slotUsage, showCreateModal } = useValues(materializedColumnsLogic)
+    const { slots, slotsLoading, slotUsage, showCreateModal, autoMaterializedColumns, autoMaterializedColumnsLoading } =
+        useValues(materializedColumnsLogic)
     const { loadSlots, setShowCreateModal, deleteSlot } = useActions(materializedColumnsLogic)
 
     const propertyColumn: SlotColumn = {
@@ -220,6 +222,50 @@ export function MaterializedColumns(): JSX.Element {
                             pagination={{ pageSize: 20 }}
                             emptyState="No materialized slots assigned yet. Click 'Assign Slot' to get started."
                         />
+
+                        <LemonDivider />
+
+                        <div>
+                            <h3 className="text-lg font-semibold mb-2">Auto-Materialized Columns</h3>
+                            <p className="text-sm text-muted mb-4">
+                                Properties that PostHog has automatically materialized for performance. These are
+                                managed by PostHog and cannot be modified here.
+                            </p>
+                            <LemonTable
+                                loading={autoMaterializedColumnsLoading}
+                                columns={[
+                                    {
+                                        title: 'Property Name',
+                                        render: (_, column: AutoMaterializedColumn) => (
+                                            <span className="font-semibold">{column.property_name}</span>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Column Name',
+                                        render: (_, column: AutoMaterializedColumn) => (
+                                            <span className="font-mono text-xs">{column.column_name}</span>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Table Column',
+                                        render: (_, column: AutoMaterializedColumn) => (
+                                            <LemonTag>{column.table_column}</LemonTag>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Status',
+                                        render: (_, column: AutoMaterializedColumn) => (
+                                            <LemonTag type={column.is_disabled ? 'default' : 'success'}>
+                                                {column.is_disabled ? 'DISABLED' : 'ACTIVE'}
+                                            </LemonTag>
+                                        ),
+                                    },
+                                ]}
+                                dataSource={autoMaterializedColumns}
+                                pagination={{ pageSize: 20 }}
+                                emptyState="No auto-materialized columns found."
+                            />
+                        </div>
 
                         {showCreateModal && <CreateSlotModal />}
                     </>
