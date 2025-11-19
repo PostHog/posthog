@@ -367,6 +367,6 @@ The response includes the summary text and optional metadata.
                 error=str(e),
             )
             return Response(
-                {"error": "Failed to generate summary", "detail": str(e)},
+                {"error": "Failed to generate summary", "detail": "An error occurred while generating the summary"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
