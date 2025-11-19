@@ -46,5 +46,5 @@ export function usePeriodicRerender(milliseconds: number): void {
             window.removeEventListener('focus', handleVisibilityOrFocusChange)
             window.removeEventListener('blur', handleVisibilityOrFocusChange)
         }
-    }, [milliseconds])
+    }, [milliseconds, setTick])
 }
