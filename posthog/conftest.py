@@ -205,9 +205,21 @@ def run_persons_sqlx_migrations():
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
-    # Drop FK constraints that reference posthog_person to allow dual-table migration
+    # Configure persons database now that we know the actual test database name
     from django.db import connection
 
+    # Get the actual test database name (with test_ prefix added by pytest-django)
+    test_db_name = connection.settings_dict["NAME"]
+    test_persons_db_name = test_db_name + "_persons"
+
+    # Configure the persons databases - copy all settings from default and just change the NAME
+    db_config = settings.DATABASES["default"]
+    settings.DATABASES["persons_db_writer"] = db_config.copy()
+    settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
+    settings.DATABASES["persons_db_reader"] = db_config.copy()
+    settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
+
+    # Drop FK constraints that reference posthog_person to allow dual-table migration
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -339,3 +351,18 @@ def pytest_sessionstart():
     unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
     for m in unmanaged_models:
         m._meta.managed = True
+
+
+def pytest_configure(config):
+    """
+    Configure pytest-django to allow access to persons databases by default.
+    This is needed because Person and PersonDistinctId models are routed to persons_db_writer.
+    """
+    from django.test import TestCase
+
+    # Store original databases if not already stored
+    if not hasattr(TestCase, "_original_databases"):
+        TestCase._original_databases = getattr(TestCase, "databases", None)
+
+    # Set default databases for all TestCase classes
+    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
