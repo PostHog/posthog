@@ -1,6 +1,7 @@
 import uuid
 import random
 import string
+import typing
 
 import pytest
 
@@ -101,6 +102,12 @@ async def _run_activity(
 
 
 @pytest.fixture
+def security_protocol():
+    security_protocol: typing.Literal["PLAINTEXT", "SSL"] = "PLAINTEXT"
+    return security_protocol
+
+
+@pytest.fixture
 def hosts() -> list[str]:
     return ["kafka:9092"]
 
@@ -131,6 +138,7 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
     ateam,
     hosts,
     topic,
+    security_protocol,
 ):
     model = BatchExportModel(name="events", schema=None)
 
@@ -144,6 +152,6 @@ async def test_insert_into_kafka_activity_from_stage_produces_data_into_topic(
         exclude_events=exclude_events,
         batch_export_model=model,
         hosts=hosts,
-        security_protocol="PLAINTEXT",
+        security_protocol=security_protocol,
         sort_key="timestamp",
     )
