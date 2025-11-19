@@ -25,11 +25,14 @@ export function usePeriodicRerender(milliseconds: number): void {
         }
 
         const handleVisibilityOrFocusChange = (): void => {
-            if (isPageActive()) {
-                startInterval(true)
-            } else {
-                stopInterval()
-            }
+            // Small delay to allow browser to update focus state after visibility changes
+            setTimeout(() => {
+                if (isPageActive()) {
+                    startInterval(true)
+                } else {
+                    stopInterval()
+                }
+            }, 0)
         }
 
         if (isPageActive()) {
