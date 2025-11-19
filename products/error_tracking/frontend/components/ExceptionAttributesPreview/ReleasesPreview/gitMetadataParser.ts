@@ -1,6 +1,7 @@
 import { ReleaseGitMetadata } from 'lib/components/Errors/types'
 
-export type GitProvider = 'github' | 'unknown'
+export type GitProvider = 'github' | 'gitlab' | 'unknown'
+export const supportedProviders: GitProvider[] = ['github', 'gitlab']
 
 export class GitMetadataParser {
     static getViewCommitLink(git: ReleaseGitMetadata): string | undefined {
@@ -24,6 +25,14 @@ export class GitMetadataParser {
             }
         }
 
+        if (parsed.providerUrl.includes('gitlab')) {
+            return {
+                provider: 'gitlab',
+                owner: parsed.user,
+                repository: parsed.path,
+            }
+        }
+
         return {
             provider: 'unknown',
             owner: parsed.user,
@@ -38,11 +47,19 @@ export class GitMetadataParser {
             parsed = GitMetadataParser.parseHttpsRemoteUrl(remoteUrl)
         }
 
-        if (!parsed?.providerUrl.includes('github')) {
+        if (!parsed) {
             return undefined
         }
 
-        return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/commit/${commitSha}`
+        if (parsed.providerUrl.includes('github')) {
+            return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/commit/${commitSha}`
+        }
+
+        if (parsed.providerUrl.includes('gitlab')) {
+            return `${parsed.providerUrl}/${parsed.user}/${parsed.path}/-/commit/${commitSha}`
+        }
+
+        return undefined
     }
 
     static parseSshRemoteUrl(remoteUrl: string): { providerUrl: string; user: string; path: string } | undefined {

@@ -1,6 +1,7 @@
 name: Frontend CI
 on:
     pull_request:
+    merge_group:
     push:
         branches:
             - master
@@ -107,7 +108,7 @@ jobs:
     frontend-toolbar-checks:
         name: Frontend toolbar checks
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@v4
@@ -141,6 +142,7 @@ jobs:
 
             - name: Check toolbar bundle size
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
+              if: github.event_name != 'merge_group'
               with:
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'

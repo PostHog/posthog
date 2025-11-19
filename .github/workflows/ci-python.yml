@@ -5,6 +5,7 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
 
 jobs:
     # Job to decide if we should run python ci
