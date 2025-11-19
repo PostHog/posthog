@@ -1,14 +1,20 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps } from '~/types'
+import { ActivityScope, Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
@@ -51,6 +57,10 @@ export function getDataNodeLogicProps({
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
+
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
@@ -70,6 +80,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         handleTextViewFallback: true,
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
+        loadCommentCount: true,
     }),
 
     reducers({
@@ -161,6 +172,30 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
     }),
 
+    loaders(({ values }) => ({
+        commentCount: [
+            0,
+            {
+                loadCommentCount: async (_, breakpoint) => {
+                    if (!values.traceId || !values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]) {
+                        return 0
+                    }
+
+                    await breakpoint(100)
+                    const response = await api.comments.getCount({
+                        scope: ActivityScope.LLM_TRACE,
+                        item_id: values.traceId,
+                        exclude_emoji_reactions: true,
+                    })
+
+                    breakpoint()
+
+                    return response
+                },
+            },
+        ],
+    })),
+
     selectors({
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
@@ -220,6 +255,18 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     return eventTypeExpandedMap[eventType] ?? true
                 },
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.traceId, s.featureFlags],
+            (traceId, featureFlags): SidePanelSceneContext => {
+                // Discussions are always at the trace level, accessible from anywhere in the trace
+                return {
+                    activity_scope: ActivityScope.LLM_TRACE,
+                    activity_item_id: traceId || '',
+                    discussions_disabled: !featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
+                    activity_item_context: { trace_id: traceId || '' },
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -276,6 +323,14 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             const url = new URL(window.location.href)
             url.searchParams.set('line', lineNumber.toString())
             copyToClipboard(url.toString(), 'permalink')
+        },
+    })),
+
+    subscriptions(({ actions }) => ({
+        traceId: (traceId: string) => {
+            if (traceId) {
+                actions.loadCommentCount()
+            }
         },
     })),
 
