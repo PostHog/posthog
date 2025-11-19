@@ -101,6 +101,7 @@ describe('lib/utils', () => {
             expect(identifierToHuman('500')).toEqual('500')
             expect(identifierToHuman(404)).toEqual('404')
             expect(identifierToHuman('CreateProject')).toEqual('Create project')
+            expect(identifierToHuman('hog_function/transformation')).toEqual('Hog function transformation')
         })
     })
 

@@ -961,9 +961,10 @@ def get_all_feature_flags_with_details(
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
                 distinct_ids = [distinct_id, str(hash_key_override)]
-                query = """
+                pdi_table = PersonDistinctId._meta.db_table
+                query = f"""
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        SELECT team_id, person_id FROM {pdi_table} WHERE team_id = %(team_id)s AND
                         distinct_id = ANY(%(distinct_ids)s)
                     ),
                     existing_overrides AS (
@@ -1078,9 +1079,10 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
             # make the entire hash key override logic a single transaction
             # with a small timeout
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
-                query = """
+                pdi_table = PersonDistinctId._meta.db_table
+                query = f"""
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        SELECT team_id, person_id FROM {pdi_table} WHERE team_id = %(team_id)s AND
                         distinct_id = ANY(%(distinct_ids)s)
                     ),
                     existing_overrides AS (
@@ -1097,7 +1099,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                     INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
                         SELECT team_id, person_id, key, %(hash_key_override)s
                         FROM flags_to_override, target_person_ids
-                        WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
+                        WHERE EXISTS (SELECT 1 FROM {Person._meta.db_table} WHERE id = person_id AND team_id = %(team_id)s)
                         ON CONFLICT DO NOTHING
                 """
                 # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
