@@ -105,11 +105,7 @@ async def assert_clickhouse_records_in_kafka(
                 expected_record = {}
 
                 for k, v in record.items():
-                    if k == "_inserted_at":
-                        # _inserted_at is not exported, only used for tracking progress.
-                        continue
-
-                    elif k in json_columns and v is not None:
+                    if k in json_columns and v is not None:
                         expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
@@ -119,12 +115,13 @@ async def assert_clickhouse_records_in_kafka(
                 expected_records.append(expected_record)
 
     produced_column_names = list(produced_records[0].keys())
-    expected_column_names = list(expected_records[0].keys())
+    expected_column_names = [key for key in expected_records[0].keys() if key != "_inserted_at"]
     produced_column_names.sort()
     expected_column_names.sort()
 
     expected_records.sort(key=operator.itemgetter(sort_key))
-    produced_records.sort(key=operator.itemgetter(sort_key))
+    for record in expected_records:
+        record.pop("_inserted_at")
 
     assert (
         produced_column_names == expected_column_names
