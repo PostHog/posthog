@@ -9,6 +9,7 @@ name: Security
 
 permissions:
     contents: read
+    actions: read
     security-events: write
 
 env:
