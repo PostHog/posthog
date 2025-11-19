@@ -401,8 +401,6 @@ ee/models/license.py:0: error: Cannot use a covariant type variable as a paramet
 ee/models/license.py:0: error: Incompatible return value type (got "Literal[''] | bool", expected "bool")  [return-value]
 ee/models/license.py:0: error: Incompatible return value type (got "_T", expected "License | None")  [return-value]
 ee/tasks/auto_rollback_feature_flag.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
-ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
-ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "User | None" has no attribute "first_name"  [union-attr]
 ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "isoformat"  [union-attr]
 ee/tasks/subscriptions/email_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "strftime"  [union-attr]
 ee/tasks/subscriptions/slack_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "strftime"  [union-attr]
