@@ -381,6 +381,7 @@ class _SessionSearch:
                     )
                 # Use filters when generated successfully
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
+                self._node._stream_filters(filter_generation_result)
             # Query the filters to get session ids
             query_limit = state.session_summarization_limit
             if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
