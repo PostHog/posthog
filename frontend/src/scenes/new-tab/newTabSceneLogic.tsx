@@ -120,6 +120,13 @@ export interface CategoryWithItems {
     isLoading: boolean
 }
 
+export interface ExplorerSearchResults {
+    searchTerm: string
+    folderPath: string | null
+    results: FileSystemEntry[]
+    hasMore: boolean
+}
+
 const INITIAL_SECTION_LIMIT = 5
 const SINGLE_CATEGORY_SECTION_LIMIT = 15
 const INITIAL_RECENTS_LIMIT = 5
@@ -198,6 +205,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: (options?: { offset?: number }) => ({ offset: options?.offset ?? 0 }),
         loadMoreRecents: true,
+        loadExplorerSearchResults: ({ searchTerm, folderPath }: { searchTerm: string; folderPath: string | null }) => ({
+            searchTerm,
+            folderPath,
+        }),
+        clearExplorerSearchResults: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
@@ -331,6 +343,44 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return recents
                 },
+            },
+        ],
+        explorerSearchResults: [
+            { searchTerm: '', folderPath: null, results: [], hasMore: false } as ExplorerSearchResults,
+            {
+                loadExplorerSearchResults: async ({ searchTerm, folderPath }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+                    const normalizedFolder = folderPath ?? ''
+
+                    if (trimmed === '') {
+                        return { searchTerm: '', folderPath: normalizedFolder, results: [], hasMore: false }
+                    }
+
+                    await breakpoint(250)
+
+                    const response = await api.fileSystem.list({
+                        parent: normalizedFolder !== '' ? normalizedFolder : undefined,
+                        search: trimmed,
+                        limit: PAGINATION_LIMIT + 1,
+                    })
+
+                    breakpoint()
+
+                    const responseResults = response.results ?? []
+
+                    return {
+                        searchTerm: trimmed,
+                        folderPath: normalizedFolder,
+                        results: responseResults.slice(0, PAGINATION_LIMIT),
+                        hasMore: responseResults.length > PAGINATION_LIMIT,
+                    }
+                },
+                clearExplorerSearchResults: () => ({
+                    searchTerm: '',
+                    folderPath: null,
+                    results: [],
+                    hasMore: false,
+                }),
             },
         ],
         personSearchResults: [
@@ -1724,8 +1774,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
             }
         },
-        setSearch: () => {
-            actions.setActiveExplorerFolderPath(null)
+        setSearch: ({ search }) => {
+            const trimmed = search.trim()
+
+            if (values.activeExplorerFolderPath !== null) {
+                if (trimmed === '') {
+                    actions.clearExplorerSearchResults()
+                } else {
+                    actions.loadExplorerSearchResults({
+                        searchTerm: trimmed,
+                        folderPath: values.activeExplorerFolderPath,
+                    })
+                }
+                return
+            }
+
             actions.loadRecents()
             actions.triggerSearchForIncludedItems()
         },
@@ -1748,6 +1811,18 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 } else if (item === 'groups') {
                     actions.loadGroupSearchResultsSuccess({})
                 }
+            }
+        },
+        setActiveExplorerFolderPath: ({ path }) => {
+            if (path === values.activeExplorerFolderPath) {
+                return
+            }
+
+            actions.clearExplorerSearchResults()
+
+            if (path === null && values.search.trim() !== '') {
+                actions.loadRecents()
+                actions.triggerSearchForIncludedItems()
             }
         },
         setNewTabSceneDataInclude: () => {

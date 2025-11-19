@@ -26,6 +26,7 @@ interface ExplorerRow {
     depth: number
     isParentNavigation?: boolean
     navigatesToSearch?: boolean
+    isSearchResult?: boolean
 }
 
 export function ProjectExplorer({
@@ -38,9 +39,14 @@ export function ProjectExplorer({
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
     const { folders, folderStates, users } = useValues(projectTreeLogic(projectTreeLogicProps))
     const { loadFolder } = useActions(projectTreeLogic(projectTreeLogicProps))
-    const { activeExplorerFolderPath, explorerExpandedFolders, highlightedExplorerEntryPath } = useValues(
-        newTabSceneLogic({ tabId })
-    )
+    const {
+        activeExplorerFolderPath,
+        explorerExpandedFolders,
+        highlightedExplorerEntryPath,
+        search,
+        explorerSearchResults,
+        explorerSearchResultsLoading,
+    } = useValues(newTabSceneLogic({ tabId }))
     const { setActiveExplorerFolderPath, toggleExplorerFolderExpansion, setHighlightedExplorerEntryPath } = useActions(
         newTabSceneLogic({ tabId })
     )
@@ -74,6 +80,20 @@ export function ProjectExplorer({
 
         return buildRowsRecursive(currentEntries, 0)
     }, [currentEntries, explorerExpandedFolders, folders])
+    const trimmedSearch = search.trim()
+    const isSearchActive = trimmedSearch !== '' && hasActiveFolder
+    const searchMatchesCurrentFolder =
+        explorerSearchResults.folderPath === explorerFolderPath && explorerSearchResults.searchTerm !== ''
+    const shouldUseSearchRows = isSearchActive && searchMatchesCurrentFolder
+    const searchRows = useMemo(() => {
+        if (!shouldUseSearchRows) {
+            return []
+        }
+
+        return [...(explorerSearchResults.results || [])]
+            .sort(sortFilesAndFolders)
+            .map((entry) => ({ entry, depth: 0, isSearchResult: true }))
+    }, [explorerSearchResults.results, shouldUseSearchRows])
     const isLoadingCurrentFolder = hasActiveFolder ? folderStates[explorerFolderPath] === 'loading' : false
 
     const breadcrumbSegments = splitPath(explorerFolderPath)
@@ -96,7 +116,13 @@ export function ProjectExplorer({
             navigatesToSearch: isAtProjectRoot,
         }
     }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
-    const displayRows = useMemo(() => (parentRow ? [parentRow, ...rows] : rows), [parentRow, rows])
+    const contentRows = shouldUseSearchRows ? searchRows : rows
+    const displayRows = useMemo(() => (parentRow ? [parentRow, ...contentRows] : contentRows), [parentRow, contentRows])
+    const isLoadingRows = isSearchActive ? explorerSearchResultsLoading : isLoadingCurrentFolder
+    const folderDisplayName =
+        breadcrumbSegments.length === 0
+            ? 'Project root'
+            : splitPath(explorerFolderPath).pop() || breadcrumbSegments[breadcrumbSegments.length - 1]
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
@@ -180,103 +206,115 @@ export function ProjectExplorer({
     return (
         <div className="flex flex-col gap-3 p-3">
             <div className="rounded bg-bg-300">
+                {isSearchActive && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
+                        <span className="truncate">
+                            Searching {folderDisplayName} for “{trimmedSearch}”
+                        </span>
+                        {explorerSearchResultsLoading && <Spinner size="small" />}
+                    </div>
+                )}
                 <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border px-3 py-2 text-xs uppercase text-muted">
                     <div className="pr-3 pl-6">Name</div>
                     <div className="px-3 pl-6">Created by</div>
                     <div className="px-3 pl-6">Created at</div>
                 </div>
                 <ListBox.Group groupId="project-explorer">
-                    {displayRows.map(({ entry, depth, isParentNavigation, navigatesToSearch }, rowIndex) => {
-                        const isParentNavigationRow = !!isParentNavigation
-                        const isExitNavigationRow = !!navigatesToSearch
-                        const isFolder = entry.type === 'folder'
-                        const isExpandableFolder = isFolder && !isParentNavigationRow
-                        const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
-                        const icon = iconForType(
-                            isParentNavigationRow
-                                ? 'folder_open'
-                                : (entry.type as FileSystemIconType) || 'default_icon_type'
-                        )
-                        const focusBase = String(entry.id ?? entry.path ?? rowIndex)
-                        const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
-                        const isHighlighted = highlightedExplorerEntryPath === entry.path
-                        const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
-                            event.preventDefault()
-                            handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                        }
-                        const handleRowFocus = (): void => {
-                            if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
-                                setHighlightedExplorerEntryPath(null)
+                    {displayRows.map(
+                        ({ entry, depth, isParentNavigation, navigatesToSearch, isSearchResult }, rowIndex) => {
+                            const isParentNavigationRow = !!isParentNavigation
+                            const isExitNavigationRow = !!navigatesToSearch
+                            const isFolder = entry.type === 'folder'
+                            const isExpandableFolder = isFolder && !isParentNavigationRow && !isSearchResult
+                            const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
+                            const icon = iconForType(
+                                isParentNavigationRow
+                                    ? 'folder_open'
+                                    : (entry.type as FileSystemIconType) || 'default_icon_type'
+                            )
+                            const focusBase = String(entry.id ?? entry.path ?? rowIndex)
+                            const nameLabel = isParentNavigationRow ? '..' : splitPath(entry.path).pop() || entry.path
+                            const isHighlighted = highlightedExplorerEntryPath === entry.path
+                            const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
+                                event.preventDefault()
+                                handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                             }
-                        }
-                        const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
-                        return (
-                            <ListBox.Item
-                                asChild
-                                row={rowIndex}
-                                column={0}
-                                focusKey={`${focusBase}-row`}
-                                index={rowIndex}
-                                key={`${entry.id ?? entry.path}-${rowIndex}`}
-                            >
-                                <Link
-                                    to={entry.href || '#'}
-                                    className={clsx(
-                                        'grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
-                                        isHighlighted && 'bg-primary-alt-highlight text-primary'
-                                    )}
-                                    style={rowIndent ? { paddingLeft: rowIndent } : undefined}
-                                    onClick={handleRowClick}
-                                    onFocus={handleRowFocus}
+                            const handleRowFocus = (): void => {
+                                if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
+                                    setHighlightedExplorerEntryPath(null)
+                                }
+                            }
+                            const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
+                            return (
+                                <ListBox.Item
+                                    asChild
+                                    row={rowIndex}
+                                    column={0}
+                                    focusKey={`${focusBase}-row`}
+                                    index={rowIndex}
+                                    key={`${entry.id ?? entry.path}-${rowIndex}`}
                                 >
-                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm">
-                                        <span className="flex w-5 justify-center">
-                                            {isExpandableFolder ? (
-                                                <ButtonPrimitive
-                                                    size="xs"
-                                                    iconOnly
-                                                    tabIndex={-1}
-                                                    className="shrink-0"
-                                                    onMouseDown={(event) => event.preventDefault()}
-                                                    onClick={(event) => {
-                                                        event.stopPropagation()
-                                                        event.preventDefault()
-                                                        handleToggleFolder(entry.path)
-                                                    }}
-                                                    aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
-                                                >
-                                                    <IconChevronRight
-                                                        className={`size-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                                    />
-                                                </ButtonPrimitive>
-                                            ) : (
-                                                <span className="block w-3" />
-                                            )}
-                                        </span>
-                                        <span className="shrink-0 text-primary">{icon}</span>
-                                        <span className="truncate">{nameLabel}</span>
-                                        {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
-                                            <Spinner className="size-3" />
-                                        ) : null}
-                                    </div>
-                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
-                                        {renderCreatedBy(entry)}
-                                    </div>
-                                    <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-muted">
-                                        {renderCreatedAt(entry)}
-                                    </div>
-                                </Link>
-                            </ListBox.Item>
-                        )
-                    })}
-                    {isLoadingCurrentFolder && rows.length === 0 ? (
+                                    <Link
+                                        to={entry.href || '#'}
+                                        className={clsx(
+                                            'grid grid-cols-[minmax(0,1fr)_200px_160px] border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                                            isHighlighted && 'bg-primary-alt-highlight text-primary'
+                                        )}
+                                        style={rowIndent ? { paddingLeft: rowIndent } : undefined}
+                                        onClick={handleRowClick}
+                                        onFocus={handleRowFocus}
+                                    >
+                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm">
+                                            <span className="flex w-5 justify-center">
+                                                {isExpandableFolder ? (
+                                                    <ButtonPrimitive
+                                                        size="xs"
+                                                        iconOnly
+                                                        tabIndex={-1}
+                                                        className="shrink-0"
+                                                        onMouseDown={(event) => event.preventDefault()}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation()
+                                                            event.preventDefault()
+                                                            handleToggleFolder(entry.path)
+                                                        }}
+                                                        aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                                                    >
+                                                        <IconChevronRight
+                                                            className={`size-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                                        />
+                                                    </ButtonPrimitive>
+                                                ) : (
+                                                    <span className="block w-3" />
+                                                )}
+                                            </span>
+                                            <span className="shrink-0 text-primary">{icon}</span>
+                                            <span className="truncate">{nameLabel}</span>
+                                            {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
+                                                <Spinner className="size-3" />
+                                            ) : null}
+                                        </div>
+                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-primary">
+                                            {renderCreatedBy(entry)}
+                                        </div>
+                                        <div className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm text-muted">
+                                            {renderCreatedAt(entry)}
+                                        </div>
+                                    </Link>
+                                </ListBox.Item>
+                            )
+                        }
+                    )}
+                    {isLoadingRows && contentRows.length === 0 ? (
                         <div className="flex items-center gap-2 px-3 py-2 ml-6 text-muted border-t border-border">
-                            <Spinner /> Loading folder...
+                            <Spinner /> {isSearchActive ? 'Searching within folder…' : 'Loading folder...'}
                         </div>
                     ) : null}
-                    {!isLoadingCurrentFolder && rows.length === 0 ? (
+                    {!isLoadingRows && contentRows.length === 0 ? (
                         <div className="px-3 py-2 ml-12 text-sm text-muted border-t border-border">
-                            No files in this folder.
+                            {isSearchActive
+                                ? 'No matching files or folders in this location.'
+                                : 'No files in this folder.'}
                         </div>
                     ) : null}
                 </ListBox.Group>

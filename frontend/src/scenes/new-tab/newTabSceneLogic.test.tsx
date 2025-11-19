@@ -184,4 +184,49 @@ describe('newTabSceneLogic - recents search', () => {
             breadcrumbs: [expect.objectContaining({ name: 'reports' })],
         })
     })
+
+    it('searches within the active explorer folder without exiting', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards')
+        await expectLogic(logic).toFinishAllListeners()
+
+        listMock.mockClear()
+
+        logic.actions.setSearch('dash report')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listMock).toHaveBeenCalledWith(
+            expect.objectContaining({ parent: 'project://dashboards', search: 'dash report' })
+        )
+
+        await expectLogic(logic).toMatchValues({
+            activeExplorerFolderPath: 'project://dashboards',
+            explorerSearchResults: expect.objectContaining({
+                folderPath: 'project://dashboards',
+                searchTerm: 'dash report',
+            }),
+        })
+    })
+
+    it('clears explorer search results when the search term is removed', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearch('dash report')
+        await expectLogic(logic).toFinishAllListeners()
+
+        listMock.mockClear()
+
+        logic.actions.setSearch('')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listMock).not.toHaveBeenCalled()
+
+        await expectLogic(logic).toMatchValues({
+            explorerSearchResults: expect.objectContaining({ searchTerm: '', folderPath: null, results: [] }),
+        })
+    })
 })
