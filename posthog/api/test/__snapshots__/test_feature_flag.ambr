@@ -800,22 +800,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.19
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 2
   OFFSET 2
   '''
@@ -870,37 +870,37 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.21
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 2
   OFFSET 4
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.22
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -908,9 +908,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.24
@@ -1114,22 +1114,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.3
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 2
   '''
 # ---
@@ -1260,16 +1260,16 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.5
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -1277,9 +1277,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
@@ -1457,58 +1457,58 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.10
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ((("posthog_person"."properties" -> 'group') = '"none"'::jsonb
-               AND "posthog_person"."properties" ? 'group'
-               AND NOT (("posthog_person"."properties" -> 'group') = 'null'::jsonb))
-              OR (("posthog_person"."properties" -> 'group2') IN ('1'::jsonb,
-                                                                  '2'::jsonb,
-                                                                  '3'::jsonb)
-                  AND "posthog_person"."properties" ? 'group2'
-                  AND NOT (("posthog_person"."properties" -> 'group2') = 'null'::jsonb))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ((("posthog_person_new"."properties" -> 'group') = '"none"'::jsonb
+               AND "posthog_person_new"."properties" ? 'group'
+               AND NOT (("posthog_person_new"."properties" -> 'group') = 'null'::jsonb))
+              OR (("posthog_person_new"."properties" -> 'group2') IN ('1'::jsonb,
+                                                                      '2'::jsonb,
+                                                                      '3'::jsonb)
+                  AND "posthog_person_new"."properties" ? 'group2'
+                  AND NOT (("posthog_person_new"."properties" -> 'group2') = 'null'::jsonb))
               OR EXISTS
                 (SELECT 1 AS "a"
                  FROM "posthog_cohortpeople" U0
                  WHERE (U0."cohort_id" = 99999
                         AND U0."cohort_id" = 99999
-                        AND U0."person_id" = ("posthog_person"."id"))
+                        AND U0."person_id" = ("posthog_person_new"."id"))
                  LIMIT 1)
-              OR (("posthog_person"."properties" -> 'does-not-exist') = '"none"'::jsonb
-                  AND "posthog_person"."properties" ? 'does-not-exist'
-                  AND NOT (("posthog_person"."properties" -> 'does-not-exist') = 'null'::jsonb))
-              OR (("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-                  AND "posthog_person"."properties" ? 'key'
-                  AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))))
-  ORDER BY "posthog_person"."id" ASC
+              OR (("posthog_person_new"."properties" -> 'does-not-exist') = '"none"'::jsonb
+                  AND "posthog_person_new"."properties" ? 'does-not-exist'
+                  AND NOT (("posthog_person_new"."properties" -> 'does-not-exist') = 'null'::jsonb))
+              OR (("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+                  AND "posthog_person_new"."properties" ? 'key'
+                  AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   OFFSET 1000
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.11
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -1516,9 +1516,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
@@ -1974,40 +1974,40 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.4
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ((("posthog_person"."properties" -> 'group') = '"none"'::jsonb
-               AND "posthog_person"."properties" ? 'group'
-               AND NOT (("posthog_person"."properties" -> 'group') = 'null'::jsonb))
-              OR (("posthog_person"."properties" -> 'group2') IN ('1'::jsonb,
-                                                                  '2'::jsonb,
-                                                                  '3'::jsonb)
-                  AND "posthog_person"."properties" ? 'group2'
-                  AND NOT (("posthog_person"."properties" -> 'group2') = 'null'::jsonb))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ((("posthog_person_new"."properties" -> 'group') = '"none"'::jsonb
+               AND "posthog_person_new"."properties" ? 'group'
+               AND NOT (("posthog_person_new"."properties" -> 'group') = 'null'::jsonb))
+              OR (("posthog_person_new"."properties" -> 'group2') IN ('1'::jsonb,
+                                                                      '2'::jsonb,
+                                                                      '3'::jsonb)
+                  AND "posthog_person_new"."properties" ? 'group2'
+                  AND NOT (("posthog_person_new"."properties" -> 'group2') = 'null'::jsonb))
               OR EXISTS
                 (SELECT 1 AS "a"
                  FROM "posthog_cohortpeople" U0
                  WHERE (U0."cohort_id" = 99999
                         AND U0."cohort_id" = 99999
-                        AND U0."person_id" = ("posthog_person"."id"))
+                        AND U0."person_id" = ("posthog_person_new"."id"))
                  LIMIT 1)
-              OR (("posthog_person"."properties" -> 'does-not-exist') = '"none"'::jsonb
-                  AND "posthog_person"."properties" ? 'does-not-exist'
-                  AND NOT (("posthog_person"."properties" -> 'does-not-exist') = 'null'::jsonb))
-              OR (("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-                  AND "posthog_person"."properties" ? 'key'
-                  AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))))
-  ORDER BY "posthog_person"."id" ASC
+              OR (("posthog_person_new"."properties" -> 'does-not-exist') = '"none"'::jsonb
+                  AND "posthog_person_new"."properties" ? 'does-not-exist'
+                  AND NOT (("posthog_person_new"."properties" -> 'does-not-exist') = 'null'::jsonb))
+              OR (("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+                  AND "posthog_person_new"."properties" ? 'key'
+                  AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   '''
 # ---
@@ -2033,78 +2033,78 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.6
   '''
-  SELECT ("posthog_person"."id" IS NULL
-          OR "posthog_person"."id" IS NULL
+  SELECT ("posthog_person_new"."id" IS NULL
+          OR "posthog_person_new"."id" IS NULL
           OR EXISTS
             (SELECT 1 AS "a"
              FROM "posthog_cohortpeople" U0
              WHERE (U0."cohort_id" = 99999
                     AND U0."cohort_id" = 99999
-                    AND U0."person_id" = ("posthog_person"."id"))
+                    AND U0."person_id" = ("posthog_person_new"."id"))
              LIMIT 1)
-          OR "posthog_person"."id" IS NULL) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+          OR "posthog_person_new"."id" IS NULL) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'person1'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.7
   '''
-  SELECT ("posthog_person"."id" IS NOT NULL
-          OR "posthog_person"."id" IS NULL
+  SELECT ("posthog_person_new"."id" IS NOT NULL
+          OR "posthog_person_new"."id" IS NULL
           OR EXISTS
             (SELECT 1 AS "a"
              FROM "posthog_cohortpeople" U0
              WHERE (U0."cohort_id" = 99999
                     AND U0."cohort_id" = 99999
-                    AND U0."person_id" = ("posthog_person"."id"))
+                    AND U0."person_id" = ("posthog_person_new"."id"))
              LIMIT 1)
-          OR "posthog_person"."id" IS NULL) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+          OR "posthog_person_new"."id" IS NULL) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'person2'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.8
   '''
-  SELECT ("posthog_person"."id" IS NULL
-          OR "posthog_person"."id" IS NOT NULL
+  SELECT ("posthog_person_new"."id" IS NULL
+          OR "posthog_person_new"."id" IS NOT NULL
           OR EXISTS
             (SELECT 1 AS "a"
              FROM "posthog_cohortpeople" U0
              WHERE (U0."cohort_id" = 99999
                     AND U0."cohort_id" = 99999
-                    AND U0."person_id" = ("posthog_person"."id"))
+                    AND U0."person_id" = ("posthog_person_new"."id"))
              LIMIT 1)
-          OR "posthog_person"."id" IS NULL) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+          OR "posthog_person_new"."id" IS NULL) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'person3'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.9
   '''
-  SELECT ("posthog_person"."id" IS NULL
-          OR "posthog_person"."id" IS NULL
+  SELECT ("posthog_person_new"."id" IS NULL
+          OR "posthog_person_new"."id" IS NULL
           OR EXISTS
             (SELECT 1 AS "a"
              FROM "posthog_cohortpeople" U0
              WHERE (U0."cohort_id" = 99999
                     AND U0."cohort_id" = 99999
-                    AND U0."person_id" = ("posthog_person"."id"))
+                    AND U0."person_id" = ("posthog_person_new"."id"))
              LIMIT 1)
-          OR "posthog_person"."id" IS NULL) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+          OR "posthog_person_new"."id" IS NULL) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person_new"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'person4'
          AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment
@@ -2555,20 +2555,20 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.25
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') IS NOT NULL)
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') IS NOT NULL)
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   '''
 # ---
@@ -2594,36 +2594,36 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.27
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') IS NOT NULL)
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') IS NOT NULL)
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   OFFSET 1000
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.28
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid,
-                                         '00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid,
+                                             '00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -2631,29 +2631,29 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.3
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND UPPER(("posthog_person"."properties" ->> 'key')::text) LIKE UPPER('%value%')
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND UPPER(("posthog_person_new"."properties" ->> 'key')::text) LIKE UPPER('%value%')
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   '''
 # ---
@@ -3103,37 +3103,37 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.5
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND UPPER(("posthog_person"."properties" ->> 'key')::text) LIKE UPPER('%value%')
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND UPPER(("posthog_person_new"."properties" ->> 'key')::text) LIKE UPPER('%value%')
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   OFFSET 1000
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.6
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -3141,9 +3141,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
@@ -3304,9 +3304,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
@@ -3735,22 +3735,22 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.3
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   '''
 # ---
@@ -3818,47 +3818,47 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.8
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 1000
   OFFSET 1000
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.9
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
 # name: TestFeatureFlag.test_cant_create_flag_with_data_that_fails_to_query
   '''
-  SELECT (("posthog_person"."properties" ->> 'email')::text ~ '2.3.9{0-9}{1}'
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  WHERE "posthog_person"."team_id" = 99999
+  SELECT (("posthog_person_new"."properties" ->> 'email')::text ~ '2.3.9{0-9}{1}'
+          AND "posthog_person_new"."properties" ? 'email'
+          AND NOT (("posthog_person_new"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person_new"
+  WHERE "posthog_person_new"."team_id" = 99999
   LIMIT 10
   '''
 # ---
@@ -4125,22 +4125,22 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.15
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 10000
   '''
 # ---
@@ -4166,37 +4166,37 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.17
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND ("posthog_person_new"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person_new"."properties" ? 'key'
+         AND NOT (("posthog_person_new"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person_new"."id" ASC
   LIMIT 10000
   OFFSET 10000
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.18
   '''
-  SELECT "posthog_person"."uuid"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."uuid" IN ('00000000000000000000000000000000'::uuid)
+  SELECT "posthog_person_new"."uuid"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."uuid" IN ('00000000000000000000000000000000'::uuid)
          AND NOT (EXISTS
                     (SELECT 1 AS "a"
                      FROM "posthog_cohortpeople" U1
                      WHERE (U1."cohort_id" = 99999
-                            AND U1."person_id" = ("posthog_person"."id"))
+                            AND U1."person_id" = ("posthog_person_new"."id"))
                      LIMIT 1)))
   '''
 # ---
@@ -4204,9 +4204,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
+  INNER JOIN "posthog_person_new" ON ("posthog_cohortpeople"."person_id" = "posthog_person_new"."id")
   WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+         AND "posthog_person_new"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
