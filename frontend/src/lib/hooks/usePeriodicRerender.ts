@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { usePageVisibilityCb } from './usePageVisibility'
+
 export function usePeriodicRerender(milliseconds: number): void {
     const [, setTick] = useState(0)
     const intervalIdRef = useRef<NodeJS.Timeout | null>(null)
+    const isPageVisibleRef = useRef<boolean>(!document.hidden)
+
+    const checkAndUpdateInterval = useRef<(() => void) | null>(null)
+
+    usePageVisibilityCb((isVisible) => {
+        isPageVisibleRef.current = isVisible
+        checkAndUpdateInterval.current?.()
+    })
 
     useEffect(() => {
-        const isPageActive = (): boolean => !document.hidden && document.hasFocus()
+        const isPageActive = (): boolean => isPageVisibleRef.current && document.hasFocus()
 
         const startInterval = (triggerImmediately: boolean): void => {
             if (intervalIdRef.current) {
@@ -24,30 +34,28 @@ export function usePeriodicRerender(milliseconds: number): void {
             }
         }
 
-        const handleVisibilityOrFocusChange = (): void => {
-            // Small delay to allow browser to update focus state after visibility changes
-            setTimeout(() => {
-                if (isPageActive()) {
-                    startInterval(true)
-                } else {
-                    stopInterval()
-                }
-            }, 0)
+        const handleActiveStateChange = (): void => {
+            if (isPageActive()) {
+                startInterval(true)
+            } else {
+                stopInterval()
+            }
         }
+
+        checkAndUpdateInterval.current = handleActiveStateChange
 
         if (isPageActive()) {
             startInterval(false)
         }
 
-        document.addEventListener('visibilitychange', handleVisibilityOrFocusChange)
-        window.addEventListener('focus', handleVisibilityOrFocusChange)
-        window.addEventListener('blur', handleVisibilityOrFocusChange)
+        window.addEventListener('focus', handleActiveStateChange)
+        window.addEventListener('blur', handleActiveStateChange)
 
         return () => {
             stopInterval()
-            document.removeEventListener('visibilitychange', handleVisibilityOrFocusChange)
-            window.removeEventListener('focus', handleVisibilityOrFocusChange)
-            window.removeEventListener('blur', handleVisibilityOrFocusChange)
+            window.removeEventListener('focus', handleActiveStateChange)
+            window.removeEventListener('blur', handleActiveStateChange)
+            checkAndUpdateInterval.current = null
         }
-    }, [milliseconds, setTick])
+    }, [milliseconds])
 }
