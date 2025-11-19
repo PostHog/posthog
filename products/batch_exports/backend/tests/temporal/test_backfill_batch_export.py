@@ -257,11 +257,15 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 
         await asyncio.sleep(1)
 
-        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+        # sort workflows by id to ensure they are in the correct order (i.e. by end time)
+        workflows = sorted(
+            [workflow async for workflow in temporal_client.list_workflows(query=query)], key=lambda x: x.id
+        )
 
     assert len(workflows) == expected
 
-    for workflow in workflows:
+    for index, workflow in enumerate(workflows):
+        is_last_backfill_run = index == len(workflows) - 1
         handle = temporal_client.get_workflow_handle(workflow.id)
         history = await handle.fetch_history()
 
@@ -276,6 +280,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
                     "start_at": start_at.isoformat(),
                     "end_at": end_at.isoformat(),
                     "is_earliest_backfill": False,
+                    "is_last_backfill_run": is_last_backfill_run,
                 }
             elif event.event_type == 10:
                 # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
@@ -287,6 +292,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
                     "start_at": start_at.isoformat(),
                     "end_at": end_at.isoformat(),
                     "is_earliest_backfill": False,
+                    "is_last_backfill_run": is_last_backfill_run,
                 }
 
 
@@ -330,12 +336,16 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
         await asyncio.sleep(1)
 
-        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+        # sort workflows by id to ensure they are in the correct order (i.e. by end time)
+        workflows = sorted(
+            [workflow async for workflow in temporal_client.list_workflows(query=query)], key=lambda x: x.id
+        )
 
     assert len(workflows) == expected
 
     event_backfill_ids = []
-    for workflow in workflows:
+    for index, workflow in enumerate(workflows):
+        is_last_backfill_run = index == len(workflows) - 1
         handle = temporal_client.get_workflow_handle(workflow.id)
         history = await handle.fetch_history()
 
@@ -349,6 +359,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
                 assert args[0]["backfill_details"]["start_at"] == start_at.isoformat()
                 assert args[0]["backfill_details"]["end_at"] == end_at.isoformat()
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is False
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is is_last_backfill_run
             elif event.event_type == 10:
                 # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
                 args = await workflow.data_converter.decode(
@@ -358,6 +369,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
                 assert args[0]["backfill_details"]["start_at"] == start_at.isoformat()
                 assert args[0]["backfill_details"]["end_at"] == end_at.isoformat()
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is False
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is is_last_backfill_run
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
@@ -440,6 +452,8 @@ async def test_backfill_batch_export_workflow_no_end_at(
                 assert args[0]["backfill_details"]["start_at"] == start_at.isoformat()
                 assert args[0]["backfill_details"]["end_at"] is None
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is False
+                # we can't determine if this is the last backfill run because we don't know the end time
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is False
             elif event.event_type == 10:
                 # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
                 args = await workflow.data_converter.decode(
@@ -449,6 +463,8 @@ async def test_backfill_batch_export_workflow_no_end_at(
                 assert args[0]["backfill_details"]["start_at"] == start_at.isoformat()
                 assert args[0]["backfill_details"]["end_at"] is None
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is False
+                # we can't determine if this is the last backfill run because we don't know the end time
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is False
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
@@ -877,12 +893,16 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
 
         await asyncio.sleep(1)
 
-        workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+        # sort workflows by id to ensure they are in the correct order (i.e. by end time)
+        workflows = sorted(
+            [workflow async for workflow in temporal_client.list_workflows(query=query)], key=lambda x: x.id
+        )
 
     assert len(workflows) == expected
 
     event_backfill_ids = []
-    for workflow in workflows:
+    for index, workflow in enumerate(workflows):
+        is_last_backfill_run = index == len(workflows) - 1
         handle = temporal_client.get_workflow_handle(workflow.id)
         history = await handle.fetch_history()
 
@@ -896,6 +916,7 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
                 assert args[0]["backfill_details"]["start_at"] is None
                 assert args[0]["backfill_details"]["end_at"] == end_at.isoformat()
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is True
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is is_last_backfill_run
             elif event.event_type == 10:
                 # 10 is EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
                 args = await workflow.data_converter.decode(
@@ -905,6 +926,7 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
                 assert args[0]["backfill_details"]["start_at"] is None
                 assert args[0]["backfill_details"]["end_at"] == end_at.isoformat()
                 assert args[0]["backfill_details"]["is_earliest_backfill"] is True
+                assert args[0]["backfill_details"]["is_last_backfill_run"] is is_last_backfill_run
 
     backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
 
