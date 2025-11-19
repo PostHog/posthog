@@ -262,6 +262,7 @@ USER_FILTER_OPTIONS_PROMPT = """
 Goal: {change}
 
 Current filters: {current_filters}
+Current session ID being viewed: {current_session_id}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 """.strip()
