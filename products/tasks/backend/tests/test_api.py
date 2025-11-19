@@ -60,7 +60,6 @@ class BaseTaskAPITest(TestCase):
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            position=0,
         )
 
 
@@ -258,6 +257,35 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(task_ids), len(expected_task_ids))
         for expected_id in expected_task_ids:
             self.assertIn(expected_id, task_ids)
+
+    def test_delete_task_soft_deletes(self):
+        task = self.create_task("Task to delete")
+
+        response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
+
+    def test_deleted_tasks_not_in_list(self):
+        task1 = self.create_task("Active Task")
+        task2 = self.create_task("Deleted Task")
+        task2.soft_delete()
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(task1.id))
+
+    def test_deleted_task_not_retrievable(self):
+        task = self.create_task("Deleted Task")
+        task.soft_delete()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestTaskRunAPI(BaseTaskAPITest):

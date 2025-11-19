@@ -267,6 +267,40 @@ class TestTask(TestCase):
 
         self.assertEqual(task.repository, expected_repo)
 
+    def test_soft_delete(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertFalse(task.deleted)
+        self.assertIsNone(task.deleted_at)
+
+        task.soft_delete()
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
+
+    def test_hard_delete_blocked(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        with self.assertRaises(Exception) as cm:
+            task.delete()
+
+        self.assertIn("Cannot hard delete Task", str(cm.exception))
+        self.assertIn("Use soft_delete() instead", str(cm.exception))
+
+        task.refresh_from_db()
+        self.assertIsNotNone(task.id)
+
 
 class TestTaskSlug(TestCase):
     def setUp(self):
@@ -556,6 +590,21 @@ class TestTaskRun(TestCase):
         run.save()
         run.refresh_from_db()
         self.assertEqual(len(run.state["completed_checkpoints"]), 3)
+
+    def test_delete_blocked(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        with self.assertRaises(Exception) as cm:
+            run.delete()
+
+        self.assertIn("Cannot delete TaskRun", str(cm.exception))
+        self.assertIn("immutable", str(cm.exception))
+
+        run.refresh_from_db()
+        self.assertIsNotNone(run.id)
 
 
 class TestSandboxSnapshot(TestCase):

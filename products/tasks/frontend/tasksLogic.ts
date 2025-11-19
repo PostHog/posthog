@@ -2,11 +2,13 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Params } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import type { RepositoryConfig } from './components/RepositorySelector'
 import type { tasksLogicType } from './tasksLogicType'
@@ -17,7 +19,6 @@ const DEFAULT_REPOSITORY = ''
 const DEFAULT_STATUS = 'all'
 
 export type TaskCreateForm = {
-    title: string
     description: string
     repositoryConfig: RepositoryConfig
 }
@@ -26,20 +27,19 @@ export const tasksLogic = kea<tasksLogicType>([
     path(['products', 'tasks', 'frontend', 'tasksLogic']),
 
     connect(() => ({
-        values: [router, ['location']],
+        values: [router, ['location'], userLogic, ['user']],
     })),
 
     actions({
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setRepository: (repository: string) => ({ repository }),
         setStatus: (status: 'all' | TaskRunStatus) => ({ status }),
+        setCreatedBy: (createdBy: number | null) => ({ createdBy }),
         openTask: (taskId: Task['id']) => ({ taskId }),
         openCreateModal: true,
         closeCreateModal: true,
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
         resetNewTaskData: true,
-        setValidationErrors: (errors: Record<string, string>) => ({ errors }),
-        clearValidationError: (field: string) => ({ field }),
         submitNewTask: true,
         deleteTask: (taskId: Task['id']) => ({ taskId }),
     }),
@@ -63,6 +63,19 @@ export const tasksLogic = kea<tasksLogicType>([
                 setStatus: (_, { status }) => status,
             },
         ],
+        createdBy: [
+            null as number | null,
+            {
+                setCreatedBy: (_, { createdBy }) => createdBy,
+            },
+        ],
+        createdByInitialized: [
+            false,
+            {
+                setCreatedBy: () => true,
+                loadTasks: () => true,
+            },
+        ],
         isCreateModalOpen: [
             false,
             {
@@ -72,7 +85,6 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
         newTaskData: [
             {
-                title: '',
                 description: '',
                 repositoryConfig: {
                     integrationId: undefined,
@@ -83,7 +95,6 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 setNewTaskData: (state, { data }) => ({ ...state, ...data }),
                 resetNewTaskData: () => ({
-                    title: '',
                     description: '',
                     repositoryConfig: {
                         integrationId: undefined,
@@ -104,10 +115,10 @@ export const tasksLogic = kea<tasksLogicType>([
                     return response.results
                 },
                 submitNewTask: async () => {
-                    const { title, description, repositoryConfig } = values.newTaskData
+                    const { description, repositoryConfig } = values.newTaskData
 
-                    if (!title.trim()) {
-                        throw new Error('Title is required')
+                    if (!description.trim()) {
+                        throw new Error('Description is required')
                     }
                     if (
                         !repositoryConfig.integrationId ||
@@ -118,7 +129,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     }
 
                     const taskData: TaskUpsertProps = {
-                        title,
+                        title: '', // Backend will auto-generate from description
                         description,
                         origin_product: OriginProduct.USER_CREATED,
                         repository: `${repositoryConfig.organization}/${repositoryConfig.repository}`,
@@ -141,8 +152,8 @@ export const tasksLogic = kea<tasksLogicType>([
 
     selectors({
         filteredTasks: [
-            (s) => [s.tasks, s.searchQuery, s.repository, s.status],
-            (tasks, searchQuery, repository, status): Task[] => {
+            (s) => [s.tasks, s.searchQuery, s.repository, s.status, s.createdBy],
+            (tasks, searchQuery, repository, status, createdBy): Task[] => {
                 let filtered = [...tasks]
 
                 if (searchQuery) {
@@ -163,6 +174,10 @@ export const tasksLogic = kea<tasksLogicType>([
 
                 if (status !== 'all') {
                     filtered = filtered.filter((task) => task.latest_run?.status === status)
+                }
+
+                if (createdBy !== null) {
+                    filtered = filtered.filter((task) => task.created_by?.id === createdBy)
                 }
 
                 filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -200,6 +215,12 @@ export const tasksLogic = kea<tasksLogicType>([
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)
             }
+            if (params.createdBy !== undefined) {
+                const createdByValue = params.createdBy ? parseInt(params.createdBy) : null
+                if (!equal(createdByValue, values.createdBy)) {
+                    actions.setCreatedBy(createdByValue)
+                }
+            }
         }
         return {
             '/tasks': urlToAction,
@@ -226,6 +247,9 @@ export const tasksLogic = kea<tasksLogicType>([
             if (values.status !== DEFAULT_STATUS) {
                 params.status = values.status
             }
+            if (values.createdBy !== null) {
+                params.createdBy = values.createdBy.toString()
+            }
 
             return ['/tasks', params, {}, { replace: false }]
         }
@@ -234,8 +258,18 @@ export const tasksLogic = kea<tasksLogicType>([
             setSearchQuery: () => buildURL(),
             setRepository: () => buildURL(),
             setStatus: () => buildURL(),
+            setCreatedBy: () => buildURL(),
         }
     }),
+
+    subscriptions(({ actions, values }) => ({
+        user: (user) => {
+            // Set createdBy to current user when user is loaded, if not already set from URL
+            if (user?.id && !values.createdByInitialized) {
+                actions.setCreatedBy(user.id)
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadTasks()
