@@ -322,6 +322,11 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("events", None)
             data.pop("actions", None)
 
+        if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            data["data_warehouse"] = [
+                entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
+            ]
+
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:
             compiler = JavaScriptCompiler()
