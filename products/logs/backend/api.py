@@ -21,7 +21,7 @@ from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
         if query_data is None:
@@ -142,7 +142,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
         return Response({"query": query, "results": results}, status=200)
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
 
@@ -159,7 +159,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
 
@@ -196,7 +196,7 @@ FROM (
                 r.append(entry)
         return Response(r, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")

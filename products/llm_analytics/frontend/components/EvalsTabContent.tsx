@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
@@ -11,13 +11,22 @@ import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 export function EvalsTabContent({
     generationEventId,
     timestamp,
+    event,
+    distinctId,
 }: {
     generationEventId: string
     timestamp: string
+    event: string
+    distinctId?: string
 }): JSX.Element {
     return (
         <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <EvalsTabContentInner generationEventId={generationEventId} timestamp={timestamp} />
+            <EvalsTabContentInner
+                generationEventId={generationEventId}
+                timestamp={timestamp}
+                event={event}
+                distinctId={distinctId}
+            />
         </BindLogic>
     )
 }
@@ -25,9 +34,13 @@ export function EvalsTabContent({
 function EvalsTabContentInner({
     generationEventId,
     timestamp,
+    event,
+    distinctId,
 }: {
     generationEventId: string
     timestamp: string
+    event: string
+    distinctId?: string
 }): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
@@ -37,6 +50,10 @@ function EvalsTabContentInner({
 
     return (
         <div className="py-4">
+            <LemonBanner type="info" className="mb-4">
+                Manually triggered evaluations typically appear within seconds, but may take a few minutes to process.
+                Click Refresh to see new results.
+            </LemonBanner>
             <div className="flex justify-between items-center mb-4">
                 <div className="flex gap-2">
                     <LemonSelect
@@ -60,7 +77,7 @@ function EvalsTabContentInner({
                         icon={<IconCheckCircle />}
                         onClick={() => {
                             if (selectedEvaluationId) {
-                                runEvaluation(selectedEvaluationId, generationEventId, timestamp)
+                                runEvaluation(selectedEvaluationId, generationEventId, timestamp, event, distinctId)
                             }
                         }}
                         loading={evaluationRunLoading}

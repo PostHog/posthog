@@ -259,12 +259,24 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         ],
 
         xAxisLabels: [
-            (s) => [s.retentionFilter, s.results],
-            (retentionFilter, results) => {
+            (s) => [s.retentionFilter, s.results, s.filteredResults],
+            (retentionFilter, results, filteredResults) => {
                 if (!retentionFilter || !results) {
                     return []
                 }
-                const { period, retentionCustomBrackets } = retentionFilter
+                const { period, retentionCustomBrackets, selectedInterval } = retentionFilter
+
+                // When an interval is selected, show cohort dates on x-axis
+                if (selectedInterval !== null && selectedInterval !== undefined) {
+                    const formatCohortLabel = (cohort: ProcessedRetentionPayload): string => {
+                        if (cohort.date) {
+                            return period === 'Hour' ? cohort.date.format('MMM D, h A') : cohort.date.format('MMM D')
+                        }
+                        return cohort.label
+                    }
+                    return filteredResults.map(formatCohortLabel)
+                }
+
                 const unit = dateOptionPlurals[period || 'Day']
 
                 if (retentionCustomBrackets) {

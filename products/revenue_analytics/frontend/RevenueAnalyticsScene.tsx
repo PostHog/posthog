@@ -1,11 +1,15 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -92,6 +96,16 @@ export function RevenueAnalyticsScene(): JSX.Element {
 const RevenueAnalyticsSceneContent = (): JSX.Element => {
     const [isOnboarding, setIsOnboarding] = useState(false)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+    const { reportRevenueAnalyticsViewed } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
+
+    useOnMountEffect(() => {
+        reportRevenueAnalyticsViewed()
+        addProductIntent({
+            product_type: ProductKey.REVENUE_ANALYTICS,
+            intent_context: ProductIntentContext.REVENUE_ANALYTICS_VIEWED,
+        })
+    })
 
     // Turn onboarding on if we haven't connected any revenue sources or events yet
     // We'll keep that stored in the state to make sure we don't "leave" the onboarding state
@@ -111,7 +125,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     // Also, once we've entered the onboarding state, we'll stay in it until we purposefully leave it
     // rather than leaving as soon as we've connected a revenue source or event
     if (isOnboarding || (!hasRevenueTables && !hasRevenueEvents)) {
-        return <Onboarding closeOnboarding={() => setIsOnboarding(false)} />
+        return <Onboarding completeOnboarding={() => setIsOnboarding(false)} />
     }
 
     return (

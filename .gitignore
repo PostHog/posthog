@@ -9,6 +9,7 @@ __pycache__/
 .env*
 .eslintcache
 .idea
+!.idea/posthog.iml
 .mypy_cache
 .parcel-cache
 # pyenv local config
