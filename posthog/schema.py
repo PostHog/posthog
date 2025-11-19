@@ -12728,6 +12728,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class CustomerAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    activity_event: Union[EventsNode, ActionsNode]
+    payment_event: Union[EventsNode, ActionsNode]
+    signup_event: Union[EventsNode, ActionsNode]
+    signup_pageview_event: Union[EventsNode, ActionsNode]
+    subscription_event: Union[EventsNode, ActionsNode]
+
+
 class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
