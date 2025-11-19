@@ -164,6 +164,6 @@ def populate_user_product_list_job():
     - reason: Optional reason ('usage', 'new_product', 'sales_led')
     - require_existing_product: Only add for users who have this product enabled
     - user_created_before: Only process users created before this date (ISO format)
-    - only_users_without_products: Only process users without existing entries (default: True)
+    - only_users_without_products: Only process users without existing entries
     """
     populate_user_product_list()
