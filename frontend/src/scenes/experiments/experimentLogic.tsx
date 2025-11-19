@@ -88,6 +88,7 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
@@ -2001,44 +2002,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        getOrderedMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment) =>
-                (isSecondary: boolean): ExperimentMetric[] => {
-                    if (!experiment) {
-                        return []
-                    }
-
-                    const metricType = isSecondary ? 'secondary' : 'primary'
-                    const regularMetrics = isSecondary
-                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-                        : ((experiment.metrics || []) as ExperimentMetric[])
-
-                    const sharedMetrics = (experiment.saved_metrics || [])
-                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
-                        .map((sharedMetric) => ({
-                            ...sharedMetric.query,
-                            name: sharedMetric.name,
-                            sharedMetricId: sharedMetric.saved_metric,
-                            isSharedMetric: true,
-                        })) as ExperimentMetric[]
-
-                    const allMetrics = [...regularMetrics, ...sharedMetrics]
-
-                    const metricsMap = new Map()
-                    allMetrics.forEach((metric: any) => {
-                        const uuid = metric.uuid || metric.query?.uuid
-                        if (uuid) {
-                            metricsMap.set(uuid, metric)
-                        }
-                    })
-
-                    const orderedUuids = isSecondary
-                        ? experiment.secondary_metrics_ordered_uuids || []
-                        : experiment.primary_metrics_ordered_uuids || []
-
-                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
-                },
+        getOrderedMetricsWithResults: [
+            (s) => [
+                s.experiment,
+                s.primaryMetricsResults,
+                s.primaryMetricsResultsErrors,
+                s.secondaryMetricsResults,
+                s.secondaryMetricsResultsErrors,
+            ],
+            (
+                    experiment,
+                    primaryMetricsResults,
+                    primaryMetricsResultsErrors,
+                    secondaryMetricsResults,
+                    secondaryMetricsResultsErrors
+                ) =>
+                (isSecondary: boolean) =>
+                    getOrderedMetricsWithResults(
+                        experiment,
+                        primaryMetricsResults,
+                        primaryMetricsResultsErrors,
+                        secondaryMetricsResults,
+                        secondaryMetricsResultsErrors,
+                        isSecondary
+                    ),
+        ],
+        orderedPrimaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(false),
+        ],
+        orderedSecondaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(true),
         ],
         statsMethod: [
             (s) => [s.experiment],
