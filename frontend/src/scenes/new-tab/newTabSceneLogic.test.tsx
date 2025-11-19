@@ -3,9 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { initKeaTests } from '~/test/init'
 
-import { newTabSceneLogic } from './newTabSceneLogic'
+import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from './newTabSceneLogic'
 
 describe('newTabSceneLogic - recents search', () => {
     const defaultResponse = {
@@ -18,10 +20,18 @@ describe('newTabSceneLogic - recents search', () => {
 
     let logic: ReturnType<typeof newTabSceneLogic.build>
     let listMock: jest.SpiedFunction<typeof api.fileSystem.list>
+    let projectTreeDataLogicInstance: ReturnType<typeof projectTreeDataLogic.build>
+    let projectTreeLogicInstance: ReturnType<typeof projectTreeLogic.build>
 
     beforeEach(async () => {
         initKeaTests()
         sceneLogic.mount()
+
+        projectTreeDataLogicInstance = projectTreeDataLogic()
+        projectTreeDataLogicInstance.mount()
+
+        projectTreeLogicInstance = projectTreeLogic(getNewTabProjectTreeLogicProps('test-tab'))
+        projectTreeLogicInstance.mount()
 
         listMock = jest.spyOn(api.fileSystem, 'list').mockImplementation(async () => ({ ...defaultResponse }))
 
@@ -228,5 +238,54 @@ describe('newTabSceneLogic - recents search', () => {
         await expectLogic(logic).toMatchValues({
             explorerSearchResults: expect.objectContaining({ searchTerm: '', folderPath: null, results: [] }),
         })
+    })
+
+    it('searches through nested folders when filtering folders', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        projectTreeDataLogicInstance.actions.loadFolderSuccess(
+            '',
+            [
+                {
+                    id: 'folder-reports',
+                    path: 'reports',
+                    type: 'folder',
+                } as any,
+            ],
+            false,
+            1,
+            false
+        )
+
+        projectTreeDataLogicInstance.actions.loadFolderSuccess(
+            'reports',
+            [
+                {
+                    id: 'folder-monthly',
+                    path: 'reports/monthly',
+                    type: 'folder',
+                } as any,
+            ],
+            false,
+            1,
+            false
+        )
+
+        logic.actions.setNewTabSceneDataInclude(['folders'])
+        logic.actions.setSearch('monthly')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.folderCategoryItems.map((item) => item.record?.path)).toContain('reports/monthly')
+    })
+
+    it('hides the folder category when no folders match the search', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTabSceneDataInclude(['folders'])
+        logic.actions.setSearch('non-existent-folder')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.folderCategoryItems).toHaveLength(0)
+        expect(logic.values.folderHasResults).toBe(false)
     })
 })

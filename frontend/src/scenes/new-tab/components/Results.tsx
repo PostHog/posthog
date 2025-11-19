@@ -491,9 +491,10 @@ export function Results({
     const firstAvailableCategory: NEW_TAB_CATEGORY_ITEMS | null = folderHasResults
         ? 'folders'
         : (firstCategoryWithResults as NEW_TAB_CATEGORY_ITEMS | null)
+    const shouldShowFolderCategory = showFoldersCategory && (folderHasResults || folderCategoryLoading)
     const categoriesToRender = showSearchResults
         ? [
-              ...(showFoldersCategory
+              ...(shouldShowFolderCategory
                   ? [
                         {
                             key: 'folders' as const,
