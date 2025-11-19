@@ -1064,23 +1064,23 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.19
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.2
@@ -1737,23 +1737,23 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.18
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.2
@@ -3147,23 +3147,23 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.29
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.3
@@ -5859,23 +5859,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.107
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.108
@@ -6648,23 +6648,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.126
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.127
@@ -7497,23 +7497,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.146
@@ -8345,23 +8345,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.164
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.165
@@ -9166,23 +9166,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.183
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.184
@@ -10044,23 +10044,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.202
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.21
@@ -10396,23 +10396,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.31
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.32
@@ -11187,23 +11187,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.50
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.51
@@ -11911,23 +11911,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.7
@@ -12699,23 +12699,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.88
   '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND "posthog_person"."id" IN (1,
-                                       2,
-                                       3,
-                                       4,
-                                       5 /* ... */))
+  SELECT "posthog_person_new"."id",
+         "posthog_person_new"."created_at",
+         "posthog_person_new"."properties_last_updated_at",
+         "posthog_person_new"."properties_last_operation",
+         "posthog_person_new"."team_id",
+         "posthog_person_new"."properties",
+         "posthog_person_new"."is_user_id",
+         "posthog_person_new"."is_identified",
+         "posthog_person_new"."uuid",
+         "posthog_person_new"."version"
+  FROM "posthog_person_new"
+  WHERE ("posthog_person_new"."team_id" = 99999
+         AND "posthog_person_new"."id" IN (1,
+                                           2,
+                                           3,
+                                           4,
+                                           5 /* ... */))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.89
