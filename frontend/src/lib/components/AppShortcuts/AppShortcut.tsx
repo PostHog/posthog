@@ -27,9 +27,14 @@ function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boole
 
 interface AppShortcutProps extends React.HTMLAttributes<HTMLElement>, Omit<AppShortcutType, 'ref'> {
     children: ReactNode
+    /** Pass through props to the child element IMPORTANT, the child element must properly forward the ref what you're trying to interact with */
     asChild?: boolean
+    /** The class name to apply to the element */
     className?: string
+    /** If true, the keyboard shortcut will not be registered and tooltip keyboard shortcut will not be added to the childs tooltip */
     disabled?: boolean
+    /** Custom ref for the focusable element (useful when child component doesn't forward ref to the focusable element) */
+    targetRef?: React.RefObject<HTMLElement>
 }
 
 export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
@@ -44,6 +49,7 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
             scope = 'global',
             className,
             disabled = false,
+            targetRef,
             ...props
         },
         forwardedRef
@@ -74,16 +80,19 @@ export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(
             if (isRefReady && internalRef.current && !disabled) {
                 // Replace 'command' with 'ctrl' when not on Mac
                 const platformAgnosticKeybind = keybind.map((key) => (!IS_MAC && key === 'command' ? 'ctrl' : key))
+                // Use targetRef only when asChild is false (wrapper mode)
+                // When asChild is true, always use internalRef (cloned child)
+                const refToUse = !asChild && targetRef ? targetRef : internalRef
                 registerAppShortcut({
                     name,
                     keybind: platformAgnosticKeybind,
-                    ref: internalRef,
+                    ref: refToUse,
                     intent,
                     interaction,
                     scope,
                 })
             }
-        }, [isRefReady, name, keybind, intent, interaction, scope, disabled, registerAppShortcut])
+        }, [isRefReady, name, keybind, intent, interaction, scope, disabled, targetRef, asChild, registerAppShortcut])
 
         // Clean up on unmount
         useEffect(() => {

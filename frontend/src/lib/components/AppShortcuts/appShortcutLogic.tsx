@@ -1,20 +1,25 @@
 import { actions, afterMount, beforeUnmount, kea, path, reducers } from 'kea'
 
+import { Scene } from 'scenes/sceneTypes'
+
 import type { appShortcutLogicType } from './appShortcutLogicType'
 
 export interface AppShortcutType {
-    // The ref to the element to focus on
+    /* The ref to the element to focus on */
     ref: React.RefObject<HTMLElement>
-    // The name of the shortcut used for reference
+    /* The name of the shortcut used for reference */
     name: string
-    // The keybind to use for the shortcut
+    /* The keybind to use for the shortcut */
     keybind: string[]
-    // Describe what the shortcut does
+    /* Describe what the shortcut does */
     intent: string
-    // The type of interaction to trigger
+    /* The type of interaction to trigger */
     interaction: 'click' | 'focus'
-    // The scope of the shortcut - 'global' or a specific scene key
-    scope?: string
+    /* The scope of the shortcut - 'global' or a specific scene key 
+        @default 'global'
+        @see SceneKey for possible values
+    */
+    scope?: 'global' | keyof typeof Scene
 }
 
 export const appShortcutLogic = kea<appShortcutLogicType>([

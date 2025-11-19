@@ -43,6 +43,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -331,6 +332,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 tooltipPlacement="right"
                                 onClick={() => setAppShortcutMenuOpen(true)}
                                 menuItem
+                                className={cn(!useAppShortcuts && 'hidden')}
                             >
                                 <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
                                 Shortcuts
@@ -429,9 +431,10 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 </Link>
                             </DropdownMenuItem>
 
-                            {user?.is_impersonated ||
-                            preflight?.is_debug ||
-                            preflight?.instance_preferences?.debug_queries ? (
+                            {useAppShortcuts &&
+                            (user?.is_impersonated ||
+                                preflight?.is_debug ||
+                                preflight?.instance_preferences?.debug_queries) ? (
                                 <AppShortcut
                                     name="DebugClickhouseQueries"
                                     keybind={['command', 'option', 'tab']}
@@ -446,6 +449,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                                 openCHQueriesDebugModal()
                                             }}
                                             data-attr="menu-item-debug-ch-queries"
+                                            className={cn(!useAppShortcuts && 'hidden')}
                                         >
                                             <IconDatabase />
                                             Debug CH queries

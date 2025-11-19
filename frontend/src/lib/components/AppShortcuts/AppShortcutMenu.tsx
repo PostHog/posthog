@@ -223,11 +223,12 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                             e.stopPropagation()
                                                             handleItemClick(shortcut)
                                                         }}
+                                                        truncate
                                                     >
-                                                        <div className="flex items-center gap-2">
+                                                        <span className="flex items-center gap-2 truncate max-w-full">
                                                             {getShortcutIcon(shortcut)}
                                                             {shortcut.intent}
-                                                        </div>
+                                                        </span>
                                                         <span className="ml-auto">
                                                             <KeyboardShortcut
                                                                 {...Object.fromEntries(
