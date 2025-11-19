@@ -32,7 +32,8 @@ class MathGroupTypeIndex(float, Enum):
 
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
-    NOOP = "noop"
+    SQL = "sql"
+    SESSION_REPLAY = "session_replay"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -287,6 +288,10 @@ class AssistantTool(StrEnum):
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
