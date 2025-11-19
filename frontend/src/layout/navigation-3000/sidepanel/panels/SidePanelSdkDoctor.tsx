@@ -128,7 +128,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: (
             <span>
-                EVENT TIME{' '}
+                LAST EVENT{' '}
                 <Tooltip title="This gets refreshed every night, click 'Scan Events' to refresh manually">
                     <IconInfo />
                 </Tooltip>
