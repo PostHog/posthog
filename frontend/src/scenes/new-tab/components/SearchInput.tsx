@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -75,6 +75,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
     const [isFocused, setIsFocused] = useState(false)
+    const isExplorerActive = !!explorerBreadcrumbs?.length && !!onExitExplorer
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
     useImperativeHandle(
@@ -185,6 +186,18 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 // If input already has content, let the '/' be typed normally
                 break
             case 'Backspace':
+                if (inputValue === '' && isExplorerActive) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (explorerBreadcrumbs.length > 1) {
+                        const parentCrumb = explorerBreadcrumbs[explorerBreadcrumbs.length - 2]
+                        onExplorerBreadcrumbClick?.(parentCrumb.path)
+                    } else {
+                        onExitExplorer?.()
+                        inputRef.current?.focus()
+                    }
+                    return
+                }
                 if (inputValue === '') {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
@@ -301,91 +314,106 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     isFocused && 'animate-input-focus-pulse'
                 )}
             >
-                <DropdownMenu
-                    open={showDropdown}
-                    onOpenChange={(open) => {
-                        setShowDropdown(open)
-                    }}
-                >
-                    <div className="relative">
-                        <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive
-                                variant="outline"
-                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
-                                iconOnly
-                                size="sm"
-                                tooltip={
-                                    <>
-                                        Click to show commands/filters, or type <KeyboardShortcut forwardslash />
-                                    </>
-                                }
-                                tooltipPlacement="bottom"
-                                tooltipCloseDelayMs={0}
-                                tabIndex={-1}
-                            >
-                                /
-                            </ButtonPrimitive>
-                        </DropdownMenuTrigger>
-
-                        {/* Mobile layout: show a small dot on the top right of the dropdown button if there are selected commands */}
-                        {isMobileLayout && (selectedCommands.length === 1 || expandedTags) && (
-                            <div className="absolute -top-0.5 -right-0.5 size-2 bg-accent rounded-full pointer-events-none" />
-                        )}
-                    </div>
-
-                    <DropdownMenuContent
-                        align="start"
-                        className="min-w-[200px]"
-                        onCloseAutoFocus={(e) => {
-                            e.preventDefault()
-
-                            setTimeout(() => {
-                                if (inputRef.current) {
-                                    inputRef.current.focus()
-                                }
-                            }, 100)
+                {onExitExplorer ? (
+                    <ButtonPrimitive
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 ml-1.5"
+                        onClick={() => {
+                            onExitExplorer()
+                            inputRef.current?.focus()
                         }}
                     >
-                        <DropdownMenuGroup>
-                            <Label intent="menu" className="px-2">
-                                Filters
-                            </Label>
-                            <DropdownMenuSeparator />
-                            {filteredCommands.map((command) => {
-                                const isActive = activeCommands.includes(command.value)
-                                return (
-                                    <DropdownMenuItem key={command.value as string} asChild>
-                                        <ButtonPrimitive
-                                            className="group flex items-center text-left"
-                                            onClick={() => selectCommand(command)}
-                                            fullWidth
-                                            menuItem
-                                        >
-                                            <div className="flex items-center justify-center">
-                                                <IconCheck
-                                                    className={cn(
-                                                        'hidden size-4 group-hover:block group-hover:opacity-10',
-                                                        {
-                                                            'opacity-10': !isActive,
-                                                            'block text-success group-hover:opacity-100': isActive,
-                                                        }
-                                                    )}
-                                                />
-                                                <IconBlank
-                                                    className={cn('hidden size-4 group-hover:hidden', {
-                                                        block: !isActive,
-                                                    })}
-                                                />
-                                            </div>
+                        <IconChevronLeft className="size-3" />
+                    </ButtonPrimitive>
+                ) : null}
+                <div className={cn('relative', onExitExplorer && 'order-last ml-auto')}>
+                    <DropdownMenu
+                        open={showDropdown}
+                        onOpenChange={(open) => {
+                            setShowDropdown(open)
+                        }}
+                    >
+                        <div className="relative">
+                            <DropdownMenuTrigger asChild>
+                                <ButtonPrimitive
+                                    variant="outline"
+                                    className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                    iconOnly
+                                    size="sm"
+                                    tooltip={
+                                        <>
+                                            Click to show commands/filters, or type <KeyboardShortcut forwardslash />
+                                        </>
+                                    }
+                                    tooltipPlacement="bottom"
+                                    tooltipCloseDelayMs={0}
+                                    tabIndex={-1}
+                                >
+                                    /
+                                </ButtonPrimitive>
+                            </DropdownMenuTrigger>
 
-                                            <div className="font-medium text-primary">{command.displayName}</div>
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                )
-                            })}
-                        </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                            {/* Mobile layout: show a small dot on the top right of the dropdown button if there are selected commands */}
+                            {isMobileLayout && (selectedCommands.length === 1 || expandedTags) && (
+                                <div className="absolute -top-0.5 -right-0.5 size-2 bg-accent rounded-full pointer-events-none" />
+                            )}
+                        </div>
+
+                        <DropdownMenuContent
+                            align="start"
+                            className="min-w-[200px]"
+                            onCloseAutoFocus={(e) => {
+                                e.preventDefault()
+
+                                setTimeout(() => {
+                                    if (inputRef.current) {
+                                        inputRef.current.focus()
+                                    }
+                                }, 100)
+                            }}
+                        >
+                            <DropdownMenuGroup>
+                                <Label intent="menu" className="px-2">
+                                    Filters
+                                </Label>
+                                <DropdownMenuSeparator />
+                                {filteredCommands.map((command) => {
+                                    const isActive = activeCommands.includes(command.value)
+                                    return (
+                                        <DropdownMenuItem key={command.value as string} asChild>
+                                            <ButtonPrimitive
+                                                className="group flex items-center text-left"
+                                                onClick={() => selectCommand(command)}
+                                                fullWidth
+                                                menuItem
+                                            >
+                                                <div className="flex items-center justify-center">
+                                                    <IconCheck
+                                                        className={cn(
+                                                            'hidden size-4 group-hover:block group-hover:opacity-10',
+                                                            {
+                                                                'opacity-10': !isActive,
+                                                                'block text-success group-hover:opacity-100': isActive,
+                                                            }
+                                                        )}
+                                                    />
+                                                    <IconBlank
+                                                        className={cn('hidden size-4 group-hover:hidden', {
+                                                            block: !isActive,
+                                                        })}
+                                                    />
+                                                </div>
+
+                                                <div className="font-medium text-primary">{command.displayName}</div>
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )
+                                })}
+                            </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
 
                 {explorerBreadcrumbs?.length ? (
                     <div className="flex flex-wrap items-center gap-1 pr-1 text-xs font-medium text-primary">
@@ -487,20 +515,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         )
                     }
                 />
-
-                {onExitExplorer ? (
-                    <ButtonPrimitive
-                        size="xs"
-                        variant="tertiary"
-                        className="ml-auto whitespace-nowrap"
-                        onClick={() => {
-                            onExitExplorer()
-                            inputRef.current?.focus()
-                        }}
-                    >
-                        ← Back to results
-                    </ButtonPrimitive>
-                ) : null}
             </div>
         </div>
     )
