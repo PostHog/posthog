@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
@@ -37,6 +37,10 @@ function EvalsTabContentInner({
 
     return (
         <div className="py-4">
+            <LemonBanner type="info" className="mb-4">
+                Manually triggered evaluations typically appear within seconds, but may take a few minutes to process.
+                Click Refresh to see new results.
+            </LemonBanner>
             <div className="flex justify-between items-center mb-4">
                 <div className="flex gap-2">
                     <LemonSelect

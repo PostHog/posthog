@@ -40,7 +40,7 @@ def send_email_subscription_report(
 
     inviter = subscription.created_by
     is_invite = invite_message is not None
-    self_invite = inviter.email == email
+    self_invite = inviter and inviter.email == email
 
     subject = "PostHog Report"
     invite_summary = None
@@ -59,7 +59,8 @@ def send_email_subscription_report(
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:
-            subject = f"{inviter.first_name or 'Someone'} subscribed you to a PostHog {resource_info.kind}"
+            inviter_name = (inviter.first_name if inviter else None) or "Someone"
+            subject = f"{inviter_name} subscribed you to a PostHog {resource_info.kind}"
         campaign_key = f"{resource_info.kind.lower()}_subscription_new_{uuid.uuid4()}"
 
     message = EmailMessage(
