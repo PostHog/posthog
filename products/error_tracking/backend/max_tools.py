@@ -212,10 +212,6 @@ class ErrorTrackingIssueImpactTool(MaxTool):
         return content, events
 
 
-class ErrorTrackingExplainIssueArgs(BaseModel):
-    """TODO: is this needed?"""
-
-
 class ErrorTrackingExplainIssueOutput(BaseModel):
     """Structured output for issue explanation"""
 
@@ -229,13 +225,14 @@ class ErrorTrackingExplainIssueOutput(BaseModel):
 class ErrorTrackingExplainIssueTool(MaxTool):
     name: str = "error_tracking_explain_issue"
     description: str = "Given the stack trace and context of an error tracking issue, provide a summary of the problem and potential resolutions."
-    args_schema: type[BaseModel] = ErrorTrackingExplainIssueArgs
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         validated_context = ErrorTrackingExplainIssueToolContext(**self.context)
 
         analyzed_issue = await self._analyze_issue(validated_context)
-        user_message = self._format_explanation_for_user(analyzed_issue, validated_context.issue_name)
+        formatted_explanation = self._format_explanation_for_user(analyzed_issue, validated_context.issue_name)
+
+        user_message = f"Return this content to the user as is, following this format.\n\n{formatted_explanation}"
 
         return user_message, {}
 
@@ -253,6 +250,7 @@ class ErrorTrackingExplainIssueTool(MaxTool):
             team=self._team,
             model="gpt-4.1",
             temperature=0.1,
+            inject_context=False,
         ).with_structured_output(ErrorTrackingExplainIssueOutput)
 
         analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
