@@ -378,6 +378,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    allow_sidebar_suggestions?: boolean
     role_at_organization?: string
 }
 
@@ -4137,6 +4138,19 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
     symbol: React.ReactElement
     path?: never
 }
+
+export interface FileSystemDeletionSummary {
+    type: string
+    ref: string | null
+    mode: 'soft' | 'hard'
+    undo: string
+    path: string
+    can_undo: boolean
+}
+
+export interface FileSystemDeleteResponse {
+    deleted: FileSystemDeletionSummary[]
+}
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
     name: string
@@ -4606,6 +4620,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4756,6 +4771,7 @@ export enum ActivityScope {
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_TRACE = 'LLMTrace',
 }
 
 export type CommentType = {
