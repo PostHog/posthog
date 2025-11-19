@@ -151,3 +151,30 @@ jobs:
               with:
                   sarif_file: semgrep-js.sarif
                   category: semgrep-js
+
+    semgrep_checks:
+        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js]
+        name: Semgrep Checks Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then
+                    echo "semgrep-python did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-go.result }}" != "success" && "${{ needs.semgrep-go.result }}" != "skipped" ]]; then
+                    echo "semgrep-go did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-rust.result }}" != "success" && "${{ needs.semgrep-rust.result }}" != "skipped" ]]; then
+                    echo "semgrep-rust did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-js.result }}" != "success" && "${{ needs.semgrep-js.result }}" != "skipped" ]]; then
+                    echo "semgrep-js did not complete successfully."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
