@@ -102,7 +102,7 @@ export function SessionGroupSummariesTable(): JSX.Element {
                 name={config.name}
                 description={config.description}
                 resourceType={{
-                    type: config.iconType || 'insight/hog',
+                    type: config.iconType || 'notebook',
                 }}
                 actions={<LemonTag type="warning">BETA</LemonTag>}
             />
