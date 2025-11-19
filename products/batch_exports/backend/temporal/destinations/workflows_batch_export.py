@@ -35,7 +35,7 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES = []
+NON_RETRYABLE_ERROR_TYPES: list[str] = []
 
 
 def configure_default_ssl_context():
