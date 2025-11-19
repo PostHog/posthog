@@ -609,6 +609,9 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
+    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
+    databases = {"default", "persons_db_writer", "persons_db_reader"}
+
     # Test data definition stubs
     organization: Organization = None
     project: Project = None
