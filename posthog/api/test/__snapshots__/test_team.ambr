@@ -11,7 +11,7 @@
 # name: TestTeamAPI.test_delete_bulky_postgres_data.1
   '''
   DELETE
-  FROM "posthog_person"
+  FROM "posthog_person_new"
   WHERE ("team_id",
          "id") IN ((1,
                     2)/* ... */)
