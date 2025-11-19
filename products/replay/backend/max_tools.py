@@ -112,7 +112,9 @@ class SearchSessionRecordingsTool(MaxTool):
     - When NOT to use the tool:
       * When the user asks to summarize session recordings
     """
-    context_prompt_template: str = "Current recordings filters are: {current_filters}"
+    context_prompt_template: str = (
+        "Current recordings filters are: {current_filters}.\nCurrent session ID being viewed: {current_session_id}."
+    )
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
@@ -122,7 +124,10 @@ class SearchSessionRecordingsTool(MaxTool):
         """
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
-        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
+        current_session_id = self.context.get("current_session_id", None)
+        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(
+            change=change, current_filters=pretty_filters, current_session_id=current_session_id
+        )
         graph_context = {
             "change": user_prompt,
             "output": None,
