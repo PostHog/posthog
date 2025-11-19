@@ -431,34 +431,20 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 mock_stream_conversation.assert_called_once()
 
-    def test_resume_generation_from_idle_conversation(self):
-        """Test resuming generation from an idle conversation with no new content."""
+    def test_cannot_resume_idle_conversation_without_message(self):
+        """Test that resuming an idle conversation without a new message returns a conflict error."""
         conversation = Conversation.objects.create(user=self.user, team=self.team, status=Conversation.Status.IDLE)
-        with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
-            return_value=_async_generator(),
-        ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
-                trace_id = str(uuid.uuid4())
-                response = self.client.post(
-                    f"/api/environments/{self.team.id}/conversations/",
-                    {
-                        "conversation": str(conversation.id),
-                        "content": None,
-                        "trace_id": trace_id,
-                    },
-                )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
-                # Check that the method was called with workflow_inputs
-                mock_start_workflow_and_stream.assert_called_once()
-                call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
-                self.assertEqual(workflow_inputs.user_id, self.user.id)
-                self.assertEqual(workflow_inputs.is_new_conversation, False)
-                self.assertEqual(workflow_inputs.conversation_id, conversation.id)
-                self.assertEqual(str(workflow_inputs.trace_id), trace_id)
-                self.assertIsNone(workflow_inputs.message)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "conversation": str(conversation.id),
+                "content": None,
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["detail"], "Cannot continue streaming from an idle conversation")
 
     def test_stream_from_nonexistent_conversation_without_content(self):
         """Test that streaming from a non-existent conversation without content returns an error."""
