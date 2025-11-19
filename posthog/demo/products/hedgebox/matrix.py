@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from posthog.schema import (
@@ -1019,5 +1020,5 @@ class HedgeboxMatrix(Matrix):
                     authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                     algorithm="RS256",
                 )
-            except IntegrityError:
+            except (IntegrityError, ValidationError):
                 pass
