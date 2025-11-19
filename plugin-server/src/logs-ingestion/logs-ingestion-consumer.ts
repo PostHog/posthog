@@ -63,11 +63,9 @@ export class LogsIngestionConsumer {
             return { backgroundTask: Promise.resolve(), messages: [] }
         }
 
-        await this.produceValidLogMessages(messages)
-
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.resolve(),
+            backgroundTask: this.produceValidLogMessages(messages),
             messages,
         }
     }
@@ -100,9 +98,8 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token_or_distinct_id')
-                        // Write to DLQ topic maybe?
-                        logMessageDroppedCounter.inc({ reason: 'missing_token_or_distinct_id' })
+                        logger.error('missing_token')
+                        logMessageDroppedCounter.inc({ reason: 'missing_token' })
                         return
                     }
 
@@ -113,7 +110,6 @@ export class LogsIngestionConsumer {
                     }
 
                     if (!team) {
-                        // Write to DLQ topic maybe?
                         logger.error('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found' })
                         return
