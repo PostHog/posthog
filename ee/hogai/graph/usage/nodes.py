@@ -13,6 +13,7 @@ from ee.hogai.graph.agent_modes.const import SLASH_COMMAND_USAGE
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.memory.nodes import MemoryOnboardingNode
 from ee.hogai.graph.usage.queries import (
+    POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE,
     format_usage_message,
     get_ai_credits_for_conversation,
     get_ai_credits_for_team,
@@ -93,11 +94,11 @@ class UsageNode(AssistantNode):
                 ]
             )
 
-    def router(self, state: AssistantState) -> list[Send] | None:
+    def router(self, state: AssistantState) -> AssistantNodeName | list[Send]:
         last_message = state.messages[-1] if state.messages else None
 
         if isinstance(last_message, AssistantMessage):
-            if "PostHogAI usage" in last_message.content:
+            if POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE in last_message.content:
                 return AssistantNodeName.END
 
         send_list = [

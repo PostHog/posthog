@@ -13,6 +13,8 @@ from ee.models.assistant import Conversation
 # Default free tier limit in credits
 DEFAULT_FREE_TIER_CREDITS = 2000
 
+POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE = "PostHog AI usage"
+
 # Custom free tier limits by region and team_id: region -> team_id -> credits
 CUSTOM_FREE_TIER_TEAMS = {
     "EU": {
@@ -231,7 +233,7 @@ def format_usage_message(
     bar = f"[{'█' * filled}{'░' * empty}]"
     percent = 0 if free_tier_credits <= 0 else (used / free_tier_credits) * 100
 
-    lines: list[str] = ["## PostHogAI usage", ""]
+    lines: list[str] = [f"## {POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE}", ""]
 
     # Determine if GA cap is active
     ga_cap_active = past_month_start is not None and past_month_start.date() == GA_LAUNCH_DATE.date()

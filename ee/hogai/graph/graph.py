@@ -115,7 +115,7 @@ class AssistantGraph(AgentExecutorGraph):
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.USAGE_COMMAND_HANDLER)
         self._graph.add_conditional_edges(
             AssistantNodeName.USAGE_COMMAND_HANDLER,
-            usage_node.router,
+            usage_node.router,  # type: ignore[arg-type]
         )
         return self
 
