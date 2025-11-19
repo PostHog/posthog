@@ -206,7 +206,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         # Should fail because the flag has existing evaluation tags
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("cannot remove all evaluation environment tags", str(response.content))
+        self.assertIn("Cannot remove all evaluation environment tags", str(response.content))
 
     def test_update_flag_keep_some_evaluation_tags_when_required(self):
         """Test that updating to keep at least one evaluation tag succeeds"""
