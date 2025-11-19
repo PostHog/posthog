@@ -135,7 +135,7 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
-export const getScopeDescription = (scope: string): string => {
+export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {
         return 'Read and write access to all PostHog data'
     }
@@ -150,6 +150,10 @@ export const getScopeDescription = (scope: string): string => {
 
     if (scope === 'profile') {
         return 'View basic user account information'
+    }
+
+    if (scope === 'introspection') {
+        return undefined
     }
 
     const [object, action] = scope.split(':')
