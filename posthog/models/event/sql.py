@@ -129,7 +129,7 @@ def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
     for i in range(10):
         s.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
 
-    separator = ',\n'
+    separator = ",\n"
     return f"ALTER TABLE {table} \n {separator.join(s)}"
 
 
