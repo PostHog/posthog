@@ -49,7 +49,7 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         constraints = [
             # Exactly one media must be set
             models.CheckConstraint(
-                condition=(
+                check=(
                     models.Q(uploaded_media__isnull=False, exported_asset__isnull=True)
                     | models.Q(uploaded_media__isnull=True, exported_asset__isnull=False)
                 ),
@@ -57,8 +57,8 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             ),
             # Exactly one related object must be set
             models.CheckConstraint(
-                condition=models.Q(event_definition__isnull=False),
-                name="exactly_one_related_object",
+                check=models.Q(event_definition__isnull=False),
+                name="exactly_one_object",
             ),
         ]
 
