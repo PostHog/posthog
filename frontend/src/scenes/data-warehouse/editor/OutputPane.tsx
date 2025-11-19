@@ -358,7 +358,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 const finalWidth = isLongContent ? 600 : undefined
 
                 const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
-                    key: column,
+                    key: `${column}_${index}`,
                     name: (
                         <>
                             {column}{' '}
@@ -399,10 +399,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     return {
                         ...baseColumn,
                         renderCell: (props: any) => {
-                            if (props.row[column] === null) {
+                            const columnKey = `${column}_${index}`
+                            if (props.row[columnKey] === null) {
                                 return null
                             }
-                            return props.row[column].toString()
+                            return props.row[columnKey].toString()
                         },
                     }
                 }
@@ -410,7 +411,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 return {
                     ...baseColumn,
                     renderCell: (props: any) => {
-                        const value = props.row[column]
+                        const columnKey = `${column}_${index}`
+                        const value = props.row[columnKey]
                         if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
                             try {
                                 const parsedHogQLX = JSON.parse(value)
@@ -437,11 +439,12 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
         let processedRows = response.results.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
             response.columns?.forEach((column: string, i: number) => {
+                const columnKey = `${column}_${i}`
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
-                    rowObject[column] = JSON.stringify(row[i])
+                    rowObject[columnKey] = JSON.stringify(row[i])
                 } else {
-                    rowObject[column] = row[i]
+                    rowObject[columnKey] = row[i]
                 }
             })
             return rowObject
