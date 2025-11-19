@@ -68,7 +68,6 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
         </div>
     )
 }
-8
 
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
