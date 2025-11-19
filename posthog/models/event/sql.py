@@ -107,7 +107,7 @@ def EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
     for i in range(10):
         s.append(f"`dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
 
-    return f"    , {'    , \n'.join(s)}"
+    return f"    , {'\n    , '.join(s)}"
 
 
 def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
@@ -290,6 +290,7 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
         extra_fields="",
+        dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
     )
