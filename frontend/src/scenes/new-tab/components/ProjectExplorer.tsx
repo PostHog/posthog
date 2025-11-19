@@ -165,7 +165,7 @@ export function ProjectExplorer({
 
     return (
         <div className="flex flex-col gap-3 p-3">
-            <div className="rounded bg-bg-300 overflow-hidden">
+            <div className="rounded bg-bg-300">
                 <div className="grid grid-cols-[minmax(0,1fr)_200px_160px] border-b border-border px-3 py-2 text-xs uppercase text-muted">
                     <div className="pr-3 pl-6">Name</div>
                     <div className="px-3 pl-6">Created by</div>
@@ -190,6 +190,11 @@ export function ProjectExplorer({
                             event.preventDefault()
                             handleEntryActivate(entry, isParentNavigationRow)
                         }
+                        const handleRowFocus = (): void => {
+                            if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
+                                setHighlightedExplorerEntryPath(null)
+                            }
+                        }
                         return (
                             <ListBox.Item
                                 asChild
@@ -206,6 +211,7 @@ export function ProjectExplorer({
                                         isHighlighted && 'bg-primary-alt-highlight text-primary'
                                     )}
                                     onClick={handleRowClick}
+                                    onFocus={handleRowFocus}
                                 >
                                     <div
                                         className="flex items-center gap-2 px-3 py-2 min-w-0 text-sm"
