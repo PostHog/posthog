@@ -115,6 +115,10 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
         users = users.exclude(id__in=user_ids_with_products)
         context.log.info("Only processing users without existing UserProductList entries")
 
+    # Respect user preference for sidebar suggestions
+    users = users.exclude(allow_sidebar_suggestions=False)
+    context.log.info("Excluding users with allow_sidebar_suggestions=False")
+
     total_users = users.count()
     context.log.info(f"Processing {total_users} users")
 
