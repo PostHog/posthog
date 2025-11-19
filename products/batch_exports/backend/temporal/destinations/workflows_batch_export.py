@@ -223,4 +223,5 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             insert_inputs,  # type: ignore[arg-type]
             interval=inputs.interval,
             num_partitions=1,
+            order_by_timestamp=True,
         )

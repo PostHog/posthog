@@ -1,13 +1,7 @@
 import uuid
-import random
-import string
 import typing
 
 import pytest
-
-import aiokafka
-import aiokafka.admin
-import pytest_asyncio
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 
@@ -80,6 +74,7 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             num_partitions=1,
+            order_by_timestamp=True,
             batch_export_model=copy_inputs.batch_export.batch_export_model,
             batch_export_schema=copy_inputs.batch_export.batch_export_schema,
         ),
@@ -100,32 +95,6 @@ async def _run_activity(
     )
 
     return result
-
-
-@pytest.fixture
-def security_protocol():
-    security_protocol: typing.Literal["PLAINTEXT", "SSL"] = "PLAINTEXT"
-    return security_protocol
-
-
-@pytest.fixture
-def hosts() -> list[str]:
-    return ["kafka:9092"]
-
-
-@pytest_asyncio.fixture
-async def topic(hosts):
-    admin_client = aiokafka.admin.AIOKafkaAdminClient(bootstrap_servers=hosts, security_protocol="PLAINTEXT")
-    random_string = "".join(random.choices(string.ascii_letters, k=10))
-    test_topic = f"test_batch_exports_{random_string}"
-
-    await admin_client.start()
-    await admin_client.create_topics([aiokafka.admin.NewTopic(name=test_topic, num_partitions=1, replication_factor=1)])
-
-    yield test_topic
-
-    await admin_client.delete_topics([test_topic])
-    await admin_client.close()
 
 
 @pytest.mark.parametrize("count_no_prop", [0], indirect=True)

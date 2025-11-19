@@ -150,6 +150,7 @@ class BatchExportInsertIntoInternalStageInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     num_partitions: int | None = None
+    order_by_timestamp: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -220,6 +221,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
                 num_partitions=inputs.num_partitions,
+                order_by_timestamp=inputs.order_by_timestamp,
             )
             query_or_model = query
 
@@ -247,6 +249,7 @@ async def _get_query(
     destination_default_fields: list[BatchExportField] | None = None,
     filters: list[dict[str, str | list[str] | None]] | None = None,
     num_partitions: int | None = None,
+    order_by_timestamp: bool = False,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)
@@ -369,7 +372,7 @@ async def _get_query(
                 data_interval_end=data_interval_end,
             ),
             num_partitions=num_partitions,
-            order=order_by,
+            order=order_by if order_by_timestamp else "",
         )
 
     parameters["team_id"] = team_id
