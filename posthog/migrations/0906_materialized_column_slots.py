@@ -71,6 +71,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("backfill_temporal_uuid", models.UUIDField(null=True, blank=True)),
+                ("error_message", models.TextField(null=True, blank=True)),
             ],
             options={
                 "abstract": False,
