@@ -66,9 +66,14 @@ class WorkflowsConsumer(Consumer):
             ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
         )
         self.topic = topic
+        self._started = False
 
     async def consume_chunk(self, data: bytes):
-        await self.producer.send_and_wait(topic=self.topic, value=data, partition=1)
+        if not self._started:
+            await self.producer.start()
+            self._started = True
+
+        await self.producer.send_and_wait(topic=self.topic, value=data)
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -78,6 +83,7 @@ class WorkflowsConsumer(Consumer):
         await self.producer.send_and_wait(topic=self.topic, value=b'{"event":"$backfill_complete"}')
 
     async def finalize(self):
+        await self.producer.flush()
         await self.produce_final_message()
         await self.producer.stop()
 
