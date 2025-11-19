@@ -910,6 +910,8 @@ const EventContent = React.memo(
                                                   <EvalsTabContent
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
+                                                      event={event.event}
+                                                      distinctId={trace.person.distinct_id}
                                                   />
                                               ),
                                           },

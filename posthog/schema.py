@@ -1462,6 +1462,8 @@ class FileSystemCount(BaseModel):
         extra="forbid",
     )
     count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
 
 
 class Tag(StrEnum):
