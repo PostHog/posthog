@@ -94,6 +94,7 @@ class PostHogSCIMUser(SCIMUser):
         Convert User to SCIM format.
         """
         base_dict = {
+            "schemas": [constants.SchemaURI.USER],
             "id": self.id,
             "userName": self.user_name,
             "name": self.name,
