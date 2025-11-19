@@ -8,62 +8,71 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
+import { MaxExperimentMetricResult, MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, ProductKey } from '~/types'
 
+import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { experimentLogic } from '../experimentLogic'
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, primaryMetricsResults } = useValues(experimentLogic)
+    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, exposures } =
+        useValues(experimentLogic)
 
     const maxToolContext = useMemo((): MaxExperimentSummaryContext => {
         const statsMethod = experiment.stats_config?.method || 'bayesian'
         const variantKeys = experiment.parameters?.feature_flag_variants?.map((v: any) => v.key) || []
 
-        const metricsResults = primaryMetricsResults
-            .filter((result) => result?.variant_results)
-            .map((result, index) => {
-                const metricName = experiment.metrics?.[index]?.name || `Metric ${index + 1}`
+        const transformMetricsForMax = (metricsWithResults: any[]): MaxExperimentMetricResult[] => {
+            return metricsWithResults
+                .filter(({ result }) => result?.variant_results)
+                .map(({ metric, result, displayIndex }) => {
+                    const metricName = `${displayIndex + 1}. ${metric.name || getDefaultMetricTitle(metric)}`
 
-                const variants =
-                    result.variant_results?.map((variant: any) => {
-                        if (statsMethod === 'bayesian') {
+                    const variants =
+                        result.variant_results?.map((variant: any) => {
+                            if (statsMethod === 'bayesian') {
+                                return {
+                                    key: variant.key,
+                                    chance_to_win: variant.chance_to_win || null,
+                                    credible_interval: variant.credible_interval || null,
+                                    significant: variant.significant || false,
+                                }
+                            }
                             return {
                                 key: variant.key,
-                                chance_to_win: variant.chance_to_win || null,
-                                credible_interval: variant.credible_interval || null,
+                                p_value: variant.p_value || null,
+                                confidence_interval: variant.confidence_interval || null,
                                 significant: variant.significant || false,
                             }
-                        }
-                        return {
-                            key: variant.key,
-                            p_value: variant.p_value || null,
-                            confidence_interval: variant.confidence_interval || null,
-                            significant: variant.significant || false,
-                        }
-                    }) || []
+                        }) || []
 
-                return {
-                    name: metricName,
-                    variant_results: variants,
-                }
-            })
+                    return {
+                        name: metricName,
+                        variant_results: variants,
+                    }
+                })
+        }
+
+        const primary_metrics_results = transformMetricsForMax(orderedPrimaryMetricsWithResults)
+        const secondary_metrics_results = transformMetricsForMax(orderedSecondaryMetricsWithResults)
 
         return {
             experiment_id: experiment.id,
             experiment_name: experiment.name || 'Unnamed experiment',
             description: experiment.description || null,
+            exposures: exposures?.total_exposures || null,
             variants: variantKeys,
-            metrics_results: metricsResults,
+            primary_metrics_results,
+            secondary_metrics_results,
             stats_method: statsMethod as ExperimentStatsMethod,
         }
-    }, [experiment, primaryMetricsResults])
+    }, [experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, exposures])
 
     const shouldShowMaxSummaryTool = useMemo(() => {
-        const hasResults = primaryMetricsResults.length > 0
+        const hasResults = orderedPrimaryMetricsWithResults.length > 0
         const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
-    }, [primaryMetricsResults, experiment.start_date])
+    }, [orderedPrimaryMetricsWithResults, experiment.start_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',

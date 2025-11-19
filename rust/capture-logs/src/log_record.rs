@@ -105,7 +105,11 @@ impl KafkaLogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        let timestamp = DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?);
+        let timestamp = match record.time_unix_nano {
+            0 => Utc::now(),
+            _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
+        };
+
         let observed_timestamp = Utc::now();
 
         let log_row = Self {
