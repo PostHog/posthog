@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -26,6 +26,7 @@ import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -34,8 +35,10 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
@@ -49,6 +52,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
@@ -79,25 +83,18 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     const { traceId, query } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query }}>
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
             <TraceSceneWrapper />
         </BindLogic>
     )
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId } = useValues(llmAnalyticsTraceLogic)
-    const {
-        enrichedTree,
-        trace,
-        event,
-        responseLoading,
-        responseError,
-        feedbackEvents,
-        metricEvents,
-        searchQuery,
-        eventMetadata,
-    } = useValues(llmAnalyticsTraceDataLogic)
+    const { eventId, searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
+        useValues(llmAnalyticsTraceDataLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
 
@@ -124,6 +121,22 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
+                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={
+                                        <IconWithCount count={commentCount} showZero={false}>
+                                            <IconComment />
+                                        </IconWithCount>
+                                    }
+                                    onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                    tooltip="Add comments on this trace"
+                                    data-attr="open-trace-discussion"
+                                >
+                                    Discussion
+                                </LemonButton>
+                            )}
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
@@ -650,6 +663,8 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
+        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
@@ -807,46 +822,71 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {isLLMEvent(event) ? (
-                                                event.event === '$ai_generation' ? (
-                                                    <ConversationMessagesDisplay
-                                                        inputNormalized={normalizeMessages(
-                                                            event.properties.$ai_input,
-                                                            'user',
-                                                            event.properties.$ai_tools
-                                                        )}
-                                                        outputNormalized={normalizeMessages(
-                                                            event.properties.$ai_output_choices ??
-                                                                event.properties.$ai_output,
-                                                            'assistant'
-                                                        )}
-                                                        errorData={event.properties.$ai_error}
-                                                        httpStatus={event.properties.$ai_http_status}
-                                                        raisedError={event.properties.$ai_is_error}
-                                                        searchQuery={searchQuery}
+                                            {displayOption === DisplayOption.TextView &&
+                                            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ? (
+                                                isLLMEvent(event) &&
+                                                (event.event === '$ai_generation' ||
+                                                    event.event === '$ai_span' ||
+                                                    event.event === '$ai_embedding') ? (
+                                                    <TextViewDisplay
+                                                        event={event}
+                                                        lineNumber={lineNumber}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
-                                                ) : event.event === '$ai_embedding' ? (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input}
-                                                        output="Embedding vector generated"
+                                                ) : !isLLMEvent(event) ? (
+                                                    <TextViewDisplay
+                                                        trace={event}
+                                                        tree={tree}
+                                                        lineNumber={lineNumber}
+                                                        onFallback={handleTextViewFallback}
+                                                        onCopyPermalink={copyLinePermalink}
                                                     />
-                                                ) : (
-                                                    <EventContentDisplay
-                                                        input={event.properties.$ai_input_state}
-                                                        output={
-                                                            event.properties.$ai_output_state ??
-                                                            event.properties.$ai_error
-                                                        }
-                                                        raisedError={event.properties.$ai_is_error}
-                                                    />
-                                                )
+                                                ) : null
                                             ) : (
                                                 <>
-                                                    <TraceMetricsTable />
-                                                    <EventContentDisplay
-                                                        input={event.inputState}
-                                                        output={event.outputState}
-                                                    />
+                                                    {isLLMEvent(event) ? (
+                                                        event.event === '$ai_generation' ? (
+                                                            <ConversationMessagesDisplay
+                                                                inputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_input,
+                                                                    'user',
+                                                                    event.properties.$ai_tools
+                                                                )}
+                                                                outputNormalized={normalizeMessages(
+                                                                    event.properties.$ai_output_choices ??
+                                                                        event.properties.$ai_output,
+                                                                    'assistant'
+                                                                )}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
+                                                                raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                            />
+                                                        ) : event.event === '$ai_embedding' ? (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input}
+                                                                output="Embedding vector generated"
+                                                            />
+                                                        ) : (
+                                                            <EventContentDisplay
+                                                                input={event.properties.$ai_input_state}
+                                                                output={
+                                                                    event.properties.$ai_output_state ??
+                                                                    event.properties.$ai_error
+                                                                }
+                                                                raisedError={event.properties.$ai_is_error}
+                                                            />
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            <TraceMetricsTable />
+                                                            <EventContentDisplay
+                                                                input={event.inputState}
+                                                                output={event.outputState}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </>
                                             )}
                                         </>
@@ -870,6 +910,8 @@ const EventContent = React.memo(
                                                   <EvalsTabContent
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
+                                                      event={event.event}
+                                                      distinctId={trace.person.distinct_id}
                                                   />
                                               ),
                                           },
@@ -960,16 +1002,28 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 function DisplayOptionsSelect(): JSX.Element {
     const { displayOption } = useValues(llmAnalyticsTraceLogic)
     const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
         {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
+            tooltip: 'Show all messages and full conversation history',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
+            tooltip: 'Focus on the most recent input and final output',
         },
+        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
+            ? [
+                  {
+                      value: DisplayOption.TextView,
+                      label: 'Text view',
+                      tooltip: 'Simple human readable text view, for humans',
+                  },
+              ]
+            : []),
     ]
 
     return (

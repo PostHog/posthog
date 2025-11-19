@@ -63,6 +63,14 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         ]
 
     def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
+        region: str | None = None
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
         if validate_bigquery_credentials(
             config.dataset_id,
             {
@@ -73,6 +81,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                 "token_uri": config.key_file.token_uri,
             },
             config.dataset_project.dataset_project_id if config.dataset_project else None,
+            region,
         ):
             return True, None
 
@@ -82,8 +91,17 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         if not config.key_file.private_key:
             raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
 
+        region: str | None = None
         dataset_project_id: str | None = None
         destination_table_dataset_id = config.dataset_id
+
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
 
         if (
             config.dataset_project
@@ -114,6 +132,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
             project_id=config.key_file.project_id,
+            location=region,
             dataset_project_id=dataset_project_id,
             private_key=config.key_file.private_key,
             private_key_id=config.key_file.private_key_id,
@@ -126,6 +145,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             return bigquery_source(
                 dataset_id=config.dataset_id,
                 project_id=config.key_file.project_id,
+                location=region,
                 dataset_project_id=dataset_project_id,
                 private_key=config.key_file.private_key,
                 private_key_id=config.key_file.private_key_id,
@@ -146,6 +166,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             delete_table(
                 table_id=destination_table,
                 project_id=config.key_file.project_id,
+                location=region,
                 private_key=config.key_file.private_key,
                 private_key_id=config.key_file.private_key_id,
                 client_email=config.key_file.client_email,
@@ -170,6 +191,24 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                             keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
                         ),
                         required=True,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="use_custom_region",
+                        label="Manually specify your dataset region?",
+                        caption="In most cases, BigQuery is able to automatically determine the region your dataset is located in. For the rare instances that BigQuery fails to do so, you can manually specify your dataset region here.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name="region",
+                                    label="Region",
+                                    type=SourceFieldInputConfigType.TEXT,
+                                    required=True,
+                                    placeholder="us-east1",
+                                ),
+                            ],
+                        ),
                     ),
                     SourceFieldInputConfig(
                         name="dataset_id",

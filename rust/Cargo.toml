@@ -122,7 +122,7 @@ posthog-rs = { version = "0.3.5", features = ["async-client"] }
 redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async"] }
 regex = "1.11.1"
 lz-str = "0.2.1"
-opentelemetry-proto = "0.29.0"
+opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = "0.12.3"
 clickhouse = { version = "0.13.2", features = [
     "uuid",

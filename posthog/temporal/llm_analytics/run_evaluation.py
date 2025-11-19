@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -37,49 +36,7 @@ class BooleanEvalResult(BaseModel):
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
-    target_event_id: str
-    timestamp: str
-
-
-@temporalio.activity.defn
-async def fetch_target_event_activity(inputs: RunEvaluationInputs, team_id: int) -> dict[str, Any]:
-    """Fetch target event from ClickHouse"""
-    query = """
-        SELECT
-            uuid,
-            event,
-            properties,
-            timestamp,
-            team_id,
-            distinct_id,
-            person_id
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND toDate(timestamp) = toDate(parseDateTimeBestEffort(%(target_timestamp)s))
-            AND event = '$ai_generation'
-            AND uuid = %(event_id)s
-        LIMIT 1
-    """
-
-    result = await database_sync_to_async(sync_execute, thread_sensitive=False)(
-        query, {"event_id": inputs.target_event_id, "team_id": team_id, "target_timestamp": inputs.timestamp}
-    )
-
-    if not result:
-        logger.exception("Event not found", target_event_id=inputs.target_event_id, team_id=team_id)
-        raise ValueError(f"Event {inputs.target_event_id} not found for team {team_id}")
-
-    row = result[0]
-    event_data = {
-        "uuid": str(row[0]),
-        "event": row[1],
-        "properties": json.loads(row[2]) if isinstance(row[2], str) else row[2],
-        "timestamp": row[3],
-        "team_id": row[4],
-        "distinct_id": row[5],
-        "person_id": str(row[6]) if row[6] is not None else None,
-    }
-    return event_data
+    event_data: dict[str, Any]
 
 
 @temporalio.activity.defn
@@ -235,8 +192,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> RunEvaluationInputs:
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
-            target_event_id=inputs[1],
-            timestamp=inputs[2],
+            event_data=json.loads(inputs[1]),
         )
 
     @temporalio.workflow.run
@@ -249,22 +205,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        event_data = await temporalio.workflow.execute_activity(
-            fetch_target_event_activity,
-            args=[inputs, evaluation["team_id"]],
-            schedule_to_close_timeout=timedelta(seconds=30),
-            # On ingestion, there's a race condition where the workflow can run
-            # before the event is committed to ClickHouse. We should probably
-            # find a more robust solution for this.
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=1),
-                maximum_interval=timedelta(seconds=10),
-                maximum_attempts=10,
-                backoff_coefficient=2.0,
-            ),
-        )
+        # Normalize event_data: ensure properties is a dict, not a string
+        event_data = inputs.event_data.copy()
+        if isinstance(event_data.get("properties"), str):
+            event_data["properties"] = json.loads(event_data["properties"])
 
-        # Activity 3: Execute LLM judge
+        # Activity 2: Execute LLM judge
         result = await temporalio.workflow.execute_activity(
             execute_llm_judge_activity,
             args=[evaluation, event_data],
@@ -272,7 +218,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Activity 4: Emit evaluation event
+        # Activity 3: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
             args=[evaluation, event_data, result, start_time],

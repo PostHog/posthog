@@ -151,7 +151,11 @@ class PipelineNonDLT(Generic[ResumableData]):
                 row_count += py_table.num_rows
 
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
                 )
 
                 chunk_index += 1
@@ -179,7 +183,11 @@ class PipelineNonDLT(Generic[ResumableData]):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
                 )
 
             self._post_run_operations(row_count=row_count)
@@ -200,7 +208,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             pa_memory_pool.release_unused()
             gc.collect()
 
-    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_ever_sync: bool):
+    def _process_pa_table(
+        self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
+    ):
         delta_table = self._delta_table_helper.get_delta_table()
         previous_file_uris = delta_table.file_uris() if delta_table else []
 
@@ -218,8 +228,13 @@ class PipelineNonDLT(Generic[ResumableData]):
         elif self._schema.is_append:
             write_type = "append"
 
+        should_overwrite_table = index == 0 and not resuming_sync
+
         delta_table = self._delta_table_helper.write_to_deltalake(
-            pa_table, write_type, index, self._resource.primary_keys
+            pa_table,
+            write_type,
+            should_overwrite_table=should_overwrite_table,
+            primary_keys=self._resource.primary_keys,
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)

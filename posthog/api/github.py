@@ -1,4 +1,3 @@
-import json
 import base64
 from hashlib import sha256
 from typing import Any
@@ -9,8 +8,10 @@ import requests
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from prometheus_client import Counter
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,6 +24,15 @@ from posthog.tasks.email import send_personal_api_key_exposed
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
+
+PERSONAL_API_KEY_LEAKED_COUNTER = Counter(
+    "github_secrets_scanning_personal_api_key_leaked",
+    "Number of valid Personal API Keys identified by GitHub secrets scanning",
+)
+PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
+    "github_secrets_scanning_project_secret_api_key_leaked",
+    "Number of valid Project Secret API Keys identified by GitHub secrets scanning",
+)
 
 
 class SignatureVerificationError(Exception):
@@ -90,12 +100,21 @@ class SecretAlertSerializer(serializers.Serializer):
 class SecretAlert(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    # parse body manually so we can access the raw body for signature verification
-    parser_classes = []
+    parser_classes = [JSONParser]
+
+    def initialize_request(self, request, *args, **kwargs):
+        """
+        Store the raw body before DRF parses it.
+        This is called before the parsers consume the body.
+        """
+        # Store raw body for signature verification
+        request._raw_body = request.body
+        return super().initialize_request(request, *args, **kwargs)
 
     def post(self, request):
+        # Get the raw body we stored earlier
         try:
-            raw_body = request.body.decode("utf-8")
+            raw_body = request._raw_body.decode("utf-8")
         except Exception:
             raise ValidationError(detail="Unable to read request body")
 
@@ -124,17 +143,12 @@ class SecretAlert(APIView):
         except SignatureVerificationError:
             return Response({"detail": "Invalid signature"}, status=401)
 
-        try:
-            data = json.loads(raw_body)
-        except json.JSONDecodeError:
-            raise ValidationError(detail="Invalid JSON in request body")
-
-        if not isinstance(data, list):
+        if not isinstance(request.data, list):
             raise ValidationError(detail="Expected a JSON array")
-        if len(data) < 1:
+        if len(request.data) < 1:
             raise ValidationError(detail="Array must contain at least one item")
 
-        secret_alert = SecretAlertSerializer(data=data, many=True)
+        secret_alert = SecretAlertSerializer(data=request.data, many=True)
         secret_alert.is_valid(raise_exception=True)
         items = secret_alert.validated_data
 
@@ -155,6 +169,9 @@ class SecretAlert(APIView):
                     # roll key
                     key, _ = key_lookup
                     old_mask_value = key.mask_value
+
+                    PERSONAL_API_KEY_LEAKED_COUNTER.inc()
+
                     serializer = PersonalAPIKeySerializer(instance=key)
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
@@ -164,6 +181,8 @@ class SecretAlert(APIView):
                     _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
                     # TODO send email to team members
                     result["label"] = "true_positive"
+
+                    PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
 
                 except Team.DoesNotExist:
                     pass

@@ -894,7 +894,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     actor_id,
                     max(intervals_from_base) as max_interval,
                     start_interval_index,
-                    any(breakdown_value) as breakdown_value
+                    breakdown_value
                 FROM {actor_query}
                 GROUP BY actor_id, start_interval_index, breakdown_value
                 """,

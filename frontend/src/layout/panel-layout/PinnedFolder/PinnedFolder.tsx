@@ -32,7 +32,7 @@ export function PinnedFolder(): JSX.Element {
                 <ButtonPrimitive
                     iconOnly
                     data-attr="tree-navbar-pinned-folder-change-button"
-                    tooltip="Change pinned folder"
+                    tooltip="Change sidebar mode"
                     tooltipPlacement="top"
                 >
                     <IconGear className="size-3 text-secondary" />
@@ -40,7 +40,7 @@ export function PinnedFolder(): JSX.Element {
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
                 <DropdownMenuGroup>
-                    <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
+                    <DropdownMenuLabel>Choose sidebar mode</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                         asChild
@@ -52,7 +52,7 @@ export function PinnedFolder(): JSX.Element {
                     >
                         <ButtonPrimitive menuItem>
                             {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
-                            Apps
+                            All apps
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem
