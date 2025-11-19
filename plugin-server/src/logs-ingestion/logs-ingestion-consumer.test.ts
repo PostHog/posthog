@@ -235,7 +235,7 @@ describe('LogsIngestionConsumer', () => {
         it('should handle empty batch', async () => {
             const result = await consumer.processBatch([])
 
-            expect(result.backgroundTask).toBeDefined()
+            expect(result.backgroundTask).toBeUndefined()
             expect(result.messages).toEqual([])
             await result.backgroundTask
         })
