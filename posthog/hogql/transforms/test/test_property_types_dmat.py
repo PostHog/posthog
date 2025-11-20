@@ -211,7 +211,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Verify no dmat columns used (sanity check)
-        assert "dmat_" not in result_json.clickhouse, "Should use JSON extraction, not dmat"
+        assert (
+            result_json.clickhouse is not None and "dmat_" not in result_json.clickhouse
+        ), "Should use JSON extraction, not dmat"
         json_results = result_json.results[0]
 
         # ============================================================
@@ -268,7 +270,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Verify dmat columns ARE used
-        assert "dmat_" in result_dmat.clickhouse, f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
+        assert (
+            result_dmat.clickhouse is not None and "dmat_" in result_dmat.clickhouse
+        ), f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
         dmat_results = result_dmat.results[0]
 
         # ============================================================

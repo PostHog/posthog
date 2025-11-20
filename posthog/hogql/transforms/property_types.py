@@ -61,12 +61,12 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         else []
     )
 
-    event_properties = {}
+    event_properties: dict[str, dict[str, str | None]] = {}
     for prop_def in event_property_definitions:
         if not prop_def.property_type:
             continue
 
-        prop_info = {"type": prop_def.property_type}
+        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
             type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
@@ -88,11 +88,11 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if property_finder.person_properties
         else []
     )
-    person_properties = {
+    person_properties: dict[str, dict[str, str | None]] = {
         name: {"type": property_type} for name, property_type in person_property_values if property_type
     }
 
-    group_properties = {}
+    group_properties: dict[str, dict[str, str | None]] = {}
     for group_id, properties in property_finder.group_properties.items():
         if not properties:
             continue
