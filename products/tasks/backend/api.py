@@ -162,7 +162,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._trigger_workflow(task, task_run)
 
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+        task.refresh_from_db()
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
 
 @extend_schema(tags=["task-runs"])

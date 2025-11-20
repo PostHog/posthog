@@ -24,7 +24,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     const response = await api.tasks.list()
                     return response.results
                 },
-                createTaskt: async ({ data }: { data: TaskUpsertProps }) => {
+                createTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const newTask = await api.tasks.create(data)
                     lemonToast.success('Task created successfully')
                     return [...values.tasks, newTask]

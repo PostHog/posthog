@@ -203,7 +203,13 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        run_id = data["id"]
+
+        self.assertEqual(data["id"], str(task.id))
+        self.assertIn("latest_run", data)
+        self.assertIsNotNone(data["latest_run"])
+
+        latest_run = data["latest_run"]
+        run_id = latest_run["id"]
 
         mock_workflow.assert_called_once_with(
             task_id=str(task.id),
@@ -212,9 +218,9 @@ class TestTaskAPI(BaseTaskAPITest):
             user_id=self.user.id,
         )
 
-        self.assertEqual(data["task"], str(task.id))
-        self.assertEqual(data["status"], "queued")
-        self.assertEqual(data["environment"], "cloud")
+        self.assertEqual(latest_run["task"], str(task.id))
+        self.assertEqual(latest_run["status"], "queued")
+        self.assertEqual(latest_run["environment"], "cloud")
 
     @parameterized.expand(
         [
