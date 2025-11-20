@@ -1,1 +1,1 @@
-0907_notification_preference_model
+0906_notificationpreference_notification
