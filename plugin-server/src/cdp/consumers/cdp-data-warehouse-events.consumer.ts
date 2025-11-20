@@ -38,7 +38,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
     constructor(
         hub: Hub,
-        topic: string = 'cdp_processed_datawarehouse_events',
+        topic: string = 'cdp_data_warehouse_source_table',
         groupId: string = 'cdp-datawarehouse-events-consumer'
     ) {
         super(hub)
