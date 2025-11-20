@@ -26,7 +26,7 @@ export function NotificationBell({ isLayoutNavCollapsed = false }: NotificationB
             onClickOutside={() => setIsOpen(false)}
             overlay={
                 <div className="NotificationsPanel" style={{ width: 400, maxHeight: 600 }}>
-                    <NotificationsList />
+                    <NotificationsList onClose={() => setIsOpen(false)} />
                 </div>
             }
             placement="bottom-end"
