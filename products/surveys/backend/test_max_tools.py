@@ -381,7 +381,7 @@ class TestSurveyCreatorTool(BaseTest):
         assert "successfully" in content
 
         # Verify survey was created with linked insight
-        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        survey = await sync_to_async(Survey.objects.select_related("linked_insight").get)(id=artifact["survey_id"])
         assert survey.name == "Funnel Survey"
         assert survey.linked_insight_id == insight.id
 

@@ -836,7 +836,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
+    queryset = Survey.objects.select_related(
+        "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
+    ).all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 

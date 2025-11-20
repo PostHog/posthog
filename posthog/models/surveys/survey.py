@@ -71,7 +71,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
-    linked_insight_id = models.IntegerField(null=True, blank=True)
+    linked_insight = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_linked_insight",
+        related_query_name="survey_linked_insight",
+        db_index=False,
+        db_constraint=False,  # Constraint will be added in follow-up migration
+    )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
