@@ -8188,6 +8188,69 @@
             "required": ["customEventName"],
             "type": "object"
         },
+        "CustomerAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "activity_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "payment_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_pageview_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "subscription_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "activity_event",
+                "signup_pageview_event",
+                "signup_event",
+                "subscription_event",
+                "payment_event"
+            ],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -9749,6 +9812,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {
@@ -13929,6 +13996,7 @@
                 "LinkedinAds",
                 "RedditAds",
                 "TikTokAds",
+                "BingAds",
                 "Shopify"
             ],
             "type": "string"
@@ -16824,7 +16892,8 @@
                 "clickup",
                 "reddit-ads",
                 "databricks",
-                "tiktok-ads"
+                "tiktok-ads",
+                "bing-ads"
             ],
             "type": "string"
         },
@@ -25514,6 +25583,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
+                    "type": "boolean"
+                },
                 "showTable": {
                     "type": "boolean"
                 },
@@ -27027,6 +27100,9 @@
                 "surveyPopupDelaySeconds": {
                     "type": "number"
                 },
+                "tabPosition": {
+                    "$ref": "#/definitions/SurveyTabPosition"
+                },
                 "textColor": {
                     "type": "string"
                 },
@@ -27281,6 +27357,10 @@
         },
         "SurveyQuestionType": {
             "enum": ["open", "multiple_choice", "single_choice", "rating", "link"],
+            "type": "string"
+        },
+        "SurveyTabPosition": {
+            "enum": ["top", "left", "right", "bottom"],
             "type": "string"
         },
         "SurveyType": {

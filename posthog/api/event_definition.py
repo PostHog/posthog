@@ -106,6 +106,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "post_to_slack",
         )
 
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if not self.instance:  # Only for creation, not updates
+            view = self.context.get("view")
+            if view:
+                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
+                if existing:
+                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        return value
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -114,6 +124,50 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        # Get viewset from context to access organization_id and team_id
+        view = self.context.get("view")
+        if not view:
+            raise serializers.ValidationError("View context is required")
+
+        # Type narrowing for mypy
+        assert view is not None
+
+        validated_data["team_id"] = view.team_id
+        validated_data["project_id"] = view.project_id
+        # Set timestamps to None - will be populated when first real event is ingested
+        validated_data["created_at"] = None
+        validated_data["last_seen_at"] = None
+
+        # Remove fields that don't exist on the model
+        validated_data.pop("post_to_slack", None)
+
+        event_definition = super().create(validated_data)
+
+        # Report user action for analytics
+        if request and request.user:
+            report_user_action(
+                cast(User, request.user),
+                "event definition created",
+                {"name": event_definition.name},
+            )
+
+        # Log activity for audit trail
+        if request and request.user:
+            log_activity(
+                organization_id=cast(UUIDT, view.organization_id),
+                team_id=view.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(event_definition.id),
+                scope="EventDefinition",
+                activity="created",
+                detail=Detail(name=event_definition.name, changes=None),
+            )
+
+        return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
         request = self.context.get("request")
@@ -130,6 +184,7 @@ class EventDefinitionViewSet(
     TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
@@ -256,6 +311,70 @@ class EventDefinitionViewSet(
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
+
+    def perform_create(self, serializer):
+        """Handle context and side effects for event definition creation."""
+        user = cast(User, self.request.user)
+
+        # Build save kwargs - only include updated_by for enterprise
+        save_kwargs: dict[str, Any] = {
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "created_at": None,  # Will be populated when first real event is ingested
+            "last_seen_at": None,
+        }
+
+        # Add updated_by only for EnterpriseEventDefinition
+        if hasattr(serializer.Meta.model, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+    def perform_update(self, serializer):
+        """Handle context and side effects for event definition updates."""
+        user = cast(User, self.request.user)
+        instance = serializer.instance
+
+        # Capture before state for activity logging
+        before_state = {k: instance.__dict__[k] for k in serializer.validated_data.keys() if k in instance.__dict__}
+        # Handle tags None -> [] to avoid spurious activity logs
+        if "tags" not in before_state or before_state["tags"] is None:
+            before_state["tags"] = []
+
+        # Only pass updated_by for EnterpriseEventDefinition
+        save_kwargs: dict[str, Any] = {}
+        if hasattr(instance, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        from posthog.models.activity_logging.activity_log import dict_changes_between
+
+        changes = dict_changes_between("EventDefinition", before_state, serializer.validated_data, True)
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=is_impersonated_session(self.request),
+            detail=Detail(name=str(event_definition.name), changes=changes),
+        )
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()

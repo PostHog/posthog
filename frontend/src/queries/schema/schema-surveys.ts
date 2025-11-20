@@ -4,6 +4,7 @@ import type {
     SurveyPosition,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveyTabPosition,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -88,6 +89,7 @@ export interface SurveyAppearanceSchema {
     backgroundColor?: string
     borderColor?: string
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     whiteLabel?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string

@@ -32,6 +32,7 @@ from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 
 class TestSurvey(APIBaseTest):
@@ -3336,6 +3337,45 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(data, expected_counts)
 
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_excludes_archived_responses(self):
+        survey_id = str(uuid.uuid4())
+        response_uuid = str(uuid.uuid4())
+
+        survey = Survey.objects.create(
+            team_id=self.team.id, id=survey_id, start_date=datetime.now() - timedelta(days=5)
+        )
+
+        _create_event(
+            event="survey sent",
+            team=self.team,
+            distinct_id=self.user.id,
+            properties={"$survey_id": survey_id},
+            event_uuid=response_uuid,
+            timestamp=datetime.now() - timedelta(days=3),
+        )
+
+        # Before archiving - should count the response
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[survey_id], 1)
+
+        # Archive the response
+        SurveyResponseArchive.objects.create(team=self.team, survey=survey, response_uuid=response_uuid)
+
+        # After archiving, default behavior should still include archived
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[survey_id], 1)
+
+        # With exclude_archived=true - should not count
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?exclude_archived=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data.get(survey_id, 0), 0)
+
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
     def test_survey_stats_nonexistent_survey(self):
@@ -3554,6 +3594,48 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates_reassigned["response_rate"], 100.0)
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
         self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
+
+    @freeze_time("2024-05-01 12:00:00")
+    def test_survey_stats_excludes_archived_responses(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Archive Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What?"}],
+        )
+
+        response_uuid = str(uuid.uuid4())
+        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id=user.distinct_ids[0],
+            timestamp="2024-05-01 10:00:00",
+            properties={"$survey_id": str(survey.id)},
+            event_uuid=response_uuid,
+        )
+
+        # Before archiving
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
+
+        # Archive the response
+        SurveyResponseArchive.objects.create(team=self.team, survey=survey, response_uuid=response_uuid)
+
+        # After archiving, default behavior should still include archived
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
+
+        # With exclude_archived=true - should not count
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/?exclude_archived=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["stats"]["survey sent"]["total_count"], 0)
 
     def test_create_survey_with_valid_linked_flag_variant(self):
         """Test creating a survey with a valid linkedFlagVariant"""
@@ -4267,3 +4349,174 @@ class TestSurveyBulkDuplication(APIBaseTest):
         # IDs should exist but be different
         assert all(qid is not None for qid in duplicated_question_ids)
         assert duplicated_question_ids != source_question_ids
+
+
+class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+        )
+        self.response_uuid = str(uuid.uuid4())
+
+    def _assert_survey_activity(self, expected):
+        activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
+        self.assertEqual(activity["results"], expected)
+
+    @freeze_time("2024-05-01 12:00:00")
+    def test_archive_response(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify archive record was created
+        archive = SurveyResponseArchive.objects.filter(
+            team=self.team, survey=self.survey, response_uuid=self.response_uuid
+        ).first()
+        self.assertIsNotNone(archive)
+        assert archive is not None  # for mypy
+        self.assertEqual(str(archive.response_uuid), self.response_uuid)
+
+        # Verify activity log
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "response_archived",
+                    "scope": "Survey",
+                    "item_id": str(self.survey.id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": f"Response {self.response_uuid}",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2024-05-01T12:00:00Z",
+                }
+            ]
+        )
+
+    def test_archive_response_idempotent(self):
+        # Archive once
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        initial_count = SurveyResponseArchive.objects.count()
+
+        # Archive again - should not error
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should still have only one record
+        self.assertEqual(SurveyResponseArchive.objects.count(), initial_count)
+
+    @freeze_time("2024-05-01 12:00:00")
+    def test_unarchive_response(self):
+        # First archive it
+        SurveyResponseArchive.objects.create(team=self.team, survey=self.survey, response_uuid=self.response_uuid)
+
+        # Then unarchive
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/unarchive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify archive record was deleted
+        archive_exists = SurveyResponseArchive.objects.filter(
+            team=self.team, survey=self.survey, response_uuid=self.response_uuid
+        ).exists()
+        self.assertFalse(archive_exists)
+
+        # Verify activity log
+        self._assert_survey_activity(
+            [
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "activity": "response_unarchived",
+                    "scope": "Survey",
+                    "item_id": str(self.survey.id),
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "name": f"Response {self.response_uuid}",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": "2024-05-01T12:00:00Z",
+                }
+            ]
+        )
+
+    def test_unarchive_nonexistent_response(self):
+        # Unarchive a response that was never archived
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/unarchive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_archive_invalid_uuid_format(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/not-a-uuid/archive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid UUID format")
+
+    def test_unarchive_invalid_uuid_format(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/not-a-uuid/unarchive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid UUID format")
+
+    def test_archive_response_cross_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_survey = Survey.objects.create(
+            team=other_team,
+            name="Other Team Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What?"}],
+        )
+
+        # Try to archive a response for another team's survey
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{other_survey.id}/responses/{self.response_uuid}/archive"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_archived_response_uuids_empty(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/archived-response-uuids")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+    def test_get_archived_response_uuids(self):
+        uuid1 = str(uuid.uuid4())
+        uuid2 = str(uuid.uuid4())
+        uuid3 = str(uuid.uuid4())
+
+        # Archive responses for this survey
+        SurveyResponseArchive.objects.create(team=self.team, survey=self.survey, response_uuid=uuid1)
+        SurveyResponseArchive.objects.create(team=self.team, survey=self.survey, response_uuid=uuid2)
+
+        # Archive response for a different survey (should not be included)
+        other_survey = Survey.objects.create(
+            team=self.team, name="Other Survey", type="popover", questions=[{"type": "open", "question": "?"}]
+        )
+        SurveyResponseArchive.objects.create(team=self.team, survey=other_survey, response_uuid=uuid3)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/archived-response-uuids")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        uuids = response.json()
+        self.assertEqual(len(uuids), 2)
+        self.assertIn(uuid1, uuids)
+        self.assertIn(uuid2, uuids)
+        self.assertNotIn(uuid3, uuids)

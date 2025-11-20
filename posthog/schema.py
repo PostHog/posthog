@@ -1444,6 +1444,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
 
 
@@ -1887,6 +1888,7 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
+    BING_ADS = "bing-ads"
 
 
 class IntervalType(StrEnum):
@@ -2935,6 +2937,13 @@ class SurveyQuestionType(StrEnum):
     SINGLE_CHOICE = "single_choice"
     RATING = "rating"
     LINK = "link"
+
+
+class SurveyTabPosition(StrEnum):
+    TOP = "top"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTTOM = "bottom"
 
 
 class SurveyType(StrEnum):
@@ -4996,6 +5005,9 @@ class SavedInsightNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTable: Optional[bool] = None
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
@@ -5289,6 +5301,7 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    tabPosition: Optional[SurveyTabPosition] = None
     textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
@@ -12730,6 +12743,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
+class CustomerAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    activity_event: Union[EventsNode, ActionsNode]
+    payment_event: Union[EventsNode, ActionsNode]
+    signup_event: Union[EventsNode, ActionsNode]
+    signup_pageview_event: Union[EventsNode, ActionsNode]
+    subscription_event: Union[EventsNode, ActionsNode]
+
+
 class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15722,6 +15746,9 @@ class DataTableNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[
