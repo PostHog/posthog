@@ -1548,10 +1548,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q)}`
+                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q)}`
+                                return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
                             }),
                             'timestamp',
                             'person',

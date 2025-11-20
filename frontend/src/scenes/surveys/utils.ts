@@ -625,13 +625,11 @@ export function buildSurveyTimestampFilter(
 }
 
 export function getExpressionCommentForQuestion(
-    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
+    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
+    questionIndex: number
 ): string {
     if (q.question.trim().length > 0) {
         return q.question
     }
-    if (q.description != null && q.description.trim().length > 0) {
-        return q.description
-    }
-    return 'Untitled Question'
+    return `Question ${questionIndex + 1}`
 }
