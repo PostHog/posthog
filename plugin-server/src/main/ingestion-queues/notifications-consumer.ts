@@ -45,7 +45,7 @@ export const startNotificationsConsumer = async (hub: Hub): Promise<PluginServer
     await consumer.subscribe({ topic: KAFKA_NOTIFICATION_USER_DISPATCH, fromBeginning: false })
     await consumer.run({
         eachBatch: async (payload) => {
-            inflightBatch = eachBatchNotifications(payload, postgres, djangoUrl)
+            inflightBatch = eachBatchNotifications(payload, postgres, djangoUrl, hub)
             await inflightBatch
             inflightBatch = null
         },
@@ -78,7 +78,8 @@ export const startNotificationsConsumer = async (hub: Hub): Promise<PluginServer
 async function eachBatchNotifications(
     { batch, heartbeat }: EachBatchPayload,
     postgres: PostgresRouter,
-    djangoUrl: string
+    djangoUrl: string,
+    hub: Hub
 ): Promise<void> {
     const startTime = Date.now()
 
@@ -136,28 +137,25 @@ async function eachBatchNotifications(
                         : notification.created_at,
             }
 
-            // Broadcast via Django Channels HTTP endpoint
+            // Broadcast via Redis Pub/Sub directly to WebSocket consumers
             try {
-                const broadcastUrl = `${djangoUrl}/api/internal/notifications/broadcast/`
+                const redisClient = await hub.redisPool.acquire()
+                const redisChannel = `posthog:notifications:user:${event.user_id}`
 
-                console.log('🔔🔔🔔 BROADCAST START:', broadcastUrl, 'user:', event.user_id)
+                console.log('🔔🔔🔔 REDIS BROADCAST START:', redisChannel, 'user:', event.user_id)
 
-                logger.info('🔔', 'Attempting WebSocket broadcast', {
-                    url: broadcastUrl,
+                logger.info('🔔', 'Attempting Redis WebSocket broadcast', {
+                    redis_channel: redisChannel,
                     user_id: event.user_id,
                     notification_id: notification.id,
                 })
 
-                const response = await fetch(broadcastUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: event.user_id,
-                        notification: notificationData,
-                    }),
-                })
+                // Publish notification directly to Redis pub/sub
+                const publishCount = await redisClient.publish(redisChannel, JSON.stringify(notificationData))
+
+                await hub.redisPool.release(redisClient)
+
+                const response = { ok: publishCount > 0, status: 200, statusText: 'OK' }
 
                 console.log('🔔🔔🔔 BROADCAST RESPONSE:', response.status, response.statusText)
 

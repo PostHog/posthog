@@ -3,10 +3,13 @@ WebSocket consumer for real-time notifications.
 """
 
 import json
+import asyncio
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 
 import structlog
+import redis.asyncio as aioredis
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -20,28 +23,25 @@ class NotificationConsumer(AsyncWebsocketConsumer):
     Protocol:
     - Client connects to /ws/notifications/?token=<auth_token>
     - Server authenticates user
-    - Server subscribes user to their personal channel: user_{user_id}
-    - Server publishes notifications via Redis Pub/Sub
-    - Client receives real-time notification messages
+    - Server subscribes to Redis pub/sub channel: posthog:notifications:user:{user_id}
+    - Plugin-server publishes notifications directly to Redis pub/sub
+    - WebSocket receives and forwards notifications to client in real-time
 
     Message format (server -> client):
     {
-        "type": "notification",
-        "notification": {
-            "id": "uuid",
-            "resource_type": "feature_flag",
-            "resource_id": "flag-uuid",
-            "title": "Feature flag updated",
-            "message": "John updated the 'new-signup-flow' feature flag",
-            "context": {...},
-            "priority": "normal",
-            "created_at": "2025-01-19T...",
-        }
+        "id": "uuid",
+        "resource_type": "feature_flag",
+        "resource_id": "flag-uuid",
+        "title": "Feature flag updated",
+        "message": "John updated the 'new-signup-flow' feature flag",
+        "context": {...},
+        "priority": "normal",
+        "created_at": "2025-01-19T...",
     }
     """
 
     async def connect(self):
-        """Authenticate and subscribe user to their notification channel."""
+        """Authenticate user and subscribe to Redis pub/sub for notifications."""
         logger.info("websocket_connect_attempt", headers=dict(self.scope.get("headers", [])))
 
         user = await self.get_authenticated_user()
@@ -59,28 +59,77 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             return
 
         self.user = user
-        self.group_name = f"user_{user.id}"
+        self.redis_channel = f"posthog:notifications:user:{user.id}"
 
-        # Subscribe this WebSocket channel to the user's group
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+
+        # Subscribe to Redis pub/sub for direct notifications from plugin-server
+        try:
+            redis_url = getattr(settings, "NOTIFICATIONS_REDIS_URL", settings.REDIS_URL)
+            self.redis = await aioredis.from_url(redis_url, decode_responses=True)
+            self.pubsub = self.redis.pubsub()
+            await self.pubsub.subscribe(self.redis_channel)
+
+            # Start background task to listen for Redis messages
+            self.redis_listener_task = asyncio.create_task(self._listen_redis_pubsub())
+
+            logger.info(
+                "websocket_redis_subscribed",
+                user_id=user.id,
+                redis_channel=self.redis_channel,
+            )
+        except Exception as e:
+            logger.warning(
+                "websocket_redis_subscription_failed",
+                user_id=user.id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
 
         logger.info(
             "websocket_connection_established",
             user_id=user.id,
-            group=self.group_name,
+            redis_channel=self.redis_channel,
         )
 
     async def disconnect(self, close_code):
-        """Unsubscribe user from their notification channel."""
-        if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        """Unsubscribe from Redis pub/sub and cleanup connections."""
+        # Cancel Redis listener task
+        if hasattr(self, "redis_listener_task"):
+            self.redis_listener_task.cancel()
+            try:
+                await self.redis_listener_task
+            except asyncio.CancelledError:
+                pass
 
-            logger.info(
-                "websocket_connection_closed",
-                user_id=getattr(self, "user", None),
-                close_code=close_code,
-            )
+        # Unsubscribe from Redis pub/sub
+        if hasattr(self, "pubsub"):
+            try:
+                await self.pubsub.unsubscribe(self.redis_channel)
+                await self.pubsub.close()
+            except Exception as e:
+                logger.warning(
+                    "websocket_redis_unsubscribe_error",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
+        # Close Redis connection
+        if hasattr(self, "redis"):
+            try:
+                await self.redis.close()
+            except Exception as e:
+                logger.warning(
+                    "websocket_redis_close_error",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
+        logger.info(
+            "websocket_connection_closed",
+            user_id=getattr(self, "user", None),
+            close_code=close_code,
+        )
 
     async def receive(self, text_data=None, bytes_data=None):
         """
@@ -102,20 +151,6 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                     "websocket_invalid_json",
                     user_id=self.user.id,
                 )
-
-    async def notification(self, event):
-        """
-        Handler for notification messages from Redis Pub/Sub.
-
-        Called when a message is published to the user's channel.
-        """
-        await self.send(text_data=json.dumps(event["notification"]))
-
-        logger.debug(
-            "websocket_notification_sent",
-            user_id=self.user.id,
-            notification_id=event["notification"].get("id"),
-        )
 
     @database_sync_to_async
     def get_authenticated_user(self):
@@ -165,3 +200,54 @@ class NotificationConsumer(AsyncWebsocketConsumer):
 
         logger.info("websocket_auth_failed_returning_anonymous")
         return AnonymousUser()
+
+    async def _listen_redis_pubsub(self):
+        """
+        Background task that listens for Redis pub/sub messages.
+
+        Receives notifications published directly from plugin-server via Redis pub/sub
+        and forwards them to the WebSocket client.
+        """
+        logger.info("websocket_redis_listener_started", user_id=self.user.id)
+        try:
+            async for message in self.pubsub.listen():
+                logger.info(
+                    "websocket_redis_message_received",
+                    user_id=self.user.id,
+                    message_type=message.get("type"),
+                    channel=message.get("channel"),
+                )
+                if message["type"] == "message":
+                    try:
+                        notification_data = json.loads(message["data"])
+                        await self.send(text_data=json.dumps(notification_data))
+
+                        logger.info(
+                            "websocket_redis_notification_sent",
+                            user_id=self.user.id,
+                            notification_id=notification_data.get("id"),
+                            source="redis_pubsub",
+                        )
+                    except json.JSONDecodeError as e:
+                        logger.warning(
+                            "websocket_redis_invalid_json",
+                            user_id=self.user.id,
+                            error=str(e),
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            "websocket_redis_send_error",
+                            user_id=self.user.id,
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+        except asyncio.CancelledError:
+            logger.info("websocket_redis_listener_cancelled", user_id=self.user.id)
+            raise
+        except Exception as e:
+            logger.exception(
+                "websocket_redis_listener_error",
+                user_id=self.user.id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
