@@ -241,10 +241,10 @@ ORDER BY occurrences DESC""",
             (
                 "User ID normalization",
                 [
-                    "Error with user_32yQoBNWxpvzxVJG0S0zxnnVSCJ",
-                    "Error with user_abc123xyz789def456",
+                    "Error 'user_id': 'user_32yQoBNWxpvzxVJG0S0zxnnVSCJ' occurred",
+                    "Error 'user_id': 'user_abc123xyz789def456' occurred",
                 ],
-                "Error with user_<USER_ID>",
+                "Error 'user_id': 'user_<USER_ID>' occurred",
             ),
             (
                 "Object ID normalization",
@@ -282,11 +282,11 @@ ORDER BY occurrences DESC""",
     def test_new_patterns_combined(self):
         """Test that new normalization patterns work together with existing ones."""
         error_variants = [
-            '{"id": "oJf6eVw-z1gNr-99c2d11d156dff07"} call call_edLiisyOJybNZLouC6MCNxyC for user_32yQoBNWxpvzxVJG0S0zxnnVSCJ at <object object at 0xfffced405130>',
-            '{"id": "abc123xyz789"} call call_abc123xyz789 for user_xyz789abc123def456 at <object object at 0xaaabec123456>',
+            "{\"id\": \"oJf6eVw-z1gNr-99c2d11d156dff07\"} function call call_edLiisyOJybNZLouC6MCNxyC 'user_id': 'user_32yQoBNWxpvzxVJG0S0zxnnVSCJ' at <object object at 0xfffced405130>",
+            "{\"id\": \"abc123xyz789\"} function call call_abc123xyz789 'user_id': 'user_xyz789abc123def456' at <object object at 0xaaabec123456>",
         ]
 
-        expected = '{"id": "<ID>"} call call_<CALL_ID> for user_<USER_ID> at <object object at <OBJECT_ID>>'
+        expected = "{\"id\": \"<ID>\"} function call call_<CALL_ID> 'user_id': 'user_<USER_ID>' at <object object at <OBJECT_ID>>"
 
         for error in error_variants:
             self._create_ai_event_with_error(error)
@@ -316,6 +316,28 @@ ORDER BY occurrences DESC""",
         # Each should appear once
         for _, count in results:
             assert count == 1
+
+    def test_normalization_does_not_match_common_words(self):
+        """Test that normalization doesn't match common words that share prefixes."""
+        errors = [
+            "Error in user_input validation",  # Should NOT normalize user_input
+            "Failed to call_function properly",  # Should NOT normalize call_function
+            "Problem with user_error handling",  # Should NOT normalize user_error
+        ]
+
+        for error in errors:
+            self._create_ai_event_with_error(error)
+
+        results = self._execute_normalization_query()
+
+        # Should have 3 distinct errors (none normalized)
+        assert len(results) == 3, f"Expected 3 distinct errors, got {len(results)}: {results}"
+
+        # Verify the errors weren't normalized
+        normalized_errors = [result[0] for result in results]
+        assert "Error in user_input validation" in normalized_errors
+        assert "Failed to call_function properly" in normalized_errors
+        assert "Problem with user_error handling" in normalized_errors
 
     def test_empty_or_null_errors_handled(self):
         """Test that empty or null errors are handled gracefully."""

@@ -122,26 +122,26 @@ tool_call_ids_normalized AS (
 ),
 
 call_ids_normalized AS (
-    -- Step 8: Normalize function call IDs (call_xxx pattern)
+    -- Step 8: Normalize function call IDs (function call call_xxx pattern)
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, 'call_[a-zA-Z0-9]+', 'call_<CALL_ID>') as error_text
+        replaceRegexpAll(error_text, 'function call call_[a-zA-Z0-9]+', 'function call call_<CALL_ID>') as error_text
     FROM tool_call_ids_normalized
 ),
 
 user_ids_normalized AS (
-    -- Step 9: Normalize user IDs (user_xxx pattern)
+    -- Step 9: Normalize user IDs ('user_id': 'user_xxx' pattern)
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, 'user_[a-zA-Z0-9]+', 'user_<USER_ID>') as error_text
+        replaceRegexpAll(error_text, '''user_id'':\s*''user_[a-zA-Z0-9]+''', '''user_id'': ''user_<USER_ID>''') as error_text
     FROM call_ids_normalized
 ),
 
