@@ -57,7 +57,15 @@ async def assert_clickhouse_records_in_kafka(
             ):
                 break
 
-            for timestamp_column in ("timestamp", "created_at"):
+            for timestamp_column in (
+                "timestamp",
+                "created_at",
+                "group0_created_at",
+                "group1_created_at",
+                "group2_created_at",
+                "group3_created_at",
+                "group4_created_at",
+            ):
                 if (timestamp_str := record.get(timestamp_column)) is not None and isinstance(timestamp_str, str):
                     record[timestamp_column] = dt.datetime.fromisoformat(timestamp_str)
 
