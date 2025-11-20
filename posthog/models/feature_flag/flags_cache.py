@@ -28,7 +28,6 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
@@ -149,20 +148,15 @@ def _track_cache_expiry(team: Team | int, ttl_seconds: int) -> None:
     track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, team, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
 
 
-# Use dedicated flags cache if available, otherwise fall back to default cache
-if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
-    _flags_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-else:
-    _flags_cache_client = cache
-
 # HyperCache instance for feature-flags service
+# Use dedicated flags cache alias if available, otherwise defaults to default cache
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags.json",
     load_fn=lambda key: _get_feature_flags_for_service(HyperCache.team_from_key(key)),
     cache_ttl=settings.FLAGS_CACHE_TTL,
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
-    cache_client=_flags_cache_client,
+    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
     batch_load_fn=_get_feature_flags_for_teams_batch,
 )
 
@@ -230,8 +224,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 )
 
 # Derive cache expiry config from hypercache management config (eliminates duplication)
-# Pass FLAGS_REDIS_URL so expiry tracking uses the same Redis database as the cache
-FLAGS_CACHE_EXPIRY_CONFIG = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(settings.FLAGS_REDIS_URL)
+FLAGS_CACHE_EXPIRY_CONFIG = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config()
 
 
 def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:

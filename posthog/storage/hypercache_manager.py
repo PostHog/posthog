@@ -153,8 +153,8 @@ class HyperCacheManagementConfig:
         by deriving all expiry config properties from the HyperCache configuration.
 
         Args:
-            redis_url: Optional Redis URL for dedicated cache (e.g., FLAGS_REDIS_URL).
-                      If not provided, defaults to settings.REDIS_URL.
+            redis_url: Optional Redis URL for dedicated cache. If not provided,
+                      uses hypercache.redis_url, which defaults to settings.REDIS_URL if also None.
         """
         from posthog.storage.cache_expiry_manager import CacheExpiryConfig
 
@@ -164,7 +164,7 @@ class HyperCacheManagementConfig:
             identifier_type=str if self.hypercache.token_based else int,
             update_fn=self.update_fn,
             namespace=self.namespace,
-            redis_url=redis_url,
+            redis_url=redis_url if redis_url is not None else self.hypercache.redis_url,
         )
 
 
@@ -308,7 +308,9 @@ def warm_caches(
                         from posthog.storage.cache_expiry_manager import track_cache_expiry
 
                         actual_ttl = ttl_seconds if ttl_seconds is not None else config.hypercache.cache_ttl
-                        track_cache_expiry(config.expiry_sorted_set_key, team, actual_ttl)
+                        track_cache_expiry(
+                            config.expiry_sorted_set_key, team, actual_ttl, redis_url=config.hypercache.redis_url
+                        )
                     else:
                         # Fall back to regular update (will load individually and track expiry)
                         config.update_fn(team, ttl=ttl_seconds)

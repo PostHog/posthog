@@ -45,7 +45,6 @@ import time
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache, caches
 from django.db import transaction
 
 import structlog
@@ -218,11 +217,6 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
 # Module initialization
 # ===================================================================
 
-if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
-    _team_metadata_cache_client = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-else:
-    _team_metadata_cache_client = cache
-
 team_metadata_hypercache = HyperCache(
     namespace="team_metadata",
     value="full_metadata.json",
@@ -230,7 +224,7 @@ team_metadata_hypercache = HyperCache(
     load_fn=_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
-    cache_client=_team_metadata_cache_client,
+    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
 )
 
 
@@ -287,8 +281,7 @@ TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 )
 
 # Derive cache expiry config from hypercache management config (eliminates duplication)
-# Pass FLAGS_REDIS_URL so expiry tracking uses the same Redis database as the cache
-TEAM_CACHE_EXPIRY_CONFIG = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(settings.FLAGS_REDIS_URL)
+TEAM_CACHE_EXPIRY_CONFIG = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config()
 
 
 def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
