@@ -92,7 +92,7 @@ export function convertToDataWarehouseEventToHogFunctionInvocationGlobals(
     team: Team,
     siteUrl: string
 ): HogFunctionInvocationGlobals {
-    const data = event.properties ? parseJSON(event.properties) : {}
+    const data = event.properties
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     const context: HogFunctionInvocationGlobals = {
