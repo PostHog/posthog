@@ -28,7 +28,6 @@ async def assert_clickhouse_records_in_kafka(
     expected_fields: list[str] | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    is_backfill: bool = False,
 ):
     json_columns = {"properties", "set", "set_once", "person_properties"}
 
@@ -50,13 +49,6 @@ async def assert_clickhouse_records_in_kafka(
                 break
 
             record = json.loads(msg.value)
-
-            if (
-                is_backfill
-                and (is_last := record.get("isLastBackfillingMessage", None)) is not None
-                and is_last is True
-            ):
-                break
 
             for timestamp_column in (
                 "timestamp",
@@ -151,16 +143,6 @@ async def assert_clickhouse_records_in_kafka(
 
     expected_records.sort(key=operator.itemgetter(sort_key))
     produced_records.sort(key=operator.itemgetter(sort_key))
-
-    # if it's the last run of the backfill, the workflows consumer expects a final message to be
-    # produced to indicate this
-    if backfill_details is not None and backfill_details.is_last_backfill_run is True:
-        expected_records.append(
-            {
-                "isLastBackfillingMessage": True,
-                "backfillId": backfill_details.backfill_id,
-            }
-        )
 
     assert (
         produced_column_names == expected_column_names

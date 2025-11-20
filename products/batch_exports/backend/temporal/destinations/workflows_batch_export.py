@@ -111,19 +111,8 @@ class WorkflowsConsumer(Consumer):
         """Required by consumer interface."""
         pass
 
-    async def produce_final_message(self):
-        final_message = {
-            "isLastBackfillingMessage": True,
-            "backfillId": self.backfill_id,
-        }
-        final_message_value = json.dumps(final_message).encode("utf-8")
-        await self.producer.send_and_wait(topic=self.topic, value=final_message_value)
-
     async def finalize(self):
         await self.producer.flush()
-        # if this is the last backfill run, produce the final message so Workflows knows the backfill is complete
-        if self.is_last_backfill_run is True:
-            await self.produce_final_message()
         await self.producer.stop()
 
 
