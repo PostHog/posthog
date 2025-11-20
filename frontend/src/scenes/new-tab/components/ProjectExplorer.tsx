@@ -731,17 +731,14 @@ function ExplorerRowListItem({
                                 iconOnly
                                 tabIndex={-1}
                                 className="shrink-0"
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={(event) => {
+                                onMouseDown={(event) => {
                                     preserveCurrentFocus()
-                                    if (event.detail > 1) {
-                                        event.stopPropagation()
-                                        event.preventDefault()
-                                        return
-                                    }
                                     event.stopPropagation()
                                     event.preventDefault()
                                     handleToggleFolder(entry.path)
+                                }}
+                                onClick={(event) => {
+                                    event.preventDefault()
                                 }}
                                 onDoubleClick={(event) => {
                                     event.stopPropagation()
