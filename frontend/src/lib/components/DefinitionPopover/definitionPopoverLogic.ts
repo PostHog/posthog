@@ -123,9 +123,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         'id' in values.definition
                     ) {
                         try {
-                            return await api.eventDefinitions.getExamples({
-                                eventDefinitionId: (values.definition as EventDefinition).id,
-                            })
+                            const response = await api.objectMediaPreviews.list(
+                                (values.definition as EventDefinition).id
+                            )
+                            return response.results.map((preview) => preview.media_url)
                         } catch {
                             return []
                         }

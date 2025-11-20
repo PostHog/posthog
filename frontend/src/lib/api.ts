@@ -137,6 +137,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     type OAuthApplicationPublicMetadata,
+    ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -652,6 +653,14 @@ export class ApiRequest {
 
     public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    }
+
+    public objectMediaPreviews(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('object_media_previews')
+    }
+
+    public objectMediaPreviewDetail(previewId: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.objectMediaPreviews(projectId).addPathComponent(previewId)
     }
 
     public propertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
@@ -2285,9 +2294,6 @@ const api = {
             eventDefinitionId: EventDefinition['id']
         }): Promise<EventDefinitionMetrics> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
-        },
-        async getExamples({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<string[]> {
-            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('examples').get()
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -4180,6 +4186,32 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    objectMediaPreviews: {
+        async list(eventDefinitionId: string): Promise<{ results: ObjectMediaPreview[] }> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async create(data: {
+            uploaded_media_id: string
+            event_definition_id: string
+            metadata?: Record<string, any>
+        }): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviews().create({ data })
+        },
+        async getPreferred(eventDefinitionId: string): Promise<ObjectMediaPreview> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withAction('preferred_for_event')
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async delete(previewId: string): Promise<void> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).delete()
         },
     },
 

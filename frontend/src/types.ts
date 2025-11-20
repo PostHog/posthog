@@ -3792,9 +3792,6 @@ export interface ObjectMediaPreview {
     media_url: string
     media_type: 'uploaded' | 'exported'
     metadata?: Record<string, any>
-    uploaded_media_id?: string
-    exported_asset_id?: string
-    event_definition_id?: string
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
