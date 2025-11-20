@@ -18,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
@@ -539,6 +540,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["results"]), 1)
 
         self.dashboard_api.get_dashboard(pk, expected_status=status.HTTP_200_OK)
+
+    def test_dashboard_restore_logs_activity(self):
+        ActivityLog.objects.all().delete()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Activity board"})
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.update_dashboard(dashboard_id, {"deleted": False})
+
+        log = ActivityLog.objects.get(scope="Dashboard", activity="restored", item_id=str(dashboard_id))
+        assert log.detail["name"] == "Activity board"  # type: ignore
 
     def test_delete_does_not_delete_insights_by_default(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})

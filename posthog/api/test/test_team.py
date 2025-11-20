@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -43,7 +43,7 @@ from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
-    class TestTeamAPI(APIBaseTest):
+    class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
 
         def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
@@ -594,7 +594,10 @@ def team_api_test_factory():
             )
 
             # if something is missing then teardown fails
-            response = self.client.delete(f"/api/environments/{team.id}")
+            with snapshot_postgres_queries_context(
+                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
+            ):
+                response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
 
         def test_delete_batch_exports(self):

@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -33,6 +34,7 @@ export function Navigation({
     const mainRef = useRef<HTMLElement>(null)
     const { mainContentRect } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -112,7 +114,7 @@ export function Navigation({
                     </SceneLayout>
                 </main>
                 <SidePanel />
-                <CommandBar />
+                {!useAppShortcuts && <CommandBar />}
             </FloatingContainerContext.Provider>
         </div>
     )

@@ -1129,7 +1129,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
                                 // Default to false (products page) if feature flags haven't loaded yet
                                 const useUseCaseSelection =
-                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
 
                                 if (useUseCaseSelection) {
                                     router.actions.replace(
@@ -1554,9 +1554,16 @@ export const sceneLogic = kea<sceneLogicType>([
         }, 'pinnedTabsStorageListener')
     }),
     afterMount(({ actions, cache, values }) => {
+        const useAppShortcuts = values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]
+
+        if (useAppShortcuts) {
+            return
+        }
+
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 const commandKey = isMac() ? event.metaKey : event.ctrlKey
+                const shiftKey = event.shiftKey
                 const optionKey = event.altKey
                 const keyCode = event.code?.toLowerCase()
                 const key = event.key?.toLowerCase()
@@ -1592,7 +1599,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // If cmd k, open current page new tab page / if already on the new tab page focus the search input
-                if (commandKey && isKKey) {
+                if (commandKey && isKKey && !shiftKey) {
+                    event.preventDefault()
+                    event.stopPropagation()
+
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         const activeTabId = values.activeTabId
                         const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
@@ -1608,7 +1618,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         return
                     }
                     router.actions.push(urls.newTab())
-
                     return
                 }
             }
