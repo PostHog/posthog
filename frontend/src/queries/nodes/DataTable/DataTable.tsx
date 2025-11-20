@@ -7,6 +7,7 @@ import { useCallback, useState } from 'react'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -195,6 +196,7 @@ export function DataTable({
 
     const {
         showActions,
+        showRecordingColumn,
         showDateRange,
         showTestAccountFilters,
         showSearch,
@@ -213,12 +215,15 @@ export function DataTable({
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showSourceQueryOptions,
     } = queryWithDefaults
 
     const isReadOnly = !!readOnly
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+    const recordingColumnShown =
+        showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
@@ -561,6 +566,35 @@ export function DataTable({
                     </>
                 ) : undefined,
         })),
+        ...(recordingColumnShown
+            ? [
+                  {
+                      dataIndex: '__recording' as any,
+                      title: '',
+                      render: function RenderRecording(_: any, { label, result }: DataTableRow) {
+                          if (label) {
+                              return { props: { colSpan: 0 } }
+                          }
+                          if (result && columnsInResponse?.includes('*')) {
+                              const event = result[columnsInResponse.indexOf('*')]
+                              return (
+                                  <ViewRecordingButton
+                                      sessionId={event?.properties?.$session_id}
+                                      recordingStatus={event?.properties?.$recording_status}
+                                      timestamp={event?.timestamp}
+                                      inModal
+                                      size="xsmall"
+                                      type="secondary"
+                                  />
+                              )
+                          }
+                          return null
+                      },
+                      width: 100,
+                      align: 'center' as const,
+                  },
+              ]
+            : []),
         ...(eventActionsColumnShown
             ? [
                   {
@@ -599,8 +633,11 @@ export function DataTable({
     )
 
     const firstRowLeft = [
-        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
-        backToSourceQuery && isActorsQuery(query.source) && isInsightActorsQuery(query.source.source) ? (
+        showSourceQueryOptions && backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
+        showSourceQueryOptions &&
+        backToSourceQuery &&
+        isActorsQuery(query.source) &&
+        isInsightActorsQuery(query.source.source) ? (
             <InsightActorsQueryOptions
                 query={query.source.source}
                 setQuery={(q) =>

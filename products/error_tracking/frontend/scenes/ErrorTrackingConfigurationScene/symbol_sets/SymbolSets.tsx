@@ -1,22 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCheckCircle, IconRevert, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCollapse,
     LemonDialog,
     LemonSegmentedButton,
     LemonTable,
     LemonTableColumns,
-    LemonTabs,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { UploadModal } from './UploadModal'
@@ -80,7 +76,7 @@ const SymbolSetTable = (): JSX.Element => {
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
         {
-            title: 'Source',
+            title: 'Reference',
             width: 200,
             render: (_, { ref }) => {
                 return (
@@ -88,6 +84,14 @@ const SymbolSetTable = (): JSX.Element => {
                         {ref}
                     </div>
                 )
+            },
+        },
+        {
+            title: 'Usage',
+            dataIndex: 'frames_count',
+            tooltip: 'Number of frames using this symbol set',
+            render: (count) => {
+                return <span className="text-secondary">{count}</span>
             },
         },
         {
@@ -167,50 +171,6 @@ const SymbolSetTable = (): JSX.Element => {
             loading={symbolSetResponseLoading}
             dataSource={symbolSets}
             emptyState={!symbolSetResponseLoading ? emptyState : undefined}
-            expandable={{
-                noIndent: true,
-                expandedRowRender: function RenderPropertiesTable(symbolSet) {
-                    return <SymbolSetStackFrames symbolSet={symbolSet} />
-                },
-            }}
-        />
-    )
-}
-
-const SymbolSetStackFrames = ({ symbolSet }: { symbolSet: ErrorTrackingSymbolSet }): JSX.Element => {
-    const { stackFrameRecords } = useValues(stackFrameLogic)
-    const { loadForSymbolSet } = useActions(stackFrameLogic)
-    const [activeTab, setActiveTab] = useState<'contents' | 'context'>('contents')
-
-    useEffect(() => {
-        loadForSymbolSet(symbolSet.id)
-    }, [loadForSymbolSet, symbolSet])
-
-    const frames = Object.values(stackFrameRecords).filter((r) => r.symbol_set_ref == symbolSet.ref)
-
-    return (
-        <LemonCollapse
-            size="small"
-            panels={frames.map(({ id, raw_id, contents, context }) => ({
-                key: id,
-                header: raw_id,
-                className: 'py-0',
-                content: (
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={setActiveTab}
-                        tabs={[
-                            { key: 'contents', label: 'Contents', content: <JSONViewer src={contents} name={null} /> },
-                            context && {
-                                key: 'context',
-                                label: 'Context',
-                                content: <JSONViewer src={context} name={null} />,
-                            },
-                        ]}
-                    />
-                ),
-            }))}
-            embedded
         />
     )
 }

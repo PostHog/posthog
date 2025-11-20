@@ -80,6 +80,13 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     description = models.TextField(blank=True, help_text="Human-readable description of what this query does")
 
+    derived_from_insight = models.CharField(
+        max_length=12,
+        null=True,
+        blank=True,
+        help_text="Short ID of the insight this endpoint was created from",
+    )
+
     # Parameter schema for query customization
     parameters = models.JSONField(
         default=dict, blank=True, help_text="JSON schema defining expected parameters for query customization"

@@ -22,6 +22,7 @@ class PersonsNewBackfillConfig(dagster.Config):
     batch_size: int = 100_000  # Records per batch insert
     source_table: str = "posthog_persons"
     destination_table: str = "posthog_persons_new"
+    min_id: int | None = None  # Optional override for min ID to resume from partial state
     max_id: int | None = None  # Optional override for max ID to resume from partial state
 
 
@@ -37,18 +38,23 @@ def get_id_range(
     Returns tuple (min_id, max_id).
     """
     with database.cursor() as cursor:
-        # Always query for min_id
-        min_query = f"SELECT MIN(id) as min_id FROM {config.source_table}"
-        context.log.info(f"Querying min ID: {min_query}")
-        cursor.execute(min_query)
-        min_result = cursor.fetchone()
+        # Use config min_id if provided, otherwise query database
+        if config.min_id is not None:
+            min_id = config.min_id
+            context.log.info(f"Using configured min_id override: {config.min_id}")
+        else:
+            # Always query for min_id
+            min_query = f"SELECT MIN(id) as min_id FROM {config.source_table}"
+            context.log.info(f"Querying min ID: {min_query}")
+            cursor.execute(min_query)
+            min_result = cursor.fetchone()
 
-        if min_result is None or min_result["min_id"] is None:
-            context.log.exception("Source table is empty or has no valid IDs")
-            # Note: No metrics client here as this is get_id_range op, not copy_chunk
-            raise dagster.Failure("Source table is empty or has no valid IDs")
+            if min_result is None or min_result["min_id"] is None:
+                context.log.exception("Source table has no valid min ID")
+                # Note: No metrics client here as this is get_id_range op, not copy_chunk
+                raise dagster.Failure("Source table has no valid min ID")
 
-        min_id = int(min_result["min_id"])
+            min_id = int(min_result["min_id"])
 
         # Use config max_id if provided, otherwise query database
         if config.max_id is not None:
@@ -78,6 +84,7 @@ def get_id_range(
         context.add_output_metadata(
             {
                 "min_id": dagster.MetadataValue.int(min_id),
+                "min_id_source": dagster.MetadataValue.text("config" if config.min_id is not None else "database"),
                 "max_id": dagster.MetadataValue.int(max_id),
                 "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
                 "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),

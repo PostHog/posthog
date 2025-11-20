@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+from urllib.parse import urlencode
+
 from django import forms
 from django.contrib import admin
 from django.urls import reverse
@@ -62,6 +66,24 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
+
+    def view_on_site(self, obj: OAuthApplication):
+        code_verifier = "test"
+        digest = hashlib.sha256(code_verifier.encode("utf-8")).digest()
+        code_challenge = base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+        redirect_uri = obj.redirect_uris.split()[0] if obj.redirect_uris else ""
+
+        params = {
+            "response_type": "code",
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "client_id": obj.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "experiment:read query:read insight:read project:read organization:read openid",
+        }
+
+        return f"/oauth/authorize/?{urlencode(params)}"
 
     def get_readonly_fields(self, request, obj=None):
         if obj:

@@ -25,7 +25,6 @@ depends_on = [
     "ee",
     "common.hogql_parser",
     "common.hogvm.python",
-
     # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
     "products.early_access_features",
     "products.tasks",
@@ -39,6 +38,7 @@ depends_on = [
     "products.notebooks",
     "products.live_debugger",
     "products.desktop_recordings",
+    "products.customer_analytics",
 ]
 
 [[modules]]

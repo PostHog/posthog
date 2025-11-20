@@ -27,7 +27,7 @@ export function DataWarehouseScene(): JSX.Element {
     const { setActiveTab } = useActions(dataWarehouseSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
-        return <NotFound object="Data Warehouse" />
+        return <NotFound object="Data warehouse" />
     }
 
     return (

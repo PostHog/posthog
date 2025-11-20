@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
@@ -111,7 +112,7 @@ from . import (
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
-from .file_system import file_system, file_system_shortcut, persisted_folder
+from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 
@@ -294,6 +295,13 @@ register_grandfathered_environment_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"user_product_list",
+    user_product_list.UserProductListViewSet,
+    "environment_user_product_list",
     ["team_id"],
 )
 
@@ -956,5 +964,12 @@ environments_router.register(
     r"llm_analytics/text_repr",
     LLMAnalyticsTextReprViewSet,
     "environment_llm_analytics_text_repr",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/summarization",
+    LLMAnalyticsSummarizationViewSet,
+    "environment_llm_analytics_summarization",
     ["team_id"],
 )
