@@ -1,9 +1,15 @@
+from typing import TYPE_CHECKING, Optional
+
 from django.db import models
 from django.db.models.expressions import F
 
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
+from posthog.products import Products
+
+if TYPE_CHECKING:
+    from posthog.models.product_intent.product_intent import ProductIntent
 
 
 class UserProductList(UUIDModel, UpdatedMetaFields):
@@ -60,3 +66,23 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
     def __str__(self) -> str:
         return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
+
+    @staticmethod
+    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "Optional[UserProductList]":
+        if user.allow_sidebar_suggestions is False:
+            return None
+
+        products = Products.get_products_by_intent(product_intent.product_type)
+        if not products:
+            return None
+
+        for product in products:
+            UserProductList.objects.get_or_create(
+                user=user,
+                team=product_intent.team,
+                product_path=product.path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.PRODUCT_INTENT,
+                },
+            )

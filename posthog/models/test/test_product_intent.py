@@ -8,6 +8,7 @@ from unittest.mock import patch
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
 from posthog.models.surveys.survey import Survey
@@ -547,3 +548,91 @@ class TestProductIntent(BaseTest):
         assert self.product_intent.activated_at is None  # Still not activated
         assert self.product_intent.activation_last_checked_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
         assert self.product_intent.activation_last_checked_at != initial_last_checked
+
+    def test_register_creates_user_product_list_entries_for_single_product_intent(self):
+        ProductIntent.register(self.team, "session_replay", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+
+        upl = user_product_lists.first()
+        assert upl.product_path == "Session replay"
+        assert upl.enabled is True
+        assert upl.reason == UserProductList.Reason.PRODUCT_INTENT
+
+    def test_register_creates_user_product_list_entries_for_multiple_product_intent(self):
+        ProductIntent.register(self.team, "data_warehouse", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team).order_by("product_path")
+        assert user_product_lists.count() == 2
+
+        product_paths = {upl.product_path for upl in user_product_lists}
+        assert product_paths == {"Data warehouse", "SQL editor"}
+
+        enabled = [upl.enabled for upl in user_product_lists]
+        assert all(enabled)
+
+        reasons = [upl.reason for upl in user_product_lists]
+        assert all(reason == UserProductList.Reason.PRODUCT_INTENT for reason in reasons)
+
+    def test_register_ignores_product_key_without_products(self):
+        ProductIntent.register(self.team, "annotations", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 0
+
+    def test_register_respects_allow_sidebar_suggestions_false(self):
+        self.user.allow_sidebar_suggestions = False
+        self.user.save()
+
+        ProductIntent.register(self.team, "data_warehouse", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 0
+
+    def test_register_does_not_create_duplicates_on_multiple_calls(self):
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0
+
+        ProductIntent.register(self.team, "session_replay", "test", self.user)
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+        ProductIntent.register(self.team, "session_replay", "test again", self.user)
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+    def test_register_creates_user_product_list_for_different_intents(self):
+        ProductIntent.register(self.team, "session_replay", "test", self.user)
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 1
+
+        ProductIntent.register(self.team, "product_analytics", "test", self.user)
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 3
+
+        product_paths = {upl.product_path for upl in user_product_lists}
+        assert product_paths == {"Session replay", "Dashboards", "Product analytics"}
+
+    def test_register_allows_creation_when_allow_sidebar_suggestions_is_none(self):
+        self.user.allow_sidebar_suggestions = None
+        self.user.save()
+
+        ProductIntent.register(self.team, "surveys", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.first().product_path == "Surveys"
+
+    def test_register_allows_creation_when_allow_sidebar_suggestions_is_true(self):
+        self.user.allow_sidebar_suggestions = True
+        self.user.save()
+
+        ProductIntent.register(self.team, "surveys", "test", self.user)
+
+        user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
+        assert user_product_lists.count() == 1
+        assert user_product_lists.first().product_path == "Surveys"
+
+    def test_register_rejects_creation_when_allow_sidebar_suggestions_is_false(self):
+        self.user.allow_sidebar_suggestions = False
+        self.user.save()
+
+        ProductIntent.register(self.team, "surveys", "test", self.user)
+        assert UserProductList.objects.filter(user=self.user, team=self.team).count() == 0

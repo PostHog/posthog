@@ -11,6 +11,8 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
@@ -692,13 +694,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
-        product_type = request.data.get("product_type")
         user = request.user
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        product_type = cast(ProductKey | None, request.data.get("product_type"))
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
+        elif product_type not in ProductKey:
+            return response.Response({"error": f"invalid product_type, expected one of {list(ProductKey)}"}, status=400)
 
         product_intent_serializer = ProductIntentSerializer(data=request.data)
         product_intent_serializer.is_valid(raise_exception=True)
