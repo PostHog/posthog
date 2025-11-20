@@ -345,7 +345,9 @@ impl From<CustomRedisError> for FlagError {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
             CustomRedisError::Timeout => FlagError::TimeoutError(Some("Redis timeout".to_string())),
-            CustomRedisError::Redis(_) => FlagError::RedisUnavailable,
+            CustomRedisError::InvalidConfiguration(_) | CustomRedisError::Redis(_) => {
+                FlagError::RedisUnavailable
+            }
         }
     }
 }
