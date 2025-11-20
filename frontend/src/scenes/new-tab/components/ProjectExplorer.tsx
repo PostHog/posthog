@@ -110,6 +110,7 @@ export function ProjectExplorer({
     const rootDroppableId = `project://${explorerFolderPath}`
     const { setNodeRef: setRootNodeRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
     const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
+    const isDragging = !!activeDragItem
 
     useEffect(() => {
         if (activeExplorerFolderPath === null) {
@@ -482,6 +483,15 @@ export function ProjectExplorer({
                             </div>
                         ) : null}
                     </ListBox.Group>
+                    <div
+                        className={clsx(
+                            'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
+                            isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
+                            isOverRoot && 'border-accent bg-accent-highlight-secondary text-primary'
+                        )}
+                    >
+                        Drop here to move into this folder
+                    </div>
                 </div>
             </div>
 
