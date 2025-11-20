@@ -407,8 +407,11 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               if (isAssistantMessage(message) && interactable) {
                   // Message has been interrupted with a form
-                  if (message.meta?.form?.options && isFinalGroup) {
-                      return <AssistantMessageForm form={message.meta.form} />
+                  if (
+                      message.meta?.form?.options &&
+                      (isFinalGroup || message.meta.form.options.some((option) => option.href))
+                  ) {
+                      return <AssistantMessageForm form={message.meta.form} linksOnly={!isFinalGroup} />
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
@@ -440,13 +443,17 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
 interface AssistantMessageFormProps {
     form: AssistantForm
+    linksOnly?: boolean
 }
 
-function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+
+    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
     return (
         <div className="flex flex-wrap gap-1.5">
-            {form.options.map((option) => (
+            {options.map((option) => (
                 <LemonButton
                     key={option.value}
                     onClick={!option.href ? () => askMax(option.value) : undefined}
