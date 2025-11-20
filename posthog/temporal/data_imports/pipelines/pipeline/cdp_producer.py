@@ -79,7 +79,7 @@ class CDPProducer:
     @property
     def should_produce_table(self) -> bool:
         schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
-        table_id = schema.table_id
+        table_id = str(schema.table_id)
         if table_id is None:
             raise ValueError(f"CDPProducer: Schema {schema.name} ({self.schema_id}) does not have a table_id")
 
@@ -91,6 +91,9 @@ class CDPProducer:
         table = tables[0] if tables else None
         if table is None:
             raise ValueError(f"CDPProducer: Table {table_id} (schema: {schema.name}) not found in hogql database")
+
+        self.logger.debug(f"Checking if table {table.name} is used in any HogQL functions")
+        self.logger.debug(f"Using table_name = {table.name}, source = data-warehouse")
 
         return HogFunction.objects.filter(
             team_id=self.team_id,
@@ -136,8 +139,9 @@ class CDPProducer:
                         self.logger.debug(f"Producing batch {index} from file {file_path} to Kafka")
 
                         for row in batch.to_pylist():
+                            row_as_props = {"team_id": self.team_id, "properties": row}
                             KafkaProducer().produce(
-                                topic=KAFKA_DWH_CDP_RAW_TABLE, data=row, value_serializer=self._serialize_json
+                                topic=KAFKA_DWH_CDP_RAW_TABLE, data=row_as_props, value_serializer=self._serialize_json
                             )
 
                 self.logger.debug(f"Finished producing file {file_path} to Kafka")
