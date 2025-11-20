@@ -351,14 +351,15 @@ def pytest_sessionstart():
         m._meta.managed = True
 
 
-@pytest.fixture(autouse=True, scope="session")
-def enable_db_access_for_all_tests():
+def pytest_configure(config):
     """
-    Ensure all tests have access to persons databases.
-    This patches Django's TestCase and TransactionTestCase to include persons databases.
+    Configure pytest-django to allow access to persons databases by default.
+    This is needed for tests that don't inherit from PostHogTestCase.
+    Most tests inherit from PostHogTestCase which already sets databases correctly,
+    but this ensures any remaining TestCase/TransactionTestCase also have access.
     """
     from django.test import TestCase, TransactionTestCase
 
-    # Set databases for all test classes
+    # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
