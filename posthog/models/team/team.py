@@ -42,6 +42,8 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
@@ -517,6 +519,17 @@ class Team(UUIDTClassicModel):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
         config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
+        return config
+
+    @cached_property
+    def customer_analytics_config(self):
+        from products.customer_analytics.backend.models.team_customer_analytics_config import (
+            TeamCustomerAnalyticsConfig,
+        )
+
+        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
+            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        )
         return config
 
     @property

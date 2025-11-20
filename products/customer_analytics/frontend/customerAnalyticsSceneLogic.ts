@@ -1,47 +1,55 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DashboardType } from '~/types'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { isDataWarehouseNode } from '~/queries/utils'
+import { BaseMathType, Breadcrumb, ChartDisplayType, FilterType, InsightType } from '~/types'
 
+import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
+import { InsightDefinition } from './insightDefinitions'
 
-export interface CustomerDashboard {
-    id: number
-    name: string
-    description: string
+export interface CustomerAnalyticsSceneLogicProps {
+    tabId: string
 }
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
     tabAwareScene(),
     connect(() => ({
-        actions: [
-            newDashboardLogic({ initialTags: ['customer-analytics'] }),
-            ['showNewDashboardModal', 'hideNewDashboardModal', 'submitNewDashboardSuccessWithResult'],
-        ],
-        values: [
-            newDashboardLogic({ initialTags: ['customer-analytics'] }),
-            ['newDashboardModalVisible'],
-            teamLogic,
-            ['currentTeamId'],
-        ],
+        values: [customerAnalyticsConfigLogic, ['customerAnalyticsConfig', 'activityEvent']],
+        actions: [customerAnalyticsConfigLogic, ['updateActivityEvent']],
     })),
     actions({
-        createNewDashboard: true,
-        handleEditDashboard: () => {},
-        onChangeDashboard: (dashboardId: number | string | null) => ({ dashboardId }),
-        selectDashboard: (dashboardId: number | null) => ({ dashboardId }),
+        setActivityEventSelection: (filters: FilterType | null) => ({
+            filters,
+        }),
+        saveActivityEvent: true,
+        toggleEventConfigModal: (isOpen?: boolean) => ({ isOpen }),
+    }),
+    reducers({
+        activityEventSelection: [
+            null as FilterType | null,
+            {
+                setActivityEventSelection: (_, { filters }) => filters,
+            },
+        ],
+        isEventConfigModalOpen: [
+            false,
+            {
+                toggleEventConfigModal: (state, { isOpen }) => (isOpen !== undefined ? isOpen : !state),
+            },
+        ],
     }),
     selectors({
+        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -53,81 +61,194 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
             ],
         ],
-    }),
-    loaders(({ values }) => ({
-        availableDashboards: [
-            [] as CustomerDashboard[],
-            {
-                loadCustomerDashboards: async () => {
-                    const response = await api.get(
-                        `api/environments/${values.currentTeamId}/dashboards/?tags=customer-analytics`
-                    )
-                    const allDashboards: DashboardType[] = response.results || []
-
-                    return allDashboards.map((dashboard) => ({
-                        id: dashboard.id,
-                        name: dashboard.name,
-                        description: dashboard.description || '',
-                    }))
-                },
+        hasActivityEventChanged: [
+            (s) => [s.activityEventSelection],
+            (activityEventSelection): boolean => {
+                return activityEventSelection !== null
             },
         ],
-    })),
-    reducers({
-        selectedDashboardId: [
-            null as number | null,
-            { persist: true },
-            {
-                selectDashboard: (_, { dashboardId }) => dashboardId,
+        dauSeries: [
+            (s) => [s.activityEvent],
+            (activityEvent: EventsNode | ActionsNode | null): EventsNode | ActionsNode | null => {
+                if (!activityEvent) {
+                    return null
+                }
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.UniqueUsers,
+                }
+            },
+        ],
+        wauSeries: [
+            (s) => [s.activityEvent],
+            (activityEvent: EventsNode | ActionsNode | null): EventsNode | ActionsNode | null => {
+                if (!activityEvent) {
+                    return null
+                }
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.WeeklyActiveUsers,
+                }
+            },
+        ],
+        mauSeries: [
+            (s) => [s.activityEvent],
+            (activityEvent: EventsNode | ActionsNode | null): EventsNode | ActionsNode | null => {
+                if (!activityEvent) {
+                    return null
+                }
+                return {
+                    ...activityEvent,
+                    math: BaseMathType.MonthlyActiveUsers,
+                }
+            },
+        ],
+        activeUsersInsights: [
+            (s) => [s.dauSeries, s.wauSeries, s.mauSeries],
+            (
+                dauSeries: EventsNode | ActionsNode | null,
+                wauSeries: EventsNode | ActionsNode | null,
+                mauSeries: EventsNode | ActionsNode | null
+            ): InsightDefinition[] => {
+                // Backend guarantees activity event exists, but add safety check
+                if (!dauSeries || !wauSeries || !mauSeries) {
+                    return []
+                }
+                return [
+                    {
+                        name: 'Active Users (DAU/WAU/MAU)',
+                        needsConfig: false,
+                        className: 'row-span-2 h-[576px]',
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [dauSeries, wauSeries, mauSeries],
+                                interval: 'day',
+                                dateRange: {
+                                    date_from: '-90d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.ActionsLineGraph,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    smoothingIntervals: 1,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
+                            },
+                        },
+                    },
+                    {
+                        name: 'Weekly Active Users',
+                        needsConfig: false,
+                        className: 'h-[284px]',
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [wauSeries],
+                                interval: 'day',
+                                dateRange: {
+                                    date_from: '-7d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.BoldNumber,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    smoothingIntervals: 1,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
+                            },
+                        },
+                    },
+                    {
+                        name: 'Monthly Active Users',
+                        needsConfig: false,
+                        className: 'h-[284px]',
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [mauSeries],
+                                interval: 'day',
+                                dateRange: {
+                                    date_to: null,
+                                    date_from: '-30d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.BoldNumber,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    smoothingIntervals: 1,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
+                            },
+                        },
+                    },
+                ]
+            },
+        ],
+        activityEventFilters: [
+            (s) => [s.activityEvent, s.activityEventSelection],
+            (activityEvent, activityEventSelection): FilterType => {
+                if (activityEventSelection) {
+                    return activityEventSelection
+                }
+                return {
+                    insight: InsightType.TRENDS,
+                    ...seriesToActionsAndEvents(activityEvent ? [activityEvent] : []),
+                }
             },
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadCustomerDashboardsSuccess: ({ availableDashboards }) => {
-            if (availableDashboards.length > 0 && !values.selectedDashboardId) {
-                // Auto-select first dashboard if none selected
-                actions.selectDashboard(availableDashboards[0].id)
+        saveActivityEvent: () => {
+            const filters = values.activityEventSelection
+            const activityEvents = actionsAndEventsToSeries(filters as any, true, MathAvailability.None)
+
+            if (activityEvents.length > 0 && !isDataWarehouseNode(activityEvents[0])) {
+                actions.updateActivityEvent(activityEvents[0])
+                actions.setActivityEventSelection(null)
             }
         },
-        createNewDashboard: () => {
-            actions.showNewDashboardModal()
-        },
-        handleEditDashboard: () => {
-            if (values.selectedDashboardId) {
-                router.actions.push(urls.dashboard(values.selectedDashboardId))
-            }
-        },
-        submitNewDashboardSuccessWithResult: ({ result }) => {
-            // Dashboard was created with `customer-analytics` tag, refresh and select it
-            actions.loadCustomerDashboards()
-            actions.selectDashboard(result.id)
-        },
-        onChangeDashboard: ({ dashboardId }) => {
-            if (dashboardId === 'create_new') {
-                actions.createNewDashboard()
-            } else {
-                actions.selectDashboard(dashboardId as number | null)
+        toggleEventConfigModal: ({ isOpen }) => {
+            const isClosing = isOpen === false || (isOpen === undefined && values.isEventConfigModalOpen)
+            if (isClosing) {
+                actions.setActivityEventSelection(null)
             }
         },
     })),
-    urlToAction(({ actions }) => ({
-        '/customer_analytics': (_, queryParams) => {
-            const id = queryParams?.dashboardId
-            if (id && !isNaN(id)) {
-                actions.selectDashboard(id)
-            }
-        },
-    })),
-    actionToUrl(() => ({
-        selectDashboard: ({ dashboardId }) => {
-            const params = dashboardId ? { dashboardId: dashboardId.toString() } : {}
-            return ['/customer_analytics', params]
-        },
-    })),
-    afterMount(({ actions, values }) => {
-        actions.loadCustomerDashboards()
-        if (values.selectedDashboardId) {
-            actions.selectDashboard(values.selectedDashboardId)
-        }
-    }),
 ])
