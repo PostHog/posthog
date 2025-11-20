@@ -1,4 +1,4 @@
-"""Dagster job for deleting posthog_persondistinctid rows that have no associated posthog_person (new) rows."""
+"""Dagster job for deleting posthog_persondistinctid rows that have no associated posthog_person_new rows."""
 
 import os
 import time
@@ -20,9 +20,11 @@ MAX_RETRY_ATTEMPTS = 5
 class PersonsDistinctIdsNoPersonCleanupConfig(dagster.Config):
     """Configuration for the persondistinctids without person cleanup job."""
 
-    chunk_size: int = 10_000_000  # persondistinctid rows per chunk
-    batch_size: int = 10000  # persondistinctid rows to scan for missing parent person row in a single transaction
-    delete_batch_size: int = 500  # persondistinctid rows to delete in a single transaction
+    chunk_size: int = 10_000_000  # persondistinctid rows per chunk worker to scan across
+    batch_size: int = (
+        1000  # persondistinctid rows to scan for missing parent person row & deletein a single transaction
+    )
+    persons_table: str = "posthog_person_new"  # set safe default we can override after name swap!
     max_id: int | None = None  # Optional override for max ID to resume from partial state
     min_id: int | None = None  # Optional override for min ID to resume from partial state
 
@@ -67,9 +69,9 @@ def get_id_range(
             max_result = cursor.fetchone()
 
             if max_result is None or max_result["max_id"] is None:
-                context.log.exception("posthog_person table has no valid max ID")
+                context.log.exception(f"{config.persons_table} table has no valid max ID")
                 # Note: No metrics client here as this is get_id_range op, not copy_chunk
-                raise dagster.Failure("posthog_person table has no valid max ID")
+                raise dagster.Failure(f"{config.persons_table} table has no valid max ID")
 
             max_id = int(max_result["max_id"])
 
@@ -141,8 +143,8 @@ def scan_delete_chunk(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Scan posthog_person table for records that have no associated posthog_persondistinctid row,
-    and deletes the corresponding posthog_person row.
+    Scan posthog_person_new table for records that have no associated posthog_persondistinctid row,
+    and deletes the corresponding posthog_person_new row.
     Processes in batches of batch_size records.
     """
     chunk_min, chunk_max = chunk
@@ -189,47 +191,44 @@ def scan_delete_chunk(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Query to find posthog_persondistinctid rows without a parent posthog_person row
+                    # Query to find posthog_persondistinctid rows without a parent posthog_person_new row
                     scan_query = f"""
 SELECT pd.id
 FROM posthog_persondistinctid AS pd
 WHERE pd.id >= %s AND pd.id <= %s
   AND NOT EXISTS (
     SELECT 1
-    FROM posthog_person AS p
+    FROM {config.persons_table} AS p
     WHERE pd.person_id = p.id
       AND pd.team_id = p.team_id
   )
-ORDER BY pd.id DESC
+ORDER BY pd.id
 """
                     cursor.execute(scan_query, (batch_start_id, batch_end_id))
                     rows = cursor.fetchall()
-                    ids_to_delete = set[int]({int(row["id"]) for row in rows})
+                    ids_to_delete = list[int]({int(row["id"]) for row in rows})
                     records_found = len(ids_to_delete)
 
                     # Commit the transaction
                     cursor.execute("COMMIT")
 
                     records_deleted = 0
-                    ids_list = list[int](sorted(ids_to_delete))
-                    for i in range(0, len(ids_list), config.delete_batch_size):
-                        delete_batch = ids_list[i : i + config.delete_batch_size]
-                        try:
-                            cursor.execute("BEGIN")
-                            placeholders = ",".join(["%s"] * len(delete_batch))
-                            cursor.execute(
-                                f"DELETE FROM posthog_persondistinctid WHERE id IN ({placeholders})",
-                                tuple(delete_batch),
-                            )
-                            records_deleted += cursor.rowcount
-                            cursor.execute("COMMIT")
-                        except Exception as delete_error:
-                            # bubble up errors to be retried on deadlock etc. or fail the job
-                            context.log.exception(
-                                f"Failed to delete sub-batch of size {len(delete_batch)} "
-                                f"(min={min(delete_batch)}, max={max(delete_batch)}): {delete_error}"
-                            )
-                            raise
+                    try:
+                        cursor.execute("BEGIN")
+                        placeholders = ",".join(["%s"] * len(ids_to_delete))
+                        cursor.execute(
+                            f"DELETE FROM posthog_persondistinctid WHERE id IN ({placeholders})",
+                            tuple(ids_to_delete),
+                        )
+                        records_deleted += cursor.rowcount
+                        cursor.execute("COMMIT")
+                    except Exception as delete_error:
+                        # bubble up errors to be retried on deadlock etc. or fail the job
+                        context.log.exception(
+                            f"Failed to delete batch of size {len(ids_to_delete)} "
+                            f"(min={min(ids_to_delete)}, max={max(ids_to_delete)}): {delete_error}"
+                        )
+                        raise
 
                     try:
                         metrics_client.increment(
@@ -314,7 +313,7 @@ ORDER BY pd.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
+                            context.log.warning(f"Retrying batch: attempt {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -332,7 +331,7 @@ ORDER BY pd.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
+                            context.log.warning(f"Retrying batch: attempt {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -448,7 +447,7 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
 )
 def persondistinctids_without_person_cleanup_job():
     """
-    Scan posthog_persondistinctid table for records that have no associated posthog_person (new) row,
+    Scan posthog_persondistinctid table for records that have no associated posthog_person_new row,
     and deletes the corresponding posthog_persondistinctid rows that carry the missing person_id.
     Divides the ID space into chunks and processes them in parallel.
     """
