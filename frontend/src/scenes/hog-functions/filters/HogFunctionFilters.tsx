@@ -238,7 +238,11 @@ export function HogFunctionFilters({
                                 <>
                                     <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
-                                            {isTransformation ? 'Match events' : 'Match events and actions'}
+                                            {isDataWarehouse
+                                                ? 'Match tables'
+                                                : isTransformation
+                                                  ? 'Match events'
+                                                  : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
@@ -279,7 +283,7 @@ export function HogFunctionFilters({
                                                       type: EntityTypes.EVENTS,
                                                   }
                                         }
-                                        buttonCopy="Add event matcher"
+                                        buttonCopy={isDataWarehouse ? 'Add table matcher' : 'Add event matcher'}
                                         excludedProperties={excludedProperties}
                                     />
                                 </>
