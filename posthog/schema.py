@@ -2334,6 +2334,25 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     user_id: str
 
 
+class ProductItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Optional[str] = None
+    iconType: Optional[str] = None
+    path: str
+    type: Optional[str] = None
+
+
+class ProductsData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    games: list[ProductItem]
+    metadata: list[ProductItem]
+    products: list[ProductItem]
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
