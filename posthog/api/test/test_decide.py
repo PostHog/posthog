@@ -15,6 +15,7 @@ from django.db import connection, connections
 from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 
 from inline_snapshot import snapshot
 from parameterized import parameterized
@@ -160,8 +161,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 return do_request()
 
         if assert_num_queries:
-            with self.assertNumQueries(assert_num_queries):
-                return do_request()
+            # Count queries across all databases defined in the test case
+            query_contexts = {}
+            for db_alias in self.databases:
+                query_contexts[db_alias] = CaptureQueriesContext(connections[db_alias])
+                query_contexts[db_alias].__enter__()
+
+            try:
+                result = do_request()
+            finally:
+                for _, ctx in query_contexts.items():
+                    ctx.__exit__(None, None, None)
+
+            total_queries = sum(len(ctx) for ctx in query_contexts.values())
+            queries_by_db = ", ".join(f"{len(ctx)} to {db}" for db, ctx in query_contexts.items() if len(ctx) > 0)
+            self.assertEqual(
+                total_queries,
+                assert_num_queries,
+                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected",
+            )
+            return result
         else:
             return do_request()
 
@@ -4114,7 +4133,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     when it shouldn't be.
     """  # noqa: W605
 
-    databases = {"default", "replica"}
+    databases = {"default", "replica", "persons_db_writer", "persons_db_reader"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
         organization = Organization.objects.db_manager(dbname).create(
