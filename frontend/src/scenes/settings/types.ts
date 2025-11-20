@@ -91,6 +91,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'

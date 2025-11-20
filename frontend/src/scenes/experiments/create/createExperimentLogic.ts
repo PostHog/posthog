@@ -12,9 +12,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentExposureCriteria, ExperimentMetric, ProductKey } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
-import { ProductKey } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'

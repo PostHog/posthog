@@ -127,8 +127,13 @@ class AssistantFormOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: str
-    variant: Optional[str] = None
+    href: Optional[str] = Field(
+        default=None, description="When href is set, the button opens the link rather than sending an AI message."
+    )
+    value: str = Field(..., description="Button label, which is also the message that gets sent on click.")
+    variant: Optional[str] = Field(
+        default=None, description="'primary', 'secondary', or 'tertiary' - default 'secondary'"
+    )
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -274,6 +279,7 @@ class AssistantTool(StrEnum):
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1136,6 +1142,14 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingExplainIssueToolContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_name: str
+    stacktrace: str
+
+
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1463,15 +1477,6 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
-
-
 class Tag(StrEnum):
     ALPHA = "alpha"
     BETA = "beta"
@@ -1557,39 +1562,6 @@ class FileSystemIconType(StrEnum):
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
-
-
-class FileSystemImport(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    field_loading: Optional[bool] = Field(
-        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
-    )
-    category: Optional[str] = Field(default=None, description="Category label to place this under")
-    created_at: Optional[str] = Field(
-        default=None, description="Timestamp when file was added. Used to check persistence"
-    )
-    flag: Optional[str] = None
-    href: Optional[str] = Field(default=None, description="Object's URL")
-    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
-    iconType: Optional[FileSystemIconType] = None
-    id: Optional[str] = None
-    last_viewed_at: Optional[str] = Field(
-        default=None, description="Timestamp when the file system entry was last viewed"
-    )
-    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
-    path: str = Field(..., description="Object's name and folder")
-    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
-    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
-    sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
-    sceneKeys: Optional[list[str]] = Field(default=None, description="List of all scenes exported by the app")
-    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
-    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
-    type: Optional[str] = Field(
-        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
-    )
-    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2332,6 +2304,47 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProductKey(StrEnum):
+    ACTIONS = "actions"
+    ALERTS = "alerts"
+    ANNOTATIONS = "annotations"
+    COHORTS = "cohorts"
+    COMMENTS = "comments"
+    CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
+    EARLY_ACCESS_FEATURES = "early_access_features"
+    ENDPOINTS = "endpoints"
+    ERROR_TRACKING = "error_tracking"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "feature_flags"
+    GROUP_ANALYTICS = "group_analytics"
+    HEATMAPS = "heatmaps"
+    HISTORY = "history"
+    INGESTION_WARNINGS = "ingestion_warnings"
+    INTEGRATIONS = "integrations"
+    LINKS = "links"
+    LIVE_DEBUGGER = "live_debugger"
+    LLM_ANALYTICS = "llm_analytics"
+    LOGS = "logs"
+    MARKETING_ANALYTICS = "marketing_analytics"
+    MAX = "max"
+    MOBILE_REPLAY = "mobile_replay"
+    PERSONS = "persons"
+    PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
+    PIPELINE_DESTINATIONS = "pipeline_destinations"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    SESSION_REPLAY = "session_replay"
+    SITE_APPS = "site_apps"
+    SURVEYS = "surveys"
+    USER_INTERVIEWS = "user_interviews"
+    TEAMS = "teams"
+    WEB_ANALYTICS = "web_analytics"
+    WORKFLOWS = "workflows"
 
 
 class PropertyFilterType(StrEnum):
@@ -4254,6 +4267,51 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
+
+
+class FileSystemImport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field_loading: Optional[bool] = Field(
+        default=None, alias="_loading", description="Used to indicate pending actions, frontend only"
+    )
+    category: Optional[str] = Field(default=None, description="Category label to place this under")
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    flag: Optional[str] = None
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
+    iconType: Optional[FileSystemIconType] = None
+    id: Optional[str] = None
+    intents: Optional[list[ProductKey]] = Field(
+        default=None, description="Product key(s) that generate interest in this item when intent is triggered"
+    )
+    last_viewed_at: Optional[str] = Field(
+        default=None, description="Timestamp when the file system entry was last viewed"
+    )
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
+    sceneKeys: Optional[list[str]] = Field(default=None, description="List of all scenes exported by the app")
+    shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
+    tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
+    type: Optional[str] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
+    visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4591,6 +4649,26 @@ class PlanningStep(BaseModel):
     )
     description: str
     status: PlanningStepStatus
+
+
+class ProductItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Optional[str] = None
+    iconType: Optional[str] = None
+    intents: list[ProductKey]
+    path: str
+    type: Optional[str] = None
+
+
+class ProductsData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    games: list[ProductItem]
+    metadata: list[ProductItem]
+    products: list[ProductItem]
 
 
 class QueryResponseAlternative9(BaseModel):
@@ -4991,6 +5069,9 @@ class SavedInsightNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
@@ -15355,6 +15436,7 @@ class EndpointRequest(BaseModel):
         extra="forbid",
     )
     cache_age_seconds: Optional[float] = None
+    derived_from_insight: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_materialized: Optional[bool] = Field(
@@ -15733,6 +15815,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
