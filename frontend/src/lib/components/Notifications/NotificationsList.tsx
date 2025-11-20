@@ -68,7 +68,7 @@ function NotificationItem({ notification, onMarkRead }: NotificationItemProps): 
     return (
         <div
             className={clsx('p-3 hover:bg-secondary-highlight cursor-pointer transition-colors', {
-                'bg-primary-highlight': isUnread,
+                'bg-danger-highlight': isUnread,
             })}
             onClick={onMarkRead}
         >
@@ -76,6 +76,11 @@ function NotificationItem({ notification, onMarkRead }: NotificationItemProps): 
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                         <h4 className="m-0 text-sm font-semibold truncate">{notification.title}</h4>
+                        {isUnread && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium bg-danger-highlight text-danger rounded">
+                                Unread
+                            </span>
+                        )}
                         {notification.priority === 'urgent' && (
                             <span className="px-1.5 py-0.5 text-xs font-medium bg-danger text-white rounded">
                                 Urgent
