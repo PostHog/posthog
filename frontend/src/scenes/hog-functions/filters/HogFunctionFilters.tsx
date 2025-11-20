@@ -204,35 +204,39 @@ export function HogFunctionFilters({
 
                     return (
                         <>
-                            {useMapping && (
-                                <p className="mb-0 text-sm text-secondary">
-                                    Filters here apply for all events that could trigger this function, regardless of
-                                    mappings.
-                                </p>
+                            {isDataWarehouse ? null : (
+                                <>
+                                    {useMapping && (
+                                        <p className="mb-0 text-sm text-secondary">
+                                            Filters here apply for all events that could trigger this function,
+                                            regardless of mappings.
+                                        </p>
+                                    )}
+                                    {!isTransformation && (
+                                        <TestAccountFilterSwitch
+                                            checked={currentFilters?.filter_test_accounts ?? false}
+                                            onChange={(filter_test_accounts) => {
+                                                const newValue = { ...currentFilters, filter_test_accounts }
+                                                onChange(newValue)
+                                            }}
+                                            fullWidth
+                                        />
+                                    )}
+                                    <PropertyFilters
+                                        propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        onChange={(properties: AnyPropertyFilter[]) => {
+                                            const newValue = {
+                                                ...currentFilters,
+                                                properties,
+                                            }
+                                            onChange(newValue as CyclotronJobFiltersType)
+                                        }}
+                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                        excludedProperties={excludedProperties}
+                                    />
+                                </>
                             )}
-                            {!isTransformation && (
-                                <TestAccountFilterSwitch
-                                    checked={currentFilters?.filter_test_accounts ?? false}
-                                    onChange={(filter_test_accounts) => {
-                                        const newValue = { ...currentFilters, filter_test_accounts }
-                                        onChange(newValue)
-                                    }}
-                                    fullWidth
-                                />
-                            )}
-                            <PropertyFilters
-                                propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                onChange={(properties: AnyPropertyFilter[]) => {
-                                    const newValue = {
-                                        ...currentFilters,
-                                        properties,
-                                    }
-                                    onChange(newValue as CyclotronJobFiltersType)
-                                }}
-                                pageKey={`HogFunctionPropertyFilters.${id}`}
-                                excludedProperties={excludedProperties}
-                            />
 
                             {showEventMatchers ? (
                                 <>
