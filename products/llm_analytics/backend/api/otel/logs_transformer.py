@@ -72,7 +72,6 @@ def build_event_properties(
 
     # Extract message content from body
     body = log_record.get("body")
-    message_content = stringify_content(body) if body else None
 
     # Build base properties
     properties: dict[str, Any] = {}
@@ -104,26 +103,46 @@ def build_event_properties(
     if attributes.get("gen_ai.usage.output_tokens") is not None:
         properties["$ai_output_tokens"] = attributes["gen_ai.usage.output_tokens"]
 
-    # Message content
-    # Check for specific GenAI log attributes for prompts/completions
+    # Message content - handle v2 structured log events
+    # v2 instrumentation sends logs with event names like:
+    # - gen_ai.user.message (body: {"content": "..."})
+    # - gen_ai.assistant.message (body: {"content": "..."} or {"tool_calls": [...]})
+    # - gen_ai.choice (body: {"index": 0, "finish_reason": "stop", "message": {...}})
+
+    # Handle v2 message events
+    # v2 uses LogRecord.event_name (in attributes) and structured body
+    if isinstance(body, dict):
+        # v2 user/system messages: {"content": "..."}
+        if "content" in body and isinstance(body["content"], str):
+            content_text = body["content"]
+            # Determine if input or output based on context
+            # For now, store as generic message - the span will have role info
+            properties["$ai_message_content"] = content_text
+
+        # v2 assistant messages with tool calls: {"tool_calls": [...]}
+        if "tool_calls" in body and isinstance(body["tool_calls"], list):
+            properties["$ai_tool_calls"] = body["tool_calls"]
+
+        # v2 choice events: {"index": 0, "finish_reason": "stop", "message": {...}}
+        if "message" in body and isinstance(body["message"], dict):
+            message_obj = body["message"]
+            if "content" in message_obj:
+                properties["$ai_output_content"] = message_obj["content"]
+            if "tool_calls" in message_obj:
+                properties["$ai_tool_calls"] = message_obj["tool_calls"]
+            if "role" in message_obj:
+                properties["$ai_message_role"] = message_obj["role"]
+            if "finish_reason" in body:
+                properties["$ai_finish_reason"] = body["finish_reason"]
+
+    # Fallback: legacy v1-style attributes
     if attributes.get("gen_ai.prompt"):
         properties["$ai_input"] = stringify_content(attributes["gen_ai.prompt"])
     elif attributes.get("message.content"):
-        # Some instrumentation sends content in attributes
         properties["$ai_input"] = stringify_content(attributes["message.content"])
-    elif message_content and attributes.get("event.name") == "gen_ai.content.prompt":
-        # If event name indicates this is a prompt
-        properties["$ai_input"] = message_content
 
     if attributes.get("gen_ai.completion"):
         properties["$ai_output_choices"] = stringify_content(attributes["gen_ai.completion"])
-    elif message_content and attributes.get("event.name") == "gen_ai.content.completion":
-        # If event name indicates this is a completion
-        properties["$ai_output_choices"] = message_content
-
-    # If we have message content but haven't categorized it, store it generically
-    if message_content and "$ai_input" not in properties and "$ai_output_choices" not in properties:
-        properties["$ai_message"] = message_content
 
     # Severity
     if log_record.get("severity_number"):
