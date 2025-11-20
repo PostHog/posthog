@@ -12,86 +12,86 @@
             "category": "Unreleased",
             "iconType": "cohort",
             "type": null,
-            "intents": ["CUSTOMER_ANALYTICS"]
+            "intents": ["customer_analytics"]
         },
         {
             "path": "Dashboards",
             "category": "Analytics",
             "iconType": "dashboard",
             "type": "dashboard",
-            "intents": ["PRODUCT_ANALYTICS"]
+            "intents": ["product_analytics"]
         },
         {
             "path": "SQL editor",
             "category": "Analytics",
             "iconType": "sql_editor",
             "type": "sql",
-            "intents": ["DATA_WAREHOUSE_SAVED_QUERY", "DATA_WAREHOUSE"]
+            "intents": ["data_warehouse_saved_queries", "data_warehouse"]
         },
         {
             "path": "Data warehouse",
             "category": "Unreleased",
             "iconType": "data_warehouse",
             "type": null,
-            "intents": ["DATA_WAREHOUSE", "DATA_WAREHOUSE_SAVED_QUERY"]
+            "intents": ["data_warehouse", "data_warehouse_saved_queries"]
         },
         {
             "path": "Early access features",
             "category": "Features",
             "iconType": null,
             "type": "early_access_feature",
-            "intents": ["EARLY_ACCESS_FEATURES"]
+            "intents": ["early_access_features"]
         },
         {
             "path": "Endpoints",
             "category": "Unreleased",
             "iconType": "endpoints",
             "type": "endpoints",
-            "intents": ["ENDPOINTS"]
+            "intents": ["endpoints"]
         },
         {
             "path": "Error tracking",
             "category": "Behavior",
             "iconType": null,
             "type": "error_tracking",
-            "intents": ["ERROR_TRACKING"]
+            "intents": ["error_tracking"]
         },
         {
             "path": "Experiments",
             "category": "Features",
             "iconType": "experiment",
             "type": "experiment",
-            "intents": ["EXPERIMENTS"]
+            "intents": ["experiments"]
         },
         {
             "path": "Feature flags",
             "category": "Features",
             "iconType": null,
             "type": "feature_flag",
-            "intents": ["FEATURE_FLAGS", "EXPERIMENTS", "EARLY_ACCESS_FEATURES"]
+            "intents": ["feature_flags", "experiments", "early_access_features"]
         },
-        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["LINKS"] },
+        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
             "category": "Unreleased",
             "iconType": "live_debugger",
             "type": "live_debugger",
-            "intents": ["LIVE_DEBUGGER"]
+            "intents": ["live_debugger"]
         },
         {
             "path": "LLM analytics",
             "category": "Analytics",
             "iconType": null,
             "type": null,
-            "intents": ["LLM_ANALYTICS"]
+            "intents": ["llm_analytics"]
         },
-        { "path": "Logs", "category": "Unreleased", "iconType": null, "type": null, "intents": ["LOGS"] },
+        { "path": "Logs", "category": "Unreleased", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Product analytics",
             "category": "Analytics",
             "iconType": "product_analytics",
             "type": "insight",
-            "intents": ["PRODUCT_ANALYTICS"]
+            "intents": ["product_analytics"]
         },
         { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
         {
@@ -99,38 +99,38 @@
             "category": "Behavior",
             "iconType": "session_replay",
             "type": "session_recording_playlist",
-            "intents": ["SESSION_REPLAY", "MOBILE_REPLAY"]
+            "intents": ["session_replay", "mobile_replay"]
         },
-        { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["HEATMAPS"] },
+        { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
         {
             "path": "Revenue analytics",
             "category": "Analytics",
             "iconType": null,
             "type": "revenue",
-            "intents": ["REVENUE_ANALYTICS"]
+            "intents": ["revenue_analytics"]
         },
-        { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["SURVEYS"] },
+        { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
         {
             "path": "User interviews",
             "category": "Unreleased",
             "iconType": "user_interview",
             "type": "user_interview",
-            "intents": ["USER_INTERVIEWS"]
+            "intents": ["user_interviews"]
         },
         {
             "path": "Web analytics",
             "category": "Analytics",
             "iconType": "web_analytics",
             "type": null,
-            "intents": ["WEB_ANALYTICS", "MARKETING_ANALYTICS"]
+            "intents": ["web_analytics", "marketing_analytics"]
         },
         {
             "path": "Workflows",
             "category": "Tools",
             "iconType": "workflows",
             "type": "workflows",
-            "intents": ["WORKFLOWS"]
+            "intents": ["workflows"]
         }
     ],
     "games": [{ "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] }],
