@@ -5,7 +5,7 @@ import { IconCheck, IconCheckCircle, IconGear } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -21,7 +21,12 @@ export function NotificationsList(): JSX.Element {
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center justify-between p-3 border-b">
-                <h3 className="m-0 text-base font-semibold">Notifications</h3>
+                <div className="flex items-center gap-2">
+                    <h3 className="m-0 text-base font-semibold">Notifications</h3>
+                    <Tooltip title={showUnreadOnly ? 'Show all' : 'Show unread only'}>
+                        <LemonSwitch checked={showUnreadOnly} onChange={setShowUnreadOnly} bordered />
+                    </Tooltip>
+                </div>
                 <div className="flex gap-2">
                     {unreadCount > 0 && (
                         <LemonButton size="small" type="secondary" onClick={() => markAllAsRead()} icon={<IconCheck />}>
@@ -32,19 +37,6 @@ export function NotificationsList(): JSX.Element {
                         <LemonButton size="small" type="secondary" icon={<IconGear />} />
                     </Link>
                 </div>
-            </div>
-
-            <div className="p-2 border-b">
-                <LemonSegmentedButton
-                    value={showUnreadOnly ? 'unread' : 'all'}
-                    onChange={(value) => setShowUnreadOnly(value === 'unread')}
-                    options={[
-                        { value: 'unread', label: 'Unread only' },
-                        { value: 'all', label: 'All notifications' },
-                    ]}
-                    size="small"
-                    fullWidth
-                />
             </div>
 
             <div className="flex-1 overflow-y-auto">
