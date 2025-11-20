@@ -117,7 +117,7 @@ def trigger_coordinator(
         print("⏳ Executing coordinator workflow (this may take a while)...\n")
         result: dict[str, Any] = async_to_sync(client.execute_workflow)(
             "batch-trace-summarization-coordinator",
-            arg=inputs,
+            inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(hours=2),
@@ -217,7 +217,7 @@ def trigger_single_team(
         print("⏳ Executing workflow (this may take a while)...\n")
         result: dict[str, Any] = async_to_sync(client.execute_workflow)(
             "batch-trace-summarization",
-            arg=inputs,
+            inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
@@ -306,7 +306,7 @@ async def trigger_batch_summarization_async(
 
     result = await client.execute_workflow(
         "batch-trace-summarization",
-        arg=inputs,
+        inputs,
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
