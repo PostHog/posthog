@@ -1251,23 +1251,4 @@ impl TestContext {
         .await?;
         Ok(())
     }
-
-    /// Cleans up all test data from the database
-    /// This truncates all test-related tables in the correct order to handle foreign key constraints
-    pub async fn cleanup_all_test_data(&self) -> Result<(), Error> {
-        let mut persons_conn = self.persons_writer.get_connection().await?;
-        let mut non_persons_conn = self.non_persons_writer.get_connection().await?;
-
-        // Delete from persons DB (in dependency order)
-        sqlx::query("TRUNCATE TABLE posthog_cohortpeople, posthog_persondistinctid, posthog_person, posthog_grouptypemapping CASCADE")
-            .execute(&mut *persons_conn)
-            .await?;
-
-        // Delete from non-persons DB (in dependency order)
-        sqlx::query("TRUNCATE TABLE posthog_featureflagrollback, posthog_featureflagevaluationtag, posthog_featureflag, posthog_cohort, posthog_suppressionrule, posthog_personalapikey, posthog_organizationmembership, posthog_user, posthog_team, posthog_project, posthog_organization CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-
-        Ok(())
-    }
 }

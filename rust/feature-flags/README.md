@@ -21,23 +21,6 @@ Then, run the tests:
 cargo test --package feature-flags
 ```
 
-## Test database cleanup
-
-To clean up test data after running tests:
-
-```sh
-make test-clean        # Run tests then cleanup
-make cleanup           # Just cleanup without running tests
-```
-
-Or directly:
-
-```sh
-cargo test && cargo run --bin cleanup-test-db
-```
-
-This truncates all test data from the test databases. Useful after running tests to start fresh.
-
 ## To watch changes
 
 ```sh
