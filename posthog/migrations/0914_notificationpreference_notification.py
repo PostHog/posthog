@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0905_alter_person_table"),
+        ("posthog", "0913_alter_survey_linked_insight"),
     ]
 
     operations = [
