@@ -158,7 +158,7 @@ def produce_notification_event(event: NotificationEvent) -> None:
         raise
 
 
-def notify(
+def broadcast_notification(
     team_id: int,
     resource_type: NotificationResourceType,
     event_type: str,
@@ -167,17 +167,35 @@ def notify(
     resource_id: Optional[str] = None,
     context: Optional[dict] = None,
     priority: NotificationPriority = "normal",
-) -> None:
+    user_id: Optional[int] = None,
+) -> bool:
     """
-    Simplified notification API (TEAM-SCOPED).
+    Simplified notification API with exception handling.
 
-    Sends a notification to all team members based on their preferences.
+    If user_id is provided, sends notification directly to that user.
+    If user_id is None, sends to all team members based on their preferences.
+
+    This function never raises exceptions - all errors are caught and logged.
+
+    Args:
+        team_id: Team ID
+        resource_type: Type of resource (e.g., "feature_flag", "alert")
+        event_type: Event type (e.g., "created", "triggered")
+        title: Notification title
+        message: Notification message
+        resource_id: Optional resource ID
+        context: Optional context dictionary
+        priority: Notification priority (default: "normal")
+        user_id: Optional user ID for direct user notification (bypasses preferences)
+
+    Returns:
+        bool: True if notification was sent successfully, False otherwise
 
     Example:
-        from posthog.notifications.producer import notify
+        from posthog.notifications.producer import broadcast_notification
 
-        # Alert triggered - notify team members who subscribed to alerts
-        notify(
+        # Broadcast to all team members (based on preferences)
+        broadcast_notification(
             team_id=team.id,
             resource_type="alert",
             event_type="triggered",
@@ -187,16 +205,77 @@ def notify(
             priority="urgent",
             context={"threshold": 10000, "current": 12500},
         )
+
+        # Send to specific user (bypasses preferences)
+        broadcast_notification(
+            team_id=team.id,
+            user_id=user.id,
+            resource_type="mention",
+            event_type="created",
+            title="You were mentioned",
+            message=f"{actor.name} mentioned you in a comment",
+        )
     """
-    produce_notification_event(
-        NotificationEvent(
+    try:
+        if user_id is not None:
+            # Direct user notification - bypass preference filter
+            from posthog.kafka_client.client import KafkaProducer
+            from posthog.kafka_client.topics import KAFKA_NOTIFICATION_USER_DISPATCH
+
+            data = {
+                "user_id": user_id,
+                "team_id": team_id,
+                "resource_type": resource_type,
+                "event_type": event_type,
+                "resource_id": resource_id,
+                "title": title,
+                "message": message,
+                "context": context or {},
+                "priority": priority,
+                "original_event_id": str(uuid.uuid4()),
+            }
+
+            producer = KafkaProducer()
+            future = producer.produce(
+                topic=KAFKA_NOTIFICATION_USER_DISPATCH,
+                data=data,
+                key=f"user:{user_id}",
+            )
+            future.get(timeout=5)
+
+            logger.info(
+                "notification_sent_to_user",
+                team_id=team_id,
+                user_id=user_id,
+                resource_type=resource_type,
+                event_type=event_type,
+                title=title,
+            )
+        else:
+            # Team-wide notification - goes through preference filter
+            produce_notification_event(
+                NotificationEvent(
+                    team_id=team_id,
+                    resource_type=resource_type,
+                    event_type=event_type,
+                    resource_id=resource_id,
+                    title=title,
+                    message=message,
+                    context=context,
+                    priority=priority,
+                )
+            )
+
+        return True
+
+    except Exception as e:
+        logger.exception(
+            "notification_broadcast_failed",
             team_id=team_id,
+            user_id=user_id,
             resource_type=resource_type,
             event_type=event_type,
-            resource_id=resource_id,
-            title=title,
-            message=message,
-            context=context,
-            priority=priority,
+            error=str(e),
+            error_type=type(e).__name__,
         )
-    )
+        return False
