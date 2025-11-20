@@ -23,7 +23,12 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_DATABASE, MATERIALIZED_COLUMNS_CACHE_TIMEOUT, TEST
+from posthog.settings import (
+    CLICKHOUSE_DATABASE,
+    MATERIALIZED_COLUMNS_CACHE_TIMEOUT,
+    MATERIALIZED_COLUMNS_USE_CACHE,
+    TEST,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +81,16 @@ class MaterializedColumn:
 
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
-        cache_key = f"materialized_columns:{table}"
+        if MATERIALIZED_COLUMNS_USE_CACHE:
+            cache_key: str = f"materialized_columns:{table}"
 
-        try:
-            cached_result = cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
-        except Exception:
-            # If cache fails, continue to query ClickHouse
-            pass
+            try:
+                cached_result = cache.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
+            except Exception:
+                # If cache fails, continue to query ClickHouse
+                pass
 
         with tags_context(name="get_all_materialized_columns"):
             result = sync_execute(
@@ -100,11 +106,12 @@ class MaterializedColumn:
                 ch_user=ClickHouseUser.HOGQL,
             )
 
-        try:
-            cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
-        except Exception:
-            # If cache set fails, log but don't fail the request
-            logger.warning("Failed to cache materialized columns for table %s", table)
+        if MATERIALIZED_COLUMNS_USE_CACHE:
+            try:
+                cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+            except Exception:
+                # If cache set fails, log but don't fail the request
+                logger.warning("Failed to cache materialized columns for table %s", table)
 
         return result
 

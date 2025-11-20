@@ -122,7 +122,7 @@ def test_update_cache(team: Team, user: User, cache):
 
     update_cache(caching_state.pk)
 
-    assert cache_keys(cache) == {caching_state.cache_key, "materialized_columns:events"}
+    assert cache_keys(cache) == {caching_state.cache_key}
     cached_result = json.loads(get_safe_cache(caching_state.cache_key))
     assert cached_result["results"] is not None
     assert cached_result["last_refresh"] == "2020-01-04T13:01:01Z"
@@ -142,7 +142,7 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 
     update_cache(caching_state1.pk)
 
-    assert cache_keys(cache) == {caching_state1.cache_key, "materialized_columns:events"}
+    assert cache_keys(cache) == {caching_state1.cache_key}
 
     updated_caching_states = InsightCachingState.objects.filter(team=team)
     assert all(state.cache_key == caching_state1.cache_key for state in updated_caching_states)
