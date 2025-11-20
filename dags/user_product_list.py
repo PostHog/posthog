@@ -170,7 +170,7 @@ def populate_user_product_list_job():
     """
     Add products to users' product lists with configurable options.
     - product_paths: List of product paths to add (required)
-    - reason: Optional reason ('usage', 'new_product', 'sales_led')
+    - reason: Optional reason from UserProductList.Reason
     - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
     - user_created_before: Only process users created before this date (ISO format)
