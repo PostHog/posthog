@@ -509,7 +509,6 @@ def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
     return """
 INSERT INTO {database}.{writable_table}
 {select_sql}
-SETTINGS insert_distributed_sync = 1
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
@@ -526,7 +525,6 @@ def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_sourc
     return """
 INSERT INTO {database}.{writable_table}
 {select_sql}
-SETTINGS insert_distributed_sync = 1
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),

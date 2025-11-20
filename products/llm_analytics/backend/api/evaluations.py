@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -9,6 +11,8 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
@@ -101,3 +105,117 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
             queryset = queryset.filter(deleted=False)
 
         return queryset
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        # Calculate properties for tracking
+        conditions = instance.conditions or []
+        condition_count = len(conditions)
+        has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
+
+        # Get prompt length if available
+        prompt_length = 0
+        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+            prompt = instance.evaluation_config.get("prompt", "")
+            if isinstance(prompt, str):
+                prompt_length = len(prompt)
+
+        # Track evaluation created
+        report_user_action(
+            cast(User, self.request.user),
+            "llma evaluation created",
+            {
+                "evaluation_id": str(instance.id),
+                "evaluation_name": instance.name,
+                "evaluation_type": instance.evaluation_type,
+                "output_type": instance.output_type,
+                "has_description": bool(instance.description),
+                "enabled": instance.enabled,
+                "condition_count": condition_count,
+                "has_rollout_percentage": has_rollout_percentage,
+                "prompt_length": prompt_length,
+            },
+            self.team,
+        )
+
+    def perform_update(self, serializer):
+        # Check if this is a deletion (soft delete)
+        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+        # Capture old enabled state before save (for deletion tracking)
+        old_enabled_value = serializer.instance.enabled
+
+        # Track changes before update
+        changed_fields: list[str] = []
+        enabled_changed = False
+        enabled_new_value = None
+        condition_count_changed = False
+        condition_count_new = 0
+        prompt_changed = False
+
+        for field in [
+            "name",
+            "description",
+            "enabled",
+            "evaluation_type",
+            "output_type",
+            "evaluation_config",
+            "output_config",
+            "conditions",
+            "deleted",
+        ]:
+            if field in serializer.validated_data:
+                old_value = getattr(serializer.instance, field)
+                new_value = serializer.validated_data[field]
+                if old_value != new_value:
+                    changed_fields.append(field)
+
+                    if field == "enabled":
+                        enabled_changed = True
+                        enabled_new_value = new_value
+                    elif field == "conditions":
+                        condition_count_changed = True
+                        condition_count_new = len(new_value) if new_value else 0
+                    elif field == "evaluation_config":
+                        # Check if prompt changed
+                        old_prompt = old_value.get("prompt", "") if isinstance(old_value, dict) else ""
+                        new_prompt = new_value.get("prompt", "") if isinstance(new_value, dict) else ""
+                        if old_prompt != new_prompt:
+                            prompt_changed = True
+
+        instance = serializer.save()
+
+        # Track appropriate event
+        if is_deletion:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma evaluation deleted",
+                {
+                    "evaluation_id": str(instance.id),
+                    "evaluation_name": instance.name,
+                    "was_enabled": old_enabled_value,
+                },
+                self.team,
+            )
+        elif changed_fields:
+            event_properties: dict[str, Any] = {
+                "evaluation_id": str(instance.id),
+                "changed_fields": changed_fields,
+            }
+
+            if enabled_changed:
+                event_properties["enabled_changed"] = True
+                event_properties["enabled_new_value"] = enabled_new_value
+            if condition_count_changed:
+                event_properties["condition_count_changed"] = True
+                event_properties["condition_count_new"] = condition_count_new
+            if prompt_changed:
+                event_properties["prompt_changed"] = True
+
+            report_user_action(
+                cast(User, self.request.user),
+                "llma evaluation updated",
+                event_properties,
+                self.team,
+            )
