@@ -1,0 +1,588 @@
+# serializer version: 1
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_filters
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array() AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_day_point
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 01:00:00', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_month_point
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfMonth(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-31 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_before_range
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_before_range_materialized
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array("mat_pp_bar") AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range_materialized
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array("mat_pp_bar") AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_breakdown
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'foo'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_breakdown_materialized
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array("mat_pp_bar", "mat_pp_foo") AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."mat_pp_foo" AS "mat_pp_foo",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "mat_pp_foo",
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_filter_on_series
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'foo'), '^"|"$', '')) AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_filter_on_series_materialized
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp, properties,
+                    end_event_number - start_event_number AS relevant_event_count
+  FROM
+    (SELECT timestamp, properties,
+                       start_event_number,
+                       leadInFrame(start_event_number) OVER (
+                                                             ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT timestamp, person_properties AS properties,
+                          array("mat_pp_bar", "mat_pp_foo") AS relevant_property_values,
+                          lagInFrame(relevant_property_values) OVER (
+                                                                     ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+                                                                    row_number() OVER (
+                                                                                       ORDER BY timestamp ASC) AS start_event_number
+        FROM (
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."mat_pp_foo" AS "mat_pp_foo",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND person_id = '00000000-0000-0000-0000-000000000000'
+                   AND event = '$pageview'
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "mat_pp_foo",
+                        '' AS "person_properties")))
+     WHERE start_event_number = 1
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL )
+  WHERE timestamp IS NOT NULL
+  '''
+# ---
