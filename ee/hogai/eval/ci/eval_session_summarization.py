@@ -114,7 +114,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # Specific time frame differs from current filters
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Sessions from yesterday",
                         "session_summarization_limit": -1,
                     },
@@ -128,7 +128,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch sessions of the user 09081 in the last 30 days",
                         "should_use_current_filters": False,  # Specific user and timeframe
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "User 09081 sessions (last 30 days)",
                         "session_summarization_limit": -1,
                     },
@@ -142,7 +142,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "analyze mobile user sessions from last week",
                         "should_use_current_filters": False,  # Specific device type and timeframe
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Mobile user sessions (last week)",
                         "session_summarization_limit": -1,
                     },
@@ -156,13 +156,13 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from the last 30 days with test accounts included",
                         "should_use_current_filters": False,  # Different time frame/conditions
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "All sessions with test accounts (last 30 days)",
                         "session_summarization_limit": -1,
                     },
                 ),
             ),
-            # Cases where should_use_current_filters should be true (referring to current/selected filters)
+            # Cases where should_use_current_filters should be true and specific_session_ids_to_summarize empty (referring to current/selected filters)
             EvalCase(
                 input="summarize these sessions",
                 expected=AssistantToolCall(
@@ -171,7 +171,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize these sessions",
                         "should_use_current_filters": True,  # "these" refers to current filters
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "All sessions (last 7 days)",
                         "session_summarization_limit": -1,
                     },
@@ -185,7 +185,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize all sessions",
                         "should_use_current_filters": True,  # "all" in context of filtered view
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "All sessions (last 7 days)",
                         "session_summarization_limit": -1,
                     },
@@ -199,7 +199,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from the last 7 days with test accounts filtered out",
                         "should_use_current_filters": True,  # Matches current filters exactly
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "All sessions, no test accounts (last 7 days)",
                         "session_summarization_limit": -1,
                     },
@@ -214,7 +214,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "show me what users did with our app",
                         "should_use_current_filters": True,  # Analyzing user behavior, use current context
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "All sessions (last 7 days)",
                         "session_summarization_limit": -1,
                     },
@@ -236,7 +236,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
 @pytest.mark.django_db
 @patch("posthoganalytics.feature_enabled", return_value=True)
 async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
-    """Test session summarization without search_session_recordings context - should_use_current_filters should always be false."""
+    """Test session summarization without search_session_recordings context - should_use_current_filters and specific_session_ids_to_summarize should always be false/empty."""
 
     async def task_without_context(messages):
         return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=False)
@@ -246,7 +246,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
         task=task_without_context,
         scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query", "summary_title"})],
         data=[
-            # All cases should have should_use_current_filters=false and should_use_current_session=false when no context
+            # All cases should have should_use_current_filters=false and specific_session_ids_to_summarize=[] when no context
             EvalCase(
                 input="summarize sessions from yesterday",
                 expected=AssistantToolCall(
@@ -255,7 +255,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # No context, always false
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "Sessions from yesterday",
                         "session_summarization_limit": -1,
                     },
@@ -269,7 +269,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "analyze the current recordings from today",
                         "should_use_current_filters": False,  # Even with "current", no context means false
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "Sessions from today",
                         "session_summarization_limit": -1,
                     },
@@ -283,7 +283,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "watch all session recordings",
                         "should_use_current_filters": False,  # Even with "all", no context means false
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "All session recordings",
                         "session_summarization_limit": -1,
                     },
@@ -322,7 +322,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize 50 sessions",
                         "should_use_current_filters": True,  # Assuming 50 sessions from the applied filters
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Last 50 sessions",
                         "session_summarization_limit": 50,
                     },
@@ -336,7 +336,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch the first 10 sessions from yesterday",
                         "should_use_current_filters": False,  # Ask for specific timeframe
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "First 10 sessions from yesterday",
                         "session_summarization_limit": 10,
                     },
@@ -350,7 +350,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "analyze top 200 sessions",
                         "should_use_current_filters": True,  # No specific timeframe, uses current filters
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Top 200 sessions",
                         "session_summarization_limit": 200,
                     },
@@ -365,7 +365,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions with at least 10 events",
                         "should_use_current_filters": False,  # New explicit filter condition
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Sessions with at least 10 events",
                         "session_summarization_limit": -1,  # This is a filter condition, not a limit
                     },
@@ -379,7 +379,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch sessions longer than 5 minutes from Chrome users",
                         "should_use_current_filters": False,  # Explicit requirement for Chrome users and duration
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "Sessions longer than 5 minutes from Chrome users",
                         "session_summarization_limit": -1,  # Duration is a filter, not a count limit
                     },
@@ -394,7 +394,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize first 15 of these sessions",
                         "should_use_current_filters": True,  # "these" refers to current filters
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "First 15 sessions",
                         "session_summarization_limit": 15,
                     },
@@ -409,7 +409,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch the 20 longest sessions from yesterday",
                         "should_use_current_filters": False,  # Ask for specific timeframe and condition
-                        "should_use_current_session": False,  # Multiple sessions, not the current one
+                        "specific_session_ids_to_summarize": [],  # Multiple sessions, not specific IDs
                         "summary_title": "20 longest sessions from yesterday",
                         "session_summarization_limit": 20,
                     },
@@ -433,7 +433,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize last 100 sessions",
                         "should_use_current_filters": False,
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "Last 100 sessions",
                         "session_summarization_limit": 100,
                     },
@@ -447,7 +447,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "analyze 3 sessions from each country",
                         "should_use_current_filters": False,
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "3 sessions from each country",
                         "session_summarization_limit": 3,
                     },
@@ -461,7 +461,7 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch first 7 recordings with checkout events",
                         "should_use_current_filters": False,
-                        "should_use_current_session": False,  # No context, always false
+                        "specific_session_ids_to_summarize": [],  # No context, always empty
                         "summary_title": "First 7 recordings with checkout events",
                         "session_summarization_limit": 7,
                     },
@@ -474,10 +474,10 @@ async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_
 
 @pytest.mark.django_db
 @patch("posthoganalytics.feature_enabled", return_value=True)
-async def eval_session_summarization_current_session(
+async def eval_session_summarization_specific_session_ids(
     patch_feature_enabled, call_root_for_replay_sessions, pytestconfig
 ):
-    """Test that should_use_current_session is correctly set when user refers to the session they are viewing."""
+    """Test that specific_session_ids_to_summarize is correctly populated when user refers to the session they are viewing."""
 
     async def task_with_current_session(messages):
         return await call_root_for_replay_sessions(
@@ -489,7 +489,7 @@ async def eval_session_summarization_current_session(
         task=task_with_current_session,
         scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query", "summary_title"})],
         data=[
-            # Cases where should_use_current_session should be True
+            # Cases where specific_session_ids_to_summarize should contain current session ID
             EvalCase(
                 input="can you analyze this session I'm watching and tell me what the user was trying to accomplish",
                 expected=AssistantToolCall(
@@ -498,7 +498,9 @@ async def eval_session_summarization_current_session(
                     args={
                         "session_summarization_query": "can you analyze this session I'm watching and tell me what the user was trying to accomplish",
                         "should_use_current_filters": False,  # Not using filters, using specific session
-                        "should_use_current_session": True,  # "this session I'm watching" refers to current session
+                        "specific_session_ids_to_summarize": [
+                            "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                        ],  # "this session I'm watching" refers to current session
                         "summary_title": "Current session analysis",
                         "session_summarization_limit": -1,
                     },
@@ -512,7 +514,9 @@ async def eval_session_summarization_current_session(
                     args={
                         "session_summarization_query": "what issues did the user face in the current recording I have open",
                         "should_use_current_filters": False,  # Not using filters, using specific session
-                        "should_use_current_session": True,  # "current recording I have open" refers to current session
+                        "specific_session_ids_to_summarize": [
+                            "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                        ],  # "current recording I have open" refers to current session
                         "summary_title": "User issues in current session",
                         "session_summarization_limit": -1,
                     },
@@ -526,7 +530,9 @@ async def eval_session_summarization_current_session(
                     args={
                         "session_summarization_query": "summarize what happened in this replay and identify any UX problems the user encountered",
                         "should_use_current_filters": False,  # Not using filters, using specific session
-                        "should_use_current_session": True,  # "this replay" refers to current session
+                        "specific_session_ids_to_summarize": [
+                            "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                        ],  # "this replay" refers to current session
                         "summary_title": "Current replay UX analysis",
                         "session_summarization_limit": -1,
                     },
@@ -540,7 +546,9 @@ async def eval_session_summarization_current_session(
                     args={
                         "session_summarization_query": "summarize the session",
                         "should_use_current_filters": False,  # Not using filters, using specific session
-                        "should_use_current_session": True,  # "the session" refers to current session
+                        "specific_session_ids_to_summarize": [
+                            "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                        ],  # "the session" refers to current session
                         "summary_title": "Current session analysis",
                         "session_summarization_limit": -1,
                     },
@@ -555,8 +563,44 @@ async def eval_session_summarization_current_session(
                     args={
                         "session_summarization_query": "review this session and tell me if it matches the behavior I'm filtering for",
                         "should_use_current_filters": False,  # Mutually exclusive - current session takes priority
-                        "should_use_current_session": True,  # "this session" refers to current session
+                        "specific_session_ids_to_summarize": [
+                            "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                        ],  # "this session" refers to current session
                         "summary_title": "Current session review",
+                        "session_summarization_limit": -1,
+                    },
+                ),
+            ),
+            # Cases where user provides explicit session ID(s)
+            EvalCase(
+                input="summarize session 01234567-89ab-cdef-0123-456789abcdef",
+                expected=AssistantToolCall(
+                    id="6",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize session 01234567-89ab-cdef-0123-456789abcdef",
+                        "should_use_current_filters": False,  # Using explicit session ID, not filters
+                        "specific_session_ids_to_summarize": [
+                            "01234567-89ab-cdef-0123-456789abcdef"
+                        ],  # Explicit session ID from query
+                        "summary_title": "Session 01234567-89ab-cdef-0123-456789abcdef",
+                        "session_summarization_limit": -1,
+                    },
+                ),
+            ),
+            EvalCase(
+                input="analyze sessions 01234567-89ab-cdef-0123-456789abcdef and fedcba98-7654-3210-fedc-ba9876543210",
+                expected=AssistantToolCall(
+                    id="7",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze sessions 01234567-89ab-cdef-0123-456789abcdef and fedcba98-7654-3210-fedc-ba9876543210",
+                        "should_use_current_filters": False,  # Using explicit session IDs, not filters
+                        "specific_session_ids_to_summarize": [
+                            "01234567-89ab-cdef-0123-456789abcdef",
+                            "fedcba98-7654-3210-fedc-ba9876543210",
+                        ],  # Multiple explicit session IDs from query
+                        "summary_title": "Sessions 01234567-89ab-cdef-0123-456789abcdef and fedcba98-7654-3210-fedc-ba9876543210",
                         "session_summarization_limit": -1,
                     },
                 ),
