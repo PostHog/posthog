@@ -449,6 +449,12 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
+        # Survey flags are exempt from evaluation tag requirements
+        # They are created automatically by the survey system and don't need manual tagging
+        creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
+        if creation_context == "surveys":
+            return attrs
+
         # Get the team to check if evaluation tags are required
         # The context uses a lambda for lazy evaluation
         get_team = self.context.get("get_team")

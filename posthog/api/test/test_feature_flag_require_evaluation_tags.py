@@ -303,3 +303,65 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         # Evaluation tags should remain unchanged
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
+
+    def test_create_survey_flag_without_tags_when_required(self):
+        """Test that survey flags can be created without tags even when requirement is enabled"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "survey-flag",
+                "name": "Survey Flag",
+                "creation_context": "surveys",
+            },
+            format="json",
+        )
+
+        # Should succeed because surveys are exempt from the requirement
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="survey-flag", team=self.team)
+        self.assertEqual(flag.evaluation_tags.count(), 0)
+
+    def test_create_experiment_flag_without_tags_when_required(self):
+        """Test that experiment flags cannot be created without tags when requirement is enabled"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "experiment-flag",
+                "name": "Experiment Flag",
+                "creation_context": "experiments",
+            },
+            format="json",
+        )
+
+        # Should fail because experiments are subject to the requirement
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("evaluation environment tag", str(response.content))
+
+    def test_create_experiment_flag_with_tags_when_required(self):
+        """Test that experiment flags can be created with tags when requirement is enabled"""
+        self.team.require_evaluation_environment_tags = True
+        self.team.save()
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "experiment-flag-with-tags",
+                "name": "Experiment Flag With Tags",
+                "tags": ["production"],
+                "evaluation_tags": ["production"],
+                "creation_context": "experiments",
+            },
+            format="json",
+        )
+
+        # Should succeed because experiment has evaluation tags
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="experiment-flag-with-tags", team=self.team)
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        self.assertEqual(eval_tag_names, {"production"})

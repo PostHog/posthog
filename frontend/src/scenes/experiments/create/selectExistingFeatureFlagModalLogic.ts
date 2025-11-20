@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
 
@@ -35,6 +36,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
 
     connect({
         actions: [eventUsageLogic, ['reportExperimentFeatureFlagModalOpened']],
+        values: [teamLogic, ['currentTeam']],
     }),
 
     actions({
@@ -133,6 +135,10 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                             : undefined,
                 }
             },
+        ],
+        isEvaluationTagsRequired: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
         ],
     }),
 ])

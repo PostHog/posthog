@@ -17,10 +17,21 @@ export const SelectExistingFeatureFlagModal = ({
     onClose: () => void
     onSelect: (flag: FeatureFlagType) => void
 }): JSX.Element => {
-    const { featureFlags, featureFlagsLoading, filters, pagination, isModalOpen } = useValues(
+    const { featureFlags, featureFlagsLoading, filters, pagination, isModalOpen, isEvaluationTagsRequired } = useValues(
         selectExistingFeatureFlagModalLogic
     )
     const { setFilters, resetFilters } = useActions(selectExistingFeatureFlagModalLogic)
+
+    const hasEvaluationTags = (flag: FeatureFlagType): boolean => {
+        return (flag.evaluation_tags?.length || 0) > 0
+    }
+
+    const getDisabledReason = (flag: FeatureFlagType): string | undefined => {
+        if (isEvaluationTagsRequired && !hasEvaluationTags(flag)) {
+            return 'This flag cannot be used because it has no evaluation environment tags'
+        }
+        return undefined
+    }
 
     const handleClose = (): void => {
         resetFilters()
@@ -56,33 +67,41 @@ export const SelectExistingFeatureFlagModal = ({
                             title: 'Key',
                             dataIndex: 'key',
                             sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
-                            render: (key, flag) => (
-                                <div className="flex items-center">
-                                    <div className="font-semibold">{key}</div>
-                                    <Link
-                                        to={urls.featureFlag(flag.id as number)}
-                                        target="_blank"
-                                        className="flex items-center"
-                                    >
-                                        <IconOpenInNew className="ml-1" />
-                                    </Link>
-                                </div>
-                            ),
+                            render: (key, flag) => {
+                                const disabled = !!getDisabledReason(flag)
+                                return (
+                                    <div className="flex items-center">
+                                        <div className={`font-semibold ${disabled ? 'text-muted' : ''}`}>{key}</div>
+                                        <Link
+                                            to={urls.featureFlag(flag.id as number)}
+                                            target="_blank"
+                                            className="flex items-center"
+                                        >
+                                            <IconOpenInNew className="ml-1" />
+                                        </Link>
+                                    </div>
+                                )
+                            },
                         },
                         {
                             title: 'Name',
                             dataIndex: 'name',
                             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+                            render: (name, flag) => {
+                                const disabled = !!getDisabledReason(flag)
+                                return <span className={disabled ? 'text-muted' : ''}>{name}</span>
+                            },
                         },
                         {
                             title: null,
                             render: function RenderActions(_, flag) {
+                                const disabledReason = getDisabledReason(flag)
                                 return (
                                     <div className="flex items-center justify-end">
                                         <LemonButton
                                             size="xsmall"
                                             type="primary"
-                                            disabledReason={undefined}
+                                            disabledReason={disabledReason}
                                             onClick={() => {
                                                 onSelect(flag)
                                                 handleClose()

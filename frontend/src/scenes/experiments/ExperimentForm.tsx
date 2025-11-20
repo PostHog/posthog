@@ -29,6 +29,7 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -54,10 +55,13 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
     const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
+
+    const isEvaluationTagsRequired = currentTeam?.require_evaluation_environment_tags || false
 
     return (
         <SceneContent>
@@ -99,24 +103,34 @@ const ExperimentFormFields = (): JSX.Element => {
                     name="feature_flag_key"
                     className="max-w-120"
                     help={
-                        <div className="flex items-center justify-between">
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                onClick={() => {
-                                    reportExperimentFeatureFlagModalOpened()
-                                    setShowFeatureFlagSelector(true)
-                                }}
-                            >
-                                <IconToggle className="mr-1" />
-                                Link to existing feature flag
-                            </LemonButton>
+                        <div className="flex flex-col space-y-2">
+                            {isEvaluationTagsRequired && (
+                                <div className="text-muted text-xs">
+                                    You cannot create a new feature flag for this experiment because evaluation
+                                    environment tags are required. Please link to an existing feature flag that has at
+                                    least one evaluation environment tag.
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={() => {
+                                        reportExperimentFeatureFlagModalOpened()
+                                        setShowFeatureFlagSelector(true)
+                                    }}
+                                >
+                                    <IconToggle className="mr-1" />
+                                    Link to existing feature flag
+                                </LemonButton>
+                            </div>
                         </div>
                     }
                 >
                     <LemonInput
                         placeholder="pricing-page-conversion"
                         data-attr="experiment-feature-flag-key"
+                        disabled={isEvaluationTagsRequired}
                         onFocus={() => {
                             // Auto-generate feature flag key from experiment name when focusing on empty field
                             if (!experiment.feature_flag_key && experiment.name) {
