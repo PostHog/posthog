@@ -6,7 +6,6 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { ActionsNode, DataWarehouseNode, EventsNode } from '~/queries/schema/schema-general'
-import { isDataWarehouseNode } from '~/queries/utils'
 import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
@@ -24,6 +23,8 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
         actions: [customerAnalyticsConfigLogic, ['updateEvents']],
     })),
     actions({
+        addEventToHighlight: (event: string) => ({ event }),
+        clearEventsToHighlight: true,
         clearFilterSelections: true,
         setActivityEventSelection: (filters: FilterType | null) => ({
             filters,
@@ -31,7 +32,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
         setSignupEventSelection: (filters: FilterType | null) => ({
             filters,
         }),
-        saveActivityEvent: true,
         saveEvents: true,
         toggleModalOpen: (isOpen?: boolean) => ({ isOpen }),
     }),
@@ -54,6 +54,13 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             false,
             {
                 toggleModalOpen: (state, { isOpen }) => (isOpen !== undefined ? isOpen : !state),
+            },
+        ],
+        eventsToHighlight: [
+            [] as string[],
+            {
+                addEventToHighlight: (state, { event }) => [...state, event],
+                clearEventsToHighlight: () => [],
             },
         ],
     }),
@@ -110,15 +117,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        saveActivityEvent: () => {
-            const filters = values.activityEventSelection
-            const activityEvents = actionsAndEventsToSeries(filters as any, true, MathAvailability.None)
-
-            if (activityEvents.length > 0 && !isDataWarehouseNode(activityEvents[0])) {
-                actions.updateActivityEvent(activityEvents[0])
-                actions.clearFilterSelections()
-            }
-        },
         saveEvents: () => {
             const events: Record<string, ActionsNode | EventsNode | DataWarehouseNode> = {}
             if (values.activityEventSelection) {

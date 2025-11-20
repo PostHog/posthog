@@ -11,36 +11,6 @@ import {
 } from '~/types'
 
 // Default placeholders for insights that need configuration
-export const SIGNED_UP: any = {
-    kind: NodeKind.EventsNode,
-    event: null,
-    properties: [],
-}
-
-export const SUBSCRIBED: any = {
-    kind: NodeKind.EventsNode,
-    event: null,
-    properties: [],
-}
-
-export const SUB_PAID: any = {
-    kind: NodeKind.EventsNode,
-    event: null,
-    properties: [],
-}
-
-export const ENGAGEMENT: any = {
-    kind: NodeKind.EventsNode,
-    event: null,
-    properties: [],
-}
-
-export const VIEWED_SIGNUP: any = {
-    kind: NodeKind.EventsNode,
-    event: null,
-    properties: [],
-}
-
 export const VISIT: any = {
     kind: NodeKind.EventsNode,
     event: null,

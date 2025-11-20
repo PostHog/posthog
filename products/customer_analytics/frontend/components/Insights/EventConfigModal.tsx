@@ -77,8 +77,11 @@ export interface EventSelectorProps {
 }
 
 function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
+    const { eventsToHighlight } = useValues(eventConfigModalLogic)
+    const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
+
     return (
-        <div className="space-y-1">
+        <div className={`p-2 ${highlight}`}>
             <div className="ml-1">
                 <LemonLabel>{title}</LemonLabel>
                 <p className="text-xs text-muted-alt">{caption}</p>
