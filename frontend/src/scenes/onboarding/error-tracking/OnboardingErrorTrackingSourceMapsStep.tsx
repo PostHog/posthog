@@ -128,7 +128,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
 
             {shouldShowSourceMapStatus && <SourceMapStatus />}
 
-            <EditKeyModal />
+            <EditKeyModal zIndex="1169" />
         </OnboardingStep>
     )
 }
