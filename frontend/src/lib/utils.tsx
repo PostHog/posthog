@@ -318,9 +318,9 @@ export const featureFlagOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: '= Exactly',
-    gte: '≥ At least',
-    lte: '≤ At most (but at least once)',
+    exact: '= exactly',
+    gte: '≥ at least',
+    lte: '≤ at most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
@@ -407,6 +407,10 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
         operator
     )
+}
+
+export function isOperatorBetween(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
 }
 
 /** Compare objects deeply. */
@@ -1504,7 +1508,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         .trim()
         .split('')
         .forEach((character) => {
-            if (character === '_' || character === '-') {
+            if (character === '_' || character === '-' || character === '/') {
                 if (currentWord) {
                     words.push(currentWord)
                 }

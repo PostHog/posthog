@@ -39,6 +39,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
+    [Scene.ExploreSessions]: () => import('./activity/explore/SessionsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.Group]: () => import('./groups/Group'),
@@ -72,6 +73,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Products]: () => import('./products/Products'),
+    [Scene.UseCaseSelection]: () => import('./onboarding/useCaseSelection/UseCaseSelection'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
@@ -86,6 +88,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.Site]: () => import('./sites/Site'),

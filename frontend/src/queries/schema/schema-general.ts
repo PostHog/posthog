@@ -79,6 +79,7 @@ export enum NodeKind {
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
+    SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
@@ -172,6 +173,7 @@ export type AnyDataNode =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -224,6 +226,7 @@ export type QuerySchema =
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -329,6 +332,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
 
@@ -501,6 +505,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
+    session_recording_id?: string
     person_uuid?: string
     distinct_ids?: string[]
     /**
@@ -625,6 +631,7 @@ export enum HogLanguage {
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
+    liquid = 'liquid',
 }
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
@@ -786,6 +793,48 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedSessionsQueryResponse = CachedQueryResponse<SessionsQueryResponse>
+
+export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
+    kind: NodeKind.SessionsQuery
+    /** Return a limited set of data. Required. */
+    select: HogQLExpression[]
+    /** HogQL filters to apply on returned data */
+    where?: HogQLExpression[]
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyFilterLike[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /**
+     * Number of rows to return
+     */
+    limit?: integer
+    /**
+     * Number of rows to skip before returning rows
+     */
+    offset?: integer
+    /** Show sessions for a given person */
+    personId?: string
+    /** Only fetch sessions that started before this timestamp */
+    before?: string
+    /** Only fetch sessions that started after this timestamp */
+    after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 /**
  * @deprecated Use `ActorsQuery` instead.
  */
@@ -823,6 +872,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | SessionsQuery
                     | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsMRRQuery
@@ -857,6 +907,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | SessionsQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -994,6 +1045,8 @@ interface DataTableNodeViewProps {
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show a recording column for events with session recordings */
+    showRecordingColumn?: boolean
     /** Show date range selector */
     showDateRange?: boolean
     /** Show the export button */
@@ -1022,6 +1075,8 @@ interface DataTableNodeViewProps {
     showOpenEditorButton?: boolean
     /** Show a results table */
     showResultsTable?: boolean
+    /** Show actors query options and back to source */
+    showSourceQueryOptions?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
@@ -2553,6 +2608,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
@@ -2635,6 +2692,7 @@ export type FileSystemIconType =
     | 'apps'
     | 'live'
     | 'chat'
+    | 'search'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2731,8 +2789,10 @@ export interface MaxExperimentSummaryContext {
     experiment_id: ExperimentIdType
     experiment_name: string
     description: string | null
+    exposures: Record<string, number> | null
     variants: string[]
-    metrics_results: MaxExperimentMetricResult[]
+    primary_metrics_results: MaxExperimentMetricResult[]
+    secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
 }
 
@@ -2826,6 +2886,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number
+    breakdownFilter?: BreakdownFilter
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2918,6 +2979,10 @@ export interface ExperimentQueryResponse {
     // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+
+    // Breakdown fields
+    /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -2977,9 +3042,24 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
     credible_interval?: [number, number]
 }
 
+/**
+ * Represents experiment results for a single breakdown combination.
+ * Each breakdown is treated as an independent A/B test with its own baseline and variants.
+ * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+ */
+export interface ExperimentBreakdownResult {
+    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
+    breakdown_value: BreakdownKeyType[]
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidated
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
 export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -4270,6 +4350,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4283,6 +4368,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [
@@ -4315,6 +4406,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'BingAds',
     'Shopify',
 ] as const
 
@@ -4381,4 +4473,12 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_type_index?: integer
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
+}
+
+export interface CustomerAnalyticsConfig {
+    activity_event: EventsNode | ActionsNode
+    signup_pageview_event: EventsNode | ActionsNode
+    signup_event: EventsNode | ActionsNode
+    subscription_event: EventsNode | ActionsNode
+    payment_event: EventsNode | ActionsNode
 }
