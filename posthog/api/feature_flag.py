@@ -1109,7 +1109,6 @@ def _proxy_to_flags_service(
             timeout=proxy_timeout,
         )
         response.raise_for_status()
-        logger.info(f"Flags service successfully proxied to, response: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
         logger.exception("Failed to proxy to flags service: %s", e)
