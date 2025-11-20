@@ -686,7 +686,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             resp = capture_internal(
-                token=instance.team.api_token,
+                token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
                 distinct_id=distinct_id,
@@ -871,7 +871,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         input = RecordingsWithPersonInput(
             distinct_ids=person.distinct_ids,
-            team_id=person.team.id,
+            team_id=self.team_id,
         )
         workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 

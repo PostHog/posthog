@@ -1,12 +1,4 @@
 # serializer version: 1
-# name: TestPerson.test_delete_person
-  '''
-  DELETE
-  FROM posthog_person
-  WHERE team_id = 99999
-    AND id = 99999
-  '''
-# ---
 # name: TestPerson.test_filter_person_email
   '''
   /* user_id:0 request:_snapshot_ */
@@ -545,14 +537,6 @@
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestPersonFromClickhouse.test_delete_person
-  '''
-  DELETE
-  FROM posthog_person
-  WHERE team_id = 99999
-    AND id = 99999
   '''
 # ---
 # name: TestPersonFromClickhouse.test_filter_person_email
