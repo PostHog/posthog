@@ -1432,7 +1432,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
         },
         configuration: (configuration, oldConfiguration) => {
-            if (configuration?.filters?.source !== oldConfiguration?.filters?.source) {
+            if (
+                typeof configuration?.filters?.source === 'string' &&
+                typeof oldConfiguration?.filters?.source === 'string' &&
+                configuration?.filters?.source !== oldConfiguration?.filters?.source
+            ) {
                 actions.setConfigurationValue('filters', {
                     ...configuration.filters,
                     events: [],
