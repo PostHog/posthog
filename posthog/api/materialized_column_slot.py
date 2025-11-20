@@ -10,10 +10,10 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from temporalio.common import RetryPolicy
 
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
 from posthog.permissions import IsStaffUserOrImpersonating
@@ -72,74 +72,55 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
         ]
 
 
-class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
+class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
     queryset = MaterializedColumnSlot.objects.all().select_related("property_definition", "team")
-    permission_classes = [IsAuthenticated, IsStaffUserOrImpersonating]
+    permission_classes = [IsStaffUserOrImpersonating]
     serializer_class = MaterializedColumnSlotSerializer
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        team_id = self.request.query_params.get("team_id")
-        if team_id:
-            queryset = queryset.filter(team_id=team_id)
-        return queryset.order_by("property_type", "slot_index")
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team_id).order_by("property_type", "slot_index")
 
     @action(methods=["GET"], detail=False)
-    def slot_usage(self, request):
+    def slot_usage(self, request, **kwargs):
         """Get slot usage summary for a team."""
-        team_id = request.query_params.get("team_id")
-        if not team_id:
-            return response.Response({"error": "team_id is required"}, status=400)
-
-        try:
-            team = Team.objects.get(id=team_id)
-        except Team.DoesNotExist:
-            return response.Response({"error": "Team not found"}, status=404)
-
         # Duration properties are PostHog system properties and should never be materialized
         # This filters them out defensively - if any exist, they indicate a data integrity issue
         allowed_types = [t for t in PropertyType.values if t != PropertyType.Duration]
 
         # Check for any unexpected Duration slots and log an error
         duration_count = MaterializedColumnSlot.objects.filter(
-            team_id=team_id, property_type=PropertyType.Duration
+            team_id=self.team_id, property_type=PropertyType.Duration
         ).count()
         if duration_count > 0:
             logger.error(
                 "Found materialized Duration properties",
-                team_id=team_id,
+                team_id=self.team_id,
                 count=duration_count,
             )
 
         usage = {}
         for prop_type in allowed_types:
-            count = MaterializedColumnSlot.objects.filter(team_id=team_id, property_type=prop_type).count()
+            count = MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=prop_type).count()
             usage[prop_type] = {"used": count, "total": 10, "available": 10 - count}
 
         return response.Response(
             {
-                "team_id": team_id,
-                "team_name": team.name,
+                "team_id": self.team_id,
+                "team_name": self.team.name,
                 "usage": usage,
             }
         )
 
     @action(methods=["GET"], detail=False)
-    def available_properties(self, request):
+    def available_properties(self, request, **kwargs):
         """Get properties that can be materialized for a team.
 
         Only returns custom properties and feature flag properties.
         Excludes PostHog system properties, Duration type properties, and properties already auto-materialized.
         """
-        team_id = request.query_params.get("team_id")
-        if not team_id:
-            return response.Response({"error": "team_id is required"}, status=400)
-
-        if not Team.objects.filter(id=team_id).exists():
-            return response.Response({"error": "Team not found"}, status=404)
-
         # Get properties that are not already materialized and have a property_type set
-        already_materialized = MaterializedColumnSlot.objects.filter(team_id=team_id).values_list(
+        already_materialized = MaterializedColumnSlot.objects.filter(team_id=self.team_id).values_list(
             "property_definition_id", flat=True
         )
 
@@ -152,7 +133,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         # Only show event properties since materialized columns are for the events table
         available_properties = (
             PropertyDefinition.objects.filter(
-                team_id=team_id,
+                team_id=self.team_id,
                 property_type__isnull=False,
                 property_type__in=allowed_types,
                 type=PropertyDefinition.Type.EVENT,
@@ -174,7 +155,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         return response.Response(PropertyDefinitionSerializer(filtered_properties, many=True).data)
 
     @action(methods=["GET"], detail=False)
-    def auto_materialized(self, request):
+    def auto_materialized(self, request, **kwargs):
         """Get properties that PostHog has automatically materialized.
 
         These are managed by PostHog's automatic materialization system and cannot be modified here.
@@ -208,19 +189,15 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             return response.Response({"error": str(e)}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(methods=["POST"], detail=False)
-    def assign_slot(self, request):
+    def assign_slot(self, request, **kwargs):
         """Assign a property to an available slot."""
-        team_id = request.data.get("team_id")
         property_definition_id = request.data.get("property_definition_id")
 
-        if not team_id or not property_definition_id:
-            return response.Response({"error": "team_id and property_definition_id are required"}, status=400)
+        if not property_definition_id:
+            return response.Response({"error": "property_definition_id is required"}, status=400)
 
         try:
-            team = Team.objects.get(id=team_id)
-            property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=team_id)
-        except Team.DoesNotExist:
-            return response.Response({"error": "Team not found"}, status=404)
+            property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
         except PropertyDefinition.DoesNotExist:
             return response.Response({"error": "Property definition not found"}, status=404)
 
@@ -246,12 +223,14 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             )
 
         # Check if property is already materialized
-        if MaterializedColumnSlot.objects.filter(team_id=team_id, property_definition=property_definition).exists():
+        if MaterializedColumnSlot.objects.filter(
+            team_id=self.team_id, property_definition=property_definition
+        ).exists():
             return response.Response({"error": "Property is already materialized"}, status=400)
 
         # Find next available slot for this property type
         used_slots = set(
-            MaterializedColumnSlot.objects.filter(team_id=team_id, property_type=property_definition.property_type)
+            MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=property_definition.property_type)
             .values_list("slot_index", flat=True)
             .distinct()
         )
@@ -269,7 +248,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
 
         # Create the slot assignment
         slot = MaterializedColumnSlot.objects.create(
-            team=team,
+            team=self.team,
             property_definition=property_definition,
             property_type=property_definition.property_type,
             slot_index=available_slot,
@@ -284,7 +263,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             handle = await client.start_workflow(
                 "backfill-materialized-property",
                 BackfillMaterializedPropertyInputs(
-                    team_id=team_id,
+                    team_id=self.team_id,
                     slot_id=str(slot.id),
                 ),
                 id=workflow_id,
@@ -301,7 +280,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             logger.info(
                 "Started backfill workflow",
                 slot_id=slot.id,
-                team_id=team_id,
+                team_id=self.team_id,
                 workflow_id=workflow_id,
                 property_name=property_definition.name,
             )
@@ -309,7 +288,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
             logger.exception(
                 "Failed to start backfill workflow",
                 slot_id=slot.id,
-                team_id=team_id,
+                team_id=self.team_id,
                 property_name=property_definition.name,
                 error=str(e),
             )
@@ -322,8 +301,8 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
 
         # Log activity
         log_activity(
-            organization_id=team.organization_id,
-            team_id=team_id,
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
             user=request.user,
             was_impersonated=is_impersonated_session(request),
             item_id=str(slot.id),
@@ -416,7 +395,7 @@ class MaterializedColumnSlotViewSet(viewsets.ModelViewSet):
         return response.Response(status=http_status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=True)
-    def retry_backfill(self, request, pk=None):
+    def retry_backfill(self, request, pk=None, **kwargs):
         """Retry backfill for a slot in ERROR state."""
         slot = self.get_object()
 
