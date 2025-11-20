@@ -13,7 +13,7 @@ import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportInsertInputs, WorkflowsBatchExportInputs
+from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -36,6 +36,20 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = []
+
+
+def workflows_default_fields() -> list[BatchExportField]:
+    return [
+        BatchExportField(expression="uuid", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
+        BatchExportField(expression="created_at", alias="created_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="person_id", alias="event"),
+        BatchExportField(expression="properties", alias="properties"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
+    ]
 
 
 def configure_default_ssl_context():
@@ -227,6 +241,7 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
+            destination_default_fields=workflows_default_fields(),
         )
 
         insert_inputs = WorkflowsInsertInputs(
