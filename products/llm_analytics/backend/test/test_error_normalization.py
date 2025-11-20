@@ -17,7 +17,7 @@ from products.llm_analytics.backend.queries import get_errors_query
 
 
 class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
-    """Test the 10-step error normalization pipeline."""
+    """Test the 15-step error normalization pipeline."""
 
     # Test constants for long error messages
     GCP_PATH_1 = "Model projects/123/locations/us-west2/publishers/google/models/gemini-pro not found"
