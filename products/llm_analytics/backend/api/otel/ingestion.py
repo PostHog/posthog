@@ -3,9 +3,13 @@ OpenTelemetry traces and logs ingestion API endpoints.
 
 Accepts OTLP/HTTP (protobuf) format traces and logs and converts them to PostHog AI events.
 
+Supports both OpenAI instrumentation versions:
+- v1 (opentelemetry-instrumentation-openai): Sends everything as trace span attributes
+- v2 (opentelemetry-instrumentation-openai-v2): Sends metadata as spans, message content as logs
+
 Endpoints:
-- POST /api/projects/:project_id/ai/otel/v1/traces
-- POST /api/projects/:project_id/ai/otel/v1/logs
+- POST /api/projects/:project_id/ai/otel/v1/traces - Required for all instrumentation
+- POST /api/projects/:project_id/ai/otel/v1/logs - Required for v2 instrumentation with message content
 
 Content-Type: application/x-protobuf
 Authorization: Bearer <project_token>
