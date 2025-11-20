@@ -410,6 +410,11 @@ if not EMBEDDING_API_URL:
 # Dedicated Redis for feature flags
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
+
+# Rust feature flags service URL
+# This is used to proxy flag evaluation requests to the Rust feature flags service
+FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 

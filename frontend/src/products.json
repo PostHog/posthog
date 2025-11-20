@@ -1,0 +1,66 @@
+{
+    "products": [
+        { "path": "Data pipelines", "category": "Tools", "iconType": "data_pipeline", "type": "hog_function" },
+        { "path": "Customer analytics", "category": "Unreleased", "iconType": "cohort", "type": null },
+        { "path": "Dashboards", "category": "Analytics", "iconType": "dashboard", "type": "dashboard" },
+        { "path": "SQL editor", "category": "Analytics", "iconType": "sql_editor", "type": "sql" },
+        { "path": "Data warehouse", "category": "Unreleased", "iconType": "data_warehouse", "type": null },
+        { "path": "Early access features", "category": "Features", "iconType": null, "type": "early_access_feature" },
+        { "path": "Endpoints", "category": "Unreleased", "iconType": "endpoints", "type": "endpoints" },
+        { "path": "Error tracking", "category": "Behavior", "iconType": null, "type": "error_tracking" },
+        { "path": "Experiments", "category": "Features", "iconType": "experiment", "type": "experiment" },
+        { "path": "Feature flags", "category": "Features", "iconType": null, "type": "feature_flag" },
+        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link" },
+        { "path": "Live Debugger", "category": "Unreleased", "iconType": "live_debugger", "type": "live_debugger" },
+        { "path": "LLM analytics", "category": "Analytics", "iconType": null, "type": null },
+        { "path": "Logs", "category": "Unreleased", "iconType": null, "type": null },
+        { "path": "Product analytics", "category": "Analytics", "iconType": "product_analytics", "type": "insight" },
+        { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook" },
+        {
+            "path": "Session replay",
+            "category": "Behavior",
+            "iconType": "session_replay",
+            "type": "session_recording_playlist"
+        },
+        { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null },
+        { "path": "Revenue analytics", "category": "Analytics", "iconType": null, "type": "revenue" },
+        { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey" },
+        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task" },
+        { "path": "User interviews", "category": "Unreleased", "iconType": "user_interview", "type": "user_interview" },
+        { "path": "Web analytics", "category": "Analytics", "iconType": "web_analytics", "type": null },
+        { "path": "Workflows", "category": "Tools", "iconType": "workflows", "type": "workflows" }
+    ],
+    "games": [{ "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null }],
+    "metadata": [
+        { "path": "Actions", "category": "Schema", "iconType": null, "type": null },
+        { "path": "Data pipelines", "category": "Tools", "iconType": "data_pipeline", "type": "hog_function" },
+        {
+            "path": "Transformations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/transformation"
+        },
+        {
+            "path": "Destinations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/destination"
+        },
+        { "path": "Ingestion warnings", "category": "Pipeline", "iconType": "ingestion_warning", "type": null },
+        {
+            "path": "Sources",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "hog_function/source"
+        },
+        { "path": "Managed viewsets", "category": "Unreleased", "iconType": "managed_viewsets", "type": null },
+        { "path": "Endpoints", "category": "Unreleased", "iconType": null, "type": null },
+        { "path": "Event definitions", "category": "Schema", "iconType": "event_definition", "type": null },
+        { "path": "Property definitions", "category": "Schema", "iconType": "property_definition", "type": null },
+        { "path": "Property groups", "category": "Schema", "iconType": "event_definition", "type": null },
+        { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null },
+        { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null },
+        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null },
+        { "path": "Marketing settings", "category": "Unreleased", "iconType": "marketing_settings", "type": null }
+    ]
+}
