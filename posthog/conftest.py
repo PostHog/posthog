@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 from django.conf import settings
+from django.core.management.commands.flush import Command as FlushCommand
+from django.db import connections
 
 from infi.clickhouse_orm import Database
 
@@ -288,6 +290,42 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
         database.drop_database()
 
 
+@pytest.fixture(autouse=True)
+def patch_flush_command_for_persons_db(monkeypatch):
+    """
+    Patch Django's flush command to handle persons database properly.
+
+    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
+    so we need to skip emitting post_migrate signals that would try to create them.
+
+    This is needed for non-Django test classes (pytest, temporal, async tests).
+    Django test classes handle this in _fixture_teardown in test/base.py.
+    """
+    original_handle = FlushCommand.handle
+
+    def patched_handle(self, **options):
+        database = options.get("database")
+
+        if database in ("persons_db_writer", "persons_db_reader"):
+            # Manually truncate persons database tables without emitting signals
+            conn = connections[database]
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                    AND tablename NOT LIKE 'pg_%'
+                    AND tablename NOT LIKE '_sqlx_%'
+                    AND tablename NOT LIKE '_persons_migrations'
+                """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        else:
+            return original_handle(self, **options)
+
+    monkeypatch.setattr(FlushCommand, "handle", patched_handle)
+
+
 @pytest.fixture
 def base_test_mixin_fixture():
     kls = PostHogTestCase()
@@ -349,18 +387,6 @@ def mock_email_mfa_verifier(request, mocker):
     mocker.patch(
         "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
     )
-
-
-def pytest_sessionstart():
-    """
-    A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
-    no longer managed by django
-    """
-    from django.apps import apps
-
-    unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
-    for m in unmanaged_models:
-        m._meta.managed = True
 
 
 def pytest_configure(config):
