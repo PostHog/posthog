@@ -274,6 +274,7 @@ class AssistantTool(StrEnum):
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1136,6 +1137,14 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingExplainIssueToolContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_name: str
+    stacktrace: str
+
+
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1439,6 +1448,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
 
 
@@ -1460,15 +1470,6 @@ class FailureMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
-
-
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
 
 
 class Tag(StrEnum):
@@ -1891,6 +1892,7 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
+    BING_ADS = "bing-ads"
 
 
 class IntervalType(StrEnum):
@@ -2939,6 +2941,13 @@ class SurveyQuestionType(StrEnum):
     SINGLE_CHOICE = "single_choice"
     RATING = "rating"
     LINK = "link"
+
+
+class SurveyTabPosition(StrEnum):
+    TOP = "top"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTTOM = "bottom"
 
 
 class SurveyType(StrEnum):
@@ -4245,6 +4254,15 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4983,6 +5001,9 @@ class SavedInsightNode(BaseModel):
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
     )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -4991,6 +5012,9 @@ class SavedInsightNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTable: Optional[bool] = None
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
@@ -5284,6 +5308,7 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    tabPosition: Optional[SurveyTabPosition] = None
     textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
@@ -11895,6 +11920,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -12722,6 +12748,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CustomerAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    activity_event: Union[EventsNode, ActionsNode]
+    payment_event: Union[EventsNode, ActionsNode]
+    signup_event: Union[EventsNode, ActionsNode]
+    signup_pageview_event: Union[EventsNode, ActionsNode]
+    subscription_event: Union[EventsNode, ActionsNode]
 
 
 class Response3(BaseModel):
@@ -15330,6 +15367,7 @@ class EndpointRequest(BaseModel):
         extra="forbid",
     )
     cache_age_seconds: Optional[float] = None
+    derived_from_insight: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_materialized: Optional[bool] = Field(
@@ -15709,6 +15747,9 @@ class DataTableNode(BaseModel):
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
     )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
     showSavedFilters: Optional[bool] = Field(
@@ -15716,6 +15757,9 @@ class DataTableNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[

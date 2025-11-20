@@ -114,6 +114,9 @@ export const logsLogic = kea<logsLogicType>([
             value,
             operator,
         }),
+        togglePinLog: (logId: string) => ({ logId }),
+        pinLog: (log: LogMessage) => ({ log }),
+        unpinLog: (logId: string) => ({ logId }),
     }),
 
     reducers({
@@ -226,6 +229,14 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
+        pinnedLogs: [
+            [] as LogMessage[],
+            { persist: true },
+            {
+                pinLog: (state, { log }) => [...state, log],
+                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -314,6 +325,25 @@ export const logsLogic = kea<logsLogicType>([
                     return { ...log, cleanBody, parsedBody }
                 })
             },
+        ],
+        pinnedParsedLogs: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
+                return pinnedLogs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
+        ],
+        isPinned: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
         sparklineData: [
             (s) => [s.sparkline],
@@ -420,6 +450,17 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+        },
+        togglePinLog: ({ logId }) => {
+            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
+            if (isPinned) {
+                actions.unpinLog(logId)
+            } else {
+                const logToPin = values.logs.find((log) => log.uuid === logId)
+                if (logToPin) {
+                    actions.pinLog(logToPin)
+                }
+            }
         },
     })),
 ])

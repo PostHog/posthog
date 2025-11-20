@@ -208,7 +208,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-collections-tab',
     },
     {
-        label: 'Figure out what to watch',
+        label: 'What to watch',
         key: ReplayTabs.Templates,
         'data-attr': 'session-recordings-templates-tab',
     },
