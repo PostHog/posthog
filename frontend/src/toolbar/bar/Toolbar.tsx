@@ -199,7 +199,7 @@ function piiMaskingMenuItem(
 
 function MoreMenu(): JSX.Element {
     const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
-    const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null)
+    const [screenshot, setScreenshot] = useState<string | null>(null)
     const [isTakingScreenshot, setIsTakingScreenshot] = useState(false)
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
@@ -221,9 +221,9 @@ function MoreMenu(): JSX.Element {
 
     const handleScreenshotClick = async (): Promise<void> => {
         setIsTakingScreenshot(true)
-        const blob = await captureScreenshot()
-        if (blob) {
-            setScreenshotBlob(blob)
+        const png = await captureScreenshot()
+        if (png) {
+            setScreenshot(png)
             setIsScreenshotModalOpen(true)
         }
         setIsTakingScreenshot(false)
@@ -234,9 +234,9 @@ function MoreMenu(): JSX.Element {
             <ScreenshotUploadModal
                 isOpen={isScreenshotModalOpen}
                 setIsOpen={setIsScreenshotModalOpen}
-                screenshot={screenshotBlob}
+                screenshot={screenshot}
                 onSuccess={() => {
-                    setScreenshotBlob(null)
+                    setScreenshot(null)
                 }}
             />
             <LemonMenu
