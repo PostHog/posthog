@@ -5102,7 +5102,7 @@ export type BatchExportServiceDatabricks = {
 }
 
 export type BatchExportRealtimeDestinationBackfill = {
-    type: 'PostHogRealtimeDestinations'
+    type: 'Workflows'
     config: {}
 }
 
@@ -5117,7 +5117,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'Redshift',
     'HTTP',
     'Databricks',
-    'PostHogRealtimeDestinations',
+    'Workflows',
 ]
 export type BatchExportService =
     | BatchExportServiceS3

@@ -628,7 +628,7 @@ class HogFunctionViewSet(
             "model": "events",
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {
-                "type": "PostHogRealtimeDestinations",
+                "type": "Workflows",
                 "config": {},
             },
         }
