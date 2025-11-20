@@ -3534,7 +3534,7 @@ wheels = [
 
 [[package]]
 name = "modal"
-version = "1.2.1"
+version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -3552,9 +3552,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "watchfiles" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/67/a3581c4ca0a4aaf025d4bfc844943fe8d4629ab56e5ee03b4c363099f2d4/modal-1.2.1.tar.gz", hash = "sha256:c1d0de8bbaf41fa382b837bd79193b6eb0fa67560ad1bb882a55409fc51607fb", size = 636887, upload-time = "2025-10-22T20:07:57.792Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/36/67ec50cfb7b2d8668835a96e9ccefeaa2aec01c442c456e51681eceefca9/modal-1.2.2.tar.gz", hash = "sha256:cb8810b2e5b0d7f5176ab178602e71c7c70c7057d1c05cdf9991d8cca5306471", size = 641278, upload-time = "2025-11-10T17:00:15.066Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/30/2b/9e7d6ce150e37e8566d03b986cebc0a3a4f8a8f74f0004f775c5f9b23a6c/modal-1.2.1-py3-none-any.whl", hash = "sha256:151b4942bad86f8b13a21226328cca8be005a0e780736fa6561226fedbade431", size = 733792, upload-time = "2025-10-22T20:07:54.243Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/87/2d230ff2c50b9f92f94041d1f7665d15d2d8e16bc5bbcc8f30b37a538be6/modal-1.2.2-py3-none-any.whl", hash = "sha256:1278aadb412b743b795089f22282797d0aca3c331c73899db4ac230120c80e2f", size = 738436, upload-time = "2025-11-10T17:00:10.778Z" },
 ]
 
 [[package]]
@@ -6044,18 +6044,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sigtools"
-version = "4.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "attrs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/db/669ca14166814da187b3087b908ca924cf83f5b504fe23b3859a3ef67d4f/sigtools-4.0.1.tar.gz", hash = "sha256:4b8e135a9cd4d2ea00da670c093372d74e672ba3abb87f4c98d8e73dea54445c", size = 71910, upload-time = "2022-10-13T07:03:54.149Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/91/853dbf6ec096197dba9cd5fd0c836c5fc19142038b7db60ebe6332b1bab1/sigtools-4.0.1-py2.py3-none-any.whl", hash = "sha256:d216b4cf920bbab0fce636ddc429ed8463a5b533d9e1492acb45a2a1bc36ac6c", size = 76419, upload-time = "2022-10-13T07:03:52.658Z" },
-]
-
-[[package]]
 name = "simple-salesforce"
 version = "1.12.6"
 source = { registry = "https://pypi.org/simple" }
@@ -6387,15 +6375,14 @@ wheels = [
 
 [[package]]
 name = "synchronicity"
-version = "0.10.2"
+version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "sigtools" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/b6/e977f03915cc02406bb52ac15398ea44dbde47805e5955b6bac9268acc12/synchronicity-0.10.2.tar.gz", hash = "sha256:e0dfd8a2ba4fb89c60ee53365c5fa2d2d69aabce60709055d38f736f6a592c86", size = 53891, upload-time = "2025-07-30T20:23:19.122Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/92/2abaf9f4d846c2b7c240e9ce3c9198abf6660265bc1031640cbca5365351/synchronicity-0.10.4.tar.gz", hash = "sha256:3a9ac19f9a58cad64fcb3729812b828b77e54e0a90ced4439e09d3d9c19a90f0", size = 66903, upload-time = "2025-11-17T13:56:49.059Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/f9/ce041b9531022a0b5999a47e6da14485239f7bce9c595d1bfb387fe60e89/synchronicity-0.10.2-py3-none-any.whl", hash = "sha256:4ba1f8c02ca582ef068033300201e3c403e08d81e42553554f4e67b27f0d9bb1", size = 38766, upload-time = "2025-07-30T20:23:18.04Z" },
+    { url = "https://files.pythonhosted.org/packages/01/c6/a3631d119c9979816c0ed0354aa9fb829a14f53a43337f263dc3329b3a6e/synchronicity-0.10.4-py3-none-any.whl", hash = "sha256:0e3f00b2123cf2a77a8bb3b65fbeccad04adea682bfbd50c01637b75a168c73b", size = 39652, upload-time = "2025-11-17T13:56:47.966Z" },
 ]
 
 [[package]]
