@@ -29,7 +29,7 @@ class DeletePersonsFromTriggerLogConfig(dagster.Config):
 
 
 @dagster.op
-def get_id_range(
+def get_id_range_for_dpft(
     context: dagster.OpExecutionContext,
     config: DeletePersonsFromTriggerLogConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
@@ -96,7 +96,7 @@ def get_id_range(
 
 
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
-def create_chunks(
+def create_chunks_for_dpft(
     context: dagster.OpExecutionContext,
     config: DeletePersonsFromTriggerLogConfig,
     id_range: tuple[int, int],
@@ -134,7 +134,7 @@ def create_chunks(
 
 
 @dagster.op
-def scan_delete_chunk(
+def scan_delete_chunk_for_dpft(
     context: dagster.OpExecutionContext,
     config: DeletePersonsFromTriggerLogConfig,
     chunk: tuple[int, int],
@@ -412,6 +412,6 @@ def delete_persons_from_trigger_log_job():
     """
     Scan posthog_person_deletes_log table, and deletes the corresponding posthog_person_new rows.
     """
-    id_range = get_id_range()
-    chunks = create_chunks(id_range)
-    chunks.map(scan_delete_chunk)
+    id_range = get_id_range_for_dpft()
+    chunks = create_chunks_for_dpft(id_range)
+    chunks.map(scan_delete_chunk_for_dpft)
