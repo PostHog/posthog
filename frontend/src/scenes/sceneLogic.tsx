@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -271,6 +271,7 @@ const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WARE
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
+    urls.useCaseSelection(),
     urls.products(),
     '/settings',
     urls.organizationBilling(),
@@ -1122,13 +1123,22 @@ export const sceneLogic = kea<sceneLogicType>([
                                 ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                console.warn('No onboarding completed, redirecting to /products')
-
                                 const nextUrl =
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Default to false (products page) if feature flags haven't loaded yet
+                                const useUseCaseSelection =
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
+
+                                if (useUseCaseSelection) {
+                                    router.actions.replace(
+                                        urls.useCaseSelection(),
+                                        nextUrl ? { next: nextUrl } : undefined
+                                    )
+                                } else {
+                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                }
                                 return
                             }
 
@@ -1544,9 +1554,16 @@ export const sceneLogic = kea<sceneLogicType>([
         }, 'pinnedTabsStorageListener')
     }),
     afterMount(({ actions, cache, values }) => {
+        const useAppShortcuts = values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]
+
+        if (useAppShortcuts) {
+            return
+        }
+
         cache.disposables.add(() => {
             const onKeyDown = (event: KeyboardEvent): void => {
                 const commandKey = isMac() ? event.metaKey : event.ctrlKey
+                const shiftKey = event.shiftKey
                 const optionKey = event.altKey
                 const keyCode = event.code?.toLowerCase()
                 const key = event.key?.toLowerCase()
@@ -1556,7 +1573,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const isTKey = keyCode === 'keyt' || key === 't'
                 const isWKey = keyCode === 'keyw' || key === 'w'
                 const isKKey = keyCode === 'keyk' || key === 'k'
-                const isBKey = keyCode === 'keyb' || key === 'b'
 
                 // New shortcuts: Command+Option+T for new tab, Command+Option+W for close tab
                 if (commandKey && optionKey) {
@@ -1583,7 +1599,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // If cmd k, open current page new tab page / if already on the new tab page focus the search input
-                if (commandKey && isKKey) {
+                if (commandKey && isKKey && !shiftKey) {
+                    event.preventDefault()
+                    event.stopPropagation()
+
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
                         const activeTabId = values.activeTabId
                         const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
@@ -1598,28 +1617,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    router.actions.replace(urls.newTab())
-
+                    router.actions.push(urls.newTab())
                     return
-                }
-
-                // Existing shortcuts (to be deprecated)
-                if (commandKey && isBKey) {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.shiftKey) {
-                        if (activeTab) {
-                            actions.removeTab(activeTab)
-                        }
-                    } else {
-                        // else open a new tab as normal
-                        actions.newTab()
-                    }
                 }
             }
             window.addEventListener('keydown', onKeyDown)

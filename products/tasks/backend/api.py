@@ -1,8 +1,12 @@
+import os
+import uuid
 import logging
 import traceback
 from typing import cast
 
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from django.utils import timezone
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -14,14 +18,17 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.storage import object_storage
 
-from .agents import get_agent_dict_by_id, get_all_agents
 from .models import Task, TaskRun
 from .serializers import (
-    AgentDefinitionSerializer,
-    AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
+    TaskRunArtifactPresignRequestSerializer,
+    TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsUploadRequestSerializer,
+    TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
@@ -56,6 +63,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "run",
         ]
     }
+
+    @validated_request(
+        query_serializer=TaskListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+        },
+        summary="List tasks",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team).order_by("position")
@@ -201,6 +219,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="List of task runs"),
+        },
+        summary="List task runs",
+        description="Get a list of runs for a specific task.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
+        },
+        summary="Create task run",
+        description="Create a new run for a specific task.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -269,65 +307,123 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
-
-@extend_schema(tags=["agents"])
-class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    API for retrieving agent definitions. Agents are automation services that can be assigned to tasks to process them.
-    """
-
-    serializer_class = AgentDefinitionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    queryset = None  # No model queryset since we're using hardcoded agents
-    scope_object = "task"
-    posthog_feature_flag = {"tasks": ["list", "retrieve"]}
-
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunArtifactsUploadRequestSerializer,
         responses={
             200: OpenApiResponse(
-                response=AgentListResponseSerializer,
-                description="List of agent definitions",
-                examples=[
-                    OpenApiExample(
-                        "Agent List Response",
-                        description="Example response with available agents",
-                        response_only=True,
-                        value={
-                            "results": [
-                                {
-                                    "id": "claude_code_agent",
-                                    "name": "Claude Code Agent",
-                                    "agent_type": "code_execution",
-                                    "description": "Executes code changes and technical tasks using Claude Code",
-                                    "config": {"timeout": 3600, "sandbox": True},
-                                    "is_active": True,
-                                }
-                            ]
-                        },
-                    )
-                ],
-            )
+                response=TaskRunArtifactsUploadResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
         },
-        summary="List agent definitions",
-        description="Get a list of available agent definitions that can be assigned to tasks.",
+        summary="Upload artifacts for a task run",
+        description="Persist task artifacts to S3 and attach them to the run manifest.",
+        strict_request_validation=True,
     )
-    def list(self, request, *args, **kwargs):
-        agents = get_all_agents()
-        return Response(AgentListResponseSerializer({"results": agents}).data)
+    @action(detail=True, methods=["post"], url_path="artifacts", required_scopes=["task:write"])
+    def artifacts(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+
+        prefix = task_run.get_artifact_s3_prefix()
+        manifest = list(task_run.artifacts or [])
+
+        for artifact in artifacts:
+            safe_name = os.path.basename(artifact["name"]).strip() or "artifact"
+            suffix = uuid.uuid4().hex[:8]
+            storage_path = f"{prefix}/{suffix}_{safe_name}"
+
+            content_bytes = artifact["content"].encode("utf-8")
+            extras: dict[str, str] = {}
+            content_type = artifact.get("content_type")
+            if content_type:
+                extras["ContentType"] = content_type
+
+            object_storage.write(storage_path, content_bytes, extras or None)
+            try:
+                object_storage.tag(
+                    storage_path,
+                    {
+                        "ttl_days": "30",
+                        "team_id": str(task_run.team_id),
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "task_run.artifact_tag_failed",
+                    extra={
+                        "task_run_id": str(task_run.id),
+                        "storage_path": storage_path,
+                        "error": str(exc),
+                    },
+                )
+
+            uploaded_at = timezone.now().isoformat()
+
+            manifest.append(
+                {
+                    "name": safe_name,
+                    "type": artifact["type"],
+                    "size": len(content_bytes),
+                    "content_type": content_type or "",
+                    "storage_path": storage_path,
+                    "uploaded_at": uploaded_at,
+                }
+            )
+
+            logger.info(
+                "task_run.artifact_uploaded",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                    "artifact_type": artifact["type"],
+                    "size": len(content_bytes),
+                },
+            )
+
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        serializer = TaskRunArtifactsUploadResponseSerializer(
+            {"artifacts": manifest},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunArtifactPresignRequestSerializer,
         responses={
-            200: OpenApiResponse(response=AgentDefinitionSerializer, description="Agent definition"),
-            404: OpenApiResponse(description="Agent not found"),
+            200: OpenApiResponse(
+                response=TaskRunArtifactPresignResponseSerializer,
+                description="Presigned URL for the requested artifact",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            404: OpenApiResponse(description="Artifact not found"),
         },
-        summary="Get agent definition",
-        description="Retrieve a specific agent definition by ID.",
+        summary="Generate presigned URL for an artifact",
+        description="Returns a temporary, signed URL that can be used to download a specific artifact.",
+        strict_request_validation=True,
     )
-    def retrieve(self, request, pk=None, *args, **kwargs):
-        agent = get_agent_dict_by_id(pk)
-        if agent:
-            return Response(AgentDefinitionSerializer(agent).data)
+    @action(detail=True, methods=["post"], url_path="artifacts/presign", required_scopes=["task:read"])
+    def artifacts_presign(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        storage_path = request.validated_data["storage_path"]
+        artifacts = task_run.artifacts or []
 
-        raise NotFound(f"Unable to find agent definition")
+        if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
+            return Response(
+                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        url = object_storage.get_presigned_url(storage_path)
+        if not url:
+            return Response(
+                ErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        expires_in = 3600
+        serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
+        return Response(serializer.data)

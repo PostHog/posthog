@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SESSION_SUMMARIZATION_TOOL_PROMPT = """
@@ -116,7 +117,6 @@ class SessionSummarizationToolArgs(BaseModel):
 class SessionSummarizationTool(MaxTool):
     name: Literal["session_summarization"] = "session_summarization"
     description: str = SESSION_SUMMARIZATION_TOOL_PROMPT
-    thinking_message: str = "Summarizing session recordings"
     context_prompt_template: str = "Summarizes session recordings based on the user's query and current filters"
     args_schema: type[BaseModel] = SessionSummarizationToolArgs
     show_tool_call_message: bool = False
@@ -142,5 +142,8 @@ class SessionSummarizationTool(MaxTool):
         )
         result = await chain.ainvoke(copied_state)
         if not result or not result.messages:
-            return "Session summarization failed", None
+            raise MaxToolFatalError(
+                "Session summarization failed: The summarization node did not return any results. "
+                "This indicates an internal system error."
+            )
         return "", ToolMessagesArtifact(messages=result.messages)

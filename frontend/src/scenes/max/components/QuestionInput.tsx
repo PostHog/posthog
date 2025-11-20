@@ -55,7 +55,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { threadLoading, inputDisabled, cancelLoading, submissionDisabledReason, deepResearchMode } =
+        useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
@@ -68,6 +69,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         }
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
+
+    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    if (cancelLoading) {
+        disabledReason = 'Cancelling...'
+    }
 
     return (
         <div
@@ -178,11 +184,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                disabledReason={
-                                    threadLoading && !dataProcessingAccepted
-                                        ? 'Pending approval'
-                                        : submissionDisabledReason
-                                }
+                                disabledReason={disabledReason}
                                 size="small"
                                 icon={
                                     threadLoading ? (

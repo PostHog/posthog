@@ -25,6 +25,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1949,6 +1950,7 @@
          "posthog_survey"."description",
          "posthog_survey"."linked_flag_id",
          "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."linked_insight_id",
          "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id",
          "posthog_survey"."type",
@@ -1986,6 +1988,7 @@
          "posthog_survey"."description",
          "posthog_survey"."linked_flag_id",
          "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."linked_insight_id",
          "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id",
          "posthog_survey"."type",
@@ -2244,6 +2247,7 @@
          "posthog_survey"."description",
          "posthog_survey"."linked_flag_id",
          "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."linked_insight_id",
          "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id",
          "posthog_survey"."type",
@@ -2442,6 +2446,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -2594,6 +2599,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -2825,6 +2831,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -2859,6 +2866,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

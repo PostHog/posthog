@@ -12,7 +12,6 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -22,7 +21,7 @@ from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
         if query_data is None:
@@ -140,14 +139,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             yield from response.results
 
-        try:
-            results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
         return Response({"query": query, "results": results}, status=200)
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
 
@@ -160,15 +155,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        try:
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
 
@@ -205,7 +196,7 @@ FROM (
                 r.append(entry)
         return Response(r, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")

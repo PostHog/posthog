@@ -1,11 +1,18 @@
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory, MessageRecipientPreference
 from posthog.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from posthog.plugins import plugin_server_api
+
+
+class OptOutsPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
@@ -54,8 +61,16 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         opt_outs = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
             **query_filters,
-        )
+        ).order_by("-updated_at")  # Order by most recently updated first
 
+        # Apply pagination
+        paginator = OptOutsPagination()
+        page = paginator.paginate_queryset(opt_outs, request)
+        if page is not None:
+            serializer = MessagePreferencesSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        # Fallback if pagination fails for some reason
         serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
 

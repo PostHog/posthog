@@ -181,7 +181,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = ActivityLogPagination
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
-    scope_object = "INTERNAL"
+    scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
 
     def _should_skip_parents_filter(self) -> bool:
@@ -221,6 +221,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def _generate_export_filename(self, filters_data: dict, export_format: str) -> str:
         filter_string = json.dumps(filters_data, sort_keys=True)
+        # md5 is fine here since file name collisions have no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         filter_hash = hashlib.md5(filter_string.encode()).hexdigest()[:6]
 
         has_filters = any(filters_data.values())
