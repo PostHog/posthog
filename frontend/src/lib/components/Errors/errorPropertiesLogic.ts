@@ -14,6 +14,7 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
+    hasInAppFrames,
     hasStacktrace,
 } from 'lib/components/Errors/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -61,6 +62,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (properties: ErrorEventProperties) => (properties ? getFingerprintRecords(properties) : []),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        hasInAppFrames: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasInAppFrames(excList)],
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),

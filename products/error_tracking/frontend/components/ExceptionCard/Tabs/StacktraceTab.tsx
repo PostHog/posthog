@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { hasInAppFrames } from 'lib/components/Errors/utils'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -42,10 +43,19 @@ export function StacktraceTab({
     ...props
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
     const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId)
+
+    useEffect(() => {
+        if (!loading) {
+            if (hasStacktrace && !hasInAppFrames) {
+                setShowAllFrames(true)
+            }
+        }
+    }, [loading])
 
     return (
         <TabsPrimitiveContent {...props}>
