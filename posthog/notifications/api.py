@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
@@ -17,6 +18,13 @@ from posthog.models.notification import Notification
 from posthog.notifications.serializers import NotificationSerializer
 
 logger = structlog.get_logger(__name__)
+
+
+class NotificationLimitOffsetPagination(LimitOffsetPagination):
+    """Pagination for notifications with default page size of 20."""
+
+    default_limit = 20
+    max_limit = 100
 
 
 @api_view(["POST"])
@@ -103,6 +111,7 @@ class NotificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = NotificationLimitOffsetPagination
     queryset = Notification.objects.all()
 
     def safely_get_queryset(self, queryset):
@@ -125,20 +134,6 @@ class NotificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(priority=priority)
 
         return queryset.order_by("-created_at")
-
-    @action(detail=True, methods=["post"])
-    def mark_read(self, request, *args, **kwargs):
-        """Mark a single notification as read."""
-        notification = self.get_object()
-
-        if not notification.read_at:
-            notification.read_at = timezone.now()
-            notification.save(update_fields=["read_at"])
-
-        return Response(
-            self.serializer_class(notification).data,
-            status=status.HTTP_200_OK,
-        )
 
     @action(detail=False, methods=["post"])
     def mark_all_read(self, request, *args, **kwargs):

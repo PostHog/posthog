@@ -1,18 +1,22 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconGear } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconGear } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { Notification, notificationsLogic } from 'lib/logic/notificationsLogic'
 import { urls } from 'scenes/urls'
 
 export function NotificationsList(): JSX.Element {
-    const { notifications, notificationsLoading, unreadCount } = useValues(notificationsLogic)
-    const { markAsRead, markAllAsRead } = useActions(notificationsLogic)
+    const { displayedNotifications, notificationsLoading, unreadCount, showUnreadOnly, hasMore } =
+        useValues(notificationsLogic)
+    const { markAllAsRead, setShowUnreadOnly, loadMoreNotifications } = useActions(notificationsLogic)
 
     return (
         <div className="flex flex-col h-full">
@@ -30,26 +34,49 @@ export function NotificationsList(): JSX.Element {
                 </div>
             </div>
 
+            <div className="p-2 border-b">
+                <LemonSegmentedButton
+                    value={showUnreadOnly ? 'unread' : 'all'}
+                    onChange={(value) => setShowUnreadOnly(value === 'unread')}
+                    options={[
+                        { value: 'unread', label: 'Unread only' },
+                        { value: 'all', label: 'All notifications' },
+                    ]}
+                    size="small"
+                    fullWidth
+                />
+            </div>
+
             <div className="flex-1 overflow-y-auto">
-                {notificationsLoading ? (
+                {notificationsLoading && displayedNotifications.length === 0 ? (
                     <div className="flex items-center justify-center p-8">
                         <Spinner />
                     </div>
-                ) : notifications.length === 0 ? (
+                ) : displayedNotifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center p-8 text-muted-alt">
                         <p className="text-center">No notifications yet</p>
                         <p className="text-xs text-center">When something important happens, you will see it here</p>
                     </div>
                 ) : (
-                    <div className="divide-y">
-                        {notifications.map((notification) => (
-                            <NotificationItem
-                                key={notification.id}
-                                notification={notification}
-                                onMarkRead={() => markAsRead(notification.id)}
-                            />
-                        ))}
-                    </div>
+                    <>
+                        <div className="divide-y">
+                            {displayedNotifications.map((notification) => (
+                                <NotificationItem key={notification.id} notification={notification} />
+                            ))}
+                        </div>
+                        {hasMore && (
+                            <div className="p-3 border-t">
+                                <LemonButton
+                                    fullWidth
+                                    type="secondary"
+                                    onClick={() => loadMoreNotifications()}
+                                    loading={notificationsLoading}
+                                >
+                                    Load more
+                                </LemonButton>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>
@@ -58,19 +85,18 @@ export function NotificationsList(): JSX.Element {
 
 interface NotificationItemProps {
     notification: Notification
-    onMarkRead: () => void
 }
 
-function NotificationItem({ notification, onMarkRead }: NotificationItemProps): JSX.Element {
+function NotificationItem({ notification }: NotificationItemProps): JSX.Element {
+    const { toggleReadStatus } = useActions(notificationsLogic)
     const isUnread = !notification.read_at
     const timeAgo = dayjs(notification.created_at).fromNow()
 
     return (
         <div
-            className={clsx('p-3 hover:bg-secondary-highlight cursor-pointer transition-colors', {
+            className={clsx('p-3 hover:bg-secondary-highlight transition-colors', {
                 'bg-danger-highlight': isUnread,
             })}
-            onClick={onMarkRead}
         >
             <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
@@ -95,11 +121,17 @@ function NotificationItem({ notification, onMarkRead }: NotificationItemProps): 
                     <p className="m-0 mt-1 text-xs text-muted">{notification.message}</p>
                     <p className="m-0 mt-1 text-xs text-muted-alt">{timeAgo}</p>
                 </div>
-                {isUnread && (
-                    <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-primary rounded-full" title="Unread" />
-                    </div>
-                )}
+                <div className="flex-shrink-0 flex gap-1">
+                    <Tooltip title={isUnread ? 'Mark as read' : 'Mark as unread'} placement="left">
+                        <LemonButton
+                            size="xsmall"
+                            icon={isUnread ? <IconRadioButtonUnchecked /> : <IconCheckCircle />}
+                            onClick={() => toggleReadStatus(notification.id)}
+                            type="secondary"
+                            noPadding
+                        />
+                    </Tooltip>
+                </div>
             </div>
         </div>
     )

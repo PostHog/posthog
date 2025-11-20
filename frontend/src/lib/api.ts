@@ -4755,16 +4755,19 @@ const api = {
     },
 
     notifications: {
-        async list(): Promise<{ results: any[] }> {
-            return await new ApiRequest().projectsDetail().addPathComponent('notifications').get()
+        async list(params?: Record<string, any>): Promise<{ results: any[]; next: string | null }> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notifications')
+                .withQueryString(params)
+                .get()
         },
-        async markRead(notificationId: string): Promise<void> {
+        async update(notificationId: string, data: { is_read?: boolean }): Promise<void> {
             return await new ApiRequest()
                 .projectsDetail()
                 .addPathComponent('notifications')
                 .addPathComponent(notificationId)
-                .addPathComponent('mark_read')
-                .create()
+                .update({ data })
         },
         async markAllRead(): Promise<void> {
             return await new ApiRequest()
