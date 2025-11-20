@@ -1143,7 +1143,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                 if person_flag_pairs:
                     # Build VALUES clause with explicit values to avoid unnest type ambiguity
                     values_placeholders = []
-                    params = {"team_id": team.id, "hash_key_override": hash_key_override}
+                    params: dict[str, int | str] = {"team_id": team.id, "hash_key_override": hash_key_override}
                     for i, (person_id, flag_key) in enumerate(person_flag_pairs):
                         values_placeholders.append(
                             f"(%(team_id)s, %(person_id_{i})s, %(flag_key_{i})s, %(hash_key_override)s)"
