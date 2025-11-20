@@ -8,8 +8,12 @@ import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    BasicSurveyQuestion,
     EventPropertyFilter,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
     QuestionProcessedResponses,
+    RatingSurveyQuestion,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -618,4 +622,16 @@ export function buildSurveyTimestampFilter(
 
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
+}
+
+export function getExpressionCommentForQuestion(
+    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
+): string {
+    if (q.question.trim().length > 0) {
+        return q.question
+    }
+    if (q.description != null && q.description.trim().length > 0) {
+        return q.description
+    }
+    return 'Untitled Question'
 }
