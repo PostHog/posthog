@@ -1,6 +1,7 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -493,6 +494,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <SymbolSets />,
+            },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <Releases />,
             },
         ],
     },

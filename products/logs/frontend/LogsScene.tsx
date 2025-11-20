@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import {
+    IconClock,
+    IconFilter,
+    IconMinusSquare,
+    IconPin,
+    IconPinFilled,
+    IconPlusSquare,
+    IconRefresh,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -37,14 +45,24 @@ import { DateRangeFilter } from './filters/DateRangeFilter'
 import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
+import { ParsedLogMessage } from './types'
 
 export const scene: SceneExport = {
     component: LogsScene,
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, prettifyJson, parsedLogs, sparklineData, logsLoading, sparklineLoading, timestampFormat } =
-        useValues(logsLogic)
+    const {
+        wrapBody,
+        prettifyJson,
+        pinnedParsedLogs,
+        parsedLogs,
+        sparklineData,
+        logsLoading,
+        sparklineLoading,
+        timestampFormat,
+        isPinned,
+    } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -78,7 +96,7 @@ export function LogsScene(): JSX.Element {
                 action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
             >
                 <p>
-                    Logs is in beta and things will change as we figure out what works. Right now you have 7-day
+                    Logs is in alpha and things will change as we figure out what works. Right now you have 7-day
                     retention with ingestion rate limits. Tell us what you need, what's broken, or if you're hitting
                     limits, we want to hear from you.
                 </p>
@@ -110,59 +128,138 @@ export function LogsScene(): JSX.Element {
                 {sparklineLoading && <SpinnerOverlay />}
             </div>
             <SceneDivider />
-            <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={parsedLogs}
-                    loading={logsLoading}
-                    size="small"
-                    embedded
-                    columns={[
-                        {
-                            title: '',
-                            key: 'actions',
-                            width: 0,
-                            render: (_, record) => <LogsTableRowActions log={record} />,
-                        },
-                        {
-                            title: 'Timestamp',
-                            key: 'timestamp',
-                            dataIndex: 'timestamp',
-                            width: 0,
-                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                        },
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (_, { cleanBody, parsedBody }) => {
-                                if (parsedBody && prettifyJson) {
-                                    return (
-                                        <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                            {JSON.stringify(parsedBody, null, 2)}
-                                        </pre>
-                                    )
-                                }
-
-                                return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
-                            },
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
-                    }}
-                />
+            <div>
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-primary pt-2">
+                    <div className="pb-2">
+                        <DisplayOptions />
+                    </div>
+                    {pinnedParsedLogs.length > 0 && (
+                        <div className="border rounded-t bg-bg-light shadow-sm">
+                            <LogsTable
+                                dataSource={pinnedParsedLogs}
+                                loading={false}
+                                isPinned={isPinned}
+                                wrapBody={wrapBody}
+                                prettifyJson={prettifyJson}
+                                tzLabelFormat={tzLabelFormat}
+                            />
+                        </div>
+                    )}
+                </div>
+                <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                    <LogsTable
+                        showHeader={!pinnedParsedLogs.length}
+                        dataSource={parsedLogs}
+                        loading={logsLoading}
+                        isPinned={isPinned}
+                        wrapBody={wrapBody}
+                        prettifyJson={prettifyJson}
+                        tzLabelFormat={tzLabelFormat}
+                        showPinnedWithOpacity
+                    />
+                </div>
             </div>
         </SceneContent>
+    )
+}
+
+interface LogsTableProps {
+    dataSource: ParsedLogMessage[]
+    loading: boolean
+    isPinned: (uuid: string) => boolean
+    wrapBody: boolean
+    prettifyJson: boolean
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    showPinnedWithOpacity?: boolean
+    showHeader?: boolean
+}
+
+function LogsTable({
+    dataSource,
+    loading,
+    isPinned,
+    wrapBody,
+    prettifyJson,
+    tzLabelFormat,
+    showPinnedWithOpacity = false,
+    showHeader = true,
+}: LogsTableProps): JSX.Element {
+    const { togglePinLog } = useActions(logsLogic)
+
+    return (
+        <LemonTable
+            hideScrollbar
+            showHeader={showHeader}
+            dataSource={dataSource}
+            loading={loading}
+            size="small"
+            embedded
+            rowClassName={(record) =>
+                isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
+            }
+            columns={[
+                {
+                    title: '',
+                    key: 'actions',
+                    width: 0,
+                    render: (_, record) => {
+                        const pinned = isPinned(record.uuid)
+                        return (
+                            <div className="flex items-center gap-1">
+                                <LemonButton
+                                    size="xsmall"
+                                    noPadding
+                                    icon={pinned ? <IconPinFilled /> : <IconPin />}
+                                    onClick={() => togglePinLog(record.uuid)}
+                                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                                    className={cn(
+                                        'transition-opacity',
+                                        pinned
+                                            ? 'text-primary opacity-100'
+                                            : 'text-muted opacity-0 group-hover:opacity-100'
+                                    )}
+                                />
+                                <LogsTableRowActions log={record} />
+                            </div>
+                        )
+                    },
+                },
+                {
+                    title: 'Timestamp',
+                    key: 'timestamp',
+                    dataIndex: 'timestamp',
+                    width: 180,
+                    render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                },
+                {
+                    title: 'Level',
+                    key: 'severity_text',
+                    dataIndex: 'severity_text',
+                    width: 100,
+                    render: (_, record) => <LogTag level={record.severity_text} />,
+                },
+                {
+                    title: 'Message',
+                    key: 'body',
+                    dataIndex: 'body',
+                    render: (_, { cleanBody, parsedBody }) => {
+                        if (parsedBody && prettifyJson) {
+                            return (
+                                <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                    {JSON.stringify(parsedBody, null, 2)}
+                                </pre>
+                            )
+                        }
+
+                        return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                    },
+                },
+            ]}
+            expandable={{
+                noIndent: true,
+                expandedRowRender: (log) => <ExpandedLog log={log} />,
+            }}
+        />
     )
 }
 

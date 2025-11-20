@@ -195,6 +195,7 @@ import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1082,6 +1083,14 @@ export class ApiRequest {
 
     public errorTrackingSymbolSet(id: ErrorTrackingSymbolSet['id']): ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
+    }
+
+    public errorTrackingReleases(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('releases')
+    }
+
+    public errorTrackingRelease(id: ErrorTrackingRelease['id']): ApiRequest {
+        return this.errorTrackingReleases().addPathComponent(id)
     }
 
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
@@ -2248,6 +2257,9 @@ const api = {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
         },
+        async create(eventDefinitionData: Partial<EventDefinition>): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().create({ data: eventDefinitionData })
+        },
         async update({
             eventDefinitionId,
             eventDefinitionData,
@@ -3138,6 +3150,19 @@ const api = {
             },
         },
 
+        releases: {
+            async list({
+                offset = 0,
+                limit = 100,
+            }: {
+                offset?: number
+                limit?: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+                const queryString = { order_by: '-created_at', offset, limit }
+                return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryString)).get()
+            },
+        },
+
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
@@ -3742,6 +3767,15 @@ const api = {
                 .survey(surveyId)
                 .withAction('duplicate_to_projects')
                 .create({ data: { target_team_ids: targetTeamIds } })
+        },
+        async archiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/archive`).create()
+        },
+        async unarchiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/unarchive`).create()
+        },
+        async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
+            return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
         },
     },
 
