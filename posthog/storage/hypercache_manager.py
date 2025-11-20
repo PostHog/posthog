@@ -145,13 +145,16 @@ class HyperCacheManagementConfig:
         """Name of management command for detailed analysis."""
         return f"analyze_{self.cache_name}_cache_sizes"
 
-    @property
-    def cache_expiry_config(self) -> "CacheExpiryConfig":
+    def cache_expiry_config(self, redis_url: str | None = None) -> "CacheExpiryConfig":
         """
         Derive CacheExpiryConfig from HyperCache management config.
 
         This eliminates the need to maintain separate CacheExpiryConfig instances
         by deriving all expiry config properties from the HyperCache configuration.
+
+        Args:
+            redis_url: Optional Redis URL for dedicated cache (e.g., FLAGS_REDIS_URL).
+                      If not provided, defaults to settings.REDIS_URL.
         """
         from posthog.storage.cache_expiry_manager import CacheExpiryConfig
 
@@ -161,6 +164,7 @@ class HyperCacheManagementConfig:
             identifier_type=str if self.hypercache.token_based else int,
             update_fn=self.update_fn,
             namespace=self.namespace,
+            redis_url=redis_url,
         )
 
 

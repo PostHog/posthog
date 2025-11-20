@@ -23,7 +23,6 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
-import time
 from collections import defaultdict
 from typing import Any
 
@@ -47,6 +46,7 @@ from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
+    track_cache_expiry,
 )
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats
@@ -146,16 +146,7 @@ def _track_cache_expiry(team: Team | int, ttl_seconds: int) -> None:
         team: Team object or team ID
         ttl_seconds: TTL in seconds from now
     """
-    try:
-        redis_client = get_client()
-
-        # Get team ID for tracking
-        team_id = team.id if isinstance(team, Team) else team
-
-        expiration_timestamp = time.time() + ttl_seconds
-        redis_client.zadd(FLAGS_CACHE_EXPIRY_SORTED_SET, {str(team_id): expiration_timestamp})
-    except Exception as e:
-        logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
+    track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, team, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
 
 
 # Use dedicated flags cache if available, otherwise fall back to default cache
@@ -239,7 +230,8 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 )
 
 # Derive cache expiry config from hypercache management config (eliminates duplication)
-FLAGS_CACHE_EXPIRY_CONFIG = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config
+# Pass FLAGS_REDIS_URL so expiry tracking uses the same Redis database as the cache
+FLAGS_CACHE_EXPIRY_CONFIG = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(settings.FLAGS_REDIS_URL)
 
 
 def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:

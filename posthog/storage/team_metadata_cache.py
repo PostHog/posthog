@@ -155,7 +155,7 @@ def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
         ttl_seconds: TTL in seconds from now
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(settings.FLAGS_REDIS_URL)
 
         # Get team token for tracking
         if isinstance(team, Team):
@@ -287,7 +287,8 @@ TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 )
 
 # Derive cache expiry config from hypercache management config (eliminates duplication)
-TEAM_CACHE_EXPIRY_CONFIG = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config
+# Pass FLAGS_REDIS_URL so expiry tracking uses the same Redis database as the cache
+TEAM_CACHE_EXPIRY_CONFIG = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(settings.FLAGS_REDIS_URL)
 
 
 def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
@@ -302,7 +303,7 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
 
     # Remove from expiry tracking sorted set
     try:
-        redis_client = get_client()
+        redis_client = get_client(settings.FLAGS_REDIS_URL)
 
         if isinstance(team, Team):
             token = team.api_token

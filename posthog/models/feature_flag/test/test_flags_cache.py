@@ -522,6 +522,55 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
 
         self.assertEqual(len(result), 0)
 
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_uses_correct_redis_url(self, mock_get_client):
+        """Test that get_client is called with FLAGS_REDIS_URL, not default REDIS_URL.
+
+        This is a regression test for a bug where cache_expiry_manager was using
+        the default Redis database (0) instead of the dedicated flags cache database (1).
+        """
+        from posthog.models.feature_flag.flags_cache import (
+            FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+            get_teams_with_expiring_caches,
+        )
+
+        # Mock Redis to return empty sorted set
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.zrangebyscore.return_value = []
+
+        # Create config with explicit FLAGS_REDIS_URL (simulating production setup)
+        test_redis_url = "redis://localhost:6379/1"
+        test_config = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config(test_redis_url)
+
+        get_teams_with_expiring_caches(test_config, ttl_threshold_hours=24)
+
+        # Verify get_client was called with FLAGS_REDIS_URL, not default REDIS_URL
+        mock_get_client.assert_called_once_with(test_redis_url)
+
+    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_track_cache_expiry_uses_correct_redis_url(self, mock_get_client):
+        """Test that _track_cache_expiry uses FLAGS_REDIS_URL.
+
+        This is a regression test for a bug where _track_cache_expiry was using
+        the default Redis database (0) instead of the dedicated flags cache database (1).
+        """
+        from posthog.models.feature_flag.flags_cache import _track_cache_expiry
+
+        # Mock Redis client
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Call _track_cache_expiry
+        _track_cache_expiry(self.team, ttl_seconds=3600)
+
+        # Verify get_client was called with FLAGS_REDIS_URL
+        mock_get_client.assert_called_once_with("redis://localhost:6379/1")
+
+        # Verify zadd was called to track the expiry
+        self.assertEqual(mock_redis.zadd.call_count, 1)
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
 class TestBatchOperations(BaseTest):

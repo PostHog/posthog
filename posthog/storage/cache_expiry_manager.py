@@ -37,6 +37,7 @@ class CacheExpiryConfig:
     identifier_type: type  # Type to convert identifiers to (int or str)
     update_fn: Callable[[Team], bool]  # Function to refresh cache for a team
     namespace: str  # Cache namespace for metrics labeling (e.g., "feature_flags", "team_metadata")
+    redis_url: str | None = None  # Optional Redis URL for dedicated cache (e.g., FLAGS_REDIS_URL)
 
     # Derived properties
     @property
@@ -50,7 +51,7 @@ class CacheExpiryConfig:
         return f"{self.cache_name.replace('_', ' ')} caches"
 
 
-def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int) -> None:
+def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int, redis_url: str | None = None) -> None:
     """
     Track cache expiration in Redis sorted set for efficient expiry queries.
 
@@ -62,9 +63,10 @@ def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int) 
         sorted_set_key: Redis sorted set key for tracking expiry
         team: Team object or team ID
         ttl_seconds: TTL in seconds from now
+        redis_url: Optional Redis URL for dedicated cache (e.g., FLAGS_REDIS_URL)
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(redis_url)
         team_id = team.id if isinstance(team, Team) else team
         expiry_timestamp = int(time.time()) + ttl_seconds
 
@@ -93,7 +95,7 @@ def get_teams_with_expiring_caches(
         List of Team objects whose caches need refresh (up to limit)
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.redis_url)
 
         # Query sorted set for teams expiring within threshold
         threshold_timestamp = time.time() + (ttl_threshold_hours * 3600)
@@ -208,7 +210,7 @@ def cleanup_stale_expiry_tracking(config: CacheExpiryConfig) -> int:
         Number of stale entries removed
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.redis_url)
 
         # Get all entries from the sorted set
         all_identifiers = redis_client.zrange(config.sorted_set_key, 0, -1)
