@@ -16,6 +16,8 @@ export class TeamManager {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
+            // IMPORTANT: This value must match PLUGIN_SERVER_TEAM_CACHE_TTL_SECONDS
+            // in posthog/temporal/backfill_materialized_property/__init__.py
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
             loader: async (teamIdOrTokens: string[]) => {
