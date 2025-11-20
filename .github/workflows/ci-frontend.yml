@@ -197,6 +197,9 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
+            - name: Check if products.tsx and products.json are up to date
+              run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
+
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
@@ -210,9 +213,6 @@ jobs:
 
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
-
-            - name: Check if products.tsx and products.json are up to date
-              run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
     jest:
         runs-on: depot-ubuntu-24.04

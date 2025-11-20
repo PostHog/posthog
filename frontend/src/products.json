@@ -1,5 +1,6 @@
 {
     "products": [
+        { "path": "Data pipelines", "category": "Tools", "iconType": "data_pipeline", "type": "hog_function" },
         { "path": "Customer analytics", "category": "Unreleased", "iconType": "cohort", "type": null },
         { "path": "Dashboards", "category": "Analytics", "iconType": "dashboard", "type": "dashboard" },
         { "path": "SQL editor", "category": "Analytics", "iconType": "sql_editor", "type": "sql" },

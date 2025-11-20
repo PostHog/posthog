@@ -901,6 +901,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
+        path: `Data pipelines`,
+        category: 'Tools',
+        type: 'hog_function',
+        iconType: 'data_pipeline',
+        iconColor: ['var(--color-product-data-pipeline-light)'],
+        href: urls.dataPipelines(),
+        sceneKey: 'DataPipelines',
+        sceneKeys: ['DataPipelines'],
+    },
+    {
         path: 'Data warehouse',
         category: 'Unreleased',
         href: urls.dataWarehouse(),
