@@ -198,10 +198,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     current_filters: filters,
                     current_session_id: currentSessionRecordingId,
                 }}
-                contextDescription={{
-                    text: 'Current filters',
-                    icon: <IconFilter />,
-                }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
                     setFilters(toolOutput)
