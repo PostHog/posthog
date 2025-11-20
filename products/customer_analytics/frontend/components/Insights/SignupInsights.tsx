@@ -13,7 +13,7 @@ export function SignupInsights(): JSX.Element {
                 <h2 className="mb-0 ml-1">Signup insights</h2>
             </div>
             <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
-                {signupInsights.slice(3).map((insight, index) => {
+                {signupInsights.slice(0, 3).map((insight, index) => {
                     return (
                         <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
                     )
