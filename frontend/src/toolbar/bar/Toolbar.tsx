@@ -1,7 +1,6 @@
 import './Toolbar.scss'
 
 import clsx from 'clsx'
-import { toBlob } from 'html-to-image'
 import { useActions, useValues } from 'kea'
 import { PostHog } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
@@ -26,10 +25,9 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonBadge, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { lazyImageBlobReducer } from 'lib/hooks/useUploadFiles'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
@@ -45,6 +43,7 @@ import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { captureScreenshot } from '~/toolbar/utils/screenshot'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
@@ -198,20 +197,6 @@ function piiMaskingMenuItem(
     ].filter(Boolean) as LemonMenuItem[]
 }
 
-// Get all property names accessible through getComputedStyle(), excluding custom properties
-// see: https://github.com/bubkoo/html-to-image/issues/542#issuecomment-3249408793 to avoid slowdown
-const allPropertyNames = (function getAllPropertyNames() {
-    var names = []
-    var style = getComputedStyle(document.documentElement)
-    for (var i = 0; i < style.length; i++) {
-        var name = style[i]
-        if (!name.startsWith('--')) {
-            names.push(name)
-        }
-    }
-    return names
-})()
-
 function MoreMenu(): JSX.Element {
     const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
     const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null)
@@ -230,30 +215,18 @@ function MoreMenu(): JSX.Element {
         }, false)
     }, [posthog])
 
-    // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
     const { logout } = useActions(toolbarConfigLogic)
 
-    const handleScreenshotClick = (): void => {
+    const handleScreenshotClick = async (): Promise<void> => {
         setIsTakingScreenshot(true)
-        toBlob(document.body, { includeStyleProperties: allPropertyNames })
-            .then(async function (blob) {
-                if (!blob) {
-                    lemonToast.error('Could not take screenshot. Please try again.')
-                    setIsTakingScreenshot(false)
-                    return
-                }
-
-                const compressedBlob = await lazyImageBlobReducer(blob)
-                setScreenshotBlob(compressedBlob)
-                setIsScreenshotModalOpen(true)
-                setIsTakingScreenshot(false)
-            })
-            .catch((error) => {
-                lemonToast.error('Failed to take screenshot: ' + error)
-                setIsTakingScreenshot(false)
-            })
+        const blob = await captureScreenshot()
+        if (blob) {
+            setScreenshotBlob(blob)
+            setIsScreenshotModalOpen(true)
+        }
+        setIsTakingScreenshot(false)
     }
 
     return (
@@ -293,7 +266,7 @@ function MoreMenu(): JSX.Element {
                             onClick: () => toggleTheme(),
                         },
                         {
-                            icon: isTakingScreenshot ? <Spinner /> : <IconCamera />,
+                            icon: <IconCamera />,
                             label: 'Take an event definition screenshot',
                             onClick: handleScreenshotClick,
                             disabled: isTakingScreenshot,
@@ -318,9 +291,7 @@ function MoreMenu(): JSX.Element {
                 }
                 maxContentWidth={true}
             >
-                <ToolbarButton>
-                    <IconMenu />
-                </ToolbarButton>
+                <ToolbarButton>{isTakingScreenshot ? <Spinner /> : <IconMenu />}</ToolbarButton>
             </LemonMenu>
         </>
     )
