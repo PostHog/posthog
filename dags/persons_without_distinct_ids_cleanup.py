@@ -23,6 +23,7 @@ class PersonsNoDistinctIdsCleanupConfig(dagster.Config):
     chunk_size: int = 1_000_000  # ID range per chunk
     batch_size: int = 1000  # Records to scan for a parent person or delete in a single transaction
     max_id: int | None = None  # Optional override for max ID to resume from partial state
+    min_id: int | None = None  # Optional override for min ID to resume from partial state
 
 
 @dagster.op
@@ -32,23 +33,28 @@ def get_id_range(
     database: dagster.ResourceParam[psycopg2.extensions.connection],
 ) -> tuple[int, int]:
     """
-    Query source database for MIN(id) and optionally MAX(id) from posthog_person
-    table. If max_id is provided in config, uses that instead of querying.
+    Query source database for MIN(id) and MAX(id) from posthog_person table.
+    If min_id or max_id is provided in config, uses that instead of querying.
     Returns tuple (min_id, max_id).
     """
     with database.cursor() as cursor:
-        # Always query for min_id
-        min_query = f"SELECT MIN(id) as min_id FROM posthog_person"
-        context.log.info(f"Querying min ID: {min_query}")
-        cursor.execute(min_query)
-        min_result = cursor.fetchone()
+        # Use config min_id if provided, otherwise query database
+        if config.min_id is not None:
+            min_id = config.min_id
+            context.log.info(f"Using configured min_id override: {config.min_id}")
+        else:
+            # Always query for min_id
+            min_query = f"SELECT MIN(id) as min_id FROM posthog_person"
+            context.log.info(f"Querying min ID: {min_query}")
+            cursor.execute(min_query)
+            min_result = cursor.fetchone()
 
-        if min_result is None or min_result["min_id"] is None:
-            context.log.exception("posthog_person table is empty or has no valid IDs")
-            # Note: No metrics client here as this is get_id_range op, not copy_chunk
-            raise dagster.Failure("posthog_person table is empty or has no valid IDs")
+            if min_result is None or min_result["min_id"] is None:
+                context.log.exception("Source table has no valid min ID")
+                # Note: No metrics client here as this is get_id_range op, not copy_chunk
+                raise dagster.Failure("Source table has no valid min ID")
 
-        min_id = int(min_result["min_id"])
+            min_id = int(min_result["min_id"])
 
         # Use config max_id if provided, otherwise query database
         if config.max_id is not None:
@@ -78,6 +84,7 @@ def get_id_range(
         context.add_output_metadata(
             {
                 "min_id": dagster.MetadataValue.int(min_id),
+                "min_id_source": dagster.MetadataValue.text("config" if config.min_id is not None else "database"),
                 "max_id": dagster.MetadataValue.int(max_id),
                 "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
                 "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),
