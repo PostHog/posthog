@@ -221,7 +221,8 @@ export function ProjectExplorer({
             return
         }
         listboxRef.current.focusItemByKey(highlightedFocusKey)
-    }, [highlightedFocusKey, listboxRef])
+        setHighlightedExplorerEntryPath(null)
+    }, [highlightedFocusKey, listboxRef, setHighlightedExplorerEntryPath])
 
     if (!hasActiveFolder) {
         return null
