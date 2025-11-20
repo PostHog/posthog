@@ -96,8 +96,8 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 1
         assert flags[0]["key"] == "active-flag"
 
-    def test_get_feature_flags_for_service_excludes_inactive(self):
-        """Test that inactive flags are excluded from cache."""
+    def test_get_feature_flags_for_service_includes_inactive(self):
+        """Test that inactive flags are included in cache."""
         # Create active flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -118,8 +118,10 @@ class TestServiceFlagsCache(BaseTest):
         result = _get_feature_flags_for_service(self.team)
         flags = result["flags"]
 
-        assert len(flags) == 1
-        assert flags[0]["key"] == "active-flag"
+        assert len(flags) == 2
+        flag_keys = [f["key"] for f in flags]
+        assert "active-flag" in flag_keys
+        assert "inactive-flag" in flag_keys
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
