@@ -8,7 +8,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
-from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 
 
@@ -90,6 +90,19 @@ def test_task(team, user, github_integration):
     yield task
 
     task.soft_delete()
+
+
+@pytest.fixture
+def test_task_run(test_task):
+    """Create a test task run."""
+    task_run = TaskRun.objects.create(
+        task=test_task,
+        status=TaskRun.Status.QUEUED,
+    )
+
+    yield task_run
+
+    # NOTE: TaskRun does not get deleted
 
 
 @pytest.fixture(autouse=True)
