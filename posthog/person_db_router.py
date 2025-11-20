@@ -35,10 +35,10 @@ class PersonDBRouter:
 
     def db_for_read(self, model, **hints):
         """
-        Attempts to read person models go to persons_db_writer.
+        Attempts to read person models go to persons_db (writer in tests, reader in production).
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
-            return "persons_db_writer"
+            return PERSONS_DB_FOR_READ
         return None  # Allow default db selection
 
     def db_for_write(self, model, **hints):
@@ -46,7 +46,7 @@ class PersonDBRouter:
         Attempts to write person models go to persons_db_writer.
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
-            return "persons_db_writer"
+            return PERSONS_DB_FOR_WRITE
         return None  # Allow default db selection
 
     def allow_relation(self, obj1, obj2, **hints):
@@ -77,7 +77,8 @@ class PersonDBRouter:
             # Person -> Team: Person.team has db_constraint=False
             # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
             # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
-            from posthog.models import Person, Project, Team
+            # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
+            from posthog.models import Dashboard, Person, Project, Team
             from posthog.models.group_type_mapping import GroupTypeMapping
 
             # Allow Person -> Team relation
@@ -96,6 +97,12 @@ class PersonDBRouter:
             if isinstance(obj1, GroupTypeMapping) and isinstance(obj2, Project):
                 return True
             if isinstance(obj1, Project) and isinstance(obj2, GroupTypeMapping):
+                return True
+
+            # Allow GroupTypeMapping -> Dashboard relation
+            if isinstance(obj1, GroupTypeMapping) and isinstance(obj2, Dashboard):
+                return True
+            if isinstance(obj1, Dashboard) and isinstance(obj2, GroupTypeMapping):
                 return True
 
             # Disallow all other cross-database relations
