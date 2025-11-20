@@ -4525,12 +4525,17 @@ export interface HeatmapExportContext {
     common_filters?: CommonFilters
 }
 
+export interface InsightExportContext {
+    show_legend?: boolean
+}
+
 export type ExportContext =
     | OnlineExportContext
     | LocalExportContext
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
+    | InsightExportContext
 
 export interface ExportedAssetType {
     id: number

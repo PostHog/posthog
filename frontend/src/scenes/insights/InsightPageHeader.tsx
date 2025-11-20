@@ -66,7 +66,14 @@ import {
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
+import {
+    getShowLegend,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -337,6 +344,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {
                                         format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        context: {
+                                            // Read showLegend from the query's display options (same as showValuesOnSeries)
+                                            show_legend:
+                                                query && isInsightVizNode(query)
+                                                    ? (getShowLegend(query.source) ?? false)
+                                                    : false,
+                                        },
                                         dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
                                     {
