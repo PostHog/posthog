@@ -215,7 +215,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
             )
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                yield serializer.dumps(chunk).encode("utf-8")
+                event = await serializer.dumps(chunk)
+                yield event.encode("utf-8")
 
         return StreamingHttpResponse(
             async_stream(workflow_inputs)

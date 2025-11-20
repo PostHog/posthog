@@ -3,12 +3,18 @@ from typing import cast
 
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent
 
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
 from ee.models.assistant import Conversation
 
 
 class AssistantSSESerializer:
+    # `dumps` to be async, as some serialization CAN involve the DB
+    # In particular, serialization Conversation can involve fetching conversation.user from DB
+    # This shouldn't be needed, because we SHOULD be doing Conversation.objects.select_related("user"), but async doesn't hurt here
+    @database_sync_to_async
     def dumps(self, event: AssistantOutput) -> str:
         event_type, event_data = event
         if event_type == AssistantEventType.MESSAGE:
