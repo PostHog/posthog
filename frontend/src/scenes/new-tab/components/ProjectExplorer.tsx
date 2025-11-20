@@ -108,7 +108,7 @@ export function ProjectExplorer({
     })
     const sensors = useSensors(mouseSensor, touchSensor)
     const rootDroppableId = `project://${explorerFolderPath}`
-    const { setNodeRef: setRootNodeRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
+    const { setNodeRef: setRootDropZoneRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
     const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
     const isDragging = !!activeDragItem
 
@@ -361,13 +361,7 @@ export function ProjectExplorer({
             onDragEnd={handleDragEnd}
             onDragCancel={() => setActiveDragItem(null)}
         >
-            <div
-                ref={setRootNodeRef}
-                className={clsx(
-                    'flex flex-col gap-3 p-3',
-                    isOverRoot && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
-                )}
-            >
+            <div className="flex flex-col gap-3 p-3">
                 <div className="rounded bg-bg-300">
                     <div
                         className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}
@@ -484,6 +478,7 @@ export function ProjectExplorer({
                         ) : null}
                     </ListBox.Group>
                     <div
+                        ref={setRootDropZoneRef}
                         className={clsx(
                             'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
                             isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
