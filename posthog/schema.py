@@ -32,7 +32,8 @@ class MathGroupTypeIndex(float, Enum):
 
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
-    NOOP = "noop"
+    SQL = "sql"
+    SESSION_REPLAY = "session_replay"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -287,6 +288,10 @@ class AssistantTool(StrEnum):
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    EXECUTE_SQL = "execute_sql"
+    SWITCH_MODE = "switch_mode"
+    SUMMARIZE_SESSIONS = "summarize_sessions"
+    CREATE_INSIGHT = "create_insight"
 
 
 class AssistantToolCall(BaseModel):
@@ -1434,6 +1439,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
 
 
@@ -1886,6 +1892,7 @@ class IntegrationKind(StrEnum):
     REDDIT_ADS = "reddit-ads"
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
+    BING_ADS = "bing-ads"
 
 
 class IntervalType(StrEnum):
@@ -2934,6 +2941,13 @@ class SurveyQuestionType(StrEnum):
     SINGLE_CHOICE = "single_choice"
     RATING = "rating"
     LINK = "link"
+
+
+class SurveyTabPosition(StrEnum):
+    TOP = "top"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTTOM = "bottom"
 
 
 class SurveyType(StrEnum):
@@ -4986,6 +5000,9 @@ class SavedInsightNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTable: Optional[bool] = None
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
@@ -5279,6 +5296,7 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    tabPosition: Optional[SurveyTabPosition] = None
     textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
@@ -11890,6 +11908,7 @@ class SurveyCreationSchema(BaseModel):
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
+    linked_insight_id: Optional[float] = None
     name: str
     questions: list[SurveyQuestionSchema]
     responses_limit: Optional[float] = None
@@ -12717,6 +12736,17 @@ class CachedWebVitalsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CustomerAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    activity_event: Union[EventsNode, ActionsNode]
+    payment_event: Union[EventsNode, ActionsNode]
+    signup_event: Union[EventsNode, ActionsNode]
+    signup_pageview_event: Union[EventsNode, ActionsNode]
+    subscription_event: Union[EventsNode, ActionsNode]
 
 
 class Response3(BaseModel):
@@ -15711,6 +15741,9 @@ class DataTableNode(BaseModel):
     )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
+    showSourceQueryOptions: Optional[bool] = Field(
+        default=None, description="Show actors query options and back to source"
+    )
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
     source: Union[
