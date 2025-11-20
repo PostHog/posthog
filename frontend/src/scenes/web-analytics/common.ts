@@ -6,6 +6,7 @@ import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 import { hogqlQuery } from '~/queries/query'
 import {
     BreakdownFilter,
+    ProductKey,
     QueryLogTags,
     QuerySchema,
     WebAnalyticsConversionGoal,
@@ -13,7 +14,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { InsightLogicProps, ProductKey, PropertyFilterType, PropertyMathType } from '~/types'
+import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */

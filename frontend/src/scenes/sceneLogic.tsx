@@ -39,8 +39,8 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
-import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, OnboardingStepKey } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'

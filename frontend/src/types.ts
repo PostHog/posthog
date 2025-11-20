@@ -45,6 +45,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CurrencyCode,
+    CustomerAnalyticsConfig,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
@@ -63,6 +64,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductKey,
     QuerySchema,
     QueryStatus,
     RecordingOrder,
@@ -208,47 +210,6 @@ export enum AvailableFeature {
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
-
-export enum ProductKey {
-    COHORTS = 'cohorts',
-    ACTIONS = 'actions',
-    ALERTS = 'alerts',
-    EXPERIMENTS = 'experiments',
-    FEATURE_FLAGS = 'feature_flags',
-    ANNOTATIONS = 'annotations',
-    COMMENTS = 'comments',
-    HISTORY = 'history',
-    HEATMAPS = 'heatmaps',
-    INGESTION_WARNINGS = 'ingestion_warnings',
-    PERSONS = 'persons',
-    SURVEYS = 'surveys',
-    SESSION_REPLAY = 'session_replay',
-    MOBILE_REPLAY = 'mobile_replay',
-    DATA_WAREHOUSE = 'data_warehouse',
-    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    EARLY_ACCESS_FEATURES = 'early_access_features',
-    USER_INTERVIEWS = 'user_interviews',
-    PRODUCT_ANALYTICS = 'product_analytics',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
-    PIPELINE_DESTINATIONS = 'pipeline_destinations',
-    SITE_APPS = 'site_apps',
-    GROUP_ANALYTICS = 'group_analytics',
-    INTEGRATIONS = 'integrations',
-    PLATFORM_AND_SUPPORT = 'platform_and_support',
-    TEAMS = 'teams',
-    WEB_ANALYTICS = 'web_analytics',
-    ERROR_TRACKING = 'error_tracking',
-    REVENUE_ANALYTICS = 'revenue_analytics',
-    MARKETING_ANALYTICS = 'marketing_analytics',
-    LLM_ANALYTICS = 'llm_analytics',
-    MAX = 'max',
-    LINKS = 'links',
-    ENDPOINTS = 'endpoints',
-    CUSTOMER_ANALYTICS = 'customer_analytics',
-    LOGS = 'logs',
-}
-
-type ProductKeyUnion = `${ProductKey}`
 
 export enum LicensePlan {
     Scale = 'scale',
@@ -701,6 +662,7 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
+    customer_analytics_config: CustomerAnalyticsConfig
 }
 
 export interface ProductIntentType {
@@ -2036,7 +1998,7 @@ export interface BillingPlanType {
     note: string | null
     unit: string | null
     flat_rate: boolean
-    product_key: ProductKeyUnion
+    product_key: `${ProductKey}`
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
@@ -2168,6 +2130,7 @@ export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
+    derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
@@ -3308,6 +3271,13 @@ export enum SurveyPosition {
     NextToTrigger = 'next_to_trigger',
 }
 
+export enum SurveyTabPosition {
+    Top = 'top',
+    Left = 'left',
+    Right = 'right',
+    Bottom = 'bottom',
+}
+
 export enum SurveyWidgetType {
     Button = 'button',
     Tab = 'tab',
@@ -3334,6 +3304,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
@@ -4429,6 +4400,7 @@ export const INTEGRATION_KINDS = [
     'reddit-ads',
     'databricks',
     'tiktok-ads',
+    'bing-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

@@ -326,10 +326,119 @@ print(tokens)
 
 - **Authorization**: `/oauth/authorize/`
 - **Token Exchange**: `/oauth/token/`
-- **Token Revocation**: `/oauth/revoke_token/`
+- **Token Introspection**: `/oauth/introspect/`
 - **User Info**: `/oauth/userinfo/`
 - **JWKS (Public Keys)**: `/oauth/.well-known/jwks.json`
 - **OpenID Configuration**: `/oauth/.well-known/openid-configuration/`
+
+## Token Introspection
+
+The introspection endpoint (`/oauth/introspect/`) allows you to check if a token is active and retrieve metadata about it. This is useful for validating tokens, checking their scopes or their scoped_teams and scoped_organizations.
+
+### Authentication Methods
+
+The introspection endpoint supports three authentication methods:
+
+#### 1. HTTP Basic Authentication (Recommended)
+
+```bash
+curl -X POST http://localhost:8010/oauth/introspect/ \
+  -u "CLIENT_ID:CLIENT_SECRET" \
+  -d "token=ACCESS_TOKEN_TO_INTROSPECT"
+```
+
+#### 2. Client Credentials in Request Body
+
+```bash
+curl -X POST http://localhost:8010/oauth/introspect/ \
+  -d "client_id=CLIENT_ID" \
+  -d "client_secret=CLIENT_SECRET" \
+  -d "token=ACCESS_TOKEN_TO_INTROSPECT"
+```
+
+#### 3. Bearer Token Authentication
+
+```bash
+curl -X POST http://localhost:8010/oauth/introspect/ \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -d "token=TOKEN_TO_INTROSPECT"
+```
+
+**Important**: When using Bearer token authentication (method 3), the bearer token **must have the `introspection` scope**. Client authentication methods (1 and 2) do not require any scopes.
+
+### Scope Requirements
+
+- **Client Authentication (HTTP Basic or Credentials)**: No scope required
+- **Bearer Token Authentication**: Requires `introspection` scope
+
+This means you can introspect any token using your application's client credentials, regardless of what scopes the token being introspected has. However, if you want to use an access token to introspect other tokens, that access token must have been granted the `introspection` scope.
+
+### Response Format
+
+**Active Token Response**:
+
+```json
+{
+  "active": true,
+  "scope": "openid experiment:read query:read",
+  "client_id": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+  "scoped_teams": [1, 2],
+  "scoped_organizations": ["org-uuid-1", "org-uuid-2"],
+  "exp": 1704067200
+}
+```
+
+**Inactive/Invalid Token Response**:
+
+```json
+{
+  "active": false
+}
+```
+
+### Token Types
+
+- **Access Tokens**: Return `"active": true` if valid and not expired
+- **Refresh Tokens**: Always return `"active": false` (refresh tokens cannot be introspected)
+
+### Example: Introspecting with Client Credentials
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8010/oauth/introspect/",
+    auth=("DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ", "CLIENT_SECRET"),
+    data={"token": "access_token_to_check"}
+)
+
+data = response.json()
+if data.get("active"):
+    print(f"Token is active with scopes: {data['scope']}")
+    print(f"Token has access to teams: {data['scoped_teams']}")
+else:
+    print("Token is inactive or invalid")
+```
+
+### Example: Introspecting with Bearer Token
+
+To introspect tokens using another access token, ensure the bearer token has the `introspection` scope:
+
+```python
+# First, get an access token WITH introspection scope
+# scope=openid+introspection
+
+import requests
+
+response = requests.post(
+    "http://localhost:8010/oauth/introspect/",
+    headers={"Authorization": f"Bearer {access_token_with_introspection_scope}"},
+    data={"token": "token_to_check"}
+)
+
+data = response.json()
+print(f"Token active: {data.get('active')}")
+```
 
 ## Troubleshooting
 

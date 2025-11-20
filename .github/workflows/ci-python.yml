@@ -41,6 +41,8 @@ jobs:
                         - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
+                        # Products changes need to trigger Python CI to validate the json usage is still valid
+                        - 'frontend/src/products.json'
                         # hogli CLI changes need validation
                         - 'common/hogli/**'
                         - 'bin/**'

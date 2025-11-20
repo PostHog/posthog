@@ -63,6 +63,7 @@ class ExternalDataSourceType(models.TextChoices):
     LINKEDINADS = "LinkedinAds", "LinkedinAds"
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
+    BINGADS = "BingAds", "BingAds"
     SHOPIFY = "Shopify", "Shopify"
 
 

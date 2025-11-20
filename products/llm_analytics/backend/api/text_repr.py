@@ -135,6 +135,8 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         """
         # Sort options dict for consistent hashing
         options_str = json.dumps(options, sort_keys=True)
+        # this hash has no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         options_hash = hashlib.md5(options_str.encode()).hexdigest()[:8]
         return f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
 
