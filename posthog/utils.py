@@ -639,7 +639,7 @@ def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
@@ -647,7 +647,7 @@ def get_ip_address(request: HttpRequest) -> str:
     if ip and len(ip.split(":")) == 2:
         ip = ip.split(":")[0]
 
-    return ip
+    return ip or ""
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
