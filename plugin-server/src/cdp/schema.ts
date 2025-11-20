@@ -28,7 +28,7 @@ export type CdpInternalEvent = z.infer<typeof CdpInternalEventSchema>
 
 export const CdpDataWarehouseEventSchema = z.object({
     team_id: z.number(),
-    properties: z.string(),
+    properties: z.record(z.string(), z.any()),
 })
 
 // Infer the TypeScript type

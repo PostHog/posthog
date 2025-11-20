@@ -74,7 +74,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
         // By default we filter for those with no filters or filters specifically for events
-        return (hogFunction.filters?.source ?? 'events') === 'datawarehouse'
+        return (hogFunction.filters?.source ?? 'events') === 'data-warehouse'
     }
 
     /**

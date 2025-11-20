@@ -45,7 +45,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'datawarehouse' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' | 'data-warehouse' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
