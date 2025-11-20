@@ -20,7 +20,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CommentType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CommentType } from '~/types'
 
 import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
 

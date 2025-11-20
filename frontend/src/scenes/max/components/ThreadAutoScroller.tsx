@@ -109,6 +109,28 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
         scrollToBottom()
     }, [streamingActive, scrollToBottom, threadGrouped]) // Scroll when the thread updates
 
+    // Scroll to bottom when thread content changes (for non-streaming messages)
+    const previousThreadLength = useRef(threadGrouped.length)
+    useEffect(() => {
+        if (scrollOrigin.current.user || streamingActive) {
+            previousThreadLength.current = threadGrouped.length
+            return
+        }
+
+        // Only scroll if the thread actually grew (new message added)
+        if (threadGrouped.length > previousThreadLength.current) {
+            // Use requestAnimationFrame immediate scroll on next paint
+            const rafId = requestAnimationFrame(() => {
+                scrollToBottom()
+            })
+
+            previousThreadLength.current = threadGrouped.length
+            return () => cancelAnimationFrame(rafId)
+        }
+
+        previousThreadLength.current = threadGrouped.length
+    }, [threadGrouped.length, scrollToBottom, streamingActive])
+
     // Scroll to bottom when a new thread becomes visible (conversation changes)
     useEffect(() => {
         if (!conversation || scrollOrigin.current.user) {

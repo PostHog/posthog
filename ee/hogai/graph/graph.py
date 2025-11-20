@@ -3,6 +3,7 @@ from collections.abc import Callable
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.agent_executor import AgentExecutorGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.graph.usage import UsageNode
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 from .memory.nodes import (
@@ -44,8 +45,6 @@ class AssistantGraph(AgentExecutorGraph):
         self,
         next_node: AssistantNodeName = AssistantNodeName.ROOT,
     ):
-        self._has_start_node = True
-
         memory_onboarding = MemoryOnboardingNode(self._team, self._user)
         memory_initializer = MemoryInitializerNode(self._team, self._user)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user)
@@ -60,14 +59,6 @@ class AssistantGraph(AgentExecutorGraph):
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, memory_onboarding_enquiry_interrupt)
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, memory_onboarding_finalize)
 
-        self._graph.add_conditional_edges(
-            AssistantNodeName.START,
-            memory_onboarding.should_run_onboarding_at_start,
-            {
-                "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
-                "continue": next_node,
-            },
-        )
         self._graph.add_edge(AssistantNodeName.MEMORY_ONBOARDING, AssistantNodeName.MEMORY_INITIALIZER)
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
@@ -99,10 +90,7 @@ class AssistantGraph(AgentExecutorGraph):
         next_node: AssistantNodeName = AssistantNodeName.END,
         tools_node: AssistantNodeName = AssistantNodeName.MEMORY_COLLECTOR_TOOLS,
     ):
-        self._has_start_node = True
-
         memory_collector = MemoryCollectorNode(self._team, self._user)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_COLLECTOR,
@@ -117,9 +105,24 @@ class AssistantGraph(AgentExecutorGraph):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
+    def add_usage_handler(
+        self,
+    ):
+        self._has_start_node = True
+
+        usage_node = UsageNode(self._team, self._user)
+        self.add_node(AssistantNodeName.USAGE_COMMAND_HANDLER, usage_node)
+        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.USAGE_COMMAND_HANDLER)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.USAGE_COMMAND_HANDLER,
+            usage_node.router,  # type: ignore[arg-type]
+        )
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
+            .add_usage_handler()
             .add_memory_onboarding()
             .add_memory_collector()
             .add_memory_collector_tools()

@@ -21,8 +21,14 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
-        # User used the product enough to warrant it being in the sidebar
-        USAGE = "usage", "Usage"
+        # User showed intent for the product
+        PRODUCT_INTENT = "product_intent", "Product Intent"
+
+        # Colleagues on the same team have the product in their sidebar
+        USED_BY_COLLEAGUES = "used_by_colleagues", "Used by Colleagues"
+
+        # User has a similar product in their sidebar
+        USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
 
         # We launch a new product and want to foster adoption
         NEW_PRODUCT = "new_product", "New Product"

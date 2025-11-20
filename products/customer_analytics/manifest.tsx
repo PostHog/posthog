@@ -1,6 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -24,6 +25,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Customer analytics',
+            intents: [ProductKey.CUSTOMER_ANALYTICS],
             category: 'Unreleased',
             iconType: 'cohort',
             href: urls.customerAnalytics(),

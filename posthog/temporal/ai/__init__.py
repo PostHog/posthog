@@ -1,4 +1,4 @@
-from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflow, process_conversation_activity
+from posthog.temporal.ai.chat_agent import AssistantConversationRunnerWorkflow, process_conversation_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,

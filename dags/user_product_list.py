@@ -1,6 +1,4 @@
-import json
 from datetime import datetime
-from pathlib import Path
 
 from django.utils import timezone
 
@@ -10,17 +8,14 @@ import pydantic
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.products import Products
 
 from dags.common import JobOwners
 
 
 def get_valid_product_paths() -> set[str]:
     """Get all valid product paths from products.json and hardcoded sidebar products"""
-    products_json_path = Path(__file__).parent.parent / "frontend" / "src" / "products.json"
-    with open(products_json_path) as f:
-        data = json.load(f)
-
-    valid_paths = set[str](product["path"] for product in data["products"])
+    valid_paths = set[str](Products.get_product_paths())
     return valid_paths
 
 
@@ -170,7 +165,7 @@ def populate_user_product_list_job():
     """
     Add products to users' product lists with configurable options.
     - product_paths: List of product paths to add (required)
-    - reason: Optional reason ('usage', 'new_product', 'sales_led')
+    - reason: Optional reason from UserProductList.Reason
     - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
     - user_created_before: Only process users created before this date (ISO format)

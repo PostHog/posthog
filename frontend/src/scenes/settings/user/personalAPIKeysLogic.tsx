@@ -394,6 +394,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             LemonDialog.open({
                 title: 'Personal API key ready',
                 width: 536,
+                zIndex: '1168',
                 content: (
                     <>
                         <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
@@ -461,7 +462,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setEditingKeyId: ({ id }) => {
             if (!id) {
                 // When the modal is closed, remove the preset from the URL
-                return [router.values.location.pathname, {}, router.values.location.hash]
+                const { preset, ...searchParams } = router.values.searchParams
+                return [router.values.location.pathname, searchParams, router.values.location.hash]
             }
         },
     })),

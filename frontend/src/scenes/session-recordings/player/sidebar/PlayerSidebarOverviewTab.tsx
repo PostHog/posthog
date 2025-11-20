@@ -41,8 +41,10 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
 
     return (
         <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full deprecated-space-y-1">
-            <div className="flex flex-row justify-between">
-                <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
+            <div className="flex flex-row justify-between items-center gap-2 min-w-0">
+                <div className="min-w-0 flex-1">
+                    <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
+                </div>
                 <ResolutionView />
             </div>
             <PlayerSidebarOverviewGrid />

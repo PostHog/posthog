@@ -26,13 +26,12 @@ import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } fro
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, ProductKey } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSchema,
-    ProductKey,
 } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'

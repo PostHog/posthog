@@ -28,11 +28,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     ActivationTaskStatus,
     EventDefinitionType,
     OnboardingStepKey,
-    ProductKey,
     ReplayTabs,
     TeamBasicType,
     type TeamPublicType,

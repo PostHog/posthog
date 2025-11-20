@@ -11,9 +11,8 @@ import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AnyResponseType, WebVitalsQuery, WebVitalsQueryResponse } from '~/queries/schema/schema-general'
+import { AnyResponseType, ProductKey, WebVitalsQuery, WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ProductKey } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { WebVitalsContent } from './WebVitalsContent'

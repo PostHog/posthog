@@ -8,7 +8,8 @@ import { getRecommendedProducts } from 'scenes/onboarding/productRecommendations
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
 

@@ -47,7 +47,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 }
                 // get most recent release
                 const sortedReleases = relatedReleases.sort(
-                    (a, b) => dayjs(b.timestamp).unix() - dayjs(a.timestamp).unix()
+                    (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix()
                 )
                 return sortedReleases[0]
             },

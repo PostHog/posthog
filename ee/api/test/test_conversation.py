@@ -102,7 +102,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -120,7 +120,7 @@ class TestConversation(APIBaseTest):
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.user_id, self.user.id)
                 self.assertEqual(workflow_inputs.is_new_conversation, True)
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
@@ -129,7 +129,7 @@ class TestConversation(APIBaseTest):
 
     def test_add_message_to_existing_conversation(self):
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -149,7 +149,7 @@ class TestConversation(APIBaseTest):
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.user_id, self.user.id)
                 self.assertEqual(workflow_inputs.is_new_conversation, False)
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
@@ -183,7 +183,7 @@ class TestConversation(APIBaseTest):
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -215,7 +215,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -251,7 +251,7 @@ class TestConversation(APIBaseTest):
 
     def test_nonexistent_conversation(self):
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -284,7 +284,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation(self, mock_cancel):
         conversation = Conversation.objects.create(
             user=self.user,
@@ -327,7 +327,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
         """Test that cancel endpoint properly handles async cleanup."""
         conversation = Conversation.objects.create(
@@ -347,7 +347,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
         """Test cancel endpoint behavior when async cleanup fails."""
         conversation = Conversation.objects.create(
@@ -415,7 +415,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -581,7 +581,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -597,7 +597,7 @@ class TestConversation(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.billing_context, self.billing_context)
 
     def test_billing_context_validation_invalid_data(self):
@@ -605,7 +605,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -621,5 +621,5 @@ class TestConversation(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.billing_context, None)

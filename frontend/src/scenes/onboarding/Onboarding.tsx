@@ -17,10 +17,10 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     OnboardingStepKey,
-    ProductKey,
     type SessionRecordingMaskingLevel,
     TeamPublicType,
     TeamType,

@@ -26,6 +26,7 @@ function useSuggestionHandling(): {
                 setQuestion(stripSuggestionPlaceholders(group.suggestions[0].content))
                 focusInput()
             } else {
+                setQuestion(group.suggestions[0].content)
                 askMax(group.suggestions[0].content)
             }
         } else {
@@ -38,6 +39,7 @@ function useSuggestionHandling(): {
             setQuestion(stripSuggestionPlaceholders(suggestion.content))
             focusInput()
         } else {
+            setQuestion(suggestion.content)
             askMax(suggestion.content)
         }
         setActiveGroup(null)

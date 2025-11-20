@@ -2112,6 +2112,11 @@ Here is the taxonomy for event properties:
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
+        },
         "$feature_flag_version": {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",

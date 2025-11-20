@@ -10,7 +10,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 

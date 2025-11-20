@@ -36,13 +36,14 @@ import {
     DataVisualizationNode,
     InsightVizNode,
     NodeKind,
+    ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 

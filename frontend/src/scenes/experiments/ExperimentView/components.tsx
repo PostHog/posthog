@@ -48,6 +48,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -58,7 +59,6 @@ import {
     Experiment,
     ExperimentConclusion,
     InsightShortId,
-    ProductKey,
     ProgressStatus,
     UserType,
 } from '~/types'

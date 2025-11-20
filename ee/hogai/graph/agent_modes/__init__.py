@@ -1,5 +1,5 @@
 from .compaction_manager import AnthropicConversationCompactionManager, ConversationCompactionManager
-from .const import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
+from .const import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER, SLASH_COMMAND_USAGE
 from .factory import AgentModeDefinition
 from .mode_manager import AgentModeManager
 from .nodes import AgentExecutable, AgentToolkit, AgentToolsExecutable
@@ -12,6 +12,7 @@ __all__ = [
     "AgentModeDefinition",
     "SLASH_COMMAND_INIT",
     "SLASH_COMMAND_REMEMBER",
+    "SLASH_COMMAND_USAGE",
     "AnthropicConversationCompactionManager",
     "ConversationCompactionManager",
 ]

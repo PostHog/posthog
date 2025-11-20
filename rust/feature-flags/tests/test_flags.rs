@@ -42,6 +42,9 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     assert!(json.quota_limited.is_none());
     assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
 
+    // Verify evaluated_at field is present and is a valid timestamp
+    assert!(json.evaluated_at > 0);
+
     // Test GET request with token in query params
     let get_response = reqwest::get(format!(
         "http://{}/flags?v=2&api_key={}",
@@ -1032,7 +1035,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -3524,11 +3527,10 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -3687,7 +3689,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -6256,6 +6258,80 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     assert!(
         variant.is_none() || variant == Some("control"),
         "Variant should be control or null, not 'experimental'. Got: {variant:?}",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_includes_evaluated_at_timestamp_in_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test v2 response format
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let before_request = chrono::Utc::now().timestamp_millis();
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    let after_request = chrono::Utc::now().timestamp_millis();
+
+    assert_eq!(StatusCode::OK, res.status());
+
+    let v2_response = res.json::<FlagsResponse>().await?;
+
+    // Verify evaluated_at field exists and is a valid timestamp
+    assert!(
+        v2_response.evaluated_at >= before_request,
+        "evaluated_at should be >= request time: {} >= {}",
+        v2_response.evaluated_at,
+        before_request
+    );
+    assert!(
+        v2_response.evaluated_at <= after_request,
+        "evaluated_at should be <= after request time: {} <= {}",
+        v2_response.evaluated_at,
+        after_request
+    );
+
+    // Also test with raw JSON to ensure it's serialized in the response
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    let json_value: Value = res.json().await?;
+
+    assert!(
+        json_value.get("evaluatedAt").is_some(),
+        "evaluatedAt field should be present in JSON response"
+    );
+    assert!(
+        json_value["evaluatedAt"].is_i64(),
+        "evaluatedAt should be an integer"
+    );
+
+    // Test v1 legacy response format also includes evaluatedAt
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+    let legacy_json: Value = res.json().await?;
+
+    assert!(
+        legacy_json.get("evaluatedAt").is_some(),
+        "evaluatedAt field should be present in v1 legacy response"
     );
 
     Ok(())

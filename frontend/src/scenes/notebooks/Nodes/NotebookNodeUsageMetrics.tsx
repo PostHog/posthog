@@ -8,8 +8,7 @@ import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConf
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { NodeKind, ProductKey, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     UsageMetricCard,

@@ -239,6 +239,7 @@ mod tests {
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
     };
+    use chrono::Utc;
     use serde_json::json;
     use sqlx::types::{Json, Uuid};
     use std::collections::HashMap;
@@ -288,6 +289,7 @@ mod tests {
             flags: HashMap::new(),
             quota_limited: None,
             request_id: StdUuid::new_v4(),
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }
     }

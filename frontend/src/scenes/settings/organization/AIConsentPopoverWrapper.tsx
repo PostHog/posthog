@@ -35,7 +35,7 @@ export function AIConsentPopoverWrapper({
                         PostHog AI needs your approval to potentially process
                         <br />
                         identifying user data with{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI providers</dfn>
                         </Tooltip>
                         .<br />

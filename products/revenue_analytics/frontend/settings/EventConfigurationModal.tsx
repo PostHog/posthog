@@ -14,8 +14,8 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ProductKey } from '~/types'
+import { ProductKey, RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 

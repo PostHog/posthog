@@ -106,6 +106,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "is_materialized": endpoint.is_materialized,
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
+            "derived_from_insight": endpoint.derived_from_insight,
         }
 
         if endpoint.is_materialized and endpoint.saved_query:
@@ -191,6 +192,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 is_active=data.is_active if data.is_active is not None else True,
                 cache_age_seconds=data.cache_age_seconds,
                 current_version=1,
+                derived_from_insight=data.derived_from_insight,
             )
 
             EndpointVersion.objects.create(

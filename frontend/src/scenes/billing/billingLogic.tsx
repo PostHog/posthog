@@ -19,6 +19,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     BillingPeriod,
     BillingPlan,
@@ -26,7 +27,6 @@ import {
     BillingProductV2AddonType,
     BillingProductV2Type,
     BillingType,
-    ProductKey,
     StartupProgramLabel,
 } from '~/types'
 

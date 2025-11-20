@@ -4,8 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ProductKey } from '~/types'
 
 import { productsLogic } from './productsLogic'
 

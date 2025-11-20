@@ -212,16 +212,18 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     const response = await api.get(url)
                     breakpoint()
 
-                    // Fetch one event as example and cache
-                    let exampleEventProperties: Record<string, string>
-                    const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
-                    if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
-                        exampleEventProperties = cache.apiCache[exampleUrl]
-                    } else {
-                        exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
-                        cache.apiCache = {
-                            ...cache.apiCache,
-                            [exampleUrl]: exampleEventProperties,
+                    // Fetch one event as example and cache (only if events have been captured)
+                    let exampleEventProperties: Record<string, string> = {}
+                    if (definition.last_seen_at) {
+                        const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
+                        if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
+                            exampleEventProperties = cache.apiCache[exampleUrl]
+                        } else {
+                            exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
+                            cache.apiCache = {
+                                ...cache.apiCache,
+                                [exampleUrl]: exampleEventProperties,
+                            }
                         }
                     }
 

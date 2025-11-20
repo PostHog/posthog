@@ -31,7 +31,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
@@ -313,7 +313,7 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(0..10_000_000),
+        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
     };
     let token = random_string("phc_", 12);
     let team = Team {
@@ -362,7 +362,7 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
     let payload_flag = match flag {
         Some(mut value) => {
@@ -1105,7 +1105,7 @@ impl TestContext {
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
         // Create team model
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
             project_id: Some(id as i64),
