@@ -67,6 +67,8 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
         if name not in columns_to_ignore:
             key = f"{key}-{value}"
 
+    # this hash has no security impact
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     hash_key = hashlib.md5(key.encode()).hexdigest()
 
     return {**row, "id": hash_key}

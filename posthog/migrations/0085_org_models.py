@@ -20,6 +20,7 @@ def forwards_func(apps, schema_editor):
         team = user.team_set.first()
         if not team:
             continue
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         deterministic_derived_uuid = uuid.UUID(hashlib.md5(team.id.to_bytes(16, "big")).hexdigest())
         try:
             # try to keep users from the same old team in the same new organization

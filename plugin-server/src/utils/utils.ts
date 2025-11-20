@@ -439,11 +439,6 @@ export function createPostgresPool(
         idleTimeoutMillis: 500,
         application_name: applicationName,
         max: poolSize,
-        ssl: process.env.DYNO // Means we are on Heroku
-            ? {
-                  rejectUnauthorized: false,
-              }
-            : undefined,
     })
 
     const handleError =

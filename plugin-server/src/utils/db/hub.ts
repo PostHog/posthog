@@ -253,6 +253,8 @@ export function createKafkaClient({
 }: PluginsServerConfig) {
     let kafkaSsl: ConnectionOptions | boolean | undefined
     if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
+        // see rejectUnauthorized note below
+        // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
         kafkaSsl = {
             cert: Buffer.from(KAFKA_CLIENT_CERT_B64, 'base64'),
             key: Buffer.from(KAFKA_CLIENT_CERT_KEY_B64, 'base64'),

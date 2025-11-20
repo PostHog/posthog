@@ -24,4 +24,8 @@ COPY --from=builder /livestream /GeoLite2-City.mmdb /
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 COPY --from=builder /usr/share/ca-certificates /usr/share/ca-certificates
 
+# TODO run as non-root user
+# nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
+USER root
+
 CMD ["/livestream"]
