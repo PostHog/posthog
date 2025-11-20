@@ -28,6 +28,7 @@ Usage:
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 
@@ -114,9 +115,9 @@ def trigger_coordinator(
 
     if wait:
         print("⏳ Executing coordinator workflow (this may take a while)...\n")
-        result = async_to_sync(client.execute_workflow)(
+        result: dict[str, Any] = async_to_sync(client.execute_workflow)(
             "batch-trace-summarization-coordinator",
-            inputs,
+            arg=inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(hours=2),
@@ -214,9 +215,9 @@ def trigger_single_team(
 
     if wait:
         print("⏳ Executing workflow (this may take a while)...\n")
-        result = async_to_sync(client.execute_workflow)(
+        result: dict[str, Any] = async_to_sync(client.execute_workflow)(
             "batch-trace-summarization",
-            inputs,
+            arg=inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
@@ -305,7 +306,7 @@ async def trigger_batch_summarization_async(
 
     result = await client.execute_workflow(
         "batch-trace-summarization",
-        inputs,
+        arg=inputs,
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
