@@ -3,7 +3,7 @@
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
-DEFAULT_MODE = "minimal"  # Summary detail level: 'minimal' or 'detailed'
+DEFAULT_MODE = "detailed"  # Summary detail level: 'minimal' or 'detailed' (detailed provides more context for embeddings/clustering)
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"  # Default LLM model for workflow (slower but better than UI default)
 

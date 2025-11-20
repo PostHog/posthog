@@ -68,7 +68,7 @@ graph TB
 
 - `max_traces` (optional): Maximum traces to process per team (default: 100)
 - `batch_size` (optional): Batch size for processing (default: 10)
-- `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `minimal`)
+- `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `detailed`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
 - `model` (optional): LLM model to use (default: gpt-5-mini)
 - `lookback_hours` (optional): How far back to look for team activity (default: 24)
@@ -89,7 +89,7 @@ graph TB
 - `team_id` (required): Team ID to process traces for
 - `max_traces` (optional): Maximum traces to process in window (default: 100)
 - `batch_size` (optional): Batch size for processing (default: 10)
-- `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `minimal`)
+- `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `detailed`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
 - `model` (optional): LLM model to use (default: gpt-5-mini for better quality)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides window_minutes)
@@ -128,7 +128,7 @@ Each trace gets a `$ai_trace_summary` event with properties:
 {
     "$ai_trace_id": "original_trace_id",
     "$ai_batch_run_id": "team_123_2025-01-15T12:00:00Z",
-    "$ai_summary_mode": "minimal",  # or "detailed"
+    "$ai_summary_mode": "detailed",  # or "minimal"
     "$ai_summary_title": "User authentication flow",
     "$ai_summary_text_repr": "L1: TRACE...\n",  # Full text representation
     "$ai_summary_flow_diagram": "graph TD; A-->B;",  # Mermaid diagram
@@ -264,7 +264,7 @@ Key constants in `constants.py`:
 
 - `DEFAULT_MAX_TRACES_PER_WINDOW = 100` - Max traces to process per window (conservative for worst-case 30s/trace)
 - `DEFAULT_BATCH_SIZE = 10` - Batch size for processing
-- `DEFAULT_MODE = "minimal"` - Summary detail level
+- `DEFAULT_MODE = "detailed"` - Summary detail level (detailed provides more context for embeddings/clustering)
 - `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
 - `DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"` - Default LLM model (slower but better quality than UI default)
 - `WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 90` - Max time for single team workflow (worst case: 100 traces × 30s ≈ 58min)
