@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -22,13 +23,15 @@ import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsL
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { getLogicKey } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { groupKey, groupTypeIndex, personId, nodeId } = attributes
+    const { groupKey, groupTypeIndex, personId, tabId } = attributes
     const group = groupKey && groupTypeIndex ? { groupKey, groupTypeIndex } : undefined
+    const logicKey = getLogicKey({ groupKey, personId, tabId })
 
-    const logic = llmAnalyticsLogic({ logicKey: nodeId, personId, group })
+    const logic = llmAnalyticsLogic({ logicKey, personId, group })
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
     const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
@@ -38,9 +41,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     }
 
     return (
-        <BindLogic logic={dataNodeLogic} props={{ key: nodeId }}>
+        <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
             <LLMAnalyticsSetupPrompt className="border-none">
                 <Query
+                    uniqueKey={logicKey}
+                    attachTo={groupLogic}
                     query={{
                         ...tracesQuery,
                         embedded: true,
@@ -136,6 +141,7 @@ type NotebookNodeLLMTraceAttributes = {
     personId?: string
     groupKey?: string
     groupTypeIndex?: number
+    tabId: string
 }
 
 export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTraceAttributes>({
@@ -150,5 +156,6 @@ export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTrace
         personId: {},
         groupKey: {},
         groupTypeIndex: {},
+        tabId: {},
     },
 })

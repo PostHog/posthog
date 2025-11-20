@@ -1809,6 +1809,15 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             payload={"scheduled_change_id": scheduled_change_id},
         )
 
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    resolved_activity = activity
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        if bool(deleted_change.after):
+            resolved_activity = "deleted"
+        elif bool(deleted_change.before):
+            resolved_activity = "restored"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -1816,9 +1825,9 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
-        activity=activity,
+        activity=resolved_activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=after_update.key,
             trigger=trigger,
         ),

@@ -53,6 +53,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 
 from .prompts import (
@@ -88,14 +89,6 @@ SupportedQueryTypes = (
     | RevenueAnalyticsMRRQuery
     | RevenueAnalyticsTopCustomersQuery
 )
-
-
-class QueryExecutorError(Exception):
-    """
-    Exception raised when there is an error executing a query.
-    """
-
-    pass
 
 
 class AssistantQueryExecutor:
@@ -381,7 +374,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise QueryExecutorError(err_message)
+            raise MaxToolRetryableError(err_message)
         except:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution
@@ -517,10 +510,15 @@ async def execute_and_format_query(team: Team, query: SupportedQueryTypes) -> st
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 
+    insight_schema = ""
+    if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
+        insight_schema = query.model_dump_json(exclude_none=True)
+
     query_result = format_prompt_string(
         QUERY_RESULTS_PROMPT,
         query_kind=query.kind,
         results=results,
+        insight_schema=insight_schema,
         utc_datetime_display=utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S"),
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
