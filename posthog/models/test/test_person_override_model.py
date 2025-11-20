@@ -27,10 +27,12 @@ def team(organization):
 
     yield team
 
-    # Clean up any remaining Persons and PersonOverrides before deleting team to avoid FK violations
-    Person.objects.filter(team=team).delete()
-    PersonOverride.objects.filter(team=team).delete()
-    team.delete()
+    # Clean up any remaining Persons and PersonOverrides for all teams in org to avoid FK violations
+    # (some tests create additional teams beyond the fixture)
+    org_teams = Team.objects.filter(organization=organization)
+    Person.objects.filter(team__in=org_teams).delete()
+    PersonOverride.objects.filter(team__in=org_teams).delete()
+    org_teams.delete()
 
 
 @pytest.fixture
