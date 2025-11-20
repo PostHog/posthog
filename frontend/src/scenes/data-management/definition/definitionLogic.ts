@@ -1,16 +1,24 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AvailableFeature, Breadcrumb, Definition, EventDefinitionMetrics, PropertyDefinition } from '~/types'
+import {
+    AvailableFeature,
+    Breadcrumb,
+    Definition,
+    EventDefinitionMetrics,
+    ObjectMediaPreview,
+    PropertyDefinition,
+} from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
@@ -41,6 +49,12 @@ export const definitionLogic = kea<definitionLogicType>([
         loadDefinition: (id: Definition['id']) => ({ id }),
         loadMetrics: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
+        loadPreferredPreview: true,
+        createMediaPreview: (uploadedMediaId: string, metadata?: Record<string, any>) => ({
+            uploadedMediaId,
+            metadata,
+        }),
+        deleteMediaPreview: (previewId: string) => ({ previewId }),
     }),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
@@ -113,6 +127,48 @@ export const definitionLogic = kea<definitionLogicType>([
                 },
             },
         ],
+        preview: [
+            null as ObjectMediaPreview | null,
+            {
+                loadPreferredPreview: async () => {
+                    // Only load for event definitions with valid IDs
+                    if (!values.isEvent || !values.definition.id || values.definition.id === 'new') {
+                        return null
+                    }
+                    try {
+                        return await api.objectMediaPreviews.getPreferred(values.definition.id)
+                    } catch {
+                        // No preview is not an error
+                        return null
+                    }
+                },
+                createMediaPreview: async ({ uploadedMediaId, metadata }) => {
+                    try {
+                        await api.objectMediaPreviews.create({
+                            uploaded_media_id: uploadedMediaId,
+                            event_definition_id: values.definition.id,
+                            metadata,
+                        })
+                        lemonToast.success('Media preview added successfully')
+                        actions.loadPreferredPreview()
+                        return null
+                    } catch (error) {
+                        lemonToast.error('Failed to add media preview')
+                        throw error
+                    }
+                },
+                deleteMediaPreview: async ({ previewId }) => {
+                    try {
+                        await api.objectMediaPreviews.delete(previewId)
+                        lemonToast.success('Media preview deleted')
+                        return null
+                    } catch (error) {
+                        lemonToast.error('Failed to delete media preview')
+                        throw error
+                    }
+                },
+            },
+        ],
     })),
     selectors({
         hasTaxonomyFeatures: [
@@ -155,6 +211,14 @@ export const definitionLogic = kea<definitionLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        loadDefinitionSuccess: () => {
+            // Load preview after definition is loaded
+            if (values.isEvent && values.definition.id && values.definition.id !== 'new') {
+                actions.loadPreferredPreview()
+            }
+        },
+    })),
     afterMount(({ actions, values, props }) => {
         if (!props.id || props.id === 'new') {
             actions.setDefinition(createNewDefinition(values.isEvent))

@@ -95,8 +95,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         isProperty,
         metrics,
         metricsLoading,
-        preferredPreview,
-        preferredPreviewLoading,
+        preview,
+        previewLoading,
     } = useValues(logic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const onGuardClick = (callback: () => void): void => {
@@ -283,24 +283,20 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     />
                 )}
 
-                {preferredPreview && (
+                {preview && (
                     <div className="mt-4">
                         <h5 className="mb-2">
                             Media preview
-                            {preferredPreview.media_type === 'exported' && (
+                            {preview.media_type === 'exported' && (
                                 <span className="text-xs text-secondary ml-2">(Auto-captured)</span>
                             )}
                         </h5>
                         <div className="border rounded p-2 inline-block">
-                            <img
-                                src={preferredPreview.media_url}
-                                alt="Event preview"
-                                className="max-w-full max-h-96 rounded"
-                            />
+                            <img src={preview.media_url} alt="Event preview" className="max-w-full max-h-96 rounded" />
                         </div>
                     </div>
                 )}
-                {preferredPreviewLoading && (
+                {previewLoading && (
                     <div className="mt-4">
                         <Spinner />
                     </div>
