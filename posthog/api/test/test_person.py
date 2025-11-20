@@ -918,7 +918,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_a,
             distinct_id="deleted_user",
             version=0,
@@ -951,7 +951,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Manually add the deleted distinct_id to person B (simulating a merge scenario)
         # This would happen in a real scenario where events come in for the deleted distinct_id
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_b,
             distinct_id="deleted_user",
             version=2,
@@ -1101,7 +1101,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(8):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1112,7 +1112,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(7):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -1241,13 +1241,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id",
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id-2",
             version=0,
@@ -1314,7 +1314,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # distinct id no update
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_not_changed_1,
             distinct_id="distinct_id-1",
             version=0,
@@ -1325,7 +1325,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_deleted_1,
             distinct_id="distinct_id-del-1",
             version=16,

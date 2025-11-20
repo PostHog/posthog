@@ -29,6 +29,7 @@ from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
+from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.utils import label_for_team_id_to_track
 
@@ -67,14 +68,9 @@ FLAG_CACHE_HIT_COUNTER = Counter(
 ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
 
-# Define which database to use for persons only.
-# This is temporary while we migrate persons to its own database.
-# In tests, use persons_db_writer for reads to ensure transaction visibility
-# (both aliases point to same DB but are separate connections with separate transactions)
-# In production, use persons_db_reader for read scaling
-READ_ONLY_DATABASE_FOR_PERSONS = "persons_db_writer" if settings.TEST or settings.DEBUG else "persons_db_reader"
-
-WRITE_DATABASE_FOR_PERSONS = "persons_db_writer"
+# Use centralized database routing constants
+READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
+WRITE_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_WRITE
 
 
 class FeatureFlagMatchReason(StrEnum):

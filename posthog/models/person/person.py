@@ -2,23 +2,20 @@ from typing import Any, Optional
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
-from django.db import connections, models, router, transaction
+from django.db import models, router, transaction
 from django.db.models import F, Q
 from django.db.models.deletion import Collector
 
 from posthog.models.utils import UUIDT
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
 from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
-if "persons_db_reader" in connections:
-    READ_DB_FOR_PERSONS = "persons_db_reader"
-elif "replica" in connections:
-    READ_DB_FOR_PERSONS = "replica"
-else:
-    READ_DB_FOR_PERSONS = "default"
+# Use centralized database routing constant
+READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class PersonQuerySet(models.QuerySet):
