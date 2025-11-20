@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconCheckCircle, IconGear } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconExternal, IconGear } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,7 +13,43 @@ import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { Notification, notificationsLogic } from 'lib/logic/notificationsLogic'
 import { urls } from 'scenes/urls'
 
-export function NotificationsList(): JSX.Element {
+/**
+ * Generate URL for a notification based on resource type and ID.
+ * Returns null if the resource type is not supported or resource_id is missing.
+ */
+function getNotificationUrl(notification: Notification): string | null {
+    const { resource_type } = notification
+
+    switch (resource_type) {
+        case 'comment':
+        case 'mention':
+            const parentType = notification.context?.parent_type || notification.context?.scope?.toLowerCase()
+            const parentId = notification.context?.parent_resource_id || notification.context?.item_id
+
+            if (parentType && parentId) {
+                const url = getNotificationUrl({
+                    ...notification,
+                    resource_type: parentType,
+                    resource_id: parentId,
+                })
+                return url
+            }
+            return null
+
+        default:
+            if (notification.context?.slug) {
+                const slug = notification.context.slug.split('#')[0]
+                return slug
+            }
+            return null
+    }
+}
+
+interface NotificationsListProps {
+    onClose?: () => void
+}
+
+export function NotificationsList({ onClose }: NotificationsListProps): JSX.Element {
     const { displayedNotifications, notificationsLoading, unreadCount, showUnreadOnly, hasMore } =
         useValues(notificationsLogic)
     const { markAllAsRead, setShowUnreadOnly, loadMoreNotifications } = useActions(notificationsLogic)
@@ -53,7 +89,7 @@ export function NotificationsList(): JSX.Element {
                     <>
                         <div className="divide-y">
                             {displayedNotifications.map((notification) => (
-                                <NotificationItem key={notification.id} notification={notification} />
+                                <NotificationItem key={notification.id} notification={notification} onClose={onClose} />
                             ))}
                         </div>
                         {hasMore && (
@@ -77,16 +113,25 @@ export function NotificationsList(): JSX.Element {
 
 interface NotificationItemProps {
     notification: Notification
+    onClose?: () => void
 }
 
-function NotificationItem({ notification }: NotificationItemProps): JSX.Element {
-    const { toggleReadStatus } = useActions(notificationsLogic)
+function NotificationItem({ notification, onClose }: NotificationItemProps): JSX.Element {
+    const { toggleReadStatus, markAsRead } = useActions(notificationsLogic)
     const isUnread = !notification.read_at
     const timeAgo = dayjs(notification.created_at).fromNow()
+    const notificationUrl = getNotificationUrl(notification)
+
+    const handleLinkClick = (): void => {
+        if (isUnread) {
+            markAsRead(notification.id)
+        }
+        onClose?.()
+    }
 
     return (
         <div
-            className={clsx('p-3 hover:bg-secondary-highlight transition-colors', {
+            className={clsx('p-3', {
                 'bg-danger-highlight': isUnread,
             })}
         >
@@ -114,11 +159,21 @@ function NotificationItem({ notification }: NotificationItemProps): JSX.Element 
                     <p className="m-0 mt-1 text-xs text-muted-alt">{timeAgo}</p>
                 </div>
                 <div className="flex-shrink-0 flex gap-1">
+                    {notificationUrl && (
+                        <Tooltip title="Go to resource" placement="left">
+                            <Link to={notificationUrl} onClick={handleLinkClick}>
+                                <LemonButton size="xsmall" icon={<IconExternal />} type="secondary" noPadding />
+                            </Link>
+                        </Tooltip>
+                    )}
                     <Tooltip title={isUnread ? 'Mark as read' : 'Mark as unread'} placement="left">
                         <LemonButton
                             size="xsmall"
                             icon={isUnread ? <IconRadioButtonUnchecked /> : <IconCheckCircle />}
-                            onClick={() => toggleReadStatus(notification.id)}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleReadStatus(notification.id)
+                            }}
                             type="secondary"
                             noPadding
                         />

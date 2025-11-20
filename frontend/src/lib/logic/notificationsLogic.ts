@@ -140,8 +140,11 @@ export const notificationsLogic = kea<notificationsLogicType>([
             },
         ],
         displayedNotifications: [
-            (s) => [s.notifications],
-            (notifications): Notification[] => {
+            (s) => [s.notifications, s.showUnreadOnly],
+            (notifications, showUnreadOnly): Notification[] => {
+                if (showUnreadOnly) {
+                    return notifications.filter((n) => !n.read_at)
+                }
                 return notifications
             },
         ],
