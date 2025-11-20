@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { useRef } from 'react'
 
 import { IconComment, IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -27,6 +27,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
+import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
@@ -79,22 +80,9 @@ const RightHandColumn = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
-    const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
-        v.includes('persistence.isDisabled is not a function')
-    )
-
     return (
         <div className="flex flex-1 gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
-            {isPostHogSDKIssue && (
-                <LemonBanner
-                    type="error"
-                    action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
-                    className="mb-4"
-                >
-                    This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you won't be
-                    charged for any of these exception events. We recommend setting this issue's status to "Suppressed".
-                </LemonBanner>
-            )}
+            <PostHogSDKIssueBanner event={selectedEvent} />
 
             <ExceptionCard
                 issue={issue ?? undefined}

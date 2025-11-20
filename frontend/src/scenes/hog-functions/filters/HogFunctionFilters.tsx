@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -426,6 +426,10 @@ export function HogFunctionFilters({
             context={{
                 current_filters: JSON.stringify(configuration?.filters ?? {}),
                 function_type: type,
+            }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
             }}
             callback={(toolOutput: string) => {
                 const parsedFilters = JSON.parse(toolOutput)

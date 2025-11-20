@@ -12,6 +12,7 @@ from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions.slack_subscriptions import (
+    _block_for_asset,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -430,3 +431,36 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert mock_async_client.chat_postMessage.call_count == 3
         assert result.is_complete_success
         mock_sleep.assert_awaited_once_with(1)
+
+
+class TestSlackErrorTruncation(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+
+    def test_block_for_asset_with_short_error(self) -> None:
+        short_error = "Code: 42. DB::Exception: Received from clickhouse:9000."
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=short_error
+        )
+
+        block = _block_for_asset(asset)
+
+        assert block["type"] == "section"
+        assert short_error in block["text"]["text"]
+        assert "truncated" not in block["text"]["text"]
+        assert len(block["text"]["text"]) < 3000
+
+    def test_block_for_asset_with_long_error(self) -> None:
+        long_error = "A" * 5000
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=long_error
+        )
+
+        block = _block_for_asset(asset)
+
+        assert block["type"] == "section"
+        text = block["text"]["text"]
+        assert "truncated" in text
+        assert len(text) < 3000
+        assert "*My Test subscription*" in text
+        assert "There was an error generating your asset:" in text

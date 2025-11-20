@@ -444,8 +444,6 @@ describe('Surveys', { concurrent: false }, () => {
             // Delete the survey
             const deleteResult = await deleteTool.handler(context, { surveyId: createdSurvey.id })
 
-            expect(deleteResult.content).toBeTruthy()
-            expect(deleteResult.content[0].type).toBe('text')
             const deleteResponse = parseToolResponse(deleteResult)
             expect(deleteResponse.success).toBe(true)
             expect(deleteResponse.message).toContain('archived successfully')

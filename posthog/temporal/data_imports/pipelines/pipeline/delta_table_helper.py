@@ -99,6 +99,8 @@ class DeltaTableHelper:
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
                     s3.delete(delta_uri, recursive=True)
+                else:
+                    raise
 
         self._is_first_sync = True
 
