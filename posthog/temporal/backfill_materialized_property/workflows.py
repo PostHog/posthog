@@ -8,7 +8,6 @@ from typing import Optional
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.backfill_materialized_property import PLUGIN_SERVER_TEAM_CACHE_TTL_SECONDS
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
     GetSlotDetailsInputs,
@@ -53,16 +52,16 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
         """Execute the backfill workflow."""
 
         try:
-            # Wait for plugin-server TeamManager cache to refresh
+            # Wait 2 minutes for plugin-server TeamManager cache to refresh
+            # IMPORTANT: Keep in sync with plugin-server/src/utils/team-manager.ts refreshAgeMs (2 * 60 * 1000 ms)
             # This prevents a gap where new events come in after backfill completes
             # but before the ingestion server knows about the new materialized column
-            # (Plugin-server integration to populate new events comes later)
             workflow.logger.info(
-                f"Waiting {PLUGIN_SERVER_TEAM_CACHE_TTL_SECONDS}s for ingestion cache refresh",
+                "Waiting 2 minutes for ingestion cache refresh",
                 team_id=inputs.team_id,
                 slot_id=inputs.slot_id,
             )
-            await workflow.sleep(dt.timedelta(seconds=PLUGIN_SERVER_TEAM_CACHE_TTL_SECONDS))
+            await workflow.sleep(dt.timedelta(seconds=120))
 
             # Get slot details
             workflow.logger.info("Getting slot details", slot_id=inputs.slot_id)
