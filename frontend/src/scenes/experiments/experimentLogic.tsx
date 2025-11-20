@@ -48,6 +48,7 @@ import {
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -64,7 +65,6 @@ import {
     FunnelExperimentVariant,
     InsightType,
     MultivariateFlagVariant,
-    ProductKey,
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
