@@ -5,9 +5,10 @@ from unittest.mock import MagicMock, patch
 import psycopg2
 from dagster import build_op_context
 
-from dags.persons_without_distinct_ids_cleanup import (
-    PersonsNoDistinctIdsCleanupConfig,
+from dags.persondistinctids_without_person_cleanup import (
+    PersonsDistinctIdsNoPersonCleanupConfig,
     create_chunks,
+    get_id_range,
     scan_delete_chunk,
 )
 
@@ -36,7 +37,7 @@ class TestCreateChunks:
 
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         id_range = (1, 5000)  # min_id=1, max_id=5000
 
         context = build_op_context()
@@ -56,7 +57,7 @@ class TestCreateChunks:
 
     def test_create_chunks_covers_entire_id_space(self):
         """Test that chunks cover the entire ID space from min to max."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -79,7 +80,7 @@ class TestCreateChunks:
 
     def test_create_chunks_first_chunk_includes_max_id(self):
         """Test that the first chunk (in yielded order) includes the source table max_id."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -96,7 +97,7 @@ class TestCreateChunks:
 
     def test_create_chunks_final_chunk_includes_min_id(self):
         """Test that the final chunk (in yielded order) includes the source table min_id."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -113,7 +114,7 @@ class TestCreateChunks:
 
     def test_create_chunks_reverse_order(self):
         """Test that chunks are yielded in reverse order (highest IDs first)."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
@@ -130,7 +131,7 @@ class TestCreateChunks:
 
     def test_create_chunks_exact_multiple(self):
         """Test chunk creation when ID range is an exact multiple of chunk_size."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000  # Exactly 5 chunks of 1000
         id_range = (min_id, max_id)
 
@@ -147,7 +148,7 @@ class TestCreateChunks:
 
     def test_create_chunks_non_exact_multiple(self):
         """Test chunk creation when ID range is not an exact multiple of chunk_size."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 3750  # 3 full chunks + 1 partial chunk
         id_range = (min_id, max_id)
 
@@ -164,7 +165,7 @@ class TestCreateChunks:
 
     def test_create_chunks_single_chunk(self):
         """Test chunk creation when ID range fits in a single chunk."""
-        config = PersonsNoDistinctIdsCleanupConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 100, 500
         id_range = (min_id, max_id)
 
@@ -176,13 +177,16 @@ class TestCreateChunks:
         assert chunks[0].value[0] == min_id and chunks[0].value[1] == max_id
 
 
-def create_mock_database_resource(rowcount_values=None):
+def create_mock_database_resource(rowcount_values=None, fetchall_results=None):
     """
     Create a mock database resource that mimics psycopg2.extensions.connection.
 
     Args:
-        rowcount_values: List of rowcount values to return per INSERT call.
+        rowcount_values: List of rowcount values to return per DELETE call.
                         If None, defaults to 0. If a single int, uses that for all calls.
+        fetchall_results: List of results to return from fetchall() calls (for SELECT queries).
+                         Each result should be a list of dict-like objects with "id" key.
+                         If None, defaults to empty list.
     """
     mock_cursor = MagicMock()
     if rowcount_values is None:
@@ -203,6 +207,24 @@ def create_mock_database_resource(rowcount_values=None):
         mock_cursor.rowcount = property(lambda self: get_rowcount())
 
     mock_cursor.execute = MagicMock()
+    mock_cursor.fetchone = MagicMock()
+
+    # Setup fetchall to return scan results
+    if fetchall_results is None:
+        mock_cursor.fetchall = MagicMock(return_value=[])
+    elif isinstance(fetchall_results, list):
+        fetchall_call_count = [0]
+
+        def get_fetchall_result():
+            if fetchall_call_count[0] < len(fetchall_results):
+                result = fetchall_results[fetchall_call_count[0]]
+                fetchall_call_count[0] += 1
+                return result
+            return fetchall_results[-1] if fetchall_results else []
+
+        mock_cursor.fetchall = MagicMock(side_effect=get_fetchall_result)
+    else:
+        mock_cursor.fetchall = MagicMock(return_value=fetchall_results)
 
     # Make cursor() return a context manager
     mock_conn = MagicMock()
@@ -217,18 +239,26 @@ def create_mock_cluster_resource():
     return MagicMock()
 
 
-class TestCopyChunk:
+class TestScanDeleteChunk:
     """Test the scan_delete_chunk function."""
 
     def test_scan_delete_chunk_single_batch_success(self):
         """Test successful scan and delete of a single batch within a chunk."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
         chunk = (1, 100)  # Single batch covers entire chunk
 
-        mock_db = create_mock_database_resource(rowcount_values=50)
+        # Create 50 IDs to delete (all fit in one delete batch since delete_batch_size=50)
+        ids_to_delete = [{"id": i} for i in range(1, 51)]
+
+        # Mock: fetchall returns the IDs, DELETE returns rowcount of 50
+        mock_db = create_mock_database_resource(
+            rowcount_values=50,
+            fetchall_results=[ids_to_delete],
+        )
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
@@ -247,7 +277,7 @@ class TestCopyChunk:
 
         # Verify SET statements called once (session-level, before loop)
         set_statements = [
-            "SET application_name = 'delete_persons_with_no_distinct_ids'",
+            "SET application_name = 'delete_personsdistinctids_with_no_person'",
             "SET lock_timeout = '5s'",
             "SET statement_timeout = '30min'",
             "SET maintenance_work_mem = '12GB'",
@@ -265,45 +295,69 @@ class TestCopyChunk:
         for stmt in set_statements:
             assert any(stmt in call for call in execute_calls), f"SET statement not found: {stmt}"
 
-        # Verify BEGIN, INSERT, COMMIT called once
-        assert execute_calls.count("BEGIN") == 1
-        assert execute_calls.count("COMMIT") == 1
+        # Verify BEGIN, SELECT scan, COMMIT called
+        # Should have: 1 BEGIN for scan, 1 COMMIT after scan, 1 BEGIN for delete, 1 COMMIT after delete
+        assert execute_calls.count("BEGIN") >= 2  # At least BEGIN for scan and delete
+        assert execute_calls.count("COMMIT") >= 2  # At least COMMIT after scan and delete
 
-        # Verify INSERT query format
-        scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
-        assert len(scan_delete_calls) == 1
-        scan_delete_query = scan_delete_calls[0]
-        assert "DELETE FROM posthog_person" in scan_delete_query
-        assert "WHERE p.id >=" in scan_delete_query
-        assert "AND p.id <=" in scan_delete_query
-        assert "NOT EXISTS" in scan_delete_query
-        assert "ORDER BY p.id DESC" in scan_delete_query
+        # Verify SELECT scan query format
+        scan_calls = [
+            call for call in execute_calls if "SELECT pd.id" in call or "FROM posthog_persondistinctid AS pd" in call
+        ]
+        assert len(scan_calls) == 1
+        scan_query = scan_calls[0]
+        assert "SELECT pd.id" in scan_query
+        assert "FROM posthog_persondistinctid AS pd" in scan_query
+        assert "WHERE pd.id >=" in scan_query
+        assert "AND pd.id <=" in scan_query
+        assert "NOT EXISTS" in scan_query
+
+        # Verify DELETE query was called
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) == 1
 
     def test_scan_delete_chunk_multiple_batches(self):
         """Test scan and delete with multiple batches in a chunk."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
-        chunk = (1, 250)  # 3 batches: (1,100), (100,200), (200,250)
+        chunk = (1, 250)  # 3 scan batches: (1,100), (101,200), (201,250)
 
-        mock_db = create_mock_database_resource()
+        # Create IDs to delete for each scan batch
+        # Batch 1: 50 IDs (1-50), Batch 2: 75 IDs (101-175), Batch 3: 25 IDs (201-225)
+        fetchall_results = [
+            [{"id": i} for i in range(1, 51)],  # 50 IDs from first scan batch
+            [{"id": i} for i in range(101, 176)],  # 75 IDs from second scan batch
+            [{"id": i} for i in range(201, 226)],  # 25 IDs from third scan batch
+        ]
+
+        # Track DELETE rowcounts per delete batch
+        # Batch 1: 50 IDs -> 1 delete batch of 50 -> rowcount 50
+        # Batch 2: 75 IDs -> 2 delete batches (50 + 25) -> rowcounts 50, 25
+        # Batch 3: 25 IDs -> 1 delete batch of 25 -> rowcount 25
+        delete_rowcounts = [50, 50, 25, 25]
+        delete_call_count = [0]
+
+        mock_db = create_mock_database_resource(
+            fetchall_results=fetchall_results,
+        )
         mock_cluster = create_mock_cluster_resource()
-
-        # Track rowcount per batch - use a list to track INSERT calls
-        rowcounts = [50, 75, 25]
-        insert_call_count = [0]
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track INSERT calls and set rowcount accordingly
+        # Track DELETE calls and set rowcount accordingly
         def execute_with_rowcount(query, *args):
-            if "DELETE FROM" in query:
-                if insert_call_count[0] < len(rowcounts):
-                    cursor.rowcount = rowcounts[insert_call_count[0]]
-                    insert_call_count[0] += 1
+            # For DELETE queries, set rowcount
+            if "DELETE FROM posthog_persondistinctid" in query:
+                if delete_call_count[0] < len(delete_rowcounts):
+                    cursor.rowcount = delete_rowcounts[delete_call_count[0]]
+                    delete_call_count[0] += 1
                 else:
                     cursor.rowcount = 0
+            # MagicMock will automatically record the call via side_effect
+            # No need to call anything - just return None
 
         cursor.execute.side_effect = execute_with_rowcount
 
@@ -319,47 +373,60 @@ class TestCopyChunk:
         # Verify result
         assert result["chunk_min"] == 1
         assert result["chunk_max"] == 250
-        assert result["records_deleted"] == 150  # 50 + 75 + 25
+        assert result["records_deleted"] == 150  # 50 + 50 + 25 + 25 = 150
 
         # Verify SET statements called once (before loop)
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Verify BEGIN/COMMIT called 3 times (one per batch)
-        assert execute_calls.count("BEGIN") == 3
-        assert execute_calls.count("COMMIT") == 3
+        # Verify BEGIN/COMMIT called multiple times:
+        # 3 scan batches: 3 BEGIN + 3 COMMIT for scans
+        # 4 delete batches: 4 BEGIN + 4 COMMIT for deletes
+        # Total: 7 BEGIN, 7 COMMIT
+        assert execute_calls.count("BEGIN") >= 7  # At least 3 scans + 4 deletes
+        assert execute_calls.count("COMMIT") >= 7  # At least 3 scans + 4 deletes
 
-        # Verify INSERT called 3 times
-        insert_calls = [call for call in execute_calls if "DELETE FROM" in call]
-        assert len(insert_calls) == 3
+        # Verify SELECT scan called 3 times (one per scan batch)
+        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
+        assert len(scan_calls) == 3
+
+        # Verify DELETE called 4 times (50+50+25+25)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) == 4
 
     def test_scan_delete_chunk_serialization_failure_retry(self):
         """Test that serialization failure triggers retry."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
         chunk = (1, 100)
 
-        mock_db = create_mock_database_resource()
+        # Create IDs to delete
+        ids_to_delete = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track DELETE attempts
-        scan_delete_attempts = [0]
+        # Track scan query attempts
+        scan_attempts = [0]
 
-        # First DELETE raises SerializationFailure, second succeeds
+        # First SELECT scan query raises SerializationFailure, second succeeds
         def execute_side_effect(query, *args):
-            if "DELETE FROM" in query:
-                scan_delete_attempts[0] += 1
-                if scan_delete_attempts[0] == 1:
-                    # First DELETE attempt raises error
+            if "SELECT pd.id" in query:
+                scan_attempts[0] += 1
+                if scan_attempts[0] == 1:
+                    # First scan attempt raises error
                     # Create a mock error with pgcode 40001 for serialization failure
                     error = create_mock_psycopg2_error("could not serialize access due to concurrent update", "40001")
                     raise error
-                # Subsequent calls succeed
-                cursor.rowcount = 50  # Success on retry
+                # Subsequent calls succeed - fetchall will return the IDs
+            elif "DELETE FROM posthog_persondistinctid" in query:
+                # DELETE succeeds
+                cursor.rowcount = 50
+            # MagicMock will automatically record the call via side_effect
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -371,7 +438,7 @@ class TestCopyChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
+            patch("dags.persondistinctids_without_person_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
             scan_delete_chunk(context, config, chunk)
@@ -380,37 +447,43 @@ class TestCopyChunk:
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have DELETE called twice, COMMIT once)
-        scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
-        assert len(scan_delete_calls) >= 1  # At least one successful DELETE
+        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
+        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
+        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
 
     def test_scan_delete_chunk_deadlock_retry(self):
         """Test that deadlock triggers retry."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
         chunk = (1, 100)
 
-        mock_db = create_mock_database_resource()
+        # Create IDs to delete
+        ids_to_delete = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track DELETE attempts
-        scan_delete_attempts = [0]
+        # Track scan query attempts
+        scan_attempts = [0]
 
-        # First DELETE raises deadlock, second succeeds
+        # First SELECT scan query raises deadlock, second succeeds
         def execute_side_effect(query, *args):
-            if "DELETE FROM" in query:
-                scan_delete_attempts[0] += 1
-                if scan_delete_attempts[0] == 1:
-                    # First DELETE attempt raises error
+            if "SELECT pd.id" in query:
+                scan_attempts[0] += 1
+                if scan_attempts[0] == 1:
+                    # First scan attempt raises error
                     # Create a mock error with pgcode 40P01 for deadlock
                     error = create_mock_psycopg2_error("deadlock detected", "40P01")
                     raise error
-                # Subsequent calls succeed
-                cursor.rowcount = 50  # Success on retry
+                # Subsequent calls succeed - fetchall will return the IDs
+            elif "DELETE FROM posthog_persondistinctid" in query:
+                # DELETE succeeds
+                cursor.rowcount = 50
+            # MagicMock will automatically record the call via side_effect
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -422,7 +495,7 @@ class TestCopyChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
+            patch("dags.persondistinctids_without_person_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
             scan_delete_chunk(context, config, chunk)
@@ -431,27 +504,31 @@ class TestCopyChunk:
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have DELETE called twice, COMMIT once)
-        scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
-        assert len(scan_delete_calls) >= 1  # At least one successful DELETE
+        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
+        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
+        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
 
     def test_scan_delete_chunk_error_handling_and_rollback(self):
-        """Test error handling and rollback on non-duplicate errors."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        """Test error handling and rollback on non-retryable errors."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
         chunk = (1, 100)
 
-        mock_db = create_mock_database_resource()
+        # Create IDs to delete
+        ids_to_delete = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Raise generic error on INSERT
+        # Raise generic error on scan query (non-retryable error)
         def execute_side_effect(query, *args):
-            if "DELETE FROM" in query:
+            if "SELECT pd.id" in query:
                 raise Exception("Connection lost")
+            # MagicMock will automatically record the call via side_effect
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -480,13 +557,19 @@ class TestCopyChunk:
 
     def test_scan_delete_chunk_query_format(self):
         """Test that DELETE query has correct format."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
+            delete_batch_size=50,
         )
         chunk = (1, 100)
 
-        mock_db = create_mock_database_resource(rowcount_values=10)
+        # Create IDs to delete
+        ids_to_delete = [{"id": i} for i in range(1, 11)]  # 10 IDs
+        mock_db = create_mock_database_resource(
+            rowcount_values=10,
+            fetchall_results=[ids_to_delete],
+        )
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
@@ -501,26 +584,46 @@ class TestCopyChunk:
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Find INSERT query
-        scan_delete_query = next((call for call in execute_calls if "DELETE FROM" in call), None)
-        assert scan_delete_query is not None
+        # Find DELETE query
+        delete_query = next((call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call), None)
+        assert delete_query is not None
 
-        # Verify query components
-        assert "DELETE FROM posthog_person AS p" in scan_delete_query
-        assert "WHERE p.id >=" in scan_delete_query
-        assert "AND p.id <=" in scan_delete_query
-        assert "NOT EXISTS" in scan_delete_query
-        assert "ORDER BY p.id DESC" in scan_delete_query
+        # Verify DELETE query components
+        assert "DELETE FROM posthog_persondistinctid" in delete_query
+        assert "WHERE id IN" in delete_query
+
+        # Find SELECT query (scan query)
+        scan_query = next(
+            (call for call in execute_calls if "SELECT pd.id" in call or "FROM posthog_persondistinctid AS pd" in call),
+            None,
+        )
+        assert scan_query is not None
+
+        # Verify SELECT query components
+        assert "FROM posthog_persondistinctid AS pd" in scan_query
+        assert "WHERE pd.id >=" in scan_query
+        assert "AND pd.id <=" in scan_query
+        assert "NOT EXISTS" in scan_query
 
     def test_scan_delete_chunk_session_settings_applied_once(self):
         """Test that SET statements are applied once at session level before batch loop."""
-        config = PersonsNoDistinctIdsCleanupConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=50,
+            delete_batch_size=25,
         )
-        chunk = (1, 150)  # 3 batches
+        chunk = (1, 150)  # 3 scan batches
 
-        mock_db = create_mock_database_resource(rowcount_values=25)
+        # Create IDs to delete for each scan batch
+        fetchall_results = [
+            [{"id": i} for i in range(1, 26)],  # 25 IDs from first scan batch
+            [{"id": i} for i in range(51, 76)],  # 25 IDs from second scan batch
+            [{"id": i} for i in range(101, 126)],  # 25 IDs from third scan batch
+        ]
+        mock_db = create_mock_database_resource(
+            rowcount_values=25,
+            fetchall_results=fetchall_results,
+        )
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
@@ -558,3 +661,109 @@ class TestCopyChunk:
 
         if set_indices and begin_indices:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
+
+
+class TestGetIdRange:
+    """Test the get_id_range function."""
+
+    def test_get_id_range_uses_min_id_override(self):
+        """Test that min_id override is honored when provided."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=100, max_id=None)
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"max_id": 5000}
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (100, 5000)
+        assert result[0] == 100  # min_id override used
+
+        # Verify min_id query was NOT executed (override used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
+
+        # Verify max_id query WAS executed (queries posthog_person)
+        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person" in call]
+        assert len(max_queries) == 1, "Should query for max_id from posthog_person when override is not provided"
+
+    def test_get_id_range_uses_max_id_override(self):
+        """Test that max_id override is honored when provided."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=1, max_id=5000)
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (1, 5000)
+        assert result[1] == 5000  # max_id override used
+
+        # Verify max_id query was NOT executed (override used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
+
+    def test_get_id_range_uses_both_overrides(self):
+        """Test that both min_id and max_id overrides are honored when provided."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=100, max_id=5000)
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (100, 5000)
+        assert result[0] == 100  # min_id override used
+        assert result[1] == 5000  # max_id override used
+
+        # Verify NO queries were executed (both overrides used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
+        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
+
+    def test_get_id_range_queries_database_when_max_id_not_provided(self):
+        """Test that database is queried for max_id when override is not provided."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=1, max_id=None)
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"max_id": 5000}
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (1, 5000)
+
+        # Verify max_id query was executed (queries posthog_person)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person" in call]
+        assert len(max_queries) == 1, "Should query for max_id from posthog_person when override is not provided"
+
+    def test_get_id_range_validates_max_id_greater_than_min_id(self):
+        """Test that validation fails when max_id < min_id."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=5000, max_id=100)
+        mock_db = create_mock_database_resource()
+
+        context = build_op_context(resources={"database": mock_db})
+
+        from dagster import Failure
+
+        try:
+            get_id_range(context, config)
+            raise AssertionError("Expected Dagster.Failure to be raised")
+        except Failure as e:
+            assert e.description is not None
+            description = e.description
+            assert "max_id" in description.lower() or "invalid" in description.lower()
+            assert "5000" in description or "100" in description

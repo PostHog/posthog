@@ -20,9 +20,11 @@ MAX_RETRY_ATTEMPTS = 5
 class PersonsDistinctIdsNoPersonCleanupConfig(dagster.Config):
     """Configuration for the persondistinctids without person cleanup job."""
 
-    chunk_size: int = 1_000_000  # ID range per chunk
-    batch_size: int = 1000  # Records to scan for a parent person or delete in a single transaction
+    chunk_size: int = 10_000_000  # persondistinctid rows per chunk
+    batch_size: int = 10000  # persondistinctid rows to scan for missing parent person row in a single transaction
+    delete_batch_size: int = 500  # persondistinctid rows to delete in a single transaction
     max_id: int | None = None  # Optional override for max ID to resume from partial state
+    min_id: int | None = None  # Optional override for min ID to resume from partial state
 
 
 @dagster.op
@@ -32,23 +34,27 @@ def get_id_range(
     database: dagster.ResourceParam[psycopg2.extensions.connection],
 ) -> tuple[int, int]:
     """
-    Query source database for MIN(id) and optionally MAX(id) from posthog_person
-    table. If max_id is provided in config, uses that instead of querying.
+    Query source database for MIN(id) and MAX(id) from posthog_persondistinctid
+    table. If min_id and max_id are provided in config, uses that instead of querying.
     Returns tuple (min_id, max_id).
     """
     with database.cursor() as cursor:
-        # Always query for min_id
-        min_query = f"SELECT MIN(id) as min_id FROM posthog_person"
-        context.log.info(f"Querying min ID: {min_query}")
-        cursor.execute(min_query)
-        min_result = cursor.fetchone()
+        # Use config min_id if provided, otherwise query database
+        if config.min_id is not None:
+            min_id = config.min_id
+            context.log.info(f"Using configured min_id override: {min_id}")
+        else:
+            min_query = f"SELECT MIN(id) as min_id FROM posthog_persondistinctid"
+            context.log.info(f"Querying min ID: {min_query}")
+            cursor.execute(min_query)
+            min_result = cursor.fetchone()
 
-        if min_result is None or min_result["min_id"] is None:
-            context.log.exception("posthog_person table is empty or has no valid IDs")
-            # Note: No metrics client here as this is get_id_range op, not copy_chunk
-            raise dagster.Failure("posthog_person table is empty or has no valid IDs")
+            if min_result is None or min_result["min_id"] is None:
+                context.log.exception("Source table has no valid min ID")
+                # Note: No metrics client here as this is get_id_range op, not copy_chunk
+                raise dagster.Failure("Source table has no valid min ID")
 
-        min_id = int(min_result["min_id"])
+            min_id = int(min_result["min_id"])
 
         # Use config max_id if provided, otherwise query database
         if config.max_id is not None:
@@ -78,6 +84,7 @@ def get_id_range(
         context.add_output_metadata(
             {
                 "min_id": dagster.MetadataValue.int(min_id),
+                "min_id_source": dagster.MetadataValue.text("config" if config.min_id is not None else "database"),
                 "max_id": dagster.MetadataValue.int(max_id),
                 "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
                 "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),
@@ -155,7 +162,7 @@ def scan_delete_chunk(
     try:
         with database.cursor() as cursor:
             # Set session-level settings once for the entire chunk
-            cursor.execute("SET application_name = 'delete_persons_with_no_distinct_ids'")
+            cursor.execute("SET application_name = 'delete_personsdistinctids_with_no_person'")
             cursor.execute("SET lock_timeout = '5s'")
             cursor.execute("SET statement_timeout = '30min'")
             cursor.execute("SET maintenance_work_mem = '12GB'")
@@ -182,39 +189,64 @@ def scan_delete_chunk(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Execute DELETE FROM posthog_person with NOT EXISTS check on
-                    # associated posthog_persondistinctid rows
-                    scan_delete_query = f"""
-DELETE FROM posthog_person AS p
-WHERE p.id >= %s AND p.id <= %s
+                    # Query to find posthog_persondistinctid rows without a parent posthog_person row
+                    scan_query = f"""
+SELECT pd.id
+FROM posthog_persondistinctid AS pd
+WHERE pd.id >= %s AND pd.id <= %s
   AND NOT EXISTS (
     SELECT 1
-    FROM posthog_persondistinctid AS pd
+    FROM posthog_person AS p
     WHERE pd.person_id = p.id
       AND pd.team_id = p.team_id
   )
 ORDER BY p.id DESC
 """
-                    cursor.execute(scan_delete_query, (batch_start_id, batch_end_id))
-                    records_deleted = cursor.rowcount
+                    cursor.execute(scan_query, (batch_start_id, batch_end_id))
+                    rows = cursor.fetchall()
+                    ids_to_delete = set[int]({int(row["id"]) for row in rows})
+                    records_found = len(ids_to_delete)
 
                     # Commit the transaction
                     cursor.execute("COMMIT")
 
+                    records_deleted = 0
+                    ids_list = list(ids_to_delete)
+                    for i in range(0, len(ids_list), config.delete_batch_size):
+                        delete_batch = ids_list[i : i + config.delete_batch_size]
+                        try:
+                            cursor.execute("BEGIN")
+                            placeholders = ",".join(["%s"] * len(delete_batch))
+                            cursor.execute(
+                                f"DELETE FROM posthog_persondistinctid WHERE id IN ({placeholders})",
+                                tuple(delete_batch),
+                            )
+                            records_deleted += cursor.rowcount
+                            cursor.execute("COMMIT")
+                        except Exception:
+                            pass  # Don't fail on delete error
+
                     try:
                         metrics_client.increment(
-                            "persons_wo_distinct_ids_records_attempted_total",
+                            "distinct_ids_without_person_records_attempted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_scanned),
                         ).result()
                     except Exception:
                         pass  # Don't fail on metrics error
 
-                    batch_duration_seconds = time.time() - batch_start_time
+                    try:
+                        metrics_client.increment(
+                            "distinct_ids_without_person_records_found_total",
+                            labels={"job_name": job_name, "chunk_id": chunk_id},
+                            value=float(records_found),
+                        ).result()
+                    except Exception:
+                        pass  # Don't fail on metrics error
 
                     try:
                         metrics_client.increment(
-                            "persons_wo_distinct_ids_records_deleted_total",
+                            "distinct_ids_without_person_records_deleted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=float(records_deleted),
                         ).result()
@@ -223,16 +255,18 @@ ORDER BY p.id DESC
 
                     try:
                         metrics_client.increment(
-                            "persons_wo_distinct_ids_batches_scanned_total",
+                            "distinct_ids_without_person_batches_scanned_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=1.0,
                         ).result()
                     except Exception:
                         pass
+
                     # Track batch duration metric (IV)
+                    batch_duration_seconds = time.time() - batch_start_time
                     try:
                         metrics_client.increment(
-                            "persons_wo_distinct_ids_batch_duration_seconds_total",
+                            "distinct_ids_without_person_batch_duration_seconds_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
                             value=batch_duration_seconds,
                         ).result()
@@ -242,7 +276,7 @@ ORDER BY p.id DESC
                     total_records_deleted += records_deleted
 
                     context.log.info(
-                        f"Deleted batch: {records_deleted} records "
+                        f"Deleted batch: {records_deleted} of {records_found} records "
                         f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
                     )
 
@@ -307,7 +341,7 @@ ORDER BY p.id DESC
                     # Report fatal error metric before raising
                     try:
                         metrics_client.increment(
-                            "persons_wo_distinct_ids_error",
+                            "distinct_ids_without_person_error",
                             labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "batch_scan_delete_failed"},
                             value=1.0,
                         ).result()
@@ -337,7 +371,7 @@ ORDER BY p.id DESC
         # Report fatal error metric before raising
         try:
             metrics_client.increment(
-                "persons_wo_distinct_ids_error",
+                "distinct_ids_without_person_error",
                 labels={"job_name": job_name, "chunk_id": chunk_id, "reason": "unexpected_scan_delete_error"},
                 value=1.0,
             ).result()
@@ -362,7 +396,7 @@ ORDER BY p.id DESC
     run_id = context.run.run_id
     try:
         metrics_client.increment(
-            "persons_wo_distinct_ids_chunks_completed_total",
+            "distinct_ids_without_person_chunks_completed_total",
             labels={"job_name": job_name, "run_id": run_id, "chunk_id": chunk_id},
             value=1.0,
         ).result()
