@@ -5,22 +5,47 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("posthog", "0912_alter_survey_linked_insight_type"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="survey",
-            name="demo_fk_issue",
-            field=models.ForeignKey(
-                blank=True,
-                help_text="demoing the behavior of analyzer when trying to add fk with constraint/index",
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="surveys_demo_fk_issue",
-                related_query_name="survey_demo_fk_issue",
-                to="posthog.insight",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="survey",
+                    name="demo_fk_issue",
+                    field=models.ForeignKey(
+                        blank=True,
+                        help_text="demoing the behavior of analyzer when trying to add fk with constraint/index",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="surveys_demo_fk_issue",
+                        related_query_name="survey_demo_fk_issue",
+                        to="posthog.insight",
+                    ),
+                )
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_survey" ADD COLUMN "demo_fk_issue_id" integer NULL CONSTRAINT "posthog_survey_demo_fk_issue_id_fk_posthog_insight" REFERENCES "posthog_insight"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_survey_demo_fk_issue_id_fk_posthog_insight" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_survey" DROP COLUMN IF EXISTS "demo_fk_issue_id";
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_survey_demo_fk_issue_id_idx" ON "posthog_survey" ("demo_fk_issue_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_survey_demo_fk_issue_id_idx";
+                    """,
+                ),
+            ],
         ),
     ]
