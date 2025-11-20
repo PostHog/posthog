@@ -286,6 +286,13 @@ services:
             file: docker-compose.base.yml
             service: property-defs-rs
 
+    cymbal:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: cymbal
+
     livestream:
         extends:
             file: docker-compose.base.yml

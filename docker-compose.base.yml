@@ -282,6 +282,17 @@ services:
             SKIP_READS: 'false'
             FILTER_MODE: 'opt-out'
 
+    cymbal:
+        image: ghcr.io/posthog/posthog/cymbal:master
+        build:
+            context: rust/
+            args:
+                BIN: cymbal
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+
     feature-flags:
         image: ghcr.io/posthog/posthog/feature-flags:master
         build:
