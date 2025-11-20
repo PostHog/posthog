@@ -49,6 +49,11 @@ export const SelectExistingFeatureFlagModal = ({
         </div>
     )
 
+    // Filter out flags without evaluation tags when requirement is enabled
+    const filteredFlags = isEvaluationTagsRequired
+        ? featureFlags.results.filter((flag) => hasEvaluationTags(flag))
+        : featureFlags.results
+
     return (
         <LemonModal isOpen={isModalOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
@@ -59,7 +64,7 @@ export const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlags.results}
+                    dataSource={filteredFlags}
                     loading={featureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

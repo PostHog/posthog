@@ -497,6 +497,13 @@ const SelectExistingFeatureFlagModal = ({
         featureFlagModalPagination,
     } = useValues(experimentsLogic)
     const { setFeatureFlagModalFilters, resetFeatureFlagModalFilters } = useActions(experimentsLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const isEvaluationTagsRequired = currentTeam?.require_evaluation_environment_tags || false
+
+    const hasEvaluationTags = (flag: FeatureFlagType): boolean => {
+        return (flag.evaluation_tags?.length || 0) > 0
+    }
 
     const handleClose = (): void => {
         resetFeatureFlagModalFilters()
@@ -514,6 +521,11 @@ const SelectExistingFeatureFlagModal = ({
         </div>
     )
 
+    // Filter out flags without evaluation tags when requirement is enabled
+    const filteredFlags = isEvaluationTagsRequired
+        ? featureFlagModalFeatureFlags.results.filter((flag) => hasEvaluationTags(flag))
+        : featureFlagModalFeatureFlags.results
+
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
@@ -524,7 +536,7 @@ const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results}
+                    dataSource={filteredFlags}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[
