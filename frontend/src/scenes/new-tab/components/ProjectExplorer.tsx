@@ -399,15 +399,8 @@ export function ProjectExplorer({
                                 const nameLabel = highlightSearchText(rawNameLabel)
                                 const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
                                 const isHighlighted = highlightedExplorerEntryPath === entry.path
-                                const handleRowClick = (): void => {
-                                    setHighlightedExplorerEntryPath(entry.path)
-                                }
-                                const handleNameClick = (event: MouseEvent<HTMLElement>): void => {
+                                const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
                                     event.preventDefault()
-                                    event.stopPropagation()
-                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                                }
-                                const handleRowDoubleClick = (): void => {
                                     handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                                 }
                                 const handleRowFocus = (): void => {
@@ -431,14 +424,12 @@ export function ProjectExplorer({
                                         isHighlighted={isHighlighted}
                                         handleRowClick={handleRowClick}
                                         handleRowFocus={handleRowFocus}
-                                        handleRowDoubleClick={handleRowDoubleClick}
                                         nameColumnIndentStyle={nameColumnIndentStyle}
                                         isExpandableFolder={isExpandableFolder}
                                         isExpanded={isExpanded}
                                         handleToggleFolder={handleToggleFolder}
                                         icon={icon}
                                         nameLabel={nameLabel}
-                                        handleNameClick={handleNameClick}
                                         folderStates={folderStates}
                                         entry={entry}
                                         shouldUseSearchRows={shouldUseSearchRows}
@@ -527,10 +518,8 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     focusBase: string
     rowGridClass: string
     isHighlighted: boolean
-    handleRowClick: () => void
+    handleRowClick: (event: MouseEvent<HTMLElement>) => void
     handleRowFocus: () => void
-    handleRowDoubleClick: () => void
-    handleNameClick: (event: MouseEvent<HTMLElement>) => void
     nameColumnIndentStyle?: CSSProperties
     isExpandableFolder: boolean
     isExpanded: boolean
@@ -556,8 +545,6 @@ function ExplorerRowListItem({
     isHighlighted,
     handleRowClick,
     handleRowFocus,
-    handleRowDoubleClick,
-    handleNameClick,
     nameColumnIndentStyle,
     isExpandableFolder,
     isExpanded,
@@ -617,23 +604,21 @@ function ExplorerRowListItem({
             {...dragProps}
             {...contextMenuProps}
         >
-            <div
+            <Link
+                to={entry.href || '#'}
                 data-explorer-entry-path={entry.path}
                 data-explorer-entry-type={entry.type}
                 data-explorer-entry-parent={isParentNavigationRow ? 'true' : 'false'}
                 data-explorer-entry-expandable={isExpandableFolder ? 'true' : 'false'}
                 className={clsx(
                     rowGridClass,
-                    'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary aria-[current=true]:ring-2 aria-[current=true]:ring-primary aria-[current=true]:border-primary',
-                    isHighlighted && 'bg-primary-alt-highlight text-primary ring-2 ring-primary border-primary',
+                    'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                    isHighlighted && 'bg-primary-alt-highlight text-primary',
                     droppableHighlight && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
                     isParentNavigationRow && 'py-0.5'
                 )}
                 onClick={handleRowClick}
                 onFocus={handleRowFocus}
-                onDoubleClick={handleRowDoubleClick}
-                role="button"
-                tabIndex={0}
             >
                 <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm" style={nameColumnIndentStyle}>
                     <span className="flex w-5 justify-center">
@@ -643,18 +628,12 @@ function ExplorerRowListItem({
                                 iconOnly
                                 tabIndex={-1}
                                 className="shrink-0"
-                                onMouseDown={(event) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    handleRowClick()
-                                }}
+                                onMouseDown={(event) => event.preventDefault()}
                                 onClick={(event) => {
                                     event.stopPropagation()
                                     event.preventDefault()
-                                    handleRowClick()
                                     handleToggleFolder(entry.path)
                                 }}
-                                onDoubleClick={(event) => event.stopPropagation()}
                                 aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
                             >
                                 <IconChevronRight
@@ -665,14 +644,8 @@ function ExplorerRowListItem({
                             <span className="block w-3" />
                         )}
                     </span>
-                    <Link
-                        to={entry.href || '#'}
-                        className="flex min-w-0 items-center gap-2 text-primary no-underline"
-                        onClick={handleNameClick}
-                    >
-                        <span className="shrink-0 text-primary">{icon}</span>
-                        <span className="truncate">{nameLabel}</span>
-                    </Link>
+                    <span className="shrink-0 text-primary">{icon}</span>
+                    <span className="truncate">{nameLabel}</span>
                     {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
                         <Spinner className="size-3" />
                     ) : null}
@@ -699,7 +672,6 @@ function ExplorerRowListItem({
                                         event.preventDefault()
                                         event.stopPropagation()
                                     }}
-                                    onDoubleClick={(event) => event.stopPropagation()}
                                     className="opacity-0 transition-opacity group-hover/explorer-row:opacity-100 group-focus-visible/explorer-row:opacity-100"
                                     aria-label="Open file actions"
                                 >
@@ -723,7 +695,7 @@ function ExplorerRowListItem({
                         <span aria-hidden="true" className="inline-block size-5" />
                     )}
                 </div>
-            </div>
+            </Link>
         </ListBox.Item>
     )
 }
