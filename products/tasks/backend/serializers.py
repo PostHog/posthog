@@ -30,6 +30,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "json_schema",
             "latest_run",
             "created_at",
             "updated_at",
