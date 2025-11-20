@@ -16,18 +16,20 @@ export function SourceMapsAPIKeyBanner(): JSX.Element {
                 preset: preset.value,
                 label: preset.label,
                 scopes: preset.scopes,
-                access_type: preset.access_type || 'all',
+                access_type: preset.access_type,
             })
         }
     }
 
     return (
         <LemonBanner type="info" className="mb-4">
-            <strong>Note:</strong> The project API key is not the same as the personal API token required to upload
-            source maps.{' '}
-            <LemonButton type="secondary" size="xsmall" onClick={openAPIKeyModal}>
-                Generate personal API key
-            </LemonButton>
+            <div className="flex items-center gap-2 justify-between">
+                The project API key used to initialize PostHog is not the same as the personal API key required to
+                upload source maps.{' '}
+                <LemonButton type="primary" onClick={openAPIKeyModal}>
+                    Generate personal API key
+                </LemonButton>
+            </div>
         </LemonBanner>
     )
 }
