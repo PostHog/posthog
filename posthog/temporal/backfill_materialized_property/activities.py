@@ -56,29 +56,26 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
     """
     Generate SQL expression to extract property value from JSON properties column.
 
-    Based on posthog/models/property/util.py:get_property_string_expr()
-    Uses the exact same extraction logic as HogQL for consistency.
+    Mimics the HogQL property type wrappers (toFloat, toBool, toDateTime) applied
+    to JSON-extracted values to ensure identical behavior.
     """
-    # Base JSON extraction with quote trimming (exact same as HogQL)
+    # Base JSON extraction with quote trimming (same as HogQL printer)
     base_extract = trim_quotes_expr(f"JSONExtractRaw(properties, '{property_name}')")
 
     if property_type == PropertyType.String:
         return base_extract
 
     elif property_type == PropertyType.Numeric:
-        # Remove spaces and convert to float
-        return f"toFloat64OrNull(replaceRegexpAll({base_extract}, ' ', ''))"
+        # Match HogQL's toFloat() - no whitespace trimming, just direct conversion
+        return f"toFloat64OrNull({base_extract})"
 
     elif property_type == PropertyType.Boolean:
-        # Convert true/false/1/0 to boolean
-        return f"""CASE
-            WHEN JSONExtractRaw(properties, '{property_name}') IN ('true', '1') THEN 1
-            WHEN JSONExtractRaw(properties, '{property_name}') IN ('false', '0') THEN 0
-            ELSE NULL
-        END"""
+        # Match HogQL's toBool(transform(toString(...), ["true", "false"], [1, 0], None))
+        # Need to use toString() wrapper to match HogQL behavior
+        return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
 
     elif property_type == PropertyType.Datetime:
-        # Try parsing as datetime, fallback to parsing first 10 chars (date only)
+        # Match HogQL's toDateTime() which uses parseDateTimeBestEffort
         return f"""coalesce(
             parseDateTimeBestEffortOrNull({base_extract}),
             parseDateTimeBestEffortOrNull(substring({base_extract}, 1, 10))
