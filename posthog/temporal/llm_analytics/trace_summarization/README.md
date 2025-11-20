@@ -8,16 +8,16 @@ Automated workflow for generating summaries of recent LLM traces from time windo
 posthog/temporal/llm_analytics/trace_summarization/
 ├── workflow.py              # Per-team batch summarization workflow (main orchestrator)
 ├── coordinator.py           # Multi-team coordinator workflow (spawns child workflows)
-├── schedule.py             # Temporal schedule configuration (hourly automatic runs)
-├── models.py               # Data models (TraceSummary, BatchSummarizationInputs, etc.)
-├── constants.py            # Configuration constants (timeouts, defaults, limits)
-├── sampling.py             # Query traces from time window using TracesQueryRunner
-├── fetching.py             # Fetch full trace hierarchies using TraceQueryRunner
-├── summarization.py        # Generate text repr and call LLM summarization API
-├── events.py               # Emit $ai_trace_summary events to ClickHouse
-├── manual_trigger.py       # Helper functions for manual workflow triggers (dev/testing)
-├── test_workflow.py        # Workflow and activity tests
-└── README.md               # This file
+├── schedule.py              # Temporal schedule configuration (hourly automatic runs)
+├── models.py                # Data models (TraceSummary, BatchSummarizationInputs, etc.)
+├── constants.py             # Configuration constants (timeouts, defaults, limits)
+├── sampling.py              # Query traces from time window using TracesQueryRunner
+├── fetching.py              # Fetch full trace hierarchies using TraceQueryRunner
+├── summarization.py         # Generate text repr and call LLM summarization API
+├── events.py                # Emit $ai_trace_summary events to ClickHouse
+├── manual_trigger.py        # Helper functions for manual workflow triggers (dev/testing)
+├── test_workflow.py         # Workflow and activity tests
+└── README.md                # This file
 ```
 
 ## Overview
