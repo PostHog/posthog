@@ -32,8 +32,6 @@ class BatchExportDestination(UUIDTModel):
         DATABRICKS = "Databricks"
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
-        POSTHOG_REALTIME_DESTINATIONS = "PostHogRealtimeDestinations"
-
         NOOP = "NoOp"
 
     secret_fields = {
@@ -45,7 +43,6 @@ class BatchExportDestination(UUIDTModel):
         # Databricks does not have any secret fields, as we use integrations to store credentials
         "Databricks": set(),
         "HTTP": {"token"},
-        "PostHogRealtimeDestinations": set(),
         "NoOp": set(),
         "Workflows": set(),
     }

@@ -129,9 +129,9 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
     assert len(response["results"]) == 0
 
 
-def test_list_filters_posthog_realtime_destinations(client: HttpClient, organization, team, user):
+def test_list_filters_workflows_destination(client: HttpClient, organization, team, user):
     """
-    PostHogRealtimeDestinations should be filtered out from the list.
+    Workflows should be filtered out from the list.
     """
     client.force_login(user)
 
@@ -153,7 +153,7 @@ def test_list_filters_posthog_realtime_destinations(client: HttpClient, organiza
     }
 
     realtime_destination_data = {
-        "type": "PostHogRealtimeDestinations",
+        "type": "Workflows",
         "config": {},
     }
 
