@@ -229,6 +229,9 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 if (inputValue === '') {
                     e.preventDefault()
                     e.stopPropagation() // Prevent parent ListBox from handling this event
+                    if (isExplorerActive) {
+                        return
+                    }
                     if (selectedCommands.length === 0) {
                         // No filters selected (showing "all"): open dropdown
                         setShowDropdown(true)
