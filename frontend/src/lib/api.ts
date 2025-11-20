@@ -605,6 +605,11 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
+    // # Feed
+    public feed(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feed')
+    }
+
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -4739,6 +4744,12 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    feed: {
+        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
+            return await new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
 }
