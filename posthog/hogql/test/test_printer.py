@@ -24,7 +24,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSetting
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
@@ -90,6 +90,13 @@ class TestPrinter(BaseTest):
 
     def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ExposedHogQLError) as context:
+            self._select(statement, None)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
+    def _assert_resolution_error(self, statement, expected_error):
+        with self.assertRaises(ResolutionError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -1152,7 +1159,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", "Unknown table `other`.")
+        self._assert_resolution_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -2645,79 +2652,6 @@ class TestPrinter(BaseTest):
             sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
-    @parameterized.expand(
-        [
-            ("global_joins_with_optimize", True, True),
-            ("global_joins_without_optimize", True, False),
-            ("no_global_joins_with_optimize", False, True),
-            ("no_global_joins_without_optimize", False, False),
-        ]
-    )
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte(self, name, using_global_joins, optimize_projections):
-        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
-            credential = DataWarehouseCredential.objects.create(
-                team=self.team, access_key="key", access_secret="secret"
-            )
-            DataWarehouseTable.objects.create(
-                team=self.team,
-                name="test_table",
-                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                url_pattern="http://s3/folder/",
-                credential=credential,
-                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-            )
-            modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
-            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
-            printed = self._select(
-                """
-                WITH some_remote_table AS
-                (
-                    SELECT * FROM test_table
-                )
-                SELECT event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""",
-                context=context,
-            )
-
-            if using_global_joins:
-                assert "GLOBAL JOIN" in printed
-            else:
-                assert "GLOBAL JOIN" not in printed
-
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @parameterized.expand([[True], [False]])
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte_nested(self, using_global_joins):
-        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
-            credential = DataWarehouseCredential.objects.create(
-                team=self.team, access_key="key", access_secret="secret"
-            )
-            DataWarehouseTable.objects.create(
-                team=self.team,
-                name="test_table",
-                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                url_pattern="http://s3/folder/",
-                credential=credential,
-                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-            )
-            printed = self._select("""
-                WITH some_remote_table AS
-                (
-                    SELECT e.event, t.id FROM events e
-                    JOIN test_table t on toString(t.id) = e.event
-                )
-                SELECT some_remote_table.event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
-
-            if using_global_joins:
-                assert "GLOBAL JOIN" in printed
-            else:
-                assert "GLOBAL JOIN" not in printed
-
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_multiple_joins(self, using_global_joins):
@@ -2898,6 +2832,80 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    def test_cte_with_alias_in_join_clickhouse(self):
+        """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
+        result = self._select(
+            """
+            WITH
+                exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+            SELECT
+                e.person_id,
+                e.exposure_time,
+                c.conversion_time
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+            """
+        )
+
+        # The key assertion: JOIN constraint fields should be qualified with CTE aliases
+        self.assertIn("equals(e.person_id, c.person_id)", result)
+        # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
+        self.assertIn("c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
+        # Verify the greaterOrEquals comparison exists with the qualified fields
+        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
+        self.assertIn("toTimeZone(e.exposure_time", result)
+        # Verify CTE aliasing in FROM/JOIN clauses
+        self.assertIn("FROM exposures AS e", result)
+        self.assertIn("LEFT JOIN conversions AS c", result)
+
+    def test_cte_non_aliased_with_aliased_join_clickhouse(self):
+        """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
+        result = self._select(
+            """
+            WITH users AS (SELECT event AS user_id, timestamp FROM events)
+            SELECT users.user_id, u2.user_id, users.timestamp
+            FROM users
+            LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+            """
+        )
+
+        # Non-aliased CTE: fields qualified with CTE name
+        self.assertIn("users.user_id", result)
+        self.assertIn("users.timestamp", result)
+        # Aliased CTE: fields qualified with alias
+        self.assertIn("u2.user_id", result)
+        # JOIN constraint should have both
+        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        # Verify table references
+        self.assertIn("FROM users", result)
+        self.assertIn("LEFT JOIN users AS u2", result)
+
+    def test_cte_multiple_aliases_same_cte_clickhouse(self):
+        """Test that the same CTE can be joined multiple times with different aliases"""
+        result = self._select(
+            """
+            WITH base AS (SELECT event AS id FROM events)
+            SELECT b1.id, b2.id, b3.id
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.id = b2.id
+            LEFT JOIN base AS b3 ON b2.id = b3.id
+            """
+        )
+
+        # All three aliases should be present and properly qualified
+        self.assertIn("b1.id", result)
+        self.assertIn("b2.id", result)
+        self.assertIn("b3.id", result)
+        # JOIN constraints should use the right aliases
+        self.assertIn("equals(b1.id, b2.id)", result)
+        self.assertIn("equals(b2.id, b3.id)", result)
+        # Table aliases in FROM/JOIN
+        self.assertIn("FROM base AS b1", result)
+        self.assertIn("LEFT JOIN base AS b2", result)
+        self.assertIn("LEFT JOIN base AS b3", result)
 
 
 class TestPrinted(APIBaseTest):

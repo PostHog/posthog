@@ -43,7 +43,7 @@ class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_cte(self, node: ast.CTE):
-        pass
+        self.visit(node.expr)
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
@@ -209,6 +209,12 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_select_view_type(self, node: ast.SelectViewType):
         self.visit(node.select_query_type)
+
+    def visit_ctetable_type(self, node: ast.CTETableType):
+        self.visit(node.select_query_type)
+
+    def visit_ctetable_alias_type(self, node: ast.CTETableAliasType):
+        self.visit(node.cte_table_type)
 
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table_type)

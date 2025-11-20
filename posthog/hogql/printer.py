@@ -314,6 +314,12 @@ class _Printer(Visitor[str]):
 
         return response
 
+    def visit_cte(self, node: ast.CTE):
+        if node.cte_type == "subquery":
+            return f"{node.name} AS {self.visit(node.expr)}"
+
+        return f"{self.visit(node.expr)} AS {node.name}"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -344,6 +350,11 @@ class _Printer(Visitor[str]):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_first_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and self.stack[0].initial_select_query == node
+        )
         is_last_query_in_union = (
             part_of_select_union
             and isinstance(self.stack[0], ast.SelectSetQuery)
@@ -416,6 +427,7 @@ class _Printer(Visitor[str]):
                 columns = [self.visit(column) for column in node.select]
         else:
             columns = ["1"]
+        ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
@@ -446,6 +458,9 @@ class _Printer(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
+            f"WITH{space}{comma.join(ctes)}"
+            if ctes and (is_first_query_in_union or not part_of_select_union)
+            else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
@@ -582,6 +597,13 @@ class _Printer(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.type, ast.CTETableType):
+            join_strings.append(self._print_identifier(node.type.name))
+
+        elif isinstance(node.type, ast.CTETableAliasType):
+            join_strings.append(self._print_identifier(node.type.cte_table_type.name))
+            join_strings.append(f"AS {self._print_identifier(node.type.alias)}")
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
@@ -1571,9 +1593,16 @@ class _Printer(Visitor[str]):
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectSetQueryType)
+            or isinstance(type.table_type, ast.CTETableType)
+            or isinstance(type.table_type, ast.CTETableAliasType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
+            if (
+                isinstance(type.table_type, ast.SelectQueryAliasType)
+                or isinstance(type.table_type, ast.SelectViewType)
+                or isinstance(type.table_type, ast.CTETableType)
+                or isinstance(type.table_type, ast.CTETableAliasType)
+            ):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -1718,6 +1747,12 @@ class _Printer(Visitor[str]):
         return self._print_identifier(type.alias)
 
     def visit_select_view_type(self, type: ast.SelectViewType):
+        return self._print_identifier(type.alias)
+
+    def visit_ctetable_type(self, type: ast.CTETableType):
+        return self._print_identifier(type.name)
+
+    def visit_ctetable_alias_type(self, type: ast.CTETableAliasType):
         return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):

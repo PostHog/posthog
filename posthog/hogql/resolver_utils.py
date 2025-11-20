@@ -42,15 +42,22 @@ def lookup_field_by_name(
         return None
 
 
-def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
+def lookup_table_by_name(
+    scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
+) -> Optional[ast.TableOrSelectType]:
     if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
         return scope.tables[str(node.chain[0])]
+
+    if len(node.chain) > 1 and str(node.chain[0]) in ctes:
+        cte = ctes[str(node.chain[0])]
+        if isinstance(cte.type, ast.CTETableType):
+            return cte.type.select_query_type
 
     return None
 
 
-def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
-    for scope in reversed(scopes):
+def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
+    for scope in global_scopes:
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
     return None
@@ -66,6 +73,10 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
     elif isinstance(type, ast.SelectQueryAliasType):
         return type.alias
     elif isinstance(type, ast.SelectViewType):
+        return type.alias
+    elif isinstance(type, ast.CTETableType):
+        return type.name
+    elif isinstance(type, ast.CTETableAliasType):
         return type.alias
     elif isinstance(type, ast.LazyJoinType):
         return f"{get_long_table_name(select, type.table_type)}__{type.field}"
