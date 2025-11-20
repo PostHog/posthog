@@ -5,7 +5,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage, VisualizationMessage
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.query_executor.query_executor import QueryExecutorError, execute_and_format_query
+from ee.hogai.graph.query_executor.query_executor import execute_and_format_query
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -25,10 +26,12 @@ class QueryExecutorNode(AssistantNode):
 
         try:
             formatted_query_result = await execute_and_format_query(self._team, viz_message.answer)
-        except QueryExecutorError as err:
+        except MaxToolRetryableError as err:
             # Handle known query execution errors (exposed to users)
             return PartialAssistantState(
-                messages=[AssistantMessage(content=f"There was an error running this query: {err}", id=str(uuid4()))]
+                messages=[
+                    AssistantMessage(content=f"There was an error running this query: {str(err)}", id=str(uuid4()))
+                ]
             )
         except Exception:
             # Handle unknown errors

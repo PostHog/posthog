@@ -331,6 +331,8 @@ def get_js_url(request: HttpRequest) -> str:
     it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        # given the strict usage of 'get_host()', this string is not susceptible to xss
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"http://{request.get_host().split(':')[0]}:8234"
     return settings.JS_URL
 
@@ -662,6 +664,8 @@ def get_short_user_agent(request: HttpRequest) -> str:
     browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
     os_version = ".".join(str(x) for x in user_agent.os.version[:2])
 
+    # this value is not directly returned by an http route
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
     return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
@@ -728,6 +732,8 @@ def get_compare_period_dates(
 
 
 def generate_cache_key(stringified: str) -> str:
+    # TODO this value might be user controllable, so we should switch from md5
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 
 
@@ -872,6 +878,7 @@ def get_machine_id() -> str:
     """A MAC address-dependent ID. Useful for PostHog instance analytics."""
     # MAC addresses are 6 bits long, so overflow shouldn't happen
     # hashing here as we don't care about the actual address, just it being rather consistent
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 

@@ -33,6 +33,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
@@ -171,6 +172,13 @@ class TestQueryRunner(BaseTest):
                         }
                     ],
                 },
+                "customer_analytics": {
+                    "activity_event": DEFAULT_ACTIVITY_EVENT,
+                    "signup_pageview_event": {},
+                    "signup_event": {},
+                    "subscription_event": {},
+                    "payment_event": {},
+                },
             },
             "limit_context": LimitContext.QUERY,
             "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -201,7 +209,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_db05113c9937a0e206afcc48c43e0a87"
+        assert cache_key == "cache_c4703f06a15b578567a681d01f5a63cc"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -215,7 +223,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_6369d6d904d6ce9dea56120059bdceba"
+        assert cache_key == "cache_559d7f88353a23dc6b1aa69fe5afef87"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -226,7 +234,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_ee3b91f6f3800eba3e0420c65bbe082c"
+        assert cache_key == "cache_6157b47affc8c1d502b7f53b9a3279d3"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

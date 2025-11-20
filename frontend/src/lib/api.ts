@@ -111,6 +111,7 @@ import {
     ExternalDataSourceSyncSchema,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
@@ -520,6 +521,10 @@ export class ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id).addPathComponent('count')
     }
 
+    public fileSystemUndoDelete(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent('undo_delete')
+    }
+
     public fileSystemShortcut(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system_shortcut')
     }
@@ -532,8 +537,14 @@ export class ApiRequest {
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
     }
+
     public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
+    }
+
+    // # User product list
+    public userProductList(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -1850,8 +1861,22 @@ const api = {
         async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemDetail(id).delete()
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemDeleteResponse | null> {
+            const response = await new ApiRequest().fileSystemDetail(id).delete()
+
+            if (typeof Response !== 'undefined' && response instanceof Response) {
+                if (response.status === 204) {
+                    return null
+                }
+
+                try {
+                    return (await response.clone().json()) as FileSystemDeleteResponse
+                } catch {
+                    return null
+                }
+            }
+
+            return (response as FileSystemDeleteResponse) ?? null
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
@@ -1861,6 +1886,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async undoDelete(items: { type: string; ref: string; path?: string }[]): Promise<void> {
+            await new ApiRequest().fileSystemUndoDelete().create({ data: { items } })
         },
     },
 
@@ -1898,6 +1926,26 @@ const api = {
         },
         async delete(id: PersistedFolder['id']): Promise<void> {
             return await new ApiRequest().persistedFolderDetail(id).delete()
+        },
+    },
+
+    userProductList: {
+        async list(): Promise<
+            CountedPaginatedResponse<{
+                id: string
+                product_path: string
+                enabled: boolean
+                created_at: string
+                updated_at: string
+            }>
+        > {
+            return await new ApiRequest().userProductList().get()
+        },
+        async updateByPath(data: {
+            product_path: string
+            enabled: boolean
+        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
     },
 
@@ -3159,6 +3207,18 @@ const api = {
                 .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
                 .get()
         },
+        async resolveGitlab(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_gitlab')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
     },
 
     recordings: {
@@ -3682,6 +3742,15 @@ const api = {
                 .survey(surveyId)
                 .withAction('duplicate_to_projects')
                 .create({ data: { target_team_ids: targetTeamIds } })
+        },
+        async archiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/archive`).create()
+        },
+        async unarchiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/unarchive`).create()
+        },
+        async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
+            return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
         },
     },
 
@@ -4420,7 +4489,13 @@ const api = {
     },
 
     evaluationRuns: {
-        async create(data: { evaluation_id: string; target_event_id: string; timestamp: string }): Promise<{
+        async create(data: {
+            evaluation_id: string
+            target_event_id: string
+            timestamp: string
+            event: string
+            distinct_id?: string
+        }): Promise<{
             workflow_id: string
             status: string
             evaluation: { id: string; name: string }
