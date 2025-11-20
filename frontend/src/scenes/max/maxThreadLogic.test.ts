@@ -1,5 +1,3 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
@@ -662,7 +660,6 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
-                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [
@@ -707,11 +704,10 @@ describe('maxThreadLogic', () => {
         })
 
         it('initializes threadRaw as empty array when conversation has no messages', async () => {
-            const conversationWithoutMessages: ConversationDetail = {
+            const conversationWithoutMessages = {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Empty conversation',
-                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
@@ -737,7 +733,6 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
-                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],

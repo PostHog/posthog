@@ -20,7 +20,7 @@ python manage.py generate_demo_data
 
 ### 2. Configure RSA Keys
 
-OAuth uses RS256 for signing JWT tokens. Copy the RSA private key from the example file:
+OAuth uses RS256 for signing JWT tokens. Copy the RSA private key from the example file (recommended):
 
 ```bash
 # Copy the OIDC_RSA_PRIVATE_KEY from .env.example to your .env file
