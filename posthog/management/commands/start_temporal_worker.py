@@ -1,8 +1,10 @@
+import os
 import signal
-import typing as t
+import typing
 import asyncio
 import datetime as dt
 import functools
+import threading
 import faulthandler
 from collections import defaultdict
 
@@ -187,7 +189,7 @@ _task_queue_specs = [
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
 _workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
-_activities: defaultdict[str, set[t.Callable[..., t.Any]]] = defaultdict(set)
+_activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
     _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
     _activities[task_queue_name].update(activities_for_queue)
@@ -385,3 +387,16 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+        logger.info("Listing active threads at shutdown:")
+        for t in threading.enumerate():
+            logger.info(
+                "Thread still alive at shutdown",
+                thread_name=t.name,
+                daemon=t.daemon,
+                ident=t.ident,
+            )
+
+        # _something_ is preventing clean exit after worker shutdown
+        logger.info("Temporal Worker has shut down, hard exiting")
+        os._exit(0)

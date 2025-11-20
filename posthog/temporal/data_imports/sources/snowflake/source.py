@@ -71,6 +71,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
                     ),
+                    # the validation for these options happens in validate_credentials
                     SourceFieldSelectConfig(
                         name="auth_type",
                         label="Authentication type",
@@ -94,7 +95,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             name="password",
                                             label="Password",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                     ],
@@ -117,7 +118,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             name="private_key",
                                             label="Private key",
                                             type=SourceFieldInputConfigType.TEXTAREA,
-                                            required=True,
+                                            required=False,
                                             placeholder="",
                                         ),
                                         SourceFieldInputConfig(
@@ -195,10 +196,9 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 
-        if config.auth_type.selection == "keypair" and (
-            not config.auth_type.passphrase or not config.auth_type.private_key or not config.auth_type.user
-        ):
-            return False, "Missing required parameters: passphrase, private key"
+        # passphrase is optional if the key they use to auth is not encrypted
+        if config.auth_type.selection == "keypair" and (not config.auth_type.user or not config.auth_type.private_key):
+            return False, "Missing required parameters: username, private key"
 
         try:
             self.get_schemas(config, team_id)

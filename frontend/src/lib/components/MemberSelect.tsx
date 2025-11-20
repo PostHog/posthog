@@ -65,6 +65,7 @@ export function MemberSelect({
             closeOnClickInside={false}
             visible={showPopover}
             matchWidth={false}
+            placement="bottom-start"
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
