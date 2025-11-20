@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import {
+    IconActivity,
     IconClock,
     IconDashboard,
     IconFlask,
@@ -13,6 +14,7 @@ import {
     IconServer,
     IconToggle,
 } from '@posthog/icons'
+import { LemonInput } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -99,8 +101,8 @@ const FEED_TYPE_CONFIGS: Record<string, { title: string; icon: JSX.Element; colo
 }
 
 export function Feed(): JSX.Element {
-    const { groupedFeedItems, feedItemsLoading, filters } = useValues(feedLogic)
-    const { loadFeed, setFilters } = useActions(feedLogic)
+    const { groupedFeedItems, feedItemsLoading, filters, searchQuery, selectedTypes } = useValues(feedLogic)
+    const { loadFeed, setFilters, setSearchQuery, setSelectedTypes } = useActions(feedLogic)
 
     useEffect(() => {
         loadFeed()
@@ -161,6 +163,41 @@ export function Feed(): JSX.Element {
             <LemonDivider />
 
             <FeedDiscovery />
+
+            <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                        <IconActivity className="text-lg" />
+                        <h2 className="text-lg font-semibold mb-0">Updates</h2>
+                    </div>
+                    <LemonSelect
+                        mode="multiple"
+                        placeholder="All"
+                        options={[
+                            { label: 'All', value: 'all' },
+                            { label: 'Dashboards', value: 'dashboard' },
+                            { label: 'Events', value: 'event_definition' },
+                            { label: 'Experiments launched', value: 'experiment_launched' },
+                            { label: 'Experiments completed', value: 'experiment_completed' },
+                            { label: 'Feature flags', value: 'feature_flag' },
+                            { label: 'Surveys', value: 'survey' },
+                            { label: 'Replay playlists', value: 'session_recording_playlist' },
+                            { label: 'Data sources', value: 'external_data_source' },
+                            { label: 'Expiring recordings', value: 'expiring_recordings' },
+                        ]}
+                        value={selectedTypes}
+                        onChange={setSelectedTypes}
+                        className="w-60"
+                    />
+                </div>
+                <LemonInput
+                    type="search"
+                    placeholder="Search updates by name or author..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    fullWidth
+                />
+            </div>
 
             {feedItemsLoading && !hasAnyItems ? (
                 <div className="flex justify-center py-8">

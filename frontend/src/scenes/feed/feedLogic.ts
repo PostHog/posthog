@@ -23,6 +23,8 @@ export const feedLogic = kea<feedLogicType>([
     path(['scenes', 'feed', 'feedLogic']),
     actions({
         setFilters: (filters) => ({ filters }),
+        setSearchQuery: (searchQuery) => ({ searchQuery }),
+        setSelectedTypes: (selectedTypes) => ({ selectedTypes }),
         loadFeed: true,
     }),
     reducers({
@@ -33,6 +35,18 @@ export const feedLogic = kea<feedLogicType>([
                     ...state,
                     ...filters,
                 }),
+            },
+        ],
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
+        selectedTypes: [
+            ['all'] as string[],
+            {
+                setSelectedTypes: (_, { selectedTypes }) => selectedTypes,
             },
         ],
     }),
@@ -49,13 +63,30 @@ export const feedLogic = kea<feedLogicType>([
     })),
     selectors({
         groupedFeedItems: [
-            (s) => [s.feedItems],
-            (items: FeedItem[]): Record<string, Record<string, FeedItem[]>> => {
+            (s) => [s.feedItems, s.searchQuery, s.selectedTypes],
+            (items, searchQuery, selectedTypes): Record<string, Record<string, FeedItem[]>> => {
+                // Filter items based on search query (name, author, description only - NOT type)
+                let filteredItems = searchQuery
+                    ? items.filter((item) => {
+                          const query = searchQuery.toLowerCase()
+                          return (
+                              item.name?.toLowerCase().includes(query) ||
+                              item.created_by?.toLowerCase().includes(query) ||
+                              item.description?.toLowerCase().includes(query)
+                          )
+                      })
+                    : items
+
+                // Filter by selected types (if not "all")
+                if (selectedTypes.length > 0 && !selectedTypes.includes('all')) {
+                    filteredItems = filteredItems.filter((item) => selectedTypes.includes(item.type))
+                }
+
                 // Separate upcoming/warning items from regular activity items
                 const upcomingItems: FeedItem[] = []
                 const regularItems: FeedItem[] = []
 
-                items.forEach((item) => {
+                filteredItems.forEach((item) => {
                     // Warning/upcoming item types go to UPCOMING section
                     if (item.type === 'expiring_recordings') {
                         upcomingItems.push(item)
