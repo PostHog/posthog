@@ -110,14 +110,18 @@ json_id_fields_normalized AS (
 ),
 
 tool_call_ids_normalized AS (
-    -- Step 7: Normalize tool_call_id values
+    -- Step 7: Normalize tool_call_id values and toolu_ IDs
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>''') as error_text
+        replaceRegexpAll(
+            replaceRegexpAll(error_text, 'tool_call_id=[''"][a-zA-Z0-9_-]+[''"]', 'tool_call_id=''<TOOL_CALL_ID>'''),
+            'toolu_[a-zA-Z0-9]+',
+            '<TOOL_ID>'
+        ) as error_text
     FROM json_id_fields_normalized
 ),
 
@@ -203,6 +207,18 @@ all_numbers_normalized AS (
         ai_session_id,
         replaceRegexpAll(error_text, '[0-9]+', '<N>') as normalized_error
     FROM ids_normalized
+),
+
+whitespace_normalized AS (
+    -- Step 15: Collapse multiple whitespace and trim
+    SELECT
+        distinct_id,
+        timestamp,
+        event,
+        ai_trace_id,
+        ai_session_id,
+        trim(replaceRegexpAll(normalized_error, '\\s+', ' ')) as normalized_error
+    FROM all_numbers_normalized
 )
 
 SELECT
@@ -216,7 +232,7 @@ SELECT
     uniq(toDate(timestamp)) as days_seen,
     min(timestamp) as first_seen,
     max(timestamp) as last_seen
-FROM all_numbers_normalized
+FROM whitespace_normalized
 GROUP BY normalized_error
 ORDER BY __ORDER_BY__ __ORDER_DIRECTION__
 LIMIT 50

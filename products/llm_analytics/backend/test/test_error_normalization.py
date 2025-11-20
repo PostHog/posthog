@@ -150,6 +150,14 @@ ORDER BY occurrences DESC""",
                 ],
                 "tool_call_id='<TOOL_CALL_ID>' failed",
             ),
+            (
+                "Standalone toolu_ ID normalization",
+                [
+                    "tool_use ids were found without tool_result blocks: toolu_01Bj5f7R5g9vhe7MkEyFT6Ty",
+                    "tool_use ids were found without tool_result blocks: toolu_99XYZabcDEF123ghiJKL456",
+                ],
+                "tool_use ids were found without tool_result blocks: <TOOL_ID>",
+            ),
             # Test Step 8: Generic IDs (any alphanumeric pattern in id='...')
             (
                 "Generic ID normalization",
@@ -360,6 +368,34 @@ ORDER BY occurrences DESC""",
         assert "Error in user_input validation" in normalized_errors
         assert "Failed to call_function properly" in normalized_errors
         assert "Problem with user_error handling" in normalized_errors
+
+    def test_whitespace_normalization(self):
+        """Test that errors with varying whitespace are properly grouped together."""
+        errors = [
+            'Error: {"type":"error","error":{"type":"overloaded_error"},"request_id":"req_abc123"}',
+            'Error: {"type":"error","error":{"type":"overloaded_error"},"request_id":"req_def456"}    ',  # 4 trailing spaces
+            'Error: {"type":"error","error":{"type":"overloaded_error"},"request_id":"req_ghi789"}  ',  # 2 trailing spaces
+            'Error: {"type":"error","error":{"type":"overloaded_error"},"request_id":"req_jkl012"}            ',  # 12 trailing spaces
+        ]
+
+        for error in errors:
+            self._create_ai_event_with_error(error)
+
+        results = self._execute_normalization_query()
+
+        # Should have exactly one normalized error (all grouped together)
+        assert len(results) == 1, f"Expected 1 normalized error, got {len(results)}: {results}"
+
+        normalized_error, occurrence_count = results[0]
+
+        # After normalization, should be: Error: {"type":"error","error":{"type":"overloaded_error"},"request_id":"<ID>"} with single spaces
+        assert "overloaded_error" in normalized_error
+        assert "<ID>" in normalized_error
+        # Should not have multiple consecutive spaces
+        assert "  " not in normalized_error
+
+        # Check all variants were grouped together
+        assert occurrence_count == len(errors), f"Expected {len(errors)} occurrences, got {occurrence_count}"
 
     def test_empty_or_null_errors_handled(self):
         """Test that empty or null errors are handled gracefully."""
