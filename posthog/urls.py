@@ -47,7 +47,7 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
-from products.llm_analytics.backend.api.otel.ingestion import otel_logs_endpoint, otel_traces_endpoint
+from products.llm_analytics.backend.api.otel.ingestion import otel_traces_endpoint
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -213,8 +213,6 @@ urlpatterns = [
     # api
     # OpenTelemetry traces ingestion for LLM Analytics
     path("api/projects/<int:project_id>/ai/otel/v1/traces", csrf_exempt(otel_traces_endpoint)),
-    # OpenTelemetry logs ingestion for LLM Analytics
-    path("api/projects/<int:project_id>/ai/otel/v1/logs", csrf_exempt(otel_logs_endpoint)),
     # OpenTelemetry logs proxy to capture-logs service (legacy)
     path("i/v1/logs", proxy_logs_to_capture_service),
     path("api/environments/<int:team_id>/progress/", progress),
