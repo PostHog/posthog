@@ -232,6 +232,8 @@ export function ProjectExplorer({
         }
     }
 
+    const getParentRowFocusKey = (folderPath: string): string => `__parent-${folderPath || 'root'}-row`
+
     const handleEntryActivate = (
         entry: FileSystemEntry,
         isParentNavigationRow?: boolean,
@@ -480,6 +482,9 @@ export function ProjectExplorer({
 
                                     event.preventDefault()
                                     listboxRef.current?.focusItemByKey(focusKey)
+                                    if (isFolder && !isExitNavigationRow && !isParentNavigationRow) {
+                                        setPendingFocusKey(getParentRowFocusKey(entry.path || ''))
+                                    }
                                     handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                                 }
                                 const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
