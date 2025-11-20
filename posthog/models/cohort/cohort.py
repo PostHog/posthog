@@ -710,8 +710,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
-    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
+    cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
