@@ -54,9 +54,12 @@ class WorkflowsConsumer(Consumer):
         key: bytes,
         hosts: collections.abc.Sequence[str],
         security_protocol: str = "PLAINTEXT",
+        is_last_backfill_run: bool = False,
+        backfill_id: str | None = None,
     ):
         super().__init__()
-
+        self.is_last_backfill_run = is_last_backfill_run
+        self.backfill_id = backfill_id
         self.producer = aiokafka.AIOKafkaProducer(
             bootstrap_servers=hosts,
             security_protocol=security_protocol,
@@ -82,11 +85,18 @@ class WorkflowsConsumer(Consumer):
         pass
 
     async def produce_final_message(self):
-        await self.producer.send_and_wait(topic=self.topic, value=b'{"event":"$backfill_complete"}', key=self.key)
+        final_message = {
+            "isLastBackfillingMessage": True,
+            "backfillId": self.backfill_id,
+        }
+        final_message_value = json.dumps(final_message).encode("utf-8")
+        await self.producer.send_and_wait(topic=self.topic, value=final_message_value, key=self.key)
 
     async def finalize(self):
         await self.producer.flush()
-        await self.produce_final_message()
+        # if this is the last backfill run, produce the final message so Workflows knows the backfill is complete
+        if self.is_last_backfill_run is True:
+            await self.produce_final_message()
         await self.producer.stop()
 
 
@@ -139,12 +149,20 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
+        is_last_backfill_run = False
+        backfill_id = None
+        if inputs.batch_export.backfill_details and inputs.batch_export.backfill_details.is_last_backfill_run:
+            is_last_backfill_run = True
+            backfill_id = inputs.batch_export.backfill_details.backfill_id
+
         transformer = JSONLStreamTransformer(max_workers=1)
         consumer = WorkflowsConsumer(
             topic=inputs.topic,
             key=str(inputs.batch_export.team_id).encode("utf-8"),
             hosts=inputs.hosts,
             security_protocol=inputs.security_protocol,
+            is_last_backfill_run=is_last_backfill_run,
+            backfill_id=backfill_id,
         )
         result = await run_consumer_from_stage(
             queue=queue,
