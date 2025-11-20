@@ -9,7 +9,6 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import connections
 from django.http import HttpRequest
@@ -4137,10 +4136,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
 
-@pytest.mark.skipif(
-    "decide" not in settings.READ_REPLICA_OPT_IN,
-    reason="This test requires READ_REPLICA_OPT_IN=decide",
-)
+@pytest.mark.skip(reason="Decide endpoint is obsolete, skipping read replica tests")
 class TestDecideUsesReadReplica(TransactionTestCase):
     """
     A cheat sheet for creating a READ-ONLY fake replica when local testing:
