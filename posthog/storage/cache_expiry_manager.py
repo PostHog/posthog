@@ -75,6 +75,7 @@ def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int, 
     except Exception as e:
         # Don't fail the cache update if expiry tracking fails
         logger.warning("Failed to track cache expiry", team_id=team_id, error=str(e))
+        capture_exception(e)
 
 
 def get_teams_with_expiring_caches(
