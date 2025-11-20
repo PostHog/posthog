@@ -266,9 +266,17 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 />
                             ) : null
 
+                        // Allow action to be rendered in the middle if it has hrefs (like, links to open a report)
+                        const ifActionInTheMiddle =
+                            message.meta?.form?.options && message.meta.form.options.some((option) => option.href)
                         // Render main text content
                         const textElement = message.content ? (
-                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                            <TextAnswer
+                                key={`${key}-text`}
+                                message={message}
+                                withActions={ifActionInTheMiddle}
+                                interactable={ifActionInTheMiddle}
+                            />
                         ) : null
 
                         // Compute actions separately to render after tool calls
