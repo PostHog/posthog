@@ -18,9 +18,7 @@ export const getDetailsHandler: ToolBase<typeof schema>['handler'] = async (cont
         throw new Error(`Failed to get organization details: ${orgResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(orgResult.data) }],
-    }
+    return orgResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

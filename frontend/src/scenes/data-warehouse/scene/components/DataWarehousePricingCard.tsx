@@ -1,8 +1,27 @@
 import { LemonCard } from '@posthog/lemon-ui'
 
-import { BillingProductV2Type } from '~/types'
+import { compactNumber } from 'lib/utils'
+
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { DataWarehouseTierBreakdown } from './DataWarehouseTierBreakdown'
+
+function FreeRowsDisplay({ addon }: { addon: BillingProductV2AddonType }): JSX.Element {
+    const currentUsage = addon.current_usage
+
+    return (
+        <div className="border rounded-lg p-4 mb-3 bg-bg-light">
+            <div className="flex flex-col items-center justify-between">
+                <div>
+                    <div className="font-medium text-sm mb-1">Free historical rows</div>
+                </div>
+                <div className="text-xl font-semibold ">{`${compactNumber(currentUsage)}`}</div>
+            </div>
+        </div>
+    )
+}
+
+const HISTORICAL_ROWS_ADDON_KEY = 'data_warehouse_historical'
 
 export function DataWarehousePricingCard({ product }: { product: BillingProductV2Type | null }): JSX.Element {
     if (!product || !product.tiers || product.tiers.length === 0) {
@@ -23,10 +42,13 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
     const projectedTotal = parseFloat(product.projected_amount_usd || '0')
     const hasProjected = projectedTotal !== currentTotal
 
+    // Find the data warehouse historical addon
+    const historicalAddon = product.addons?.find((addon) => addon.type === HISTORICAL_ROWS_ADDON_KEY)
+
     return (
-        <LemonCard className="hover:transform-none">
+        <LemonCard className="hover:transform-none p-4">
             <div className="pb-4">
-                <h2 className="text-xl font-semibold mb-3">Cost breakdown</h2>
+                <h2 className="text-lg font-medium mb-3">Cost breakdown</h2>
                 <div className="flex items-center justify-between py-3 px-4 bg-bg-3000 rounded border">
                     <div className="text-center flex-1">
                         <div className="text-xs text-muted mb-1">Current period</div>
@@ -40,6 +62,7 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
                     )}
                 </div>
             </div>
+            {historicalAddon && <FreeRowsDisplay addon={historicalAddon} />}
             <DataWarehouseTierBreakdown product={product} />
         </LemonCard>
     )

@@ -1045,6 +1045,8 @@ interface DataTableNodeViewProps {
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show a recording column for events with session recordings */
+    showRecordingColumn?: boolean
     /** Show date range selector */
     showDateRange?: boolean
     /** Show the export button */
@@ -1073,6 +1075,8 @@ interface DataTableNodeViewProps {
     showOpenEditorButton?: boolean
     /** Show a results table */
     showResultsTable?: boolean
+    /** Show actors query options and back to source */
+    showSourceQueryOptions?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
@@ -1634,6 +1638,7 @@ export interface EndpointRequest {
     is_materialized?: boolean
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
+    derived_from_insight?: string
 }
 
 export interface EndpointRunRequest {
@@ -4351,6 +4356,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4364,6 +4374,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [
@@ -4396,6 +4412,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'BingAds',
     'Shopify',
 ] as const
 
@@ -4462,4 +4479,12 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_type_index?: integer
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
+}
+
+export interface CustomerAnalyticsConfig {
+    activity_event: EventsNode | ActionsNode
+    signup_pageview_event: EventsNode | ActionsNode
+    signup_event: EventsNode | ActionsNode
+    subscription_event: EventsNode | ActionsNode
+    payment_event: EventsNode | ActionsNode
 }

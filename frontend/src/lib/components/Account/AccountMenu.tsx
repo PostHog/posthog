@@ -62,6 +62,7 @@ import { SidePanelTab, UserTheme } from '~/types'
 
 import { AppShortcut } from '../AppShortcuts/AppShortcut'
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
+import { keyBinds } from '../AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
@@ -162,7 +163,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                 collisionPadding={{ bottom: 0 }}
                 alignOffset={2}
                 className="min-w-[var(--project-panel-width)]"
-                // Force mount to register app shortcuts
                 forceMount
             >
                 <DropdownMenuGroup>
@@ -320,7 +320,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <AppShortcut
                         name="ToggleShortcutMenu"
-                        keybind={['command', 'shift', 'k']}
+                        keybind={keyBinds.toggleShortcutMenu}
                         intent="Toggle shortcut menu"
                         interaction="click"
                         asChild
@@ -336,7 +336,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             >
                                 <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
                                 Shortcuts
-                                <KeyboardShortcut command shift k className="ml-auto" />
+                                <KeyboardShortcut command option k className="ml-auto" />
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     </AppShortcut>
@@ -435,28 +435,20 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             (user?.is_impersonated ||
                                 preflight?.is_debug ||
                                 preflight?.instance_preferences?.debug_queries) ? (
-                                <AppShortcut
-                                    name="DebugClickhouseQueries"
-                                    keybind={['command', 'option', 'tab']}
-                                    intent="Debug clickhouse queries"
-                                    interaction="click"
-                                    asChild
-                                >
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive
-                                            menuItem
-                                            onClick={() => {
-                                                openCHQueriesDebugModal()
-                                            }}
-                                            data-attr="menu-item-debug-ch-queries"
-                                            className={cn(!useAppShortcuts && 'hidden')}
-                                        >
-                                            <IconDatabase />
-                                            Debug CH queries
-                                            <KeyboardShortcut command option tab className="ml-auto" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </AppShortcut>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        data-attr="menu-item-debug-ch-queries"
+                                        className={cn(!useAppShortcuts && 'hidden')}
+                                    >
+                                        <IconDatabase />
+                                        Debug CH queries
+                                        <KeyboardShortcut command option tab className="ml-auto" />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
                             ) : null}
                         </>
                     )}

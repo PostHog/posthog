@@ -46,7 +46,7 @@ from posthog.queries.util import PersonPropertiesMode
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
-COHORT_QUERY_TIMEOUT_SECONDS = 600  # Max execution time for ClickHouse cohort calculation queries
+COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
@@ -86,11 +86,11 @@ def run_cohort_query(
         COHORT_CALCULATION_STARTED_COUNTER.inc()
 
         # Schedule delayed task to collect stats after query_log_archive is synced
-        # Only if we have a history record to update
-        if history and query:
+        # Only if we have a history record to update and not in test mode
+        if history and query and not settings.TEST:
             delayed_task = collect_cohort_query_stats.apply_async(
                 args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=COHORT_QUERY_TIMEOUT_SECONDS,
+                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
             )
 
     try:
@@ -99,7 +99,7 @@ def run_cohort_query(
 
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting the full timeout when the query completed quickly
-        if delayed_task and history and query:
+        if delayed_task and history and query and not settings.TEST:
             if delayed_task.state in ["PENDING", "RECEIVED"]:
                 delayed_task.revoke()  # Cancel the delayed task
 
