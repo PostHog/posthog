@@ -19,7 +19,7 @@ import {
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { Experiment, InsightType } from '~/types'
+import { BreakdownKeyType, Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
@@ -549,7 +549,7 @@ export function MetricRowGroup({
                                 } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                             >
                                 {formatBreakdownLabel(
-                                    breakdownResult.breakdown_value,
+                                    breakdownResult.breakdown_value as BreakdownKeyType,
                                     metric.breakdownFilter,
                                     [],
                                     undefined,
@@ -599,7 +599,7 @@ export function MetricRowGroup({
                                 }}
                             >
                                 {formatBreakdownLabel(
-                                    breakdownResult.breakdown_value,
+                                    breakdownResult.breakdown_value as BreakdownKeyType,
                                     metric.breakdownFilter,
                                     [],
                                     undefined,
