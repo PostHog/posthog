@@ -19,9 +19,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_udf import FunnelTimeToConvertUDF
-from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -125,13 +123,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
-            if self._use_udf:
-                return FunnelTrendsUDF(context=self.context, **self.kwargs)
-            return FunnelTrends(context=self.context, **self.kwargs)
+            return FunnelTrendsUDF(context=self.context, **self.kwargs)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
-            if self._use_udf:
-                return FunnelTimeToConvertUDF(context=self.context)
-            return FunnelTimeToConvert(context=self.context)
+            return FunnelTimeToConvertUDF(context=self.context)
         else:
             return self.funnel_order_class
 

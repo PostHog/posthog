@@ -11,13 +11,12 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import AssistantEventType, FailureMessage
 
-from posthog.temporal.ai.conversation import (
-    AssistantConversationRunnerWorkflow,
-    AssistantConversationRunnerWorkflowInputs,
-)
+from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.stream.redis_stream import (
+from ee.hogai.agent.redis_stream import (
+    CONVERSATION_STREAM_MAX_LENGTH,
+    CONVERSATION_STREAM_TIMEOUT,
     ConversationEvent,
     ConversationRedisStream,
     GenerationStatusEvent,
@@ -33,38 +32,44 @@ from ee.models.assistant import Conversation
 logger = structlog.get_logger(__name__)
 
 
-class ConversationStreamManager:
-    """Manages conversation streaming from Redis streams."""
+class AgentExecutor:
+    """Manages executing an agent workflow and streaming the output."""
 
-    def __init__(self, conversation: Conversation) -> None:
+    def __init__(
+        self,
+        conversation: Conversation,
+        timeout: int = CONVERSATION_STREAM_TIMEOUT,
+        max_length: int = CONVERSATION_STREAM_MAX_LENGTH,
+    ) -> None:
         self._conversation = conversation
-        self._redis_stream = ConversationRedisStream(get_conversation_stream_key(conversation.id))
+        self._redis_stream = ConversationRedisStream(
+            get_conversation_stream_key(conversation.id), timeout=timeout, max_length=max_length
+        )
         self._workflow_id = f"conversation-{conversation.id}"
 
-    async def astream(
-        self, workflow_inputs: AssistantConversationRunnerWorkflowInputs
-    ) -> AsyncGenerator[AssistantOutput, Any]:
-        """Stream conversation updates from Redis stream.
+    async def astream(self, workflow: type[AgentBaseWorkflow], inputs: Any) -> AsyncGenerator[AssistantOutput, Any]:
+        """Stream agent workflow updates from Redis stream.
 
         Args:
-            workflow_inputs: Temporal workflow inputs
+            workflow: Agent temporal workflow class
+            inputs: Agent temporal workflow inputs
 
         Returns:
             AssistantOutput generator
         """
         # If this is a reconnection attempt, we resume streaming
         if self._conversation.status != Conversation.Status.IDLE:
-            if workflow_inputs.message is not None:
+            if inputs.message is not None:
                 raise ValueError("Cannot resume streaming with a new message")
             async for chunk in self.stream_conversation():
                 yield chunk
         else:
             # Otherwise, process the new message (new generation) or resume generation (no new message)
-            async for chunk in self.start_workflow(workflow_inputs):
+            async for chunk in self.start_workflow(workflow, inputs):
                 yield chunk
 
     async def start_workflow(
-        self, workflow_inputs: AssistantConversationRunnerWorkflowInputs
+        self, workflow: type[AgentBaseWorkflow], inputs: Any
     ) -> AsyncGenerator[AssistantOutput, Any]:
         try:
             # Delete the stream to ensure we start fresh
@@ -74,8 +79,8 @@ class ConversationStreamManager:
             client = await async_connect()
 
             handle = await client.start_workflow(
-                AssistantConversationRunnerWorkflow.run,
-                workflow_inputs,
+                workflow.run,
+                inputs,
                 id=self._workflow_id,
                 task_queue=settings.MAX_AI_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
@@ -173,7 +178,7 @@ class ConversationStreamManager:
         )
         return (AssistantEventType.MESSAGE, failure_message)
 
-    async def cancel_conversation(self) -> None:
+    async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.
 
         Raises:
