@@ -101,7 +101,7 @@ class AgentDefinitionSerializer(serializers.Serializer):
 
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=["started", "in_progress", "completed", "failed"],
+        choices=["queued", "in_progress", "completed", "failed"],
         required=False,
         help_text="Current execution status",
     )
