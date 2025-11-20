@@ -517,6 +517,7 @@ def pytest_sessionstart():
         "pendingpersonoverride",
         "flatpersonoverride",
         "featureflaghashkeyoverride",
+        "cohort",
         "cohortpeople",
         "group",
         "grouptypemapping",

@@ -11,6 +11,7 @@ PERSONS_DB_MODELS = {
     "pendingpersonoverride",
     "flatpersonoverride",
     "featureflaghashkeyoverride",
+    "cohort",
     "cohortpeople",
     "group",
     "grouptypemapping",
@@ -27,9 +28,22 @@ class PersonDBRouter:
     def db_for_read(self, model, **hints):
         """
         Attempts to read person models go to persons_db_writer.
+
+        When accessing a FK from a persons model to a non-persons model (e.g., person.team),
+        Django passes instance hint. We detect this and route to the correct database.
         """
+        # If this model is in persons_db, route to persons_db_writer
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
             return "persons_db_writer"
+
+        # If we're reading a non-persons model FROM a persons model (e.g., person.team),
+        # the instance hint tells us which object we're reading from
+        instance = hints.get("instance")
+        if instance and self.is_persons_model(instance._meta.app_label, instance._meta.model_name):
+            # We're reading a default-DB model (like Team) from a persons-DB model (like Person)
+            # Route to default so the query works
+            return "default"
+
         return None  # Allow default db selection
 
     def db_for_write(self, model, **hints):
@@ -66,15 +80,30 @@ class PersonDBRouter:
             # One model is in persons_db, the other is not.
             # Allow specific cross-database relationships where the FK constraint is removed (db_constraint=False)
             # Person -> Team: Person.team has db_constraint=False
+            # Cohort -> Team: Cohort.team has db_constraint=False
+            # Cohort -> User: Cohort.created_by has db_constraint=False
             # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
             # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
-            from posthog.models import Person, Project, Team
+            from posthog.models import Person, Project, Team, User
+            from posthog.models.cohort import Cohort
             from posthog.models.group_type_mapping import GroupTypeMapping
 
             # Allow Person -> Team relation
             if isinstance(obj1, Person) and isinstance(obj2, Team):
                 return True
             if isinstance(obj1, Team) and isinstance(obj2, Person):
+                return True
+
+            # Allow Cohort -> Team relation
+            if isinstance(obj1, Cohort) and isinstance(obj2, Team):
+                return True
+            if isinstance(obj1, Team) and isinstance(obj2, Cohort):
+                return True
+
+            # Allow Cohort -> User relation
+            if isinstance(obj1, Cohort) and isinstance(obj2, User):
+                return True
+            if isinstance(obj1, User) and isinstance(obj2, Cohort):
                 return True
 
             # Allow GroupTypeMapping -> Team relation
