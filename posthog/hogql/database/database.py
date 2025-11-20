@@ -145,20 +145,6 @@ def _load_database_module():
 
     # Store all imported names in the module namespace
     for name in [
-        "DatabaseSchemaDataWarehouseTable",
-        "DatabaseSchemaEndpointTable",
-        "DatabaseSchemaField",
-        "DatabaseSchemaManagedViewTable",
-        "DatabaseSchemaPostHogTable",
-        "DatabaseSchemaSchema",
-        "DatabaseSchemaSource",
-        "DatabaseSchemaSystemTable",
-        "DatabaseSchemaViewTable",
-        "DatabaseSerializedFieldType",
-        "HogQLQuery",
-        "HogQLQueryModifiers",
-        "PersonsOnEventsMode",
-        "SessionTableVersion",
         "ast",
         "HogQLContext",
         "BooleanDatabaseField",
