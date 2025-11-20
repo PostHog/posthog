@@ -68,6 +68,18 @@ class TaskSerializer(serializers.ModelSerializer):
 
         return value.lower()
 
+    def validate_json_schema(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("JSON schema must be a dict")
+
+        if not Task.is_valid_schema(value):
+            raise serializers.ValidationError("Invalid JSON schema format")
+
+        return value
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
 

@@ -10,6 +10,8 @@ from django.db import models
 from django.utils import timezone
 
 import structlog
+import jsonschema
+from pydantic import BaseModel
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -75,7 +77,23 @@ class Task(DeletedMetaFields, models.Model):
         if self.task_number is None:
             self._assign_task_number()
 
+        self.full_clean()
+
         super().save(*args, **kwargs)
+
+    @staticmethod
+    def is_valid_schema(schema: dict) -> bool:
+        try:
+            jsonschema.Draft7Validator.check_schema(schema)
+            return True
+        except Exception:
+            return False
+
+    def clean(self):
+        super().clean()
+
+        if self.json_schema is not None:
+            self.is_valid_schema(self.json_schema)
 
     @staticmethod
     def generate_team_prefix(team_name: str) -> str:
@@ -125,6 +143,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        output_schema: Optional[BaseModel] = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -138,6 +157,8 @@ class Task(DeletedMetaFields, models.Model):
         if not github_integration:
             raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
+        json_schema = output_schema.model_json_schema() if output_schema else None
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -146,6 +167,7 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration=github_integration,
             repository=repository,
+            json_schema=json_schema,
         )
 
         task_run = task.create_run()
