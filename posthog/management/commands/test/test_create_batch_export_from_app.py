@@ -17,7 +17,6 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import map_plugin_config_to_destination
 from posthog.models import Plugin, PluginAttachment, PluginConfig
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 
@@ -389,6 +388,7 @@ def test_create_batch_export_from_app(
     interval,
     plugin_config,
     disable_plugin_config,
+    temporal,
 ):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
@@ -415,8 +415,6 @@ def test_create_batch_export_from_app(
         "type": export_type,
         "config": config,
     }
-
-    temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
     expected_interval = dt.timedelta(**{f"{interval}s": 1})
@@ -455,6 +453,7 @@ def test_create_batch_export_from_app_with_disabled_plugin(
     interval,
     plugin_config,
     migrate_disabled_plugin_config,
+    temporal,
 ):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
@@ -487,8 +486,6 @@ def test_create_batch_export_from_app_with_disabled_plugin(
         return
 
     assert "id" in batch_export_data
-
-    temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
     expected_interval = dt.timedelta(**{f"{interval}s": 1})

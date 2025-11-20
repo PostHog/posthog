@@ -11,8 +11,8 @@ from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.management.commands.test.conftest import sync_connect_with_retry
 from posthog.management.commands.update_data_import_schedules import _get_external_data_schemas
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule, update_schedule
 
 from products.data_warehouse.backend.data_load.service import sync_external_data_job_workflow
@@ -89,7 +89,7 @@ def cleanup_temporal_schedules(client):
 @pytest.fixture(autouse=True)
 def temporal():
     """Return a TemporalClient instance and cleanup any schedules created during the test."""
-    client = sync_connect()
+    client = sync_connect_with_retry()
     yield client
     cleanup_temporal_schedules(client)
 
