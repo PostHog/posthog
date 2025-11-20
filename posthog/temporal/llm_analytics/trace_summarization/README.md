@@ -2,6 +2,24 @@
 
 Automated workflow for generating summaries of recent LLM traces from time windows (e.g., hourly), which will serve as inputs for embedding and clustering workflows.
 
+## File Structure
+
+```text
+posthog/temporal/llm_analytics/trace_summarization/
+├── workflow.py              # Per-team batch summarization workflow (main orchestrator)
+├── coordinator.py           # Multi-team coordinator workflow (spawns child workflows)
+├── schedule.py             # Temporal schedule configuration (hourly automatic runs)
+├── models.py               # Data models (TraceSummary, BatchSummarizationInputs, etc.)
+├── constants.py            # Configuration constants (timeouts, defaults, limits)
+├── sampling.py             # Query traces from time window using TracesQueryRunner
+├── fetching.py             # Fetch full trace hierarchies using TraceQueryRunner
+├── summarization.py        # Generate text repr and call LLM summarization API
+├── events.py               # Emit $ai_trace_summary events to ClickHouse
+├── manual_trigger.py       # Helper functions for manual workflow triggers (dev/testing)
+├── test_workflow.py        # Workflow and activity tests
+└── README.md               # This file
+```
+
 ## Overview
 
 This workflow implements **Phase 2** of the clustering MVP (see [issue #40787](https://github.com/PostHog/posthog/issues/40787)):
