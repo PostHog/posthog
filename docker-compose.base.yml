@@ -292,6 +292,11 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
 
     feature-flags:
         image: ghcr.io/posthog/posthog/feature-flags:master
