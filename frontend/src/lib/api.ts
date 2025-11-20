@@ -1292,6 +1292,10 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
+    public objectMediaPreviews(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('object_media_previews')
+    }
+
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {

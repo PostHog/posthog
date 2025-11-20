@@ -1,12 +1,14 @@
 import './Toolbar.scss'
 
 import clsx from 'clsx'
+import { toBlob } from 'html-to-image'
 import { useActions, useValues } from 'kea'
 import { PostHog } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import {
     IconBolt,
+    IconCamera,
     IconCheck,
     IconCursorClick,
     IconDay,
@@ -24,9 +26,10 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonBadge, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { lazyImageBlobReducer } from 'lib/hooks/useUploadFiles'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
@@ -35,6 +38,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { ScreenshotUploadModal } from '~/toolbar/components/ScreenshotUploadModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
@@ -194,7 +198,24 @@ function piiMaskingMenuItem(
     ].filter(Boolean) as LemonMenuItem[]
 }
 
+// Get all property names accessible through getComputedStyle(), excluding custom properties
+// see: https://github.com/bubkoo/html-to-image/issues/542#issuecomment-3249408793 to avoid slowdown
+const allPropertyNames = (function getAllPropertyNames() {
+    var names = []
+    var style = getComputedStyle(document.documentElement)
+    for (var i = 0; i < style.length; i++) {
+        var name = style[i]
+        if (!name.startsWith('--')) {
+            names.push(name)
+        }
+    }
+    return names
+})()
+
 function MoreMenu(): JSX.Element {
+    const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
+    const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null)
+    const [isTakingScreenshot, setIsTakingScreenshot] = useState(false)
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
         useActions(toolbarLogic)
@@ -214,57 +235,94 @@ function MoreMenu(): JSX.Element {
 
     const { logout } = useActions(toolbarConfigLogic)
 
+    const handleScreenshotClick = (): void => {
+        setIsTakingScreenshot(true)
+        toBlob(document.body, { includeStyleProperties: allPropertyNames })
+            .then(async function (blob) {
+                if (!blob) {
+                    lemonToast.error('Could not take screenshot. Please try again.')
+                    setIsTakingScreenshot(false)
+                    return
+                }
+
+                const compressedBlob = await lazyImageBlobReducer(blob)
+                setScreenshotBlob(compressedBlob)
+                setIsScreenshotModalOpen(true)
+                setIsTakingScreenshot(false)
+            })
+            .catch((error) => {
+                lemonToast.error('Failed to take screenshot: ' + error)
+                setIsTakingScreenshot(false)
+            })
+    }
+
     return (
-        <LemonMenu
-            placement="top-end"
-            fallbackPlacements={['bottom-end']}
-            items={
-                [
-                    {
-                        icon: <>🦔</>,
-                        label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
-                        onClick: () => {
-                            setHedgehogMode(!hedgehogMode)
+        <>
+            <ScreenshotUploadModal
+                isOpen={isScreenshotModalOpen}
+                setIsOpen={setIsScreenshotModalOpen}
+                screenshot={screenshotBlob}
+                onSuccess={() => {
+                    setScreenshotBlob(null)
+                }}
+            />
+            <LemonMenu
+                placement="top-end"
+                fallbackPlacements={['bottom-end']}
+                items={
+                    [
+                        {
+                            icon: <>🦔</>,
+                            label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            onClick: () => {
+                                setHedgehogMode(!hedgehogMode)
+                            },
                         },
-                    },
-                    hedgehogMode
-                        ? {
-                              icon: <IconFlare />,
-                              label: 'Hedgehog options',
-                              onClick: () => {
-                                  setVisibleMenu('hedgehog')
-                              },
-                          }
-                        : undefined,
-                    {
-                        icon: currentlyLightMode ? <IconNight /> : <IconDay />,
-                        label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
-                        onClick: () => toggleTheme(),
-                    },
-                    ...piiMaskingMenuItem(
-                        piiMaskingEnabled,
-                        piiMaskingColor,
-                        togglePiiMasking,
-                        setPiiMaskingColor,
-                        piiWarning
-                    ),
-                    postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
-                    {
-                        icon: <IconQuestion />,
-                        label: 'Help',
-                        onClick: () => {
-                            window.open(HELP_URL, '_blank')?.focus()
+                        hedgehogMode
+                            ? {
+                                  icon: <IconFlare />,
+                                  label: 'Hedgehog options',
+                                  onClick: () => {
+                                      setVisibleMenu('hedgehog')
+                                  },
+                              }
+                            : undefined,
+                        {
+                            icon: currentlyLightMode ? <IconNight /> : <IconDay />,
+                            label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
+                            onClick: () => toggleTheme(),
                         },
-                    },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: logout },
-                ].filter(Boolean) as LemonMenuItems
-            }
-            maxContentWidth={true}
-        >
-            <ToolbarButton>
-                <IconMenu />
-            </ToolbarButton>
-        </LemonMenu>
+                        {
+                            icon: isTakingScreenshot ? <Spinner /> : <IconCamera />,
+                            label: 'Take an event definition screenshot',
+                            onClick: handleScreenshotClick,
+                            disabled: isTakingScreenshot,
+                        },
+                        ...piiMaskingMenuItem(
+                            piiMaskingEnabled,
+                            piiMaskingColor,
+                            togglePiiMasking,
+                            setPiiMaskingColor,
+                            piiWarning
+                        ),
+                        postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
+                        {
+                            icon: <IconQuestion />,
+                            label: 'Help',
+                            onClick: () => {
+                                window.open(HELP_URL, '_blank')?.focus()
+                            },
+                        },
+                        { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                    ].filter(Boolean) as LemonMenuItems
+                }
+                maxContentWidth={true}
+            >
+                <ToolbarButton>
+                    <IconMenu />
+                </ToolbarButton>
+            </LemonMenu>
+        </>
     )
 }
 

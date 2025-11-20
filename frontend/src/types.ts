@@ -3785,6 +3785,18 @@ export interface EventDefinitionMetrics {
     query_usage_30_day: number
 }
 
+export interface ObjectMediaPreview {
+    id: string
+    created_at: string
+    updated_at: string
+    media_url: string
+    media_type: 'uploaded' | 'exported'
+    metadata?: Record<string, any>
+    uploaded_media_id?: string
+    exported_asset_id?: string
+    event_definition_id?: string
+}
+
 // TODO duplicated from plugin server. Follow-up to de-duplicate
 export enum PropertyType {
     DateTime = 'DateTime',
