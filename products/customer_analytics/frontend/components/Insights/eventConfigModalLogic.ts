@@ -32,6 +32,9 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
         setSignupEventSelection: (filters: FilterType | null) => ({
             filters,
         }),
+        setSignupPageviewEventSelection: (filters: FilterType | null) => ({
+            filters,
+        }),
         saveEvents: true,
         toggleModalOpen: (isOpen?: boolean) => ({ isOpen }),
     }),
@@ -47,6 +50,13 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             null as FilterType | null,
             {
                 setSignupEventSelection: (_, { filters }) => filters,
+                clearFilterSelections: () => null,
+            },
+        ],
+        signupPageviewEventSelection: [
+            null as FilterType | null,
+            {
+                setSignupPageviewEventSelection: (_, { filters }) => filters,
                 clearFilterSelections: () => null,
             },
         ],
@@ -92,15 +102,34 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 }
             },
         ],
+        signupPageviewEventFilters: [
+            (s) => [s.signupPageviewEvent, s.signupPageviewEventSelection],
+            (signupPageviewEvent, signupPageviewEventSelection): FilterType | null => {
+                if (signupPageviewEventSelection) {
+                    return signupPageviewEventSelection
+                }
+                if (isEmptyObject(signupPageviewEvent as object)) {
+                    return null
+                }
+                return {
+                    insight: InsightType.TRENDS,
+                    ...seriesToActionsAndEvents([signupPageviewEvent]),
+                }
+            },
+        ],
         hasChanges: [
-            (s) => [s.activityEventSelection, s.signupEventSelection],
-            (activityEventSelection, signupEventSelection): boolean => {
-                return activityEventSelection !== null || signupEventSelection !== null
+            (s) => [s.activityEventSelection, s.signupEventSelection, s.signupPageviewEventSelection],
+            (activityEventSelection, signupEventSelection, signupPageviewEventSelection): boolean => {
+                return (
+                    activityEventSelection !== null ||
+                    signupEventSelection !== null ||
+                    signupPageviewEventSelection !== null
+                )
             },
         ],
         eventSelectors: [
-            (s) => [s.activityEventFilters, s.signupEventFilters],
-            (activityEventFilters, signupEventFilters): EventSelectorProps[] => [
+            (s) => [s.activityEventFilters, s.signupEventFilters, s.signupPageviewEventFilters],
+            (activityEventFilters, signupEventFilters, signupPageviewEventFilters): EventSelectorProps[] => [
                 {
                     title: 'Activity event',
                     caption: 'Defines what is considered user activity for active users and engagement calculations',
@@ -112,6 +141,12 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                     caption: 'Tracks when users complete registration or account creation',
                     filters: signupEventFilters,
                     setFilters: actions.setSignupEventSelection,
+                },
+                {
+                    title: 'Signup pageview event',
+                    caption: 'Tracks when users view the signup page',
+                    filters: signupPageviewEventFilters,
+                    setFilters: actions.setSignupPageviewEventSelection,
                 },
             ],
         ],
@@ -135,12 +170,22 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 )
                 events['signup_event'] = signupEvents[0]
             }
+            if (values.signupPageviewEventSelection) {
+                const signupPageviewEvents = actionsAndEventsToSeries(
+                    values.signupPageviewEventSelection as any,
+                    true,
+                    MathAvailability.None
+                )
+                events['signup_pageview_event'] = signupPageviewEvents[0]
+            }
             actions.updateEvents(events)
         },
         toggleModalOpen: ({ isOpen }) => {
             const isClosing = isOpen === false || (isOpen === undefined && values.isOpen)
             if (isClosing) {
                 actions.setActivityEventSelection(null)
+                actions.setSignupEventSelection(null)
+                actions.setSignupPageviewEventSelection(null)
             }
         },
     })),

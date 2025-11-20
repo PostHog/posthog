@@ -38,8 +38,8 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
         const handleClick = (): void => {
             missingSeries.forEach((seriesName) => {
                 addEventToHighlight(SERIES_TO_EVENT_NAME_MAPPING[seriesName])
-                toggleModalOpen()
             })
+            toggleModalOpen()
         }
 
         return (

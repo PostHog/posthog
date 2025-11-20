@@ -14,7 +14,8 @@ import { eventConfigModalLogic } from 'products/customer_analytics/frontend/comp
 
 export function EventConfigModal(): JSX.Element {
     const { eventSelectors, hasChanges, isOpen } = useValues(eventConfigModalLogic)
-    const { saveEvents, toggleModalOpen, clearFilterSelections } = useActions(eventConfigModalLogic)
+    const { saveEvents, toggleModalOpen, clearFilterSelections, clearEventsToHighlight } =
+        useActions(eventConfigModalLogic)
 
     const handleSave = (): void => {
         saveEvents()
@@ -24,6 +25,7 @@ export function EventConfigModal(): JSX.Element {
     const onClose = (): void => {
         toggleModalOpen(false)
         clearFilterSelections()
+        clearEventsToHighlight()
     }
 
     return (
