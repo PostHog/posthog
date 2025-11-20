@@ -172,7 +172,7 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
         transformer = JSONLStreamTransformer(max_workers=1)
         consumer = WorkflowsConsumer(
             topic=inputs.topic,
-            key=str(inputs.batch_export.team_id).encode("utf-8"),
+            key=str(inputs.batch_export.batch_export_id).encode("utf-8"),
             hosts=inputs.hosts,
             security_protocol=inputs.security_protocol,
             is_last_backfill_run=is_last_backfill_run,
