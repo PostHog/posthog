@@ -1032,7 +1032,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -3524,11 +3524,10 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -3687,7 +3686,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 

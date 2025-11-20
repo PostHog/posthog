@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, NodeKind, ProductKey, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -29,7 +29,6 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
-    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,

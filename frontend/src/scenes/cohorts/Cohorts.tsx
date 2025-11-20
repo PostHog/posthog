@@ -24,7 +24,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CohortType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CohortType } from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
