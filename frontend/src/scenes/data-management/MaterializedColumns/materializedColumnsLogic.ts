@@ -132,7 +132,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadSlotsSuccess: () => {
             actions.loadSlotUsage()
         },
@@ -158,7 +158,6 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadSlots()
-            actions.loadSlotUsage()
             actions.loadAutoMaterializedColumns()
         },
     })),
