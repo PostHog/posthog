@@ -16,6 +16,7 @@ INACTIVE_FLAGS = [
     "posthog-3000-nav",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
+    "ai-only-mode",
 ]
 
 

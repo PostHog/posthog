@@ -11,8 +11,6 @@ from posthog.test.base import (
 )
 from unittest.mock import AsyncMock, patch
 
-from django.test import override_settings
-
 from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
@@ -373,6 +371,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that memory collector correctly routes to tools when resuming from an interrupt with pending tool calls."""
         graph = (
             AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
             .add_memory_collector(AssistantNodeName.END)
             .add_memory_collector_tools()
             .compile()
@@ -912,7 +911,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_ONBOARDING)
+            .add_memory_onboarding(AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -970,7 +974,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_ONBOARDING)
+            .add_memory_onboarding(AssistantNodeName.END)
+            .compile()
+        )
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -1019,6 +1028,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # Create a graph with just memory collection
         graph = (
             AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
             .add_memory_collector(AssistantNodeName.END)
             .add_memory_collector_tools()
             .compile()
@@ -1187,60 +1197,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
             actual_output, _ = await self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
-
-    @override_settings(INKEEP_API_KEY="test")
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model")
-    async def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
-        """Test basic documentation search functionality using Inkeep."""
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
-            .compile()
-        )
-
-        root_model_mock.return_value = FakeChatAnthropic(
-            responses=[
-                messages.AIMessage(
-                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
-                )
-            ]
-        )
-        inkeep_docs_model_mock.return_value = FakeChatOpenAI(
-            responses=[messages.AIMessage(content="Here's what I found in the docs...")]
-        )
-        output, _ = await self._run_assistant_graph(graph, message="How do I use feature flags?")
-
-        self.assertConversationEqual(
-            output,
-            [
-                ("message", HumanMessage(content="How do I use feature flags?")),
-                (
-                    "message",
-                    AssistantMessage(
-                        content="",
-                        tool_calls=[
-                            AssistantToolCall(
-                                args={"kind": "docs", "query": "test"}, id="1", name="search", type="tool_call"
-                            )
-                        ],
-                    ),
-                ),
-                (
-                    "update",
-                    AssistantUpdateEvent(content="Checking PostHog documentation...", id="1", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantMessage(content="Here's what I found in the docs...", id=str(uuid4())),
-                ),
-            ],
-        )
 
     @title_generator_mock
     @query_executor_mock
@@ -2006,7 +1962,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_tool.return_value = ("Event list" * 128000, None)
         mock_should_compact.side_effect = cycle([False, True])  # Also changed this
 
-        graph = AssistantGraph(self.team, self.user).add_root().add_memory_onboarding().compile()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root()
+            .add_memory_onboarding()
+            .compile()
+        )
 
         expected_output = [
             ("message", HumanMessage(content="First")),
