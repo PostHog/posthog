@@ -13,7 +13,7 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { CSSProperties, HTMLAttributes, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { CSSProperties, HTMLAttributes, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -80,8 +80,12 @@ export function ProjectExplorer({
     listboxRef: React.RefObject<ListBoxHandle>
 }): JSX.Element | null {
     const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
-    const { checkedItems, folders, folderStates, users } = useValues(projectTreeLogic(projectTreeLogicProps))
-    const { loadFolder, moveCheckedItems, moveItem } = useActions(projectTreeLogic(projectTreeLogicProps))
+    const { checkedItems, folders, folderStates, users, editingItemId } = useValues(
+        projectTreeLogic(projectTreeLogicProps)
+    )
+    const { loadFolder, moveCheckedItems, moveItem, rename, setEditingItemId } = useActions(
+        projectTreeLogic(projectTreeLogicProps)
+    )
     const {
         activeExplorerFolderPath,
         explorerExpandedFolders,
@@ -399,21 +403,13 @@ export function ProjectExplorer({
                                 const nameLabel = highlightSearchText(rawNameLabel)
                                 const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
                                 const isHighlighted = highlightedExplorerEntryPath === entry.path
-                                const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
-                                    const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
-                                        '[data-explorer-row-clickable]'
-                                    )
 
-                                    if (!isClickOnActiveArea) {
+                                const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
+                                    if (isEditing) {
                                         event.preventDefault()
                                         return
                                     }
 
-                                    event.preventDefault()
-                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                                }
-
-                                const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
                                     event.preventDefault()
                                     handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                                 }
@@ -427,6 +423,25 @@ export function ProjectExplorer({
                                     ? { marginLeft: rowIndent }
                                     : undefined
                                 const treeItem = isParentNavigationRow ? null : convertEntryToTreeDataItem(entry)
+                                const isEditing = editingItemId === treeItem?.id
+                                const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
+                                    if (isEditing) {
+                                        event.preventDefault()
+                                        return
+                                    }
+
+                                    const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
+                                        '[data-explorer-row-clickable]'
+                                    )
+
+                                    if (!isClickOnActiveArea) {
+                                        event.preventDefault()
+                                        return
+                                    }
+
+                                    event.preventDefault()
+                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                                }
                                 const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
                                 const listBoxItem = (
                                     <ExplorerRowListItem
@@ -454,6 +469,10 @@ export function ProjectExplorer({
                                         isParentNavigationRow={isParentNavigationRow}
                                         treeItem={treeItem}
                                         projectTreeLogicProps={projectTreeLogicProps}
+                                        isEditing={isEditing}
+                                        rawNameLabel={rawNameLabel}
+                                        rename={rename}
+                                        setEditingItemId={setEditingItemId}
                                     />
                                 )
 
@@ -551,6 +570,10 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     isParentNavigationRow: boolean
     treeItem: TreeDataItem | null
     projectTreeLogicProps: ProjectTreeLogicProps
+    isEditing: boolean
+    rawNameLabel: string
+    rename: (value: string, item: FileSystemEntry) => void
+    setEditingItemId: (id: string) => void
 }
 
 function ExplorerRowListItem({
@@ -577,6 +600,10 @@ function ExplorerRowListItem({
     isParentNavigationRow,
     treeItem,
     projectTreeLogicProps,
+    isEditing,
+    rawNameLabel,
+    rename,
+    setEditingItemId,
     ...contextMenuProps
 }: ExplorerRowListItemProps): JSX.Element {
     const droppableId = isParentNavigationRow ? `project://${entry.path}` : (treeItem?.id ?? rowKey)
@@ -608,6 +635,21 @@ function ExplorerRowListItem({
 
     const dragProps = isDraggable ? { ...attributes, ...listeners } : {}
     const droppableHighlight = isDroppable && isOver
+    const handleRenameSubmit = useCallback(
+        (nextName: string): void => {
+            const trimmedName = nextName.trim()
+            if (!trimmedName || trimmedName === rawNameLabel) {
+                setEditingItemId('')
+                return
+            }
+
+            rename(trimmedName, entry)
+        },
+        [entry, rawNameLabel, rename, setEditingItemId]
+    )
+    const handleRenameCancel = useCallback((): void => {
+        setEditingItemId('')
+    }, [setEditingItemId])
 
     return (
         <ListBox.Item
@@ -662,9 +704,20 @@ function ExplorerRowListItem({
                             <span className="block w-3" />
                         )}
                     </span>
-                    <span data-explorer-row-clickable className="flex min-w-0 items-center gap-2 cursor-pointer">
+                    <span
+                        data-explorer-row-clickable={isEditing ? undefined : 'true'}
+                        className={clsx('flex min-w-0 items-center gap-2', !isEditing && 'cursor-pointer')}
+                    >
                         <span className="shrink-0 text-primary">{icon}</span>
-                        <span className="truncate">{nameLabel}</span>
+                        {isEditing ? (
+                            <ExplorerNameEditor
+                                initialName={rawNameLabel}
+                                onSubmit={handleRenameSubmit}
+                                onCancel={handleRenameCancel}
+                            />
+                        ) : (
+                            <span className="truncate">{nameLabel}</span>
+                        )}
                     </span>
                     {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
                         <Spinner className="size-3" />
@@ -717,5 +770,63 @@ function ExplorerRowListItem({
                 </div>
             </Link>
         </ListBox.Item>
+    )
+}
+
+interface ExplorerNameEditorProps {
+    initialName: string
+    onSubmit: (value: string) => void
+    onCancel: () => void
+}
+
+function ExplorerNameEditor({ initialName, onSubmit, onCancel }: ExplorerNameEditorProps): JSX.Element {
+    const [name, setName] = useState(initialName)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const hasFinishedRef = useRef(false)
+
+    useEffect(() => {
+        setName(initialName)
+        hasFinishedRef.current = false
+    }, [initialName])
+
+    useEffect((): void => {
+        window.setTimeout(() => {
+            inputRef.current?.focus()
+        }, 2)
+    }, [])
+
+    const finishEditing = useCallback(
+        (shouldSave: boolean): void => {
+            if (hasFinishedRef.current) {
+                return
+            }
+            hasFinishedRef.current = true
+
+            if (shouldSave) {
+                onSubmit(name)
+            } else {
+                onCancel()
+            }
+        },
+        [name, onCancel, onSubmit]
+    )
+
+    return (
+        <input
+            ref={inputRef}
+            className="w-full rounded border border-border bg-surface px-2 py-1 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-highlight"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => finishEditing(true)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault()
+                    finishEditing(true)
+                } else if (event.key === 'Escape') {
+                    event.preventDefault()
+                    finishEditing(false)
+                }
+            }}
+        />
     )
 }
