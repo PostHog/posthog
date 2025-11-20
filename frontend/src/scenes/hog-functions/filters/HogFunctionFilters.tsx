@@ -184,7 +184,7 @@ export function HogFunctionFilters({
             )}
             <LemonField
                 name="filters"
-                label={useMapping ? 'Global filters' : 'Filters'}
+                label={isDataWarehouse ? null : useMapping ? 'Global filters' : 'Filters'}
                 info={
                     useMapping
                         ? 'Filters applied to all events before they reach a mapping'
