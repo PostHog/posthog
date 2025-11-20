@@ -386,11 +386,12 @@ export function ProjectExplorer({
                                 const isFolder = entry.type === 'folder'
                                 const isExpandableFolder = isFolder && !isParentNavigationRow && !isSearchResult
                                 const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
-                                const icon = iconForType(
-                                    isParentNavigationRow
-                                        ? 'folder_open'
-                                        : (entry.type as FileSystemIconType) || 'default_icon_type'
-                                )
+                                const iconType: FileSystemIconType = isParentNavigationRow
+                                    ? 'folder_open'
+                                    : isExpandableFolder && isExpanded
+                                      ? 'folder_open'
+                                      : (entry.type as FileSystemIconType) || 'default_icon_type'
+                                const icon = iconForType(iconType)
                                 const focusBase = String(entry.id ?? entry.path ?? rowIndex)
                                 const rawNameLabel = isParentNavigationRow
                                     ? '..'
