@@ -234,14 +234,17 @@ def relative_date_parse_with_delta_mapping(
 
 
 def get_weekday_index(
-    team_week_start_day: int, timezone_info: ZoneInfo, now: Optional[datetime.datetime] = None
+    team_week_start_day: Optional[int], timezone_info: ZoneInfo, now: Optional[datetime.datetime]
 ) -> int:
+    # We default to 0 for None cases
+    start_day = team_week_start_day or 0
     current_dt = (now or dt.datetime.now()).astimezone(timezone_info)
-    if team_week_start_day == 1:
+    if start_day == 1:
         return current_dt.weekday()
-    # Get the weekday index for monday (Monday=1, Sunday=7)
+    # Start day should either be 0 or 1, but in the case where its more than 1 we will default to 0
+    # Get the weekday index using iso date (Monday=1, Sunday=7)
     weekday_index = current_dt.isoweekday()
-    # Should return 0 if week start day is sunday
+    # Should return 0 if week start day is sunday, we also default to sunday
     if weekday_index == 7:
         return 0
     else:
