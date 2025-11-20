@@ -19,17 +19,26 @@ export const customerAnalyticsConfigLogic = kea<customerAnalyticsConfigLogicType
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     selectors({
-        activityEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.activity_event],
-        signupEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.signup_event],
+        activityEvent: [
+            (s) => [s.customerAnalyticsConfig],
+            (config: CustomerAnalyticsConfig) => ({ ...config.activity_event, custom_name: 'Activity' }),
+        ],
+        signupEvent: [
+            (s) => [s.customerAnalyticsConfig],
+            (config: CustomerAnalyticsConfig) => ({ ...config.signup_event, custom_name: 'Signups' }),
+        ],
         signupPageviewEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => config.signup_pageview_event,
+            (config: CustomerAnalyticsConfig) => ({ ...config.signup_pageview_event, custom_name: 'Signup pageviews' }),
         ],
         subscriptionEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => config.subscription_event,
+            (config: CustomerAnalyticsConfig) => ({ ...config.subscription_event, custom_name: 'Subscriptions' }),
         ],
-        paymentEvent: [(s) => [s.customerAnalyticsConfig], (config: CustomerAnalyticsConfig) => config.payment_event],
+        paymentEvent: [
+            (s) => [s.customerAnalyticsConfig],
+            (config: CustomerAnalyticsConfig) => ({ ...config.payment_event, custom_name: 'Payments' }),
+        ],
     }),
 
     listeners(({ actions }) => ({
