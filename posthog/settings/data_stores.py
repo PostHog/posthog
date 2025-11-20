@@ -132,24 +132,7 @@ if not persons_db_writer_url and DEBUG and not TEST:
     # with the demo data
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
 
-if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(
-        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
-    )
-
-    # Fall back to the writer URL if no reader URL is set
-    DATABASES["persons_db_reader"] = dj_database_url.config(
-        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
-    )
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
-    # Only register PersonDBRouter in non-test mode
-    # In tests, Person operations naturally use default database without routing
-    # conftest.py creates posthog_person (partitioned) in default test DB
-    if not TEST:
-        DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+# NOTE: Test mode persons DB configuration is set after SUFFIX is defined (below)
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
@@ -180,6 +163,29 @@ if IN_EVAL_TESTING:
     SUFFIX = "_ai_eval" + XDIST_SUFFIX
 elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
+
+# Configure persons database for test mode (now that SUFFIX is defined)
+if TEST and not persons_db_writer_url:
+    # Use test_posthog_persons database to mirror production setup
+    # This ensures tests properly validate cross-database isolation
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_persons{SUFFIX}"
+
+if persons_db_writer_url:
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
+
+    # Fall back to the writer URL if no reader URL is set
+    DATABASES["persons_db_reader"] = dj_database_url.config(
+        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    # Register PersonDBRouter in both test and production modes
+    # This ensures cross-database joins are properly blocked in tests (mirroring production)
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX

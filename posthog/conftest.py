@@ -147,17 +147,21 @@ def reset_clickhouse_tables():
 
 
 def create_persons_tables():
-    """Create person/cohort/group tables using sqlx migrations.
+    """Create person/cohort/group tables using sqlx migrations in separate persons database.
 
     Drops any Django-created tables first, then runs sqlx migrations to create
-    tables with correct schema. Runs once at test session start, parallel to ClickHouse setup.
+    tables with correct schema in test_posthog_persons database.
+    Runs once at test session start, parallel to ClickHouse setup.
 
     No transaction handling needed - matches ClickHouse pattern which just executes statements directly.
     """
-    from django.db import connection
+    from django.db import connections
+
+    # Use persons_db_writer connection for persons database operations
+    persons_conn = connections["persons_db_writer"]
 
     # Drop Django-created tables and clear sqlx migration tracking
-    with connection.cursor() as cursor:
+    with persons_conn.cursor() as cursor:
         cursor.execute("""
             DROP TABLE IF EXISTS posthog_person_new CASCADE;
             DROP TABLE IF EXISTS posthog_person CASCADE;
@@ -181,11 +185,11 @@ def create_persons_tables():
             END $$;
         """)
 
-    # Run sqlx migrations to create tables
+    # Run sqlx migrations to create tables in persons database
     run_persons_sqlx_migrations()
 
     # Set sequence defaults for posthog_person_new
-    with connection.cursor() as cursor:
+    with persons_conn.cursor() as cursor:
         cursor.execute("""
             CREATE SEQUENCE IF NOT EXISTS posthog_person_new_id_seq START WITH 1000000000;
             ALTER TABLE posthog_person_new ALTER COLUMN id SET DEFAULT nextval('posthog_person_new_id_seq');
@@ -193,15 +197,18 @@ def create_persons_tables():
 
 
 def reset_persons_tables():
-    """Truncate person/cohort/group tables between test runs.
+    """Truncate person/cohort/group tables in separate persons database between test runs.
 
     Similar to reset_clickhouse_tables(), this clears data while preserving schema.
     Matches ClickHouse pattern - simple execution without transaction handling.
     """
-    from django.db import connection
+    from django.db import connections
+
+    # Use persons_db_writer connection for persons database operations
+    persons_conn = connections["persons_db_writer"]
 
     # Truncate all sqlx-managed tables (CASCADE handles foreign keys)
-    with connection.cursor() as cursor:
+    with persons_conn.cursor() as cursor:
         cursor.execute("""
             TRUNCATE TABLE posthog_cohortpeople CASCADE;
             TRUNCATE TABLE posthog_person_new CASCADE;
@@ -224,9 +231,12 @@ def drop_problematic_constraints_for_tests():
     legitimate test scenarios (multiple old_person_ids merging into one override_person_id).
     Production needs this constraint, but tests need to disable it to validate behavior.
     """
-    from django.db import connection
+    from django.db import connections
 
-    with connection.cursor() as cursor:
+    # Use persons_db_writer connection for persons database operations
+    persons_conn = connections["persons_db_writer"]
+
+    with persons_conn.cursor() as cursor:
         # Drop the problematic GIST EXCLUDE constraint
         cursor.execute("""
             ALTER TABLE IF EXISTS posthog_personoverride
@@ -235,15 +245,15 @@ def drop_problematic_constraints_for_tests():
 
 
 def run_persons_sqlx_migrations():
-    """Run sqlx migrations for persons tables in test database.
+    """Run sqlx migrations for persons tables in separate test database.
 
-    This creates posthog_person (partitioned) and related tables.
+    This creates posthog_person_new (partitioned) and related tables in test_posthog_persons database.
     Mirrors production migrations in rust/persons_migrations/.
     """
-    # Build database URL from Django test database settings
-    # pytest-django mutates settings.DATABASES["default"]["NAME"] to add "test_" prefix
-    # before this runs, so we correctly get "test_posthog" not "posthog"
-    db_config = settings.DATABASES["default"]
+    # Build database URL from Django persons_db_writer settings
+    # This ensures persons tables are created in separate database (test_posthog_persons)
+    # to properly test cross-database isolation
+    db_config = settings.DATABASES["persons_db_writer"]
     db_name = db_config["NAME"]
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
@@ -261,20 +271,8 @@ def run_persons_sqlx_migrations():
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
-    # Create database if it doesn't exist (idempotent)
-    try:
-        subprocess.run(
-            ["sqlx", "database", "create"],
-            env=env,
-            check=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Failed to create test database with sqlx. "
-            f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
-        ) from e
-
+    # Django creates the test database for us via pytest-django
+    # We just need to run sqlx migrations against it
     # Run migrations
     try:
         subprocess.run(
@@ -412,12 +410,15 @@ def reset_group_tables_between_tests(request, django_db_blocker):
     # Setup before test: clear state and drop constraints that block tests
     if request.config.getoption("--reuse-db"):
         if request.node.get_closest_marker("django_db"):
-            from django.db import connection
+            from django.db import connections
+
+            # Use persons_db_writer connection for persons database operations
+            persons_conn = connections["persons_db_writer"]
 
             with django_db_blocker.unblock():
                 try:
-                    connection.rollback()
-                    with connection.cursor() as cursor:
+                    persons_conn.rollback()
+                    with persons_conn.cursor() as cursor:
                         # Truncate tables to clear state from previous tests that may have failed
                         # This is a safety net for cleanup failures in previous tests
                         for table in [
@@ -446,7 +447,7 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                             cursor.execute("ROLLBACK TO SAVEPOINT sp_drop_constraint_setup")
                 except Exception:
                     try:
-                        connection.rollback()
+                        persons_conn.rollback()
                     except Exception:
                         pass
 
@@ -457,14 +458,17 @@ def reset_group_tables_between_tests(request, django_db_blocker):
         # Only run for tests that actually use the database (have django_db marker)
         # Skip SimpleTestCase and other non-database tests
         if request.node.get_closest_marker("django_db"):
-            from django.db import connection
+            from django.db import connections
+
+            # Use persons_db_writer connection for persons database operations
+            persons_conn = connections["persons_db_writer"]
 
             with django_db_blocker.unblock():
                 try:
                     # Must use connection.in_atomic_block to ensure we're not already in a transaction
                     # that would get messed up by errors
-                    connection.rollback()  # Rollback any failed transaction from the test
-                    with connection.cursor() as cursor:
+                    persons_conn.rollback()  # Rollback any failed transaction from the test
+                    with persons_conn.cursor() as cursor:
                         # Truncate tables with constraint leakage issues, but only if they exist.
                         # Some test environments may not create all sqlx-managed tables.
                         # Truncate in dependency order: children before parents (to avoid FK constraint issues).
@@ -489,7 +493,7 @@ def reset_group_tables_between_tests(request, django_db_blocker):
                 except Exception:
                     # If anything goes wrong in cleanup, rollback to ensure transaction is clean
                     try:
-                        connection.rollback()
+                        persons_conn.rollback()
                     except Exception:
                         pass
 
