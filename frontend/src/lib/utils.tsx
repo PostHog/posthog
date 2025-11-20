@@ -1012,18 +1012,6 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
-        key: 'Today',
-        values: ['dStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Yesterday',
-        values: ['-1dStart', '-1dEnd'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
-        defaultInterval: 'hour',
-    },
-    {
         key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
@@ -1065,6 +1053,18 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-180d'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
         defaultInterval: 'month',
+    },
+    {
+        key: 'Today',
+        values: ['dStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Yesterday',
+        values: ['-1dStart', '-1dEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
+        defaultInterval: 'hour',
     },
     {
         key: 'Last week',
