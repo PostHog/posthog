@@ -352,7 +352,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     },
                                     {
                                         format: ExporterFormat.HCL,
-                                        label: '.tf (Terraform)',
+                                        label: '.tf',
                                         context: {
                                             localData: generateInsightHCL(insight),
                                             filename: `${insight.name || insight.derived_name || `insight_${insight.id}`}.tf`,
