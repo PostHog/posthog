@@ -2,14 +2,18 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { useNotificationsWebSocket } from 'lib/hooks/useNotificationsWebSocket'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBell, IconWithCount } from 'lib/lemon-ui/icons'
 import { notificationsLogic } from 'lib/logic/notificationsLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotificationsList } from './NotificationsList'
 
-export function NotificationBell(): JSX.Element {
+interface NotificationBellProps {
+    isLayoutNavCollapsed?: boolean
+}
+
+export function NotificationBell({ isLayoutNavCollapsed = false }: NotificationBellProps): JSX.Element {
     const { unreadCount } = useValues(notificationsLogic)
     const [isOpen, setIsOpen] = useState(false)
 
@@ -27,21 +31,28 @@ export function NotificationBell(): JSX.Element {
             }
             placement="bottom-end"
         >
-            <LemonButton
-                icon={
-                    unreadCount > 0 ? (
+            <ButtonPrimitive
+                menuItem={!isLayoutNavCollapsed}
+                tooltip={isLayoutNavCollapsed ? 'Notifications' : undefined}
+                tooltipPlacement="right"
+                iconOnly={isLayoutNavCollapsed}
+                onClick={() => setIsOpen(!isOpen)}
+                aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+                data-attr="notifications-bell"
+                active={isOpen}
+                className="group"
+            >
+                <span className="flex text-tertiary group-hover:text-primary">
+                    {unreadCount > 0 ? (
                         <IconWithCount count={unreadCount} status="primary">
                             <IconBell />
                         </IconWithCount>
                     ) : (
                         <IconBell />
-                    )
-                }
-                size="small"
-                onClick={() => setIsOpen(!isOpen)}
-                aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
-                data-attr="notifications-bell"
-            />
+                    )}
+                </span>
+                {!isLayoutNavCollapsed && 'Notifications'}
+            </ButtonPrimitive>
         </Popover>
     )
 }

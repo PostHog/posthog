@@ -612,7 +612,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Settings'}
                             </Link>
 
-                            <NotificationBell />
+                            <NotificationBell isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
                             <AccountMenu
                                 align="end"
