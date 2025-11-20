@@ -11,9 +11,9 @@ from ee.models.assistant import Conversation
 
 
 class AssistantSSESerializer:
-    # `dumps` to be async, as some serialization CAN involve the DB
-    # In particular, serialization Conversation can involve fetching conversation.user from DB
-    # This shouldn't be needed, because we SHOULD be doing Conversation.objects.select_related("user"), but async doesn't hurt here
+    # `dumps` needs to be async, as some serialization CAN involve sneaky sync ORM queries. We can't guarantee it won't.
+    # In particular, serialization Conversation can involve fetching conversation.user from DB sync. This shouldn't
+    # be needed, because we SHOULD be doing Conversation.objects.select_related("user"), but async here is a cheap way to safe.
     @database_sync_to_async
     def dumps(self, event: AssistantOutput) -> str:
         event_type, event_data = event
