@@ -6,6 +6,7 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.types.base import NodePath
 
 if TYPE_CHECKING:
@@ -31,7 +32,10 @@ class AgentModeManager:
         self._team = team
         self._user = user
         self._node_path = node_path
-        self._mode = mode or AgentMode.PRODUCT_ANALYTICS
+        if has_agent_modes_feature_flag(team, user):
+            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
+        else:
+            self._mode = AgentMode.PRODUCT_ANALYTICS
 
     @property
     def node(self) -> "AgentExecutable":

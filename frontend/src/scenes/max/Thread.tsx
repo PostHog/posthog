@@ -40,7 +40,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -251,6 +251,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                     id={message.id || key}
                                     completed={isThinkingComplete}
                                     showCompletionIcon={false}
+                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
                                 />
                             )
                         }
@@ -580,7 +581,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col text-xs">
             <div
                 className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
@@ -723,7 +724,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className="inline-flex">{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -732,7 +733,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            markdownContent
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
@@ -791,9 +792,16 @@ interface ReasoningAnswerProps {
     completed: boolean
     id: string
     showCompletionIcon?: boolean
+    animate?: boolean
 }
 
-function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+function ReasoningAnswer({
+    content,
+    completed,
+    id,
+    showCompletionIcon = true,
+    animate = false,
+}: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
@@ -801,7 +809,7 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
             icon={<IconBrain />}
-            animate={true}
+            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
             showCompletionIcon={showCompletionIcon}
         />
     )
