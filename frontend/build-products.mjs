@@ -340,10 +340,11 @@ export function buildProductManifests() {
     // These types are used to generate Pydantic models in posthog/schema.py.
     // If you change the keys here (keysToKeep), make sure to update the TypeScript types.
     const keysToKeep = ['path', 'category', 'iconType', 'type']
+    const keysToKeepArray = ['intents']
     const productsJson = {
-        products: extractKeys(treeItemsProducts, keysToKeep),
-        games: extractKeys(treeItemsGames, keysToKeep),
-        metadata: extractKeys(treeItemsMetadata, keysToKeep),
+        products: extractKeys(treeItemsProducts, { keysToKeep, keysToKeepArray }),
+        games: extractKeys(treeItemsGames, { keysToKeep, keysToKeepArray }),
+        metadata: extractKeys(treeItemsMetadata, { keysToKeep, keysToKeepArray }),
     }
 
     const jsonTmpDir = path.join(__dirname, 'tmp')
@@ -389,15 +390,20 @@ function withoutImport(prop) {
 }
 
 // Helper to extract only specific keys from AST nodes
-function extractKeys(dict /* : Record<any, ASTNode> */, keysToKeep /* : string[] */) {
+function extractKeys(
+    dict /* : Record<any, ASTNode> */,
+    { keysToKeep /* : string[] */, keysToKeepArray /* : string[] */ } = { keysToKeep: [], keysToKeepArray: [] }
+) {
     return Object.values(dict).map((node /* : ASTNode */) => {
         if (!ts.isObjectLiteralExpression(node)) {
             return {}
         }
+
         const result /* : Record<string, string | boolean> */ = {}
-        keysToKeep.forEach((key) => {
+
+        const processKey = (key, { isArray }) => {
             const prop /* : PropertyAssignment */ = node.properties.find((p) => p.name?.text === key)
-            result[key] = null // default to null
+            result[key] = isArray ? [] : null // default to empty array/null
 
             if (prop && prop.initializer) {
                 if (ts.isStringLiteral(prop.initializer)) {
@@ -408,13 +414,19 @@ function extractKeys(dict /* : Record<any, ASTNode> */, keysToKeep /* : string[]
                     result[key] = prop.initializer.text
                 } else if (ts.isNumericLiteral(prop.initializer)) {
                     result[key] = Number(prop.initializer.text)
+                } else if (ts.isArrayLiteralExpression(prop.initializer)) {
+                    result[key] = prop.initializer.elements.map((e) => e.name.escapedText)
                 } else if (prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
                     result[key] = true
                 } else if (prop.initializer.kind === ts.SyntaxKind.FalseKeyword) {
                     result[key] = false
                 }
             }
-        })
+        }
+
+        keysToKeep.forEach((key) => processKey(key, { isArray: false }))
+        keysToKeepArray.forEach((key) => processKey(key, { isArray: true }))
+
         return result
     })
 }

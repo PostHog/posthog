@@ -14298,6 +14298,13 @@
                 "id": {
                     "type": "string"
                 },
+                "intents": {
+                    "description": "Product key(s) that generate interest in this item when intent is triggered",
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
+                },
                 "last_viewed_at": {
                     "description": "Timestamp when the file system entry was last viewed",
                     "type": ["string", "null"]
@@ -19385,6 +19392,12 @@
                 "iconType": {
                     "type": ["string", "null"]
                 },
+                "intents": {
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
+                },
                 "path": {
                     "type": "string"
                 },
@@ -19392,8 +19405,51 @@
                     "type": ["string", "null"]
                 }
             },
-            "required": ["path", "category", "iconType", "type"],
+            "required": ["path", "category", "iconType", "type", "intents"],
             "type": "object"
+        },
+        "ProductKey": {
+            "enum": [
+                "actions",
+                "alerts",
+                "annotations",
+                "cohorts",
+                "comments",
+                "customer_analytics",
+                "data_warehouse",
+                "data_warehouse_saved_queries",
+                "early_access_features",
+                "endpoints",
+                "error_tracking",
+                "experiments",
+                "feature_flags",
+                "group_analytics",
+                "heatmaps",
+                "history",
+                "ingestion_warnings",
+                "integrations",
+                "links",
+                "live_debugger",
+                "llm_analytics",
+                "logs",
+                "marketing_analytics",
+                "max",
+                "mobile_replay",
+                "persons",
+                "pipeline_transformations",
+                "pipeline_destinations",
+                "platform_and_support",
+                "product_analytics",
+                "revenue_analytics",
+                "session_replay",
+                "site_apps",
+                "surveys",
+                "user_interviews",
+                "teams",
+                "web_analytics",
+                "workflows"
+            ],
+            "type": "string"
         },
         "ProductsData": {
             "additionalProperties": false,

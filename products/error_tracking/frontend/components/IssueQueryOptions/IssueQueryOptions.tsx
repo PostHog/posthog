@@ -11,7 +11,8 @@ import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/pr
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { GroupTypeIndex, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { GroupTypeIndex } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
