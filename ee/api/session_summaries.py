@@ -4,36 +4,41 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
+from django.db.models import Func, IntegerField, QuerySet
 
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, serializers, status
+from loginas.utils import is_impersonated_session
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep, SessionSummaryStreamUpdate
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStreamUpdate
+from posthog.utils import relative_date_parse
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    create_notebook_from_summary_content,
-    generate_notebook_content_from_summary,
-)
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.models.session_summaries import SessionGroupSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -104,15 +109,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
-        results: list[
-            tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict]
-        ] = []
+        results: list[tuple[SessionSummaryStreamUpdate, tuple[EnrichedSessionGroupSummaryPatternsList, str] | str]] = []
         async for update in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=user_id,
             team=team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
+            summary_title="Group summary",  # Generic name, as no user input is provided (vs the chat)
             video_validation_enabled=video_validation_enabled,
             extra_summary_context=extra_summary_context,
         ):
@@ -123,7 +127,12 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(error_message)
         # The last item in the result should be the summary, if not - raise an exception
         last_result = results[-1]
-        summary = last_result[-1]
+        summary_iteration = last_result[-1]
+        if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 2:
+            error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
+            logger.exception(error_message)
+            raise exceptions.APIException(error_message)
+        summary, _ = summary_iteration
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
             error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
             logger.exception(error_message)
@@ -150,17 +159,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 max_timestamp=max_timestamp,
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
-            )
-            summary_title = "API generated"
-            summary_content = generate_notebook_content_from_summary(
-                summary=summary,
-                session_ids=session_ids,
-                project_name=self.team.name,
-                team_id=self.team.id,
-                summary_title=summary_title,
-            )
-            async_to_sync(create_notebook_from_summary_content)(
-                user=user, team=self.team, summary_content=summary_content, summary_title=summary_title
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
@@ -261,3 +259,124 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+
+class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    session_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SessionGroupSummary
+        fields = [
+            "id",
+            "title",
+            "session_count",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = fields
+
+    def get_session_count(self, obj: SessionGroupSummary) -> int:
+        # Use annotated value if available (from list action), otherwise calculate
+        if hasattr(obj, "session_count"):
+            return obj.session_count or 0
+        return len(obj.session_ids) if obj.session_ids else 0
+
+
+class SessionGroupSummarySerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = SessionGroupSummary
+        fields = [
+            "id",
+            "title",
+            "session_ids",
+            "summary",
+            "extra_summary_context",
+            "run_metadata",
+            "created_at",
+            "created_by",
+            "team",
+        ]
+        read_only_fields = fields
+
+
+def log_session_summary_group_activity(
+    activity: str,
+    summary: SessionGroupSummary,
+    organization_id: UUID | None,
+    team_id: int,
+    user: User,
+    was_impersonated: bool,
+    changes: list[Change] | None = None,
+) -> None:
+    log_activity(
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=summary.id,
+        scope="SessionGroupSummary",
+        activity=activity,
+        detail=Detail(changes=changes, name=summary.title),
+    )
+
+
+@extend_schema(
+    description="API for retrieving and managing stored group session summaries.",
+)
+class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "session_recording"
+    queryset = SessionGroupSummary.objects.all()
+    lookup_field = "id"
+
+    def get_serializer_class(self) -> type[BaseSerializer]:
+        return SessionGroupSummaryMinimalSerializer if self.action == "list" else SessionGroupSummarySerializer
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.filter(team=self.team)
+        queryset = queryset.select_related("created_by", "team")
+        if self.action == "list":
+            # Only load fields needed for list view
+            queryset = queryset.only("id", "title", "session_ids", "created_at", "created_by", "team")
+            # Annotate with session_count for sorting
+            queryset = queryset.annotate(
+                session_count=Func("session_ids", function="CARDINALITY", output_field=IntegerField())
+            )
+            queryset = self._filter_list_request(self.request, queryset)
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset
+
+    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+        for key in filters:
+            value = filters.get(key, None)
+            if key == "created_by":
+                queryset = queryset.filter(created_by__uuid=value)
+            elif key == "date_from" and isinstance(value, str):
+                queryset = queryset.filter(created_at__gt=relative_date_parse(value, self.team.timezone_info))
+            elif key == "date_to" and isinstance(value, str):
+                queryset = queryset.filter(created_at__lt=relative_date_parse(value, self.team.timezone_info))
+            elif key == "search":
+                queryset = queryset.filter(title__icontains=value)
+        return queryset
+
+    def perform_destroy(self, instance: SessionGroupSummary) -> None:
+        if isinstance(self.request.user, AnonymousUser):
+            # Don't log activity for anonymous users
+            raise exceptions.PermissionDenied("User is not allowed to delete session summaries")
+        log_session_summary_group_activity(
+            activity="deleted",
+            summary=instance,
+            organization_id=self.request.user.current_organization_id,
+            team_id=self.team_id,
+            user=self.request.user,
+            was_impersonated=is_impersonated_session(self.request),
+        )
+        super().perform_destroy(instance)

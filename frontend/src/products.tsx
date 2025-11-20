@@ -18,6 +18,7 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
@@ -79,6 +80,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
+    SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
@@ -132,6 +135,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
+    '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/user_interviews': ['UserInterviews', 'userInterviews'],
@@ -342,6 +347,19 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/revenue-analytics',
         iconType: 'revenue_analytics',
         description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
+    },
+    SessionGroupSummariesTable: {
+        name: 'Session summaries',
+        projectBased: true,
+        description:
+            'View and deep-dive into AI-generated summaries of session recordings. Create summaries from the Session replay page by applying filters and asking PostHog AI to summarize sessions.',
+        iconType: 'notebook',
+    },
+    SessionGroupSummary: {
+        name: 'Session summary',
+        projectBased: true,
+        description: 'View detailed session group summary.',
+        iconType: 'notebook',
     },
     TaskTracker: {
         name: 'Tasks',
@@ -577,6 +595,8 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
+    sessionSummaries: (): string => '/session-summaries',
+    sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
@@ -882,6 +902,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
+        intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: 'Unreleased',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
@@ -892,6 +913,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Dashboards',
+        intents: [ProductKey.PRODUCT_ANALYTICS],
         category: 'Analytics',
         type: 'dashboard',
         iconType: 'dashboard',
@@ -912,6 +934,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Data warehouse',
+        intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
         category: 'Unreleased',
         href: urls.dataWarehouse(),
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
@@ -922,6 +945,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Early access features',
+        intents: [ProductKey.EARLY_ACCESS_FEATURES],
         category: 'Features',
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
@@ -935,6 +959,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Endpoints',
+        intents: [ProductKey.ENDPOINTS],
         category: 'Unreleased',
         href: urls.endpoints(),
         type: 'endpoints',
@@ -947,6 +972,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Error tracking',
+        intents: [ProductKey.ERROR_TRACKING],
         category: 'Behavior',
         type: 'error_tracking',
         iconType: 'error_tracking' as FileSystemIconType,
@@ -966,6 +992,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Experiments`,
+        intents: [ProductKey.EXPERIMENTS],
         category: 'Features',
         type: 'experiment',
         href: urls.experiments(),
@@ -976,6 +1003,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Feature flags`,
+        intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
         category: 'Features',
         type: 'feature_flag',
         href: urls.featureFlags(),
@@ -984,6 +1012,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Heatmaps',
+        intents: [ProductKey.HEATMAPS],
         category: 'Behavior',
         iconType: 'heatmap',
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
@@ -994,6 +1023,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'LLM analytics',
+        intents: [ProductKey.LLM_ANALYTICS],
         category: 'Analytics',
         iconType: 'llm_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
@@ -1014,6 +1044,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Links',
+        intents: [ProductKey.LINKS],
         category: 'Unreleased',
         type: 'link',
         href: urls.links(),
@@ -1024,6 +1055,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Live Debugger',
+        intents: [ProductKey.LIVE_DEBUGGER],
         category: 'Unreleased',
         type: 'live_debugger',
         href: urls.liveDebugger(),
@@ -1035,6 +1067,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Logs',
+        intents: [ProductKey.LOGS],
         category: 'Unreleased',
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
@@ -1055,6 +1088,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Product analytics',
+        intents: [ProductKey.PRODUCT_ANALYTICS],
         category: 'Analytics',
         type: 'insight',
         href: urls.insights(),
@@ -1065,6 +1099,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Revenue analytics',
+        intents: [ProductKey.REVENUE_ANALYTICS],
         category: 'Analytics',
         href: urls.revenueAnalytics(),
         type: 'revenue',
@@ -1074,6 +1109,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'SQL editor',
+        intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
         category: 'Analytics',
         type: 'sql',
         iconType: 'sql_editor',
@@ -1084,6 +1120,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Session replay',
+        intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
         category: 'Behavior',
         href: urls.replay(ReplayTabs.Home),
         type: 'session_recording_playlist',
@@ -1094,6 +1131,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Surveys',
+        intents: [ProductKey.SURVEYS],
         category: 'Behavior',
         type: 'survey',
         href: urls.surveys(),
@@ -1116,6 +1154,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'User interviews',
+        intents: [ProductKey.USER_INTERVIEWS],
         category: 'Unreleased',
         href: urls.userInterviews(),
         type: 'user_interview',
@@ -1128,6 +1167,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Web analytics',
+        intents: [ProductKey.WEB_ANALYTICS, ProductKey.MARKETING_ANALYTICS],
         category: 'Analytics',
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
@@ -1137,6 +1177,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Workflows',
+        intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
         type: 'workflows',
         category: 'Tools',

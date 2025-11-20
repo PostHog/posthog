@@ -18,8 +18,8 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CurrencyCode, CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
-import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
+import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'

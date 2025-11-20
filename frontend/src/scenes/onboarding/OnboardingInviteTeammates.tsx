@@ -7,7 +7,8 @@ import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scen
 import { InvitesTable } from 'scenes/settings/organization/Invites'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
 import { onboardingLogic } from './onboardingLogic'

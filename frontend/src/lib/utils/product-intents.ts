@@ -1,6 +1,7 @@
 import api from 'lib/api'
 
-import type { ProductKey, TeamType } from '~/types'
+import type { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamType } from '~/types'
 
 export enum ProductIntentContext {
     // Onboarding
