@@ -65,6 +65,7 @@ async def assert_clickhouse_records_in_kafka(
                 "group2_created_at",
                 "group3_created_at",
                 "group4_created_at",
+                "person_created_at",
             ):
                 if (timestamp_str := record.get(timestamp_column)) is not None and isinstance(timestamp_str, str):
                     record[timestamp_column] = dt.datetime.fromisoformat(timestamp_str)
@@ -129,7 +130,10 @@ async def assert_clickhouse_records_in_kafka(
 
                 for k, v in record.items():
                     if k in json_columns and v is not None:
-                        expected_record[k] = json.loads(v)
+                        if v == "":
+                            expected_record[k] = None
+                        else:
+                            expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
                     else:
