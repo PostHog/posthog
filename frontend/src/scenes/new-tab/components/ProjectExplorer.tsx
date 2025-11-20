@@ -427,6 +427,7 @@ export function ProjectExplorer({
                                       : (entry.type as FileSystemIconType) || 'default_icon_type'
                                 const icon = iconForType(iconType)
                                 const focusBase = String(entry.id ?? entry.path ?? rowIndex)
+                                const focusKey = `${focusBase}-row`
                                 const rawNameLabel = isParentNavigationRow
                                     ? '..'
                                     : splitPath(entry.path).pop() || entry.path
@@ -478,6 +479,7 @@ export function ProjectExplorer({
                                     }
 
                                     event.preventDefault()
+                                    listboxRef.current?.focusItemByKey(focusKey)
                                     handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                                 }
                                 const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
@@ -487,6 +489,7 @@ export function ProjectExplorer({
                                         rowIndex={rowIndex}
                                         rowKey={rowKey}
                                         focusBase={focusBase}
+                                        focusKey={focusKey}
                                         rowGridClass={rowGridClass}
                                         isHighlighted={isHighlighted}
                                         handleRowClick={handleRowClick}
@@ -590,6 +593,7 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     rowIndex: number
     rowKey: string
     focusBase: string
+    focusKey: string
     rowGridClass: string
     isHighlighted: boolean
     handleRowClick: (event: MouseEvent<HTMLElement>) => void
@@ -622,6 +626,7 @@ function ExplorerRowListItem({
     rowIndex,
     rowKey,
     focusBase,
+    focusKey,
     rowGridClass,
     isHighlighted,
     handleRowClick,
@@ -700,7 +705,7 @@ function ExplorerRowListItem({
             asChild
             row={rowIndex}
             column={0}
-            focusKey={`${focusBase}-row`}
+            focusKey={focusKey}
             index={rowIndex}
             key={rowKey}
             ref={setNodeRefs}
