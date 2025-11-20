@@ -8,6 +8,7 @@ import aiokafka
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.temporal.destinations.workflows_batch_export import workflows_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
@@ -99,6 +100,8 @@ async def assert_clickhouse_records_in_kafka(
             filters=filters,
             exclude_events=exclude_events,
             include_events=include_events,
+            is_workflows=True,
+            destination_default_fields=workflows_default_fields(),
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,

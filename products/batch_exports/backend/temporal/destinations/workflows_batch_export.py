@@ -40,15 +40,33 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = []
 
 def workflows_default_fields() -> list[BatchExportField]:
     return [
-        BatchExportField(expression="uuid", alias="uuid"),
-        BatchExportField(expression="team_id", alias="team_id"),
-        BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
-        BatchExportField(expression="created_at", alias="created_at"),
         BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="person_id", alias="event"),
+        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="timestamp", alias="_inserted_at"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="elements_chain", alias="elements_chain"),
+        BatchExportField(expression="elements_chain_href", alias="elements_chain_href"),
+        BatchExportField(expression="elements_chain_texts", alias="elements_chain_texts"),
+        BatchExportField(expression="elements_chain_ids", alias="elements_chain_ids"),
+        BatchExportField(expression="elements_chain_elements", alias="elements_chain_elements"),
         BatchExportField(expression="properties", alias="properties"),
-        BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="toString(person_id)", alias="person_id"),
+        BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="$group_0", alias="$group_0"),
+        BatchExportField(expression="$group_1", alias="$group_1"),
+        BatchExportField(expression="$group_2", alias="$group_2"),
+        BatchExportField(expression="$group_3", alias="$group_3"),
+        BatchExportField(expression="$group_4", alias="$group_4"),
+        BatchExportField(expression="group0_properties", alias="group0_properties"),
+        BatchExportField(expression="group1_properties", alias="group1_properties"),
+        BatchExportField(expression="group2_properties", alias="group2_properties"),
+        BatchExportField(expression="group3_properties", alias="group3_properties"),
+        BatchExportField(expression="group4_properties", alias="group4_properties"),
+        BatchExportField(expression="group0_created_at", alias="group0_created_at"),
+        BatchExportField(expression="group1_created_at", alias="group1_created_at"),
+        BatchExportField(expression="group2_created_at", alias="group2_created_at"),
+        BatchExportField(expression="group3_created_at", alias="group3_created_at"),
+        BatchExportField(expression="group4_created_at", alias="group4_created_at"),
     ]
 
 
@@ -256,5 +274,5 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             insert_inputs,  # type: ignore[arg-type]
             interval=inputs.interval,
             num_partitions=1,
-            order_by_timestamp=True,
+            is_workflows=True,
         )
