@@ -5001,6 +5001,9 @@ class SavedInsightNode(BaseModel):
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
     )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
+    )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
@@ -15743,6 +15746,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
