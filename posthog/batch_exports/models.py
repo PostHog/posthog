@@ -186,7 +186,6 @@ BATCH_EXPORT_INTERVALS = [
     ("day", "day"),
     ("week", "week"),
     ("every 5 minutes", "every 5 minutes"),
-    ("once", "once"),
 ]
 
 
@@ -279,8 +278,6 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             _, value, unit = self.interval.split(" ")
             kwargs = {unit: int(value)}
             return timedelta(**kwargs)
-        elif self.interval == "once":
-            return timedelta(days=36500)  # Effectively infinite for our purposes
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
     @property
@@ -306,8 +303,6 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             # In the future, we can extend this to have different handling for
             # different "every" intervals.
             return self.interval_time_delta / 5
-        elif self.interval == "once":
-            return timedelta(0)
 
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
