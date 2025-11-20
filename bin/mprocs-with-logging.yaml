@@ -17,7 +17,6 @@ procs:
 
     typegen:
         shell: 'if [ -n "$SKIP_TYPEGEN" ]; then exit 0; fi && cd frontend && pnpm run typegen:watch 2>&1 | tee /tmp/posthog-typegen.log'
-        autorestart: true
 
     temporal-worker:
         shell: |-
