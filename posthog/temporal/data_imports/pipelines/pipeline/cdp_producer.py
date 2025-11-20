@@ -79,7 +79,7 @@ class CDPProducer:
     @property
     def should_produce_table(self) -> bool:
         schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
-        table_id = schema.table_id
+        table_id = str(schema.table_id)
         if table_id is None:
             raise ValueError(f"CDPProducer: Schema {schema.name} ({self.schema_id}) does not have a table_id")
 
