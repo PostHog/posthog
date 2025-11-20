@@ -124,13 +124,9 @@ function ImageCarousel({ images, loading }: { images: string[]; loading?: boolea
 
     return (
         <div className="flex items-center gap-2">
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconChevronLeft />}
-                onClick={goToPrevious}
-                disabledReason={images.length <= 1 ? 'Only one image' : undefined}
-            />
+            {images.length > 1 && (
+                <LemonButton size="small" type="secondary" icon={<IconChevronLeft />} onClick={goToPrevious} />
+            )}
             <div className="flex-1 flex justify-center overflow-hidden">
                 {loading ? (
                     <Spinner />
@@ -140,18 +136,14 @@ function ImageCarousel({ images, loading }: { images: string[]; loading?: boolea
                         src={images[currentIndex]}
                         alt={`Screenshot ${currentIndex + 1} of ${images.length}`}
                         loading="lazy"
-                        className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out"
+                        className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out rounded"
                         style={{ maxWidth: '600px' }}
                     />
                 )}
             </div>
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconChevronRight />}
-                onClick={goToNext}
-                disabledReason={images.length <= 1 ? 'Only one image' : undefined}
-            />
+            {images.length > 1 && (
+                <LemonButton size="small" type="secondary" icon={<IconChevronRight />} onClick={goToNext} />
+            )}
         </div>
     )
 }
@@ -184,8 +176,10 @@ function Example({ value }: { value?: string }): JSX.Element {
 
     const imageExample = examples.length > 0 ? <ImageCarousel images={examples} loading={examplesLoading} /> : <></>
 
+    const hasContent = data?.examples?.[0] || examples.length > 0
+
     return (
-        <div className="flex flex-col gap-2">
+        <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
             {textExample}
             {imageExample}
         </div>
