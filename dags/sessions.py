@@ -1,10 +1,10 @@
+from collections.abc import Callable
 from typing import Any
 
 from clickhouse_driver import Client
 from dagster import AssetExecutionContext, BackfillPolicy, Config, DailyPartitionsDefinition, asset, define_asset_job
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.git import get_git_commit_short
@@ -43,6 +43,7 @@ class SessionsBackfillConfig(Config):
     clickhouse_settings: dict[str, Any] | None = None
     team_id_chunks: int | None = None
 
+
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
     timezone="UTC",
@@ -78,7 +79,38 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
-    where_clause = get_partition_where_clause(context, timestamp_field="timestamp")
+    _do_backfill(
+        timestamp_field="timestamp", sql_template=RAW_SESSION_TABLE_BACKFILL_SQL_V3, config=config, context=context
+    )
+
+
+@asset(
+    partitions_def=daily_partitions,
+    name="sessions_v3_replay_backfill",
+    backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+)
+def sessions_v3_backfill_replay(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
+    _do_backfill(
+        timestamp_field="min_timestamp",
+        sql_template=RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
+        config=config,
+        context=context,
+    )
+
+
+sessions_backfill_job = define_asset_job(
+    name="sessions_v3_backfill_job",
+    selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
+    partitions_def=daily_partitions,
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+)
+
+
+def _do_backfill(
+    sql_template: Callable, timestamp_field: str, context: AssetExecutionContext, config: SessionsBackfillConfig
+):
+    where_clause = get_partition_where_clause(context, timestamp_field=timestamp_field)
 
     partition_range = context.partition_key_range
     partition_range_str = f"{partition_range.start} to {partition_range.end}"
@@ -108,13 +140,15 @@ def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfil
                 # Add team_id chunking to the where clause if needed
                 if team_id_chunks > 1:
                     chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
-                    context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})")
+                    context.log.info(
+                        f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                    )
                 else:
                     chunk_where_clause = where_clause
 
                 # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
                 # as long as the backfill has run at least once for each partition, the data will be correct
-                backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=chunk_where_clause, use_sharded_source=True)
+                backfill_sql = sql_template(where=chunk_where_clause, use_sharded_source=True)
                 context.log.info(backfill_sql)
                 sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
@@ -124,70 +158,3 @@ def sessions_v3_backfill(context: AssetExecutionContext, config: SessionsBackfil
     cluster.map_one_host_per_shard(backfill_per_shard).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
-
-
-@asset(
-    partitions_def=daily_partitions,
-    name="sessions_v3_replay_backfill",
-    backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
-)
-def sessions_v3_backfill_replay(context: AssetExecutionContext, config: SessionsBackfillConfig) -> None:
-    where_clause = get_partition_where_clause(context, timestamp_field="min_first_timestamp")
-
-    partition_range = context.partition_key_range
-    partition_range_str = f"{partition_range.start} to {partition_range.end}"
-
-    # Merge custom clickhouse settings with defaults
-    merged_settings = settings.copy()
-    if config.clickhouse_settings:
-        merged_settings.update(config.clickhouse_settings)
-        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
-
-    # Determine if we should chunk by team_id
-    team_id_chunks = config.team_id_chunks or 1
-    if team_id_chunks > 1:
-        context.log.info(f"Splitting work into {team_id_chunks} chunks by team_id % {team_id_chunks}")
-
-    context.log.info(
-        f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
-    )
-    if debug_url := metabase_debug_query_url(context.run_id):
-        context.log.info(f"Debug query: {debug_url}")
-
-    cluster = get_cluster()
-    tags = dagster_tags(context)
-
-    for chunk_i in range(team_id_chunks):
-        # Add team_id chunking to the where clause if needed
-        if team_id_chunks > 1:
-            chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
-            context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})")
-        else:
-            chunk_where_clause = where_clause
-
-        # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
-        # as long as the backfill has run at least once for each partition, the data will be correct
-        backfill_sql = RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where=chunk_where_clause, use_sharded_source=True)
-
-        if chunk_i == 0:
-            context.log.info(f"SQL template: {backfill_sql}")
-
-        def backfill_per_shard(client: Client):
-            with tags_context(kind="dagster", dagster=tags):
-                sync_execute(backfill_sql, workload=Workload.OFFLINE, settings=merged_settings, sync_client=client)
-
-        cluster.map_one_host_per_shard(backfill_per_shard).result()
-
-        if team_id_chunks > 1:
-            context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
-
-    context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
-
-
-sessions_backfill_job = define_asset_job(
-    name="sessions_v3_backfill_job",
-    selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
-    partitions_def=daily_partitions,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
-)
