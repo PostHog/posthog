@@ -2,10 +2,13 @@ import os
 import re
 import json
 import asyncio
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from json import JSONDecodeError
+
+# Lazy import to avoid loading session summary dependencies on startup
+# (session summary module may have heavy dependencies and is only needed for streaming summaries)
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
@@ -88,9 +91,7 @@ from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
-# Lazy import to avoid loading session summary dependencies on startup
-# (session summary module may have heavy dependencies and is only needed for streaming summaries)
-_stream_recording_summary = None
+_stream_recording_summary: Callable[..., Any] | None = None
 
 
 def _get_stream_recording_summary():

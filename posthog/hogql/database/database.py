@@ -1335,17 +1335,17 @@ def _load_database_module():
         return None
 
     # Store SerializedField, DatabaseSchemaTable, Database class, and helper functions in module namespace
-    current_module.SerializedField = SerializedField
-    current_module.DatabaseSchemaTable = DatabaseSchemaTable
-    current_module.Database = Database
-    current_module._use_person_properties_from_events = _use_person_properties_from_events
-    current_module._use_person_id_from_person_overrides = _use_person_id_from_person_overrides
-    current_module._use_error_tracking_issue_id_from_error_tracking_issue_overrides = (
+    current_module.SerializedField = SerializedField  # type: ignore[attr-defined]
+    current_module.DatabaseSchemaTable = DatabaseSchemaTable  # type: ignore[attr-defined]
+    current_module.Database = Database  # type: ignore[attr-defined]
+    current_module._use_person_properties_from_events = _use_person_properties_from_events  # type: ignore[attr-defined]
+    current_module._use_person_id_from_person_overrides = _use_person_id_from_person_overrides  # type: ignore[attr-defined]
+    current_module._use_error_tracking_issue_id_from_error_tracking_issue_overrides = (  # type: ignore[attr-defined]
         _use_error_tracking_issue_id_from_error_tracking_issue_overrides
     )
-    current_module._setup_group_key_fields = _setup_group_key_fields
-    current_module._use_virtual_fields = _use_virtual_fields
-    current_module._constant_type_to_serialized_field_type = _constant_type_to_serialized_field_type
+    current_module._setup_group_key_fields = _setup_group_key_fields  # type: ignore[attr-defined]
+    current_module._use_virtual_fields = _use_virtual_fields  # type: ignore[attr-defined]
+    current_module._constant_type_to_serialized_field_type = _constant_type_to_serialized_field_type  # type: ignore[attr-defined]
 
     # Define serialize_fields function that uses the imported types
     HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
@@ -1540,8 +1540,8 @@ def _load_database_module():
         return field_output
 
     # Store serialize_fields and HOGQL_CHARACTERS_TO_BE_WRAPPED in module namespace
-    current_module.serialize_fields = serialize_fields
-    current_module.HOGQL_CHARACTERS_TO_BE_WRAPPED = HOGQL_CHARACTERS_TO_BE_WRAPPED
+    current_module.serialize_fields = serialize_fields  # type: ignore[attr-defined]
+    current_module.HOGQL_CHARACTERS_TO_BE_WRAPPED = HOGQL_CHARACTERS_TO_BE_WRAPPED  # type: ignore[attr-defined]
 
     _module_loaded = True
 

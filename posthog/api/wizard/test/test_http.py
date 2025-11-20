@@ -16,6 +16,7 @@ from posthog.models import Organization, User
 
 class SetupWizardTests(APIBaseTest):
     def setUp(self):
+        super().setUp()
         self.initialize_url = reverse("wizard-initialize")
         self.data_url = reverse("wizard-data")
         self.query_url = reverse("wizard-query")
@@ -24,6 +25,11 @@ class SetupWizardTests(APIBaseTest):
         cache.set(
             self.cache_key, {"project_api_key": "test-key", "host": "http://localhost:8010"}, SETUP_WIZARD_CACHE_TIMEOUT
         )
+        # Reset the global _genai variable before each test for isolation
+        import sys
+
+        http_module = sys.modules["posthog.api.wizard.http"]
+        http_module._genai = None
 
     def test_initialize_creates_hash(self):
         response = self.client.post(self.initialize_url)
@@ -167,7 +173,7 @@ class SetupWizardTests(APIBaseTest):
         mock_openai_instance.chat.completions.create.assert_called_once()
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("django.conf.settings.GEMINI_API_KEY", "test-key")
     def test_query_endpoint_accepts_valid_gemini_model(self, mock_genai_client):
         mock_client_instance = mock_genai_client.return_value
@@ -449,5 +455,10 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(response_data["attr"], "projectId")
 
     def tearDown(self):
+        # Reset the global _genai variable after each test
+        import sys
+
+        http_module = sys.modules["posthog.api.wizard.http"]
+        http_module._genai = None
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data

@@ -8,9 +8,20 @@ class TestLLMGatewayViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.id}/llm_gateway"
+        # Reset the global _litellm variable before each test for isolation
+        import posthog.api.llm_gateway.http as http_module
+
+        http_module._litellm = None
+
+    def tearDown(self):
+        # Reset the global _litellm variable after each test
+        import posthog.api.llm_gateway.http as http_module
+
+        http_module._litellm = None
+        super().tearDown()
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
+    @patch("litellm.anthropic_messages")
     def test_anthropic_messages_non_streaming(self, mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
@@ -43,7 +54,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         mock_asyncio_run.assert_called_once()
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
+    @patch("litellm.anthropic_messages")
     def test_anthropic_messages_with_all_params(self, mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
@@ -103,7 +114,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertIn("error", response.json())
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.acompletion")
+    @patch("litellm.acompletion")
     def test_chat_completions_non_streaming(self, mock_completion, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
@@ -139,7 +150,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         mock_asyncio_run.assert_called_once()
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.acompletion")
+    @patch("litellm.acompletion")
     def test_chat_completions_with_all_params(self, mock_completion, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {

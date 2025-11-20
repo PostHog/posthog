@@ -4,8 +4,18 @@ from unittest.mock import MagicMock, patch
 from products.tasks.backend.services.title_generator import _fallback_title, generate_task_title
 
 
+@pytest.fixture(autouse=True)
+def reset_provider():
+    """Reset the global provider variable before each test for isolation."""
+    import products.tasks.backend.services.title_generator as title_generator_module
+
+    title_generator_module.provider = None
+    yield
+    title_generator_module.provider = None
+
+
 class TestTitleGenerator:
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_success(self, mock_anthropic_provider):
         mock_provider_instance = MagicMock()
         mock_anthropic_provider.return_value = mock_provider_instance
@@ -19,7 +29,7 @@ class TestTitleGenerator:
         assert result == "Fix login bug"
         mock_anthropic_provider.assert_called_once_with(model_id="claude-haiku-4-5-20251001")
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_multipart_response(self, mock_anthropic_provider):
         mock_provider_instance = MagicMock()
         mock_anthropic_provider.return_value = mock_provider_instance
@@ -34,7 +44,7 @@ class TestTitleGenerator:
 
         assert result == "Add dashboard metrics"
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_falls_back_on_error(self, mock_anthropic_provider):
         mock_anthropic_provider.side_effect = Exception("API error")
 
@@ -42,21 +52,21 @@ class TestTitleGenerator:
 
         assert result == "This is a test description that should be used as fallback"
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_empty_description(self, mock_anthropic_provider):
         result = generate_task_title("")
 
         assert result == "Untitled Task"
         mock_anthropic_provider.assert_not_called()
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_whitespace_only(self, mock_anthropic_provider):
         result = generate_task_title("   \n\t  ")
 
         assert result == "Untitled Task"
         mock_anthropic_provider.assert_not_called()
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_truncates_long_response(self, mock_anthropic_provider):
         mock_provider_instance = MagicMock()
         mock_anthropic_provider.return_value = mock_provider_instance
@@ -71,7 +81,7 @@ class TestTitleGenerator:
         assert len(result) == 60
         assert result == "A" * 60
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_handles_json_errors(self, mock_anthropic_provider):
         mock_provider_instance = MagicMock()
         mock_anthropic_provider.return_value = mock_provider_instance
@@ -85,7 +95,7 @@ class TestTitleGenerator:
 
         assert result == "Valid title"
 
-    @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
+    @patch("products.llm_analytics.backend.providers.anthropic.AnthropicProvider")
     def test_generate_task_title_empty_response(self, mock_anthropic_provider):
         mock_provider_instance = MagicMock()
         mock_anthropic_provider.return_value = mock_provider_instance

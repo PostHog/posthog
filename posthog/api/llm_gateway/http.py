@@ -2,6 +2,7 @@ import json
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -35,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 # Lazy import to avoid loading litellm dependencies on startup
 # (litellm may have heavy dependencies and is only needed for LLM gateway endpoints)
-_litellm = None
+
+_litellm: Any | None = None
 
 
 def _get_litellm():

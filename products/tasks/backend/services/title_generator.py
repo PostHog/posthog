@@ -1,10 +1,22 @@
 import json
 import logging
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam as _MessageParamType
+else:
+    _MessageParamType = Any
 
 logger = logging.getLogger(__name__)
 
-provider = None
-MessageParam = None
+provider: Any | None = None
+MessageParam: type[_MessageParamType] | None = None
+
+# Type alias for use in annotations
+if TYPE_CHECKING:
+    MessageParamType = _MessageParamType
+else:
+    MessageParamType = Any
 
 
 def generate_task_title(description: str) -> str:
@@ -25,7 +37,7 @@ def generate_task_title(description: str) -> str:
 
         global MessageParam
         if MessageParam is None:
-            from anthropic.types import _MessageParam
+            from anthropic.types import MessageParam as _MessageParam
 
             MessageParam = _MessageParam
 
@@ -56,7 +68,7 @@ Output: Single line, ≤60 chars, no explanations.
 "why is the payment flow failing" → Analyze payment flow failure
 </examples>"""
 
-        messages: list[MessageParam] = [
+        messages: list[MessageParamType] = [
             MessageParam(
                 role="user",
                 content=f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.

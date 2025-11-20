@@ -1,10 +1,10 @@
 import os
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -127,8 +127,8 @@ class ProxyClient:
         pass
 
 
-_clickhouse_http_pool_mgr = None
-_get_client = None
+_clickhouse_http_pool_mgr: Any | None = None
+_get_client: Callable[..., "HttpClient"] | None = None
 
 
 @contextmanager
@@ -164,7 +164,8 @@ def get_http_client(**overrides):
         from clickhouse_connect import get_client
 
         _get_client = get_client
-    yield ProxyClient(_get_client(**kwargs))
+    client = _get_client(**kwargs)
+    yield ProxyClient(client)  # type: ignore[arg-type]
 
 
 def get_kwargs_for_client(

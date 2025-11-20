@@ -38,7 +38,8 @@ if TYPE_CHECKING:
 
 # Lazy import to avoid loading provider dependencies on startup
 # (providers may have heavy dependencies and are only needed when making LLM calls)
-_providers = None
+
+_providers: dict[str, Any] | None = None
 
 
 def _get_providers():
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 # Lazy constant - computed on first access
-_SUPPORTED_MODELS_WITH_THINKING = None
+_SUPPORTED_MODELS_WITH_THINKING: set[str] | None = None
 
 
 def _get_supported_models_with_thinking():

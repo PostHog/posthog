@@ -5,6 +5,10 @@ This module provides fundamental Bayesian statistical calculations including
 posterior updates, credible intervals, probability calculations, and risk assessment.
 """
 
+# Lazy import to avoid loading scipy dependencies on startup
+# (scipy may have heavy dependencies and is only needed for statistical calculations)
+from typing import Any
+
 import numpy as np
 
 from ..shared.enums import DifferenceType
@@ -12,10 +16,8 @@ from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanS
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
-# Lazy import to avoid loading scipy dependencies on startup
-# (scipy may have heavy dependencies and is only needed for statistical calculations)
-_norm = None
-_truncnorm = None
+_norm: Any | None = None
+_truncnorm: Any | None = None
 
 
 def _get_norm():

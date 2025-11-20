@@ -1,6 +1,7 @@
 import re
 import json
 from functools import cached_property
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
@@ -17,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from .models import UserInterview
 
-elevenlabs_client = None
+elevenlabs_client: Any | None = None
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):

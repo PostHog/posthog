@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import hashlib
-from typing import TYPE_CHECKING
+
+# Lazy import to avoid loading google.genai dependencies on startup
+# (google.genai may have heavy dependencies and is only needed for Gemini models)
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
@@ -25,10 +28,14 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle, SetupWizardQueryRateThrottle
 from posthog.user_permissions import UserPermissions
 
-# Lazy import to avoid loading google.genai dependencies on startup
-# (google.genai may have heavy dependencies and is only needed for Gemini models)
-_GenerateContentConfig = None
-_Schema = None
+if TYPE_CHECKING:
+    from google.genai.types import GenerateContentConfig, Schema
+else:
+    GenerateContentConfig = Any
+    Schema = Any
+
+_GenerateContentConfig: type[GenerateContentConfig] | None = None
+_Schema: type[Schema] | None = None
 
 
 def _get_GenerateContentConfig():
@@ -50,7 +57,7 @@ def _get_Schema():
 
 
 # Lazy import to avoid loading openai dependencies on startup
-_openai_chat_types = None
+_openai_chat_types: dict[str, Any] | None = None
 
 
 def _get_openai_chat_types():
@@ -94,7 +101,7 @@ def __getattr__(name: str):
 
 # Lazy import to avoid loading genai dependencies on startup
 # (genai may have heavy dependencies and is only needed for Gemini models)
-_genai = None
+_genai: Any | None = None
 
 
 def _get_genai():

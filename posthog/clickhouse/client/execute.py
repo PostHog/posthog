@@ -2,10 +2,12 @@ import types
 import logging
 import threading
 import traceback
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
+
+# Lazy import to avoid loading temporal dependencies on startup
 from typing import Any, Optional, Union
 
 from django.conf import settings as app_settings
@@ -37,8 +39,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.utils import generate_short_id, patchable
 
-# Lazy import to avoid loading temporal dependencies on startup
-_update_query_tags_with_temporal_info = None
+_update_query_tags_with_temporal_info: Callable[..., None] | None = None
 
 
 def _get_update_query_tags_with_temporal_info():
