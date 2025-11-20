@@ -306,8 +306,13 @@ class SummarizeSessionsTool(MaxTool):
         )
 
         # Build messages artifact for group summaries (with "Open report" button)
+        messages = [
+            AssistantToolCallMessage(
+                content=summaries_content, tool_call_id=self._state.root_tool_call_id or "unknown", id=str(uuid4())
+            )
+        ]
         if session_group_summary_id:
-            messages = [
+            messages.prepend(
                 AssistantMessage(
                     meta={
                         "form": {
@@ -323,8 +328,9 @@ class SummarizeSessionsTool(MaxTool):
                     content=f"Report complete: {summary_title or 'Sessions summary'}",
                     id=str(uuid4()),
                 )
-            ]
-            return summaries_content, ToolMessagesArtifact(messages=messages)
+            )
+            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
 
         return summaries_content, None
 
