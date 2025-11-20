@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -96,6 +95,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         isProperty,
         metrics,
         metricsLoading,
+        preferredPreview,
+        preferredPreviewLoading,
     } = useValues(logic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const onGuardClick = (callback: () => void): void => {
@@ -264,31 +265,47 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 {definition.description || isProperty || hasTaxonomyFeatures ? (
-                    <EditableField
-                        multiline
-                        name="description"
-                        markdown
-                        value={definition.description || ''}
-                        placeholder="Description (optional)"
-                        mode="view"
-                        data-attr="definition-description-view"
-                        className="definition-description"
-                        compactButtons
-                        maxLength={600}
-                    />
+                    <>
+                        <h5>Description</h5>
+                        <div className="definition-description my-2" data-attr="definition-description-view">
+                            {definition.description || (
+                                <span className="text-muted italic">Add a description for this event</span>
+                            )}
+                        </div>
+                    </>
                 ) : null}
-                <ObjectTags
-                    tags={definition.tags ?? []}
-                    data-attr="definition-tags-view"
-                    className="definition-tags"
-                    saving={definitionLoading}
-                />
+                {definition.tags && definition.tags.length > 0 && (
+                    <ObjectTags
+                        tags={definition.tags}
+                        data-attr="definition-tags-view"
+                        className="definition-tags"
+                        saving={definitionLoading}
+                    />
+                )}
 
+                {preferredPreview && (
+                    <div className="mt-4">
+                        <h5 className="mb-2">
+                            Media preview
+                            {preferredPreview.media_type === 'exported' && (
+                                <span className="text-xs text-secondary ml-2">(Auto-captured)</span>
+                            )}
+                        </h5>
+                        <div className="border rounded p-2 inline-block">
+                            <img
+                                src={preferredPreview.media_url}
+                                alt="Event preview"
+                                className="max-w-full max-h-96 rounded"
+                            />
+                        </div>
+                    </div>
+                )}
+                {preferredPreviewLoading && (
+                    <div className="mt-4">
+                        <Spinner />
+                    </div>
+                )}
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap gap-2 items-center text-secondary">
-                    <div>{isProperty ? 'Property' : 'Event'} name:</div>
-                    <LemonTag className="font-mono">{definition.name}</LemonTag>
-                </div>
             </div>
 
             <SceneDivider />
