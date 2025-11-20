@@ -97,6 +97,11 @@ core:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    dev:sync-user-settings:
+        cmd: python manage.py sync_user_settings
+        description: Sync your user settings from PostHog cloud to local dev environment. Requires API key.
+        services:
+            - postgresql
     dev:reset:
         steps:
             - docker:services:remove
