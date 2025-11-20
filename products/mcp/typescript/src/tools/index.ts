@@ -158,7 +158,8 @@ export const getToolsFromContext = async (context: Context, features?: string[])
         }
     })
 
-    const { scopes } = await context.stateManager.getApiKey()
+    const apiKeyResult = await context.stateManager.getApiKey()
+    const scopes = apiKeyResult?.scopes ?? []
 
     const filteredTools = tools.filter((tool) => {
         return hasScopes(scopes, tool.scopes)
