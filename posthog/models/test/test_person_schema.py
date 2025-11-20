@@ -82,9 +82,6 @@ def get_partition_count(parent_table: str) -> int:
 class TestPersonSchemaConsistency(TestCase):
     """Verify person table structure created by sqlx migrations."""
 
-    # Person tables are in separate persons_db_writer database
-    databases = ["default", "persons_db_writer"]
-
     def test_person_table_exists(self):
         """Verify person table exists."""
         self.assertTrue(

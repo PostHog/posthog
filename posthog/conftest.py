@@ -527,3 +527,18 @@ def pytest_sessionstart():
         # Keep sqlx-managed models unmanaged
         if m._meta.model_name and m._meta.model_name.lower() not in SQLX_MANAGED_MODELS:
             m._meta.managed = True
+
+
+def pytest_configure(config):
+    """Configure pytest-django to allow access to persons databases by default.
+
+    This ensures all Django test classes (TestCase, TransactionTestCase) have access
+    to the persons_db_writer and persons_db_reader databases without needing to
+    explicitly declare databases attribute on each test class.
+    """
+    from django.test import TestCase, TransactionTestCase
+
+    # Set default databases for Django test classes
+    # This allows tests to access Person/PersonDistinctId models in separate persons database
+    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
