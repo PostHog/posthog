@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
-    urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
     entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
     last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 
     -- Event names - store unique event names seen in this session
-    event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -609,7 +609,7 @@ SELECT
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+    groupUniqArrayArray(2000)(urls) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
@@ -663,7 +663,7 @@ SELECT
     groupUniqArrayArray(flag_keys) as flag_keys,
 
     -- event names
-    groupUniqArrayArray(event_names) as event_names,
+    groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events
