@@ -84,6 +84,7 @@ export interface ErrorTrackingSymbolSet {
     id: string
     ref: string
     team_id: number
+    frames_count?: number
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null

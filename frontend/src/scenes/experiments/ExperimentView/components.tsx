@@ -36,6 +36,7 @@ import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
@@ -79,6 +80,10 @@ export function createMaxToolExperimentSurveyConfig(
     initialMaxPrompt: string
     suggestions: string[]
     context: Record<string, any>
+    contextDescription: {
+        text: string
+        icon: JSX.Element
+    }
     callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
 } {
     const variants = experiment.parameters?.feature_flag_variants || []
@@ -111,7 +116,6 @@ export function createMaxToolExperimentSurveyConfig(
                     `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
                 ],
         context: {
-            user_id: user?.uuid,
             experiment_name: experiment.name,
             experiment_description: experiment.description,
             feature_flag_key: experiment.feature_flag?.key,
@@ -126,6 +130,10 @@ export function createMaxToolExperimentSurveyConfig(
                 rollout_percentage: v.rollout_percentage,
             })),
             variant_count: variants?.length || 0,
+        },
+        contextDescription: {
+            text: experiment.name,
+            icon: iconForType('experiment'),
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
             addProductIntent({

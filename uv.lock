@@ -1195,6 +1195,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dagster-k8s"
+version = "0.26.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "google-auth" },
+    { name = "kubernetes" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/92/1ba88819d1ee5b570a0fdad5236445bf2bfd15f4e62cb1a750ee51dda379/dagster_k8s-0.26.18.tar.gz", hash = "sha256:b855a1c3fbab1cee1c9eb4939471b270a047ede7f709d5f4b70c6886aab8a425", size = 50261, upload-time = "2025-05-29T21:50:05.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/ce/6e74f618ae6e2505addfd12ae5d3607a5f85346df3e879a1db39f588fd17/dagster_k8s-0.26.18-py3-none-any.whl", hash = "sha256:d39e6b78539ca901286b4a54d74de3f01a42768b00eb0205b7cebcfe3311ab66", size = 55206, upload-time = "2025-05-29T21:50:03.243Z" },
+]
+
+[[package]]
 name = "dagster-pipes"
 version = "1.10.18"
 source = { registry = "https://pypi.org/simple" }
@@ -1910,6 +1924,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/b9/741056455aed00fa51a1df41fad5ad27c8e0d433b6bf490d4e60e2808bc6/drf_spectacular-0.28.0.tar.gz", hash = "sha256:2c778a47a40ab2f5078a7c42e82baba07397bb35b074ae4680721b2805943061", size = 237849, upload-time = "2024-11-30T08:49:02.355Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/66/c2929871393b1515c3767a670ff7d980a6882964a31a4ca2680b30d7212a/drf_spectacular-0.28.0-py3-none-any.whl", hash = "sha256:856e7edf1056e49a4245e87a61e8da4baff46c83dbc25be1da2df77f354c7cb4", size = 103928, upload-time = "2024-11-30T08:48:57.288Z" },
+]
+
+[[package]]
+name = "durationpy"
+version = "0.10"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/a4/e44218c2b394e31a6dd0d6b095c4e1f32d0be54c2a4b250032d717647bab/durationpy-0.10.tar.gz", hash = "sha256:1fa6893409a6e739c9c72334fc65cca1f355dbdd93405d30f726deb5bde42fba", size = 3335, upload-time = "2025-05-17T13:52:37.26Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/0d/9feae160378a3553fa9a339b0e9c1a048e147a4127210e286ef18b730f03/durationpy-0.10-py3-none-any.whl", hash = "sha256:3b41e1b601234296b4fb368338fdcd3e13e0b4fb5b67345948f4f2bf9868b286", size = 3922, upload-time = "2025-05-17T13:52:36.463Z" },
 ]
 
 [[package]]
@@ -3066,6 +3089,28 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/99/3a/2fb09708fef243e35c286414f2bf78543dc311ae7d3de5d343bd8437e38d/kombu-5.3.7.tar.gz", hash = "sha256:011c4cd9a355c14a1de8d35d257314a1d2456d52b7140388561acac3cf1a97bf", size = 439344, upload-time = "2024-04-11T12:15:06.105Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/9a/1951f2261271d6994f0df5a55b3e9cdad42ed1fc3020a0dc7f6de80a4566/kombu-5.3.7-py3-none-any.whl", hash = "sha256:5634c511926309c7f9789f1433e9ed402616b56836ef9878f01bd59267b4c7a9", size = 200190, upload-time = "2024-04-11T12:14:59.891Z" },
+]
+
+[[package]]
+name = "kubernetes"
+version = "32.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "durationpy" },
+    { name = "google-auth" },
+    { name = "oauthlib" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "requests-oauthlib" },
+    { name = "six" },
+    { name = "urllib3" },
+    { name = "websocket-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/e8/0598f0e8b4af37cd9b10d8b87386cf3173cb8045d834ab5f6ec347a758b3/kubernetes-32.0.1.tar.gz", hash = "sha256:42f43d49abd437ada79a79a16bd48a604d3471a117a8347e87db693f2ba0ba28", size = 946691, upload-time = "2025-02-18T21:06:34.148Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/10/9f8af3e6f569685ce3af7faab51c8dd9d93b9c38eba339ca31c746119447/kubernetes-32.0.1-py2.py3-none-any.whl", hash = "sha256:35282ab8493b938b08ab5526c7ce66588232df00ef5e1dbe88a419107dc10998", size = 1988070, upload-time = "2025-02-18T21:06:31.391Z" },
 ]
 
 [[package]]
@@ -4327,6 +4372,7 @@ dependencies = [
     { name = "dagster-celery" },
     { name = "dagster-cloud" },
     { name = "dagster-docker" },
+    { name = "dagster-k8s" },
     { name = "dagster-pipes" },
     { name = "dagster-postgres" },
     { name = "dagster-slack" },
@@ -4573,6 +4619,7 @@ requires-dist = [
     { name = "dagster-celery", specifier = "==0.26.18" },
     { name = "dagster-cloud", specifier = "==1.10.18" },
     { name = "dagster-docker", specifier = "==0.26.18" },
+    { name = "dagster-k8s", specifier = "==0.26.18" },
     { name = "dagster-pipes", specifier = "==1.10.18" },
     { name = "dagster-postgres", specifier = "==0.26.18" },
     { name = "dagster-slack", specifier = "==0.26.18" },
