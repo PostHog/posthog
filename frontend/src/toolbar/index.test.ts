@@ -8,6 +8,7 @@ describe('Toolbar flag loading', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockFetch.mockClear()
+        jest.resetModules()
 
         // Setup DOM
         document.body.innerHTML = ''
@@ -81,7 +82,10 @@ describe('Toolbar flag loading', () => {
         // Should not throw
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching toolbar feature flags:', expect.any(Error))
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+            '[Toolbar Flags] Error fetching toolbar feature flags:',
+            expect.any(Error)
+        )
 
         // Should not have called overrideFeatureFlags
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
@@ -113,7 +117,10 @@ describe('Toolbar flag loading', () => {
 
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to fetch toolbar feature flags:', 'Not Found')
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            '[Toolbar Flags] Failed to fetch toolbar feature flags:',
+            'Not Found'
+        )
 
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 

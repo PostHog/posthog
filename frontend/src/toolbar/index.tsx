@@ -86,6 +86,8 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: 
                 if (posthog && data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
                 }
+            } else {
+                console.warn('[Toolbar Flags] Failed to fetch toolbar feature flags:', response.statusText)
             }
         } catch (error) {
             console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
