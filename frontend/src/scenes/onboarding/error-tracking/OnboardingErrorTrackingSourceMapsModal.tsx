@@ -20,7 +20,7 @@ export function SourceMapsInstructionsModal({
     const InstructionComponent = sdkInstructions as (() => JSX.Element) | undefined
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} simple title="" zIndex="1161">
+        <LemonModal isOpen={isOpen} onClose={onClose} simple title="">
             <div className="overflow-y-auto p-6">
                 {InstructionComponent && (
                     <div className="space-y-4">
