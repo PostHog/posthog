@@ -107,7 +107,7 @@ class TestSessionSummarizationNode(BaseTest):
         query: str | None = None,
         root_tool_call_id: str | None = "test_tool_call_id",
         should_use_current_filters: bool | None = None,
-        should_use_current_session: bool | None = None,
+        specific_session_ids_to_summarize: list[str] | None = None,
     ) -> AssistantState:
         """Helper to create a test AssistantState."""
         return AssistantState(
@@ -115,7 +115,7 @@ class TestSessionSummarizationNode(BaseTest):
             session_summarization_query=query,
             root_tool_call_id=root_tool_call_id,
             should_use_current_filters=should_use_current_filters,
-            should_use_current_session=should_use_current_session,
+            specific_session_ids_to_summarize=specific_session_ids_to_summarize,
         )
 
     def test_create_error_response(self) -> None:
@@ -621,12 +621,12 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertEqual(message.content, "No sessions were found.")
 
     def test_arun_both_current_session_and_filters_true_returns_error(self) -> None:
-        """Test arun returns error when both should_use_current_session and should_use_current_filters are True."""
+        """Test arun returns error when both specific_session_ids_to_summarize and should_use_current_filters are True."""
         conversation = Conversation.objects.create(team=self.team, user=self.user)
         state = self._create_test_state(
             query="test query",
             should_use_current_filters=True,
-            should_use_current_session=True,
+            specific_session_ids_to_summarize=["00000000-0000-0000-0000-000000000001"],
         )
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
         self.assertIsInstance(result, PartialAssistantState)
@@ -640,7 +640,7 @@ class TestSessionSummarizationNode(BaseTest):
     @patch("ee.hogai.graph.session_summaries.nodes.execute_summarize_session")
     @patch("ee.hogai.graph.session_summaries.nodes.GROUP_SUMMARIES_MIN_SESSIONS", 5)
     def test_arun_use_current_session_with_session_id(self, mock_execute_summarize: MagicMock) -> None:
-        """Test arun uses current session ID when should_use_current_session=True and session ID is provided."""
+        """Test arun uses current session ID when specific_session_ids_to_summarize are provided."""
         conversation = Conversation.objects.create(team=self.team, user=self.user)
         session_id = "00000000-0000-0000-0000-000000000001"
 
@@ -651,7 +651,7 @@ class TestSessionSummarizationNode(BaseTest):
         state = self._create_test_state(
             query="test query",
             should_use_current_filters=False,
-            should_use_current_session=True,
+            specific_session_ids_to_summarize=[session_id],
         )
         config = cast(
             RunnableConfig,
@@ -681,34 +681,6 @@ class TestSessionSummarizationNode(BaseTest):
         mock_execute_summarize.assert_called_once()
         call_kwargs = mock_execute_summarize.call_args[1]
         self.assertEqual(call_kwargs["session_id"], session_id)
-
-    def test_arun_use_current_session_without_session_id_returns_error(self) -> None:
-        """Test arun returns error when should_use_current_session=True but no session ID is provided."""
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        state = self._create_test_state(
-            query="test query",
-            should_use_current_filters=False,
-            should_use_current_session=True,
-        )
-        # No current_session_id in context
-        config = cast(
-            RunnableConfig,
-            {
-                "configurable": {
-                    "thread_id": str(conversation.id),
-                    "contextual_tools": {"search_session_recordings": {}},
-                }
-            },
-        )
-        result = async_to_sync(self.node.arun)(state, config)
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertIsNotNone(result)
-        assert result is not None
-        message = result.messages[0]
-        self.assertIsInstance(message, AssistantToolCallMessage)
-        assert isinstance(message, AssistantToolCallMessage)
-        self.assertIn("encountered an issue", message.content)
 
 
 @snapshot_clickhouse_queries
