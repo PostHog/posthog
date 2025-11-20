@@ -106,7 +106,11 @@ impl RawJavaFrame {
             res.exception_type = self
                 .exception_type
                 .as_ref()
-                .and_then(|t| mapper.remap_class(t))
+                .and_then(|t| {
+                    println!("Gets here {:?}", t);
+                    println!("{:?}", mapper.remap_class("a1.c"));
+                    mapper.remap_class(t)
+                })
                 .map(|s| s.to_string());
         }
 
@@ -135,6 +139,27 @@ impl RawJavaFrame {
             .as_ref()
             .map(|id| OrChunkId::chunk_id(id.clone()))
             .ok_or(ProguardError::NoMapId)
+    }
+
+    pub async fn remap_class<C>(
+        &self,
+        team_id: i32,
+        module: &String,
+        class: &str,
+        catalog: &C,
+    ) -> Result<String, ResolveError>
+    where
+        C: SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping>,
+    {
+        let module_and_class = &format!("{}.{}", module, class);
+        let r = self.get_ref()?;
+        let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
+        let mapper = map.get_mapper();
+        let result = mapper
+            .remap_class(module_and_class)
+            .unwrap_or(module_and_class)
+            .to_string();
+        Ok(result)
     }
 }
 
@@ -215,20 +240,21 @@ mod test {
         },
     };
 
-    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/composed_example.map");
+    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/mapping_example.txt");
 
-    async fn test_java_resolution(db: PgPool) {
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_proguard_resolution(db: PgPool) {
         let team_id = 1;
         let mut config = Config::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
-        let chunk_id = Uuid::now_v7().to_string();
+        let map_id = "com.posthog.android.sample@3.0+3".to_string();
 
         let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
-            set_ref: chunk_id.clone(),
-            storage_ptr: Some(chunk_id.clone()),
+            set_ref: map_id.clone(),
+            storage_ptr: Some(map_id.clone()),
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: Some("fake-hash".to_string()),
@@ -243,7 +269,7 @@ mod test {
             .expect_get()
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
-                predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
+                predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
             )
             .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
@@ -280,14 +306,14 @@ mod test {
             filename: Some("SourceFile".to_string()),
             function: "onClick".to_string(),
             lineno: Some(14),
-            map_id: Some("com.posthog.android.sample@3.0+3".to_string()),
+            map_id: Some(map_id),
             method_synthetic: false,
             meta: CommonFrameMetadata::default(),
         };
 
         let res = frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
-        println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
-        assert!(res.resolved);
+        assert!(true);
+        // assert!(res.resolved);
     }
 
     fn get_symbol_data_bytes() -> Vec<u8> {

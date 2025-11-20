@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
 use releases::ReleaseRecord;
@@ -15,7 +15,11 @@ use crate::{
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
-    symbol_store::Catalog,
+    symbol_store::{
+        chunk_id::OrChunkId,
+        proguard::{FetchedMapping, ProguardRef},
+        Catalog, SymbolCatalog,
+    },
 };
 
 pub mod records;

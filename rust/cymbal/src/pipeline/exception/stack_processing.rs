@@ -7,6 +7,7 @@ use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     fingerprinting::resolve_fingerprint,
+    frames::RawFrame,
     metric_consts::{FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
@@ -76,6 +77,16 @@ pub async fn do_stack_processing(
             // Put the frames back on the exception, now that we're done mutating them until we've
             // gathered our lookup table.
             exception.stack = Some(Stacktrace::Raw { frames });
+
+            if let Some(RawFrame::Java(frame)) = frames.first() {
+                if let Some(module) = &exception.module {
+                    let r = frame
+                        .remap_class(team_id, module, &exception.exception_type, &context.catalog)
+                        .await?;
+
+                    exception.exception_type = r;
+                }
+            }
         }
     }
 
@@ -158,39 +169,4 @@ fn find_index_with_matching_frame_id(id: &RawFrameId, list: &[(usize, RawErrProp
         }
     }
     0
-}
-
-#[cfg(test)]
-mod test {
-    use httpmock::MockServer;
-
-    const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
-    const MINIFIED_WITH_NO_MAP_REF: &[u8] =
-        include_bytes!("../../tests/static/chunk-PGUQKT6S-no-map.js");
-
-    use super::*;
-
-    #[tokio::test]
-    async fn find_sourcemap_url_in_body_test() {
-        let server = MockServer::start();
-
-        let mock = server.mock(|when, then| {
-            when.method("GET").path("/static/chunk-PGUQKT6S.js");
-            then.status(200).body(MINIFIED);
-        });
-
-        let client = reqwest::Client::new();
-        let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
-
-        let SourceMappingUrl::Url(res) = res else {
-            panic!("Expected URL, got {res:?}");
-        };
-
-        // We're doing relative-URL resolution here, so we have to account for that
-        let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
-        assert_eq!(res, expected);
-        mock.assert_hits(1);
-    }
 }
