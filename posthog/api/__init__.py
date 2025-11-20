@@ -703,34 +703,18 @@ projects_router.register(
     ["project_id"],
 )
 
-## This viewset is duplicated (env and project) for retro compatibility with CLI
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"error_tracking/releases",
     ErrorTrackingReleaseViewSet,
-    "environment_error_tracking_release_environment",
+    "environment_error_tracking_release",
     ["team_id"],
 )
 
-projects_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release_project",
-    ["project_id"],
-)
-
-## This viewset is duplicated (env and project) for retro compatibility with CLI
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
     "environment_error_tracking_symbol_set",
     ["team_id"],
-)
-
-projects_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
-    ["project_id"],
 )
 
 environments_router.register(
