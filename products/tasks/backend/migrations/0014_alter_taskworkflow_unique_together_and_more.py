@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0012_taskrun_log_storage_path_alter_taskrun_log"),
+        ("tasks", "0013_taskrun_artifacts"),
     ]
 
     operations = [
