@@ -243,7 +243,7 @@ def count_product_combos() -> dict[str, int]:
     return combo_counts
 
 
-def find_next_best_product(current_products: list[str], combo_counts: dict[str, int]) -> tuple[str | None, int]:
+def find_next_best_product(current_products: list[str], combo_counts: dict[str, int]) -> Optional[str]:
     """
     Given an org's current product combo, find the next closest combo with one additional product.
 
@@ -252,7 +252,7 @@ def find_next_best_product(current_products: list[str], combo_counts: dict[str, 
         combo_counts: Dictionary of combo keys to counts
 
     Returns:
-        Tuple of (recommended_product, combo_count) or (None, 0) if no recommendation found
+        The recommended product or None if no recommendation found
     """
     current_combo_key = ",".join(current_products) if current_products else ""
 
@@ -274,15 +274,15 @@ def find_next_best_product(current_products: list[str], combo_counts: dict[str, 
                     candidates.append((additional_product[0], count))
 
     if not candidates:
-        return None, 0
+        return None
 
     # Sort by count (descending) - recommend the most common next product
     candidates.sort(key=lambda x: x[1], reverse=True)
 
     # Return the most common one
-    recommended_product, combo_count = candidates[0]
+    recommended_product, _ = candidates[0]
 
-    return recommended_product, combo_count
+    return recommended_product
 
 
 def calculate_and_store_recommendations(combo_counts: dict[str, int] | None = None) -> dict[str, Any]:
@@ -324,16 +324,14 @@ def calculate_and_store_recommendations(combo_counts: dict[str, int] | None = No
         stats["orgs_with_products"] += 1
 
         # Find next best product
-        recommended_product, combo_count = find_next_best_product(current_products, combo_counts)
+        recommended_product = find_next_best_product(current_products, combo_counts)
 
         if recommended_product:
             recommendations[str(org.id)] = recommended_product
             stats["orgs_with_recommendations"] += 1
             stats["product_recommendations"][recommended_product] += 1
 
-            # Store in Organization's metadata or a separate model
-            # For now, we'll store it in a JSON field if it exists, or create a new model
-            store_recommendation(org, recommended_product, combo_count)
+            store_recommendation(org, recommended_product, current_products)
         else:
             stats["no_recommendation_found"] += 1
             # Clear any existing recommendation
@@ -350,7 +348,7 @@ def calculate_and_store_recommendations(combo_counts: dict[str, int] | None = No
     return stats
 
 
-def store_recommendation(organization: Organization, recommended_product: str, combo_count: int) -> None:
+def store_recommendation(organization: Organization, recommended_product: str, current_products: list[str]) -> None:
     """
     Store the recommendation for an organization.
 
@@ -362,7 +360,8 @@ def store_recommendation(organization: Organization, recommended_product: str, c
         organization=organization,
         defaults={
             "recommended_product": recommended_product,
-            "combo_count": combo_count,
+            "product_sequence_state_before": list(current_products),
+            "num_products_before": len(current_products),
             "calculated_at": datetime.now(UTC),
         },
     )
