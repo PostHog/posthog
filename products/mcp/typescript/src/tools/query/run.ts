@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-export const queryRunHandler = async (context: Context, params: Params) => {
+export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
 
     const projectId = await context.stateManager.getProjectId()
@@ -19,7 +20,7 @@ export const queryRunHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(queryResult.data.results) }] }
+    return queryResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

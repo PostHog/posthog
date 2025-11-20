@@ -44,10 +44,16 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.s3 import ensure_bucket_exists
+
+from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
+from products.data_warehouse.backend.models import (
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    get_s3_client,
+)
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
 
@@ -736,13 +742,17 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        # Guarantee timezone is stable
+        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
+        # If Clickhouse detects this is a constant `NULL` column let's turn into `Nullable(String)` since ArrayFormat doesn't support `Nullable(Nothing)`
+        "Nullable(Nothing)": ("toNullableString", ()),
+        # A bunch of non-supported fields, just treat them as strings
         "FIXED_SIZE_BINARY": ("toString", ()),
         "JSON": ("toString", ()),
         "UUID": ("toString", ()),
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
-        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
     }
 
     # Query for types first, check for any types ArrowStream doesn't support

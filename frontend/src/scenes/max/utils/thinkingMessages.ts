@@ -133,6 +133,14 @@ export const getThinkingMessageFromResponse = (message: AssistantMessage): (Serv
                 console.error('web_search_tool_result is not an array', block)
                 continue // Making TypeScript happy
             }
+            if (!toolUseIdToBlock[block.tool_use_id as string]) {
+                console.error(
+                    'tool_use_id not found - likely web_search was called in parallel with another tool',
+                    block,
+                    toolUseIdToBlock
+                )
+                continue
+            }
             toolUseIdToBlock[block.tool_use_id as string].results = block.content.map((content) => ({
                 title: content.title as string,
                 url: content.url as string,

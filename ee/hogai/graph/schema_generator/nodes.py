@@ -13,12 +13,13 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import FailureMessage, VisualizationMessage
+from posthog.schema import VisualizationMessage
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 
@@ -36,6 +37,15 @@ from .utils import Q, SchemaGeneratorOutput
 RETRIES_ALLOWED = 2
 
 
+class SchemaGenerationException(Exception):
+    """An error occurred while generating a schema in the `SchemaGeneratorNode` node."""
+
+    def __init__(self, llm_output: str, validation_message: str):
+        super().__init__("Failed to generate schema")
+        self.llm_output = llm_output
+        self.validation_message = validation_message
+
+
 class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     INSIGHT_NAME: str
     """
@@ -49,7 +59,21 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, max_tokens=8192
+            model="gpt-5.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            max_tokens=8192,
+            billable=True,
+            output_version="responses/v1",
+            use_responses_api=True,
+            reasoning={
+                "effort": "none",
+            },
+            model_kwargs={
+                "prompt_cache_key": f"team_{self._team.id}",
+            },
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="json_schema",
@@ -87,9 +111,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         chain = generation_prompt | merger | self._model | self._parse_output
 
-        result: SchemaGeneratorOutput[Q] | None = None
         try:
-            result = await chain.ainvoke(
+            result: SchemaGeneratorOutput[Q] = await chain.ainvoke(
                 {
                     "project_datetime": self.project_now,
                     "project_timezone": self.project_timezone,
@@ -120,18 +143,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
-        if not result:
-            # We've got no usable result after exhausting all iteration attempts - it's failure message time
-            return PartialAssistantState(
-                messages=[
-                    FailureMessage(
-                        content=f"It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight."
-                    )
-                ],
-                intermediate_steps=None,
-                plan=None,
-                query_generation_retry_count=len(intermediate_steps) + 1,
-            )
+            if isinstance(e, PydanticOutputParserException):
+                raise SchemaGenerationException(e.llm_output, e.validation_message)
+            raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         return PartialAssistantState(
@@ -230,6 +244,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
+
+    def _has_agent_modes_feature_flag(self) -> bool:
+        return has_agent_modes_feature_flag(self._team, self._user)
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

@@ -1,1 +1,1 @@
-0002_endpoint_cache_age_seconds
+0006_endpoint_derived_from_insight

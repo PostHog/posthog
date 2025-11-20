@@ -7,16 +7,19 @@ from freezegun.api import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     override_settings,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
 )
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from flaky import flaky
@@ -25,7 +28,6 @@ from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import SESSION_REPLAY_TASK_QUEUE
 from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
@@ -34,7 +36,7 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 
-class TestPerson(ClickhouseTestMixin, APIBaseTest):
+class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_legacy_get_person_by_id(self) -> None:
         person = _create_person(
             team=self.team,
@@ -314,7 +316,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        response = self.client.delete(f"/api/person/{person.uuid}/")
+        with snapshot_postgres_queries_context(
+            self,
+            custom_query_matcher=lambda query: f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}"
+            in query,
+        ):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
@@ -410,7 +417,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(
                         initial_interval=timedelta(seconds=60),
                         backoff_coefficient=2.0,
@@ -451,7 +458,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(
                         initial_interval=timedelta(seconds=60),
                         backoff_coefficient=2.0,
@@ -569,7 +576,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.filter(team_id=self.team.id).order_by("id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
@@ -614,7 +621,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.post("/api/person/{}/split/".format(person1.pk))
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.filter(team_id=self.team.id).order_by("id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
         self.assertEqual(people[0].properties, {})
@@ -873,7 +880,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
         self.assertTrue(response["success"])
 
-        people = Person.objects.all().order_by("id")
+        people = Person.objects.filter(team_id=self.team.id).order_by("id")
         clickhouse_people = sync_execute(
             "SELECT id FROM person FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},

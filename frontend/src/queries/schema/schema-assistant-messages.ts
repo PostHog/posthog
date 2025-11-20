@@ -66,8 +66,12 @@ export interface HumanMessage extends BaseAssistantMessage {
 }
 
 export interface AssistantFormOption {
+    /** Button label, which is also the message that gets sent on click. */
     value: string
+    /** 'primary', 'secondary', or 'tertiary' - default 'secondary' */
     variant?: string
+    /** When href is set, the button opens the link rather than sending an AI message. */
+    href?: string
 }
 
 export interface AssistantForm {
@@ -274,10 +278,9 @@ export type AssistantTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
-    | 'navigate'
-    | 'edit_current_insight'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
+    | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
@@ -289,6 +292,19 @@ export type AssistantTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'filter_web_analytics'
+    | 'create_feature_flag'
+    | 'create_experiment'
+    | 'execute_sql'
+    | 'switch_mode'
+    | 'summarize_sessions'
+    | 'create_insight'
+
+export enum AgentMode {
+    ProductAnalytics = 'product_analytics',
+    SQL = 'sql',
+    SessionReplay = 'session_replay',
+}
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

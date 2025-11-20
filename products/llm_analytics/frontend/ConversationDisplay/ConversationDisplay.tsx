@@ -50,6 +50,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                         icon={<IconChat />}
                         onClick={handleTryInPlayground}
                         tooltip="Try this prompt in the playground"
+                        data-attr="try-in-playground-conversation"
                     >
                         Try in Playground
                     </LemonButton>

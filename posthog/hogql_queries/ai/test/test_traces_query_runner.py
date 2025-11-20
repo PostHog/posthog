@@ -1450,6 +1450,67 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
         self.assertEqual(len(response.results), 0)
 
+    @freeze_time("2025-01-16T00:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_group_key_filter(self):
+        """Test that groupKey and groupTypeIndex parameters filter traces by group."""
+        _create_person(distinct_ids=["user1"], team=self.team)
+        _create_person(distinct_ids=["user2"], team=self.team)
+
+        group_org_a = "org:acme"
+        group_org_b = "org:widgets"
+        group_project_1 = "project:alpha"
+
+        _create_ai_generation_event(
+            distinct_id="user1",
+            trace_id="trace_org_a",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+            properties={"$group_0": group_org_a},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="user2",
+            trace_id="trace_org_b",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1, 0),
+            properties={"$group_0": group_org_b},
+        )
+
+        _create_ai_generation_event(
+            distinct_id="user1",
+            trace_id="trace_project_1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 2, 0),
+            properties={"$group_1": group_project_1},
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        self.assertEqual(len(response.results), 3)
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_org_a, groupTypeIndex=0)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_org_a")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_org_b, groupTypeIndex=0)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_org_b")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey=group_project_1, groupTypeIndex=1)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace_project_1")
+
+        response = TracesQueryRunner(
+            team=self.team, query=TracesQuery(groupKey="nonexistent", groupTypeIndex=0)
+        ).calculate()
+        self.assertEqual(len(response.results), 0)
+
     def test_embedding_only_trace_cost_aggregation(self):
         """Test that embedding-only traces properly aggregate costs in list view (regression test)."""
         _create_person(distinct_ids=["person1"], team=self.team)

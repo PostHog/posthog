@@ -455,7 +455,15 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
-                        if (this.assignments().length === 0) {
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
                             this.resetRebalanceCoordination()
                         }
                     })
@@ -468,7 +476,15 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
-                        if (this.assignments().length === 0) {
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
                             this.resetRebalanceCoordination()
                         }
                     })
@@ -597,9 +613,16 @@ export class KafkaConsumer {
             } catch (e) {
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
+                let assignedPartitions: Assignment[] | string = []
+                try {
+                    assignedPartitions = this.assignments()
+                } catch (assignmentError) {
+                    // Consumer might be in an erroneous state during rebalancing
+                    assignedPartitions = `Error getting assignments: ${String(assignmentError)}`
+                }
                 logger.error('📝', 'Failed to store offsets', {
                     error: String(e),
-                    assignedPartitions: this.assignments(),
+                    assignedPartitions,
                     topicPartitionOffsetsToCommit,
                 })
                 captureException(e)

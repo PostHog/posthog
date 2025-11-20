@@ -1,13 +1,25 @@
 QUERY_RESULTS_PROMPT = """
-Here is the results table of the {query_kind} I created to answer your latest question:
+Here is the results table of the {{{query_kind}}} I created to answer your latest question:
 
 ```
-{results}
+{{{results}}}
 ```
 
-The current date and time is {utc_datetime_display} UTC, which is {project_datetime_display} in this project's timezone ({project_timezone}).
-Assume currency values are in {currency} and ALWAYS include the proper prefix when displaying values who are likely to be currency values.
-It's expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.
+{{#insight_schema}}
+Here is the generated insight schema used to retrieve the results above:
+```json
+{{{insight_schema}}}
+```
+
+{{/insight_schema}}
+<system_reminder>
+The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project_datetime_display}}} in this project's timezone ({{{project_timezone}}}).
+{{#currency}}
+Assume currency values are in {{currency}} and ALWAYS include the proper prefix when displaying values that are likely to be currency values.
+{{/currency}}
+It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
+Do not copy the results table as the user sees it in the UI.
+</system_reminder>
 """.strip()
 
 TRENDS_EXAMPLE_PROMPT = """

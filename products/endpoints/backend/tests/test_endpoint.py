@@ -59,10 +59,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("created_at", response_data)
         self.assertIn("updated_at", response_data)
 
+        self.assertIsNone(response_data["derived_from_insight"])
+
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
         self.assertEqual(endpoint.query, self.sample_query)
         self.assertEqual(endpoint.created_by, self.user)
+        self.assertIsNone(endpoint.derived_from_insight)
 
         # Activity log created
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="created")
@@ -120,11 +123,16 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Activity log updated with changes
         logs = ActivityLog.objects.filter(
-            team_id=self.team.id, scope="Endpoint", activity="updated", item_id=str(endpoint.id)
+            team_id=self.team.id,
+            scope="Endpoint",
+            activity="updated",
+            item_id=str(endpoint.id),
         )
         self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
         log = logs.latest("created_at")
         assert log.detail is not None
+
+        self.assertEqual("updated", log.activity)
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
         self.assertIn("description", changed_fields)
@@ -877,3 +885,22 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         endpoint.refresh_from_db()
         self.assertIsNone(endpoint.cache_age_seconds)
+
+    def test_create_endpoint_with_insight_reference(self):
+        """Test creating an endpoint with a reference to the insight it was created from."""
+        data = {
+            "name": "test_with_insight",
+            "description": "Endpoint created from insight",
+            "query": self.sample_query,
+            "derived_from_insight": "abc123xyz",
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        response_data = response.json()
+
+        self.assertEqual("test_with_insight", response_data["name"])
+        self.assertEqual("abc123xyz", response_data["derived_from_insight"])
+        endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
+        self.assertEqual(endpoint.derived_from_insight, "abc123xyz")

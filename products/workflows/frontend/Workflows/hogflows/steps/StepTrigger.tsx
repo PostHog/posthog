@@ -2,23 +2,28 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconBolt, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
+import { IconBolt, IconButton, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCalendarSelectInput,
     LemonCollapse,
     LemonDivider,
     LemonLabel,
     LemonSelect,
     LemonTag,
+    Tooltip,
     lemonToast,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -33,12 +38,76 @@ export function StepTriggerConfiguration({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
     const validationResult = actionValidationErrorsById[node.id]
 
+    const triggerOptions = [
+        {
+            label: 'Event',
+            value: 'event',
+            icon: <IconBolt />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Event</div>
+                    <p className="text-xs text-muted">
+                        Trigger your workflow based on incoming realtime PostHog events
+                    </p>
+                </div>
+            ),
+        },
+        {
+            label: 'Webhook',
+            value: 'webhook',
+            icon: <IconWebhooks />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Webhook</div>
+                    <p className="text-xs text-muted">Trigger your workflow using an incoming HTTP webhook</p>
+                </div>
+            ),
+        },
+        {
+            label: 'Manual',
+            value: 'manual',
+            icon: <IconButton />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Manual</div>
+                    <p className="text-xs text-muted">Trigger your workflow manually... with a button!</p>
+                </div>
+            ),
+        },
+        {
+            label: 'Tracking pixel',
+            value: 'tracking_pixel',
+            icon: <IconAdsClick />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Tracking pixel</div>
+                    <p className="text-xs text-muted">Trigger your workflow using a 1x1 tracking pixel</p>
+                </div>
+            ),
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_SCHEDULED_TRIGGERS]) {
+        triggerOptions.splice(3, 0, {
+            label: 'Schedule',
+            value: 'schedule',
+            icon: <IconClock />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Schedule</div>
+                    <p className="text-xs text-muted">Schedule your workflow to run at a specific time in the future</p>
+                </div>
+            ),
+        })
+    }
+
     return (
-        <>
+        <div className="flex flex-col items-start w-full gap-2">
             <span className="flex gap-1">
                 <IconBolt className="text-lg" />
                 <span className="text-md font-semibold">Trigger type</span>
@@ -46,47 +115,7 @@ export function StepTriggerConfiguration({
             <span>What causes this workflow to begin?</span>
             <LemonField.Pure error={validationResult?.errors?.type}>
                 <LemonSelect
-                    options={[
-                        {
-                            label: 'Event',
-                            value: 'event',
-                            icon: <IconBolt />,
-                            labelInMenu: (
-                                <div className="flex flex-col my-1">
-                                    <div className="font-semibold">Event</div>
-                                    <p className="text-xs text-muted">
-                                        Trigger your workflow based on incoming realtime PostHog events
-                                    </p>
-                                </div>
-                            ),
-                        },
-                        {
-                            label: 'Webhook',
-                            value: 'webhook',
-                            icon: <IconWebhooks />,
-                            labelInMenu: (
-                                <div className="flex flex-col my-1">
-                                    <div className="font-semibold">Webhook</div>
-                                    <p className="text-xs text-muted">
-                                        Trigger your workflow using an incoming HTTP webhook
-                                    </p>
-                                </div>
-                            ),
-                        },
-                        {
-                            label: 'Tracking pixel',
-                            value: 'tracking_pixel',
-                            icon: <IconAdsClick />,
-                            labelInMenu: (
-                                <div className="flex flex-col my-1">
-                                    <div className="font-semibold">Tracking pixel</div>
-                                    <p className="text-xs text-muted">
-                                        Trigger your workflow using a 1x1 tracking pixel
-                                    </p>
-                                </div>
-                            ),
-                        },
-                    ]}
+                    options={triggerOptions}
                     value={type}
                     placeholder="Select trigger type"
                     onChange={(value) => {
@@ -98,13 +127,52 @@ export function StepTriggerConfiguration({
                                     template_id: 'template-source-webhook',
                                     inputs: {},
                                 })
-                              : value === 'tracking_pixel'
+                              : value === 'manual'
                                 ? setWorkflowActionConfig(node.id, {
-                                      type: 'tracking_pixel',
-                                      template_id: 'template-source-webhook-pixel',
-                                      inputs: {},
+                                      type: 'manual',
+                                      template_id: 'template-source-webhook',
+                                      inputs: {
+                                          event: {
+                                              order: 0,
+                                              value: '$workflow_triggered',
+                                          },
+                                          distinct_id: {
+                                              order: 1,
+                                              value: '{request.body.user_id}',
+                                          },
+                                          method: {
+                                              order: 2,
+                                              value: 'POST',
+                                          },
+                                      },
                                   })
-                                : null
+                                : value === 'schedule'
+                                  ? setWorkflowActionConfig(node.id, {
+                                        type: 'schedule',
+                                        template_id: 'template-source-webhook',
+                                        inputs: {
+                                            event: {
+                                                order: 0,
+                                                value: '$workflow_triggered',
+                                            },
+                                            distinct_id: {
+                                                order: 1,
+                                                value: '{request.body.user_id}',
+                                            },
+                                            method: {
+                                                order: 2,
+                                                value: 'POST',
+                                            },
+                                        },
+                                        scheduled_at: undefined,
+                                    })
+                                  : value === 'tracking_pixel'
+                                    ? setWorkflowActionConfig(node.id, {
+                                          type: 'tracking_pixel',
+                                          template_id: 'template-source-webhook-pixel',
+                                          inputs: {},
+                                      })
+                                    : null
                     }}
                 />
             </LemonField.Pure>
@@ -112,10 +180,14 @@ export function StepTriggerConfiguration({
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
+            ) : node.data.config.type === 'manual' ? (
+                <StepTriggerConfigurationManual />
+            ) : node.data.config.type === 'schedule' ? (
+                <StepTriggerConfigurationSchedule action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
-        </>
+        </div>
     )
 }
 
@@ -213,6 +285,69 @@ function StepTriggerConfigurationWebhook({
                 }
                 errors={validationResult?.errors}
             />
+        </>
+    )
+}
+
+function StepTriggerConfigurationManual(): JSX.Element {
+    return (
+        <>
+            <div className="flex gap-1">
+                <p className="mb-0">
+                    This workflow can be triggered manually via{' '}
+                    <Tooltip title="It's up there on the top right ⤴︎">
+                        <span className="font-bold cursor-pointer">the trigger button</span>
+                    </Tooltip>
+                    .
+                </p>
+            </div>
+        </>
+    )
+}
+
+function StepTriggerConfigurationSchedule({
+    action,
+    config,
+}: {
+    action: Extract<HogFlowAction, { type: 'trigger' }>
+    config: Extract<HogFlowAction['config'], { type: 'schedule' }>
+}): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+
+    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
+
+    return (
+        <>
+            <div className="flex flex-col gap-2">
+                <p className="mb-0">Schedule this workflow to run at a specific time in the future.</p>
+                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
+                    <div className="flex flex-col gap-2">
+                        <LemonCalendarSelectInput
+                            value={scheduledDateTime}
+                            onChange={(date) => {
+                                setWorkflowActionConfig(action.id, {
+                                    type: 'schedule',
+                                    template_id: config.template_id,
+                                    template_uuid: config.template_uuid,
+                                    inputs: config.inputs,
+                                    scheduled_at: date ? date.toISOString() : undefined,
+                                })
+                            }}
+                            granularity="minute"
+                            selectionPeriod="upcoming"
+                            showTimeToggle={false}
+                        />
+                        {scheduledDateTime && (
+                            <div className="text-xs text-muted">
+                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
+                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
+                            </div>
+                        )}
+                    </div>
+                </LemonField.Pure>
+            </div>
         </>
     )
 }

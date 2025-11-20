@@ -1,12 +1,9 @@
 import { FeatureFlagGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = FeatureFlagGetAllSchema
 
-type Params = z.infer<typeof schema>
-
-export const getAllHandler = async (context: Context, _params: Params) => {
+export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const projectId = await context.stateManager.getProjectId()
 
     const flagsResult = await context.api.featureFlags({ projectId }).list()
@@ -15,7 +12,7 @@ export const getAllHandler = async (context: Context, _params: Params) => {
         throw new Error(`Failed to get feature flags: ${flagsResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(flagsResult.data) }] }
+    return flagsResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

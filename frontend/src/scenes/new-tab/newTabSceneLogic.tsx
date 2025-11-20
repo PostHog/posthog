@@ -1,8 +1,20 @@
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { RefObject } from 'react'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPeople, IconPerson, IconSparkles } from '@posthog/icons'
+import {
+    IconActivity,
+    IconApps,
+    IconArrowRight,
+    IconDatabase,
+    IconGear,
+    IconHogQL,
+    IconPeople,
+    IconPerson,
+    IconSparkles,
+    IconToolbar,
+} from '@posthog/icons'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,9 +43,9 @@ import {
     FileSystemImport,
     FileSystemViewLogEntry,
 } from '~/queries/schema/schema-general'
-import { EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
+import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
-import { SearchInputCommand } from './components/SearchInput'
+import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS =
@@ -134,9 +146,12 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
 
     const name = splitPath(entry.path).pop() || entry.path
     const nameLower = name.toLowerCase()
+    const typeLower = entry.type?.toLowerCase() ?? ''
     const categoryLower = 'recents'
 
-    return searchChunks.every((chunk) => nameLower.includes(chunk) || categoryLower.includes(chunk))
+    return searchChunks.every(
+        (chunk) => nameLower.includes(chunk) || typeLower.includes(chunk) || categoryLower.includes(chunk)
+    )
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
@@ -172,6 +187,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             dataset,
             prefix,
         }),
+        setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
+        focusNewTabSearchInput: true,
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -575,6 +592,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return state
                 },
+            },
+        ],
+        newTabSearchInputRef: [
+            null as RefObject<SearchInputHandle> | null,
+            {
+                setNewTabSearchInputRef: (_, { ref }) => ref,
             },
         ],
     }),
@@ -995,7 +1018,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
-                const sortedProducts = sortByLastViewedAt(products)
+                const manualProductItems: NewTabTreeDataItem[] = [
+                    {
+                        id: 'product-activity',
+                        name: 'Activity',
+                        category: 'apps',
+                        href: urls.activity(ActivityTab.ExploreEvents),
+                        icon: <IconActivity />,
+                        record: {
+                            type: 'link',
+                            path: 'Activity',
+                            href: urls.activity(ActivityTab.ExploreEvents),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.activity(ActivityTab.ExploreEvents)),
+                    },
+                ]
+
+                const sortedProducts = sortByLastViewedAt([...products, ...manualProductItems])
 
                 const data = defaultData
                     .map((fs, index) => ({
@@ -1011,7 +1050,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const sortedData = sortByLastViewedAt(data)
+                const manualDataItems: NewTabTreeDataItem[] = [
+                    {
+                        id: 'data-settings',
+                        name: 'Project settings',
+                        category: 'data-management',
+                        href: urls.settings(),
+                        icon: <IconGear />,
+                        record: {
+                            type: 'link',
+                            path: 'Project settings',
+                            href: urls.settings(),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.settings()),
+                    },
+                    {
+                        id: 'data-toolbar',
+                        name: 'Toolbar',
+                        category: 'data-management',
+                        href: urls.toolbarLaunch(),
+                        icon: <IconToolbar />,
+                        record: {
+                            type: 'link',
+                            path: 'Toolbar',
+                            href: urls.toolbarLaunch(),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.toolbarLaunch()),
+                    },
+                ]
+
+                const sortedData = sortByLastViewedAt([...data, ...manualDataItems])
 
                 const sortedNewInsightItems = sortByLastViewedAt(newInsightItems)
                 const sortedNewDataItems = sortByLastViewedAt(newDataItems)
@@ -1125,7 +1193,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     return items.filter((item) =>
                         searchChunks.every(
                             (chunk) =>
-                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                                item.name.toLowerCase().includes(chunk) ||
+                                item.category.toLowerCase().includes(chunk) ||
+                                item.record?.type?.toLowerCase().includes(chunk)
                         )
                     )
                 }
@@ -1650,6 +1720,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
             await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
+        },
+        focusNewTabSearchInput: () => {
+            if (values.newTabSearchInputRef?.current) {
+                values.newTabSearchInputRef.current.focus()
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => {

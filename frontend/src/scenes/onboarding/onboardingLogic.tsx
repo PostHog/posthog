@@ -13,7 +13,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -52,6 +53,8 @@ export const getProductUri = (productKey: ProductKey): string => {
             return urls.surveyTemplates()
         case ProductKey.ERROR_TRACKING:
             return urls.errorTracking()
+        case ProductKey.LLM_ANALYTICS:
+            return urls.llmAnalyticsDashboard()
         default:
             return urls.default()
     }
@@ -280,6 +283,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     })
                     return
                 case ProductKey.FEATURE_FLAGS:
+                    return
+                case ProductKey.LLM_ANALYTICS:
                     return
                 default:
                     return

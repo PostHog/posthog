@@ -10,10 +10,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
+import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventType } from '~/types'
+import { EventType, SurveyEventName } from '~/types'
 
 interface EventActionProps {
     event: EventType
@@ -43,6 +44,9 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Create action from event
                         </LemonButton>
                     )}
+                    {event.event === SurveyEventName.SENT && event.uuid && event.properties.$survey_id ? (
+                        <ArchiveSurveyButton responseUuid={event.uuid} />
+                    ) : null}
                     {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
                     <ViewRecordingButton
                         fullWidth

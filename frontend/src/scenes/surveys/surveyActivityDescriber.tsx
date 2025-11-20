@@ -183,6 +183,7 @@ const surveyActionsMapping: Record<
             thankYouMessageCloseButtonText: 'thank you message close button text',
             autoDisappear: 'auto-disappear option',
             position: 'survey position',
+            tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
             widgetType: 'widget type',
@@ -330,7 +331,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong>{userNameForLogItem(logItem)}</strong>
+    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
     const surveyLink = nameOrLinkToSurvey(logItem?.item_id, logItem?.detail.name, logItem.activity)
 
     if (logItem.activity === 'created') {

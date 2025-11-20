@@ -8,16 +8,11 @@ from posthog.schema import HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.onboarding.prompts import DEEP_RESEARCH_ONBOARDING_PROMPT
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
 from ee.hogai.utils.helpers import normalize_ai_message
-from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class DeepResearchOnboardingNode(DeepResearchNode):
-    @property
-    def node_name(self) -> MaxNodeName:
-        return DeepResearchNodeName.NOTEBOOK_PLANNING
-
     def should_run_onboarding_at_start(self, state: DeepResearchState) -> Literal["onboarding", "planning", "continue"]:
         if not state.messages:
             return "onboarding"

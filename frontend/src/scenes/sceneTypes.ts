@@ -20,6 +20,7 @@ export enum Scene {
     BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
+    CLIAuthorize = 'CLIAuthorize',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
@@ -55,6 +56,7 @@ export enum Scene {
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
+    ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -62,6 +64,9 @@ export enum Scene {
     Groups = 'Groups',
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
+    Heatmap = 'Heatmap',
+    HeatmapNew = 'HeatmapNew',
+    HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
     IntegrationsRedirect = 'IntegrationsRedirect',
@@ -70,6 +75,8 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveDebugger = 'LiveDebugger',
+    Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
@@ -92,6 +99,7 @@ export enum Scene {
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
     Products = 'Products',
+    UseCaseSelection = 'UseCaseSelection',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
@@ -106,9 +114,14 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    SessionGroupSummariesTable = 'SessionGroupSummariesTable',
+    SessionGroupSummary = 'SessionGroupSummary',
+    SessionSummaries = 'SessionSummaries',
+    SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Coupons = 'Coupons',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
@@ -183,6 +196,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string

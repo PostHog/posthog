@@ -5,7 +5,8 @@ from typing import Any
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
 
 
 class SSHTunnelMixin:

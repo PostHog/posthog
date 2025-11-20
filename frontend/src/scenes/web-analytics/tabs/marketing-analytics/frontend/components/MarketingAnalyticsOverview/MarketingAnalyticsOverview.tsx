@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
@@ -13,6 +13,10 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import {
+    MarketingAnalyticsValidationWarningBanner,
+    validateConversionGoals,
+} from '../MarketingAnalyticsValidationWarningBanner'
 
 const BASE_METRICS_COUNT = 6 // Total Cost, Total Clicks, CPC, CTR, Total Impressions, Reported Conversion
 
@@ -44,6 +48,8 @@ export function MarketingAnalyticsOverview(props: {
 
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
 
+    const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
+
     // Convert results dict to array for rendering and map to OverviewItem
     const overviewItems: OverviewItem[] = marketingOverviewQueryResponse?.results
         ? Object.entries(marketingOverviewQueryResponse.results).map(([key, item]) => ({
@@ -61,19 +67,24 @@ export function MarketingAnalyticsOverview(props: {
     const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
 
     return (
-        <OverviewGrid
-            items={overviewItems}
-            loading={responseLoading}
-            numSkeletons={numSkeletons}
-            samplingRate={samplingRate}
-            usedPreAggregatedTables={false}
-            labelFromKey={labelFromKey}
-            settingsLinkFromKey={() => null}
-            dashboardLinkFromKey={() => null}
-            filterEmptyItems={filterEmptyMetrics}
-            showBetaTags={() => false}
-            compact={true}
-        />
+        <>
+            {validationWarnings && validationWarnings.length > 0 && (
+                <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+            )}
+            <OverviewGrid
+                items={overviewItems}
+                loading={responseLoading}
+                numSkeletons={numSkeletons}
+                samplingRate={samplingRate}
+                usedPreAggregatedTables={false}
+                labelFromKey={labelFromKey}
+                settingsLinkFromKey={() => null}
+                dashboardLinkFromKey={() => null}
+                filterEmptyItems={filterEmptyMetrics}
+                showBetaTags={() => false}
+                compact={true}
+            />
+        </>
     )
 }
 

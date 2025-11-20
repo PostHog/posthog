@@ -1,12 +1,13 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconGlobe, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconGlobe, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 
 import { EnhancedToolCall } from './Thread'
+import { isAgentMode } from './maxTypes'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -25,7 +26,10 @@ export interface ToolDefinition<N extends string = string> {
         ToolDefinition
     >
     icon: JSX.Element
-    displayFormatter?: (toolCall: EnhancedToolCall) => string
+    displayFormatter?: (
+        toolCall: EnhancedToolCall,
+        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+    ) => string
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -47,6 +51,16 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     /** Contextual data to be included for use by the LLM */
     context?: Record<string, any>
     /**
+     * Optional: Describes what kind of context information is being provided
+     * This metadata is shown to users in the context topbar to indicate what contextual values are available
+     */
+    contextDescription?: {
+        /** The type or category of context (e.g., "Current insight", "Active filters") */
+        text: string
+        /** Icon to display for the context type */
+        icon: JSX.Element
+    }
+    /**
      * Optional: If this tool is the main one of the page, you can override the default intro headline and description when it's mounted.
      *
      * Note that if more than one mounted tool has an intro override, only one will take effect.
@@ -63,7 +77,12 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
-export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'web_search', ToolDefinition> = {
+/** Static mode definition for display purposes. */
+export interface ModeDefinition {
+    name: string
+}
+
+export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write' | 'web_search'>, ToolDefinition> = {
     web_search: {
         name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
         description: 'Search the web for up-to-date information',
@@ -160,26 +179,34 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             },
         },
     },
-    navigate: {
-        name: 'Navigate',
-        description: 'Navigate to other places in PostHog',
-        icon: <IconCompass />,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Navigated to a different page'
+    create_and_query_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        icon: iconForType('product_analytics'),
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
             }
-            return 'Navigating to a different page...'
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
-    create_and_query_insight: {
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
+    create_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created an insight'
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
             }
-            return 'Creating an insight...'
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
     search_session_recordings: {
@@ -280,11 +307,23 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             return 'Finding impactful issues...'
         },
     },
+    error_tracking_explain_issue: {
+        name: 'Explain an issue',
+        description: 'Explain an issue by analyzing its stack trace',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Issue explained'
+            }
+            return 'Analyzing issue...'
+        },
+    },
     experiment_results_summary: {
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
-        flag: 'experiments-ai-summary',
+        flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -339,18 +378,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             return 'Fixing SQL...'
         },
     },
-    edit_current_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Edited the insight you are viewing'
-            }
-            return 'Editing the insight you are viewing...'
-        },
-    },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',
@@ -363,17 +390,104 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             return 'Filtering revenue analytics...'
         },
     },
+    filter_web_analytics: {
+        name: 'Filter web analytics',
+        description: 'Filter web analytics to analyze traffic patterns and user behavior',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered web analytics'
+            }
+            return 'Filtering web analytics...'
+        },
+    },
     edit_current_dashboard: {
-        name: 'Add insight to the dashboard',
-        description: "Add insight to the dashboard you're viewing",
+        name: 'Add an insight to the dashboard',
+        description: "Add an insight to the dashboard you're viewing",
         product: Scene.Dashboard,
         icon: iconForType('dashboard'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Added insight to the dashboard'
+                return 'Added an insight to the dashboard'
             }
-            return 'Adding insight to the dashboard...'
+            return 'Adding an insight to the dashboard...'
         },
+    },
+    create_feature_flag: {
+        name: 'Create a feature flag',
+        description: 'Create a feature flag in seconds',
+        product: Scene.FeatureFlags,
+        icon: iconForType('feature_flag'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created feature flag'
+            }
+            return 'Creating feature flag...'
+        },
+    },
+    create_experiment: {
+        name: 'Create an experiment',
+        description: 'Create an experiment in seconds',
+        product: Scene.Experiments,
+        icon: iconForType('experiment'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created experiment'
+            }
+            return 'Creating experiment...'
+        },
+    },
+    switch_mode: {
+        name: 'Switch agent mode',
+        description: 'Switch agent mode to a specialized agent',
+        icon: <IconShuffle />,
+        displayFormatter: (toolCall) => {
+            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
+            const modeText = modeName ? ` to the ${modeName} mode` : 'mode'
+
+            if (toolCall.status === 'completed') {
+                return `Switched agent ${modeText}`
+            }
+
+            return `Switching agent ${modeText}...`
+        },
+    },
+    execute_sql: {
+        name: 'Write and tweak SQL',
+        description: 'Write and tweak SQL right there',
+        product: Scene.SQLEditor,
+        icon: iconForType('insight/hog'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Executed SQL'
+            }
+            return 'Writing an SQL query...'
+        },
+    },
+    summarize_sessions: {
+        name: 'Summarize sessions',
+        description: 'Summarize sessions to analyze real user behavior',
+        flag: 'max-session-summarization',
+        icon: iconForType('session_replay'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized sessions'
+            }
+            return 'Summarizing sessions...'
+        },
+    },
+}
+
+export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
+    [AgentMode.ProductAnalytics]: {
+        name: 'product analytics',
+    },
+    [AgentMode.SQL]: {
+        name: 'SQL',
+    },
+    [AgentMode.SessionReplay]: {
+        name: 'session replay',
     },
 }
 

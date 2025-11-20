@@ -12,6 +12,8 @@ import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
+import { QueryLogTable } from './QueryLogTable'
+
 function toLineColumn(hogql: string, position: number): { line: number; column: number } {
     const lines = hogql.split('\n')
     let line = 0
@@ -39,8 +41,15 @@ interface QueryTabsProps<Q extends Node> {
     queryKey: `new-${string}`
     response?: Q['response'] | null
     setQuery: (query: Q) => void
+    onLoadQuery?: (query: string) => void
 }
-export function QueryTabs<Q extends Node>({ query, queryKey, setQuery, response }: QueryTabsProps<Q>): JSX.Element {
+export function QueryTabs<Q extends Node>({
+    query,
+    queryKey,
+    setQuery,
+    response,
+    onLoadQuery,
+}: QueryTabsProps<Q>): JSX.Element {
     const [tab, setTab] = useState<string | null>(null)
     const clickHouseTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './clickhouse_execute')?.t ?? 0
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
@@ -204,6 +213,11 @@ export function QueryTabs<Q extends Node>({ query, queryKey, setQuery, response 
                           ]}
                       />
                   ),
+              },
+              onLoadQuery && {
+                  key: 'query_log',
+                  label: 'Query log',
+                  content: <QueryLogTable queryKey={queryKey} onLoadQuery={onLoadQuery} />,
               },
           ]
               .filter(Boolean)

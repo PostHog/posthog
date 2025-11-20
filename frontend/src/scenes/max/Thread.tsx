@@ -40,7 +40,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -66,15 +66,17 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MessageTemplate } from './messages/MessageTemplate'
+import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
@@ -173,7 +175,7 @@ interface MessageProps {
 }
 
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
-    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -242,7 +244,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
-                            const isThinkingComplete = !threadLoading || hasContent || !isLastInGroup
+                            const isThinkingComplete = hasContent || !isLastInGroup || !threadLoading
                             thinkingElements = thinkingBlocks.map((block, index) =>
                                 block.type === 'server_tool_use' ? (
                                     <ToolCallsAnswer
@@ -275,16 +277,26 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         }
 
                         // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
-                        const toolCallElements = message.tool_calls?.length ? (
-                            <ToolCallsAnswer
-                                key={`${key}-tools`}
-                                toolCalls={message.tool_calls as EnhancedToolCall[]}
-                            />
-                        ) : null
+                        const toolCallElements =
+                            message.tool_calls && message.tool_calls.length > 0 ? (
+                                <ToolCallsAnswer
+                                    key={`${key}-tools`}
+                                    toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                    registeredToolMap={registeredToolMap}
+                                />
+                            ) : null
 
+                        // Allow action to be rendered in the middle if it has hrefs (like, links to open a report)
+                        const ifActionInTheMiddle =
+                            message.meta?.form?.options && message.meta.form.options.some((option) => option.href)
                         // Render main text content
                         const textElement = message.content ? (
-                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                            <TextAnswer
+                                key={`${key}-text`}
+                                message={message}
+                                withActions={ifActionInTheMiddle}
+                                interactable={ifActionInTheMiddle}
+                            />
                         ) : null
 
                         // Compute actions separately to render after tool calls
@@ -314,12 +326,26 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         })()
 
                         return (
-                            <div key={key} className="flex flex-col gap-1.5">
+                            <div key={key} className="flex flex-col gap-1.5 w-full">
                                 {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
                                 {actionsElement}
                             </div>
+                        )
+                    } else if (
+                        isAssistantToolCallMessage(message) &&
+                        message.ui_payload &&
+                        Object.keys(message.ui_payload).length > 0
+                    ) {
+                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
+                        return (
+                            <UIPayloadAnswer
+                                key={key}
+                                toolCallId={message.tool_call_id}
+                                toolName={toolName}
+                                toolPayload={toolPayload}
+                            />
                         )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
@@ -379,48 +405,6 @@ function MessageGroupSkeleton({
     )
 }
 
-interface MessageTemplateProps {
-    type: 'human' | 'ai'
-    action?: React.ReactNode
-    className?: string
-    boxClassName?: string
-    wrapperClassName?: string
-    children?: React.ReactNode
-    header?: React.ReactNode
-}
-
-const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, wrapperClassName, action, header },
-    ref
-) {
-    return (
-        <div
-            className={twMerge(
-                'flex flex-col gap-px w-full break-words scroll-mt-12',
-                type === 'human' ? 'items-end' : 'items-start',
-                className
-            )}
-            ref={ref}
-        >
-            <div className={twMerge('max-w-full', wrapperClassName)}>
-                {header}
-                {children && (
-                    <div
-                        className={twMerge(
-                            'border py-2 px-3 rounded-lg bg-surface-primary',
-                            type === 'human' && 'font-medium',
-                            boxClassName
-                        )}
-                    >
-                        {children}
-                    </div>
-                )}
-            </div>
-            {action}
-        </div>
-    )
-})
-
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
@@ -451,8 +435,11 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               if (isAssistantMessage(message) && interactable) {
                   // Message has been interrupted with a form
-                  if (message.meta?.form?.options && isFinalGroup) {
-                      return <AssistantMessageForm form={message.meta.form} />
+                  if (
+                      message.meta?.form?.options &&
+                      (isFinalGroup || message.meta.form.options.some((option) => option.href))
+                  ) {
+                      return <AssistantMessageForm form={message.meta.form} linksOnly={!isFinalGroup} />
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
@@ -484,17 +471,25 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
 interface AssistantMessageFormProps {
     form: AssistantForm
+    linksOnly?: boolean
 }
 
-function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+
+    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
-            {form.options.map((option) => (
+        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
+        // Also makes it clear the form is subservient to the message. *Harmony*
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+            {options.map((option) => (
                 <LemonButton
                     key={option.value}
-                    onClick={() => askMax(option.value)}
+                    onClick={!option.href ? () => askMax(option.value) : undefined}
+                    to={option.href}
                     size="small"
+                    targetBlank={!!option.href}
                     type={
                         option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
                             ? (option.variant as LemonButtonPropsBase['type'])
@@ -598,7 +593,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
         </MessageTemplate>
     )
 }
-
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean
@@ -625,7 +619,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col text-xs">
             <div
                 className={clsx(
                     'flex items-center select-none',
@@ -759,7 +753,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
                     'transition-all duration-500 flex select-none',
@@ -771,11 +765,11 @@ function AssistantActionComponent({
                 aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
             >
                 {icon && (
-                    <div className="flex items-center justify-center size-6">
+                    <div className="flex items-center justify-center size-5">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className="inline-flex">{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -784,7 +778,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            markdownContent
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
                     {showChevron && (
@@ -837,17 +831,24 @@ interface ReasoningAnswerProps {
     completed: boolean
     id: string
     showCompletionIcon?: boolean
+    animate?: boolean
 }
 
-function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+function ReasoningAnswer({
+    content,
+    completed,
+    id,
+    showCompletionIcon = true,
+    animate = false,
+}: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
-            animate={true}
+            icon={<IconBrain />}
+            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
             showCompletionIcon={showCompletionIcon}
         />
     )
@@ -855,9 +856,10 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
 
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
+    registeredToolMap: Record<string, ToolRegistration>
 }
 
-function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -888,7 +890,7 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
                         let description = `Executing ${toolCall.name}`
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall)
+                                description = definition.displayFormatter(toolCall, { registeredToolMap })
                             }
                             if (commentary) {
                                 description = commentary
@@ -1026,6 +1028,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     }, [isEditingInsight])
 
     const query = useMemo(() => visualizationTypeToQuery(message), [message])
+    const queryWithShowHeader = useMemo(() => {
+        if (query && isInsightVizNode(query)) {
+            return { ...query, showHeader: true }
+        }
+        return query
+    }, [query])
 
     return status !== 'completed'
         ? null
@@ -1035,9 +1043,18 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
+                      boxClassName="flex flex-col w-full"
                   >
-                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      {!isCollapsed && (
+                          <div
+                              className={clsx(
+                                  'flex flex-col overflow-auto',
+                                  isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
+                              )}
+                          >
+                              <Query query={query} readOnly embedded />
+                          </div>
+                      )}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                           <div className="flex items-center gap-1.5">
                               <LemonButton
@@ -1061,7 +1078,11 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       to={
                                           message.short_id
                                               ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({ query })
+                                              : urls.insightNew({
+                                                    query: queryWithShowHeader as
+                                                        | InsightVizNode
+                                                        | DataVisualizationNode,
+                                                })
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"

@@ -101,6 +101,7 @@ describe('lib/utils', () => {
             expect(identifierToHuman('500')).toEqual('500')
             expect(identifierToHuman(404)).toEqual('404')
             expect(identifierToHuman('CreateProject')).toEqual('Create project')
+            expect(identifierToHuman('hog_function/transformation')).toEqual('Hog function transformation')
         })
     })
 
@@ -256,7 +257,7 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
                 expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
                 expect(dateFilterToText('-1dStart', '-1dEnd', 'default')).toEqual('Yesterday')
-                expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+                expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
             it('can have overridden date options', () => {

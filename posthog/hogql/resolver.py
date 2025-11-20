@@ -829,6 +829,13 @@ class Resolver(CloningVisitor):
     def visit_dict(self, node: ast.Dict):
         return self.visit(convert_to_hx(node))
 
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        node = super().visit_between_expr(node)
+        if node is None:
+            return None
+        node.type = ast.BooleanType(nullable=False)
+        return node
+
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
         if node is None:

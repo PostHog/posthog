@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -138,14 +139,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         formScopeRadioValues: [
             (s) => [s.editingKey],
             (editingKey): Record<string, string> => {
-                const result: Record<string, string> = {}
-
-                editingKey.scopes.forEach((scope) => {
-                    const [key, action] = scope.split(':')
-                    result[key] = action
-                })
-
-                return result
+                return scopesArrayToObject(editingKey.scopes)
             },
         ],
         allAccessSelected: [
@@ -374,10 +368,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
 
         setScopeRadioValue: ({ key, action }) => {
-            const newScopes = values.editingKey.scopes.filter((scope) => !scope.startsWith(key))
-            if (action !== 'none') {
-                newScopes.push(`${key}:${action}`)
+            // Convert current scopes array to object for easier manipulation
+            const scopesObject = scopesArrayToObject(values.editingKey.scopes)
+
+            // Update the specific scope
+            if (action === 'none') {
+                delete scopesObject[key]
+            } else {
+                scopesObject[key] = action
             }
+
+            // Convert back to array format
+            const newScopes = scopesObjectToArray(scopesObject)
 
             actions.setEditingKeyValue('scopes', newScopes)
         },
@@ -392,6 +394,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             LemonDialog.open({
                 title: 'Personal API key ready',
                 width: 536,
+                zIndex: '1168',
                 content: (
                     <>
                         <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
@@ -459,7 +462,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setEditingKeyId: ({ id }) => {
             if (!id) {
                 // When the modal is closed, remove the preset from the URL
-                return [router.values.location.pathname, {}, router.values.location.hash]
+                const { preset, ...searchParams } = router.values.searchParams
+                return [router.values.location.pathname, searchParams, router.values.location.hash]
             }
         },
     })),

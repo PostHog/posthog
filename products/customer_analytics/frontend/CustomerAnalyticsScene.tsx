@@ -1,14 +1,10 @@
-import { useValues } from 'kea'
-
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { CustomerAnalyticsDashboardCard } from './CustomerAnalyticsDashboardCard'
+import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
 export const scene: SceneExport = {
@@ -16,21 +12,13 @@ export const scene: SceneExport = {
     logic: customerAnalyticsSceneLogic,
 }
 
-export function CustomerAnalyticsScene(): JSX.Element {
-    const { newDashboardModalVisible } = useValues(customerAnalyticsSceneLogic)
+export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    if (!tabId) {
+        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
+    }
 
     return (
         <SceneContent>
-            <Header />
-            <CustomerAnalyticsDashboardCard />
-            {newDashboardModalVisible && <NewDashboardModal />}
-        </SceneContent>
-    )
-}
-
-const Header = (): JSX.Element => {
-    return (
-        <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.CustomerAnalytics].name}
                 description={sceneConfigurations[Scene.CustomerAnalytics].description}
@@ -38,7 +26,9 @@ const Header = (): JSX.Element => {
                     type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
-        </>
+            <div className="space-y-2">
+                <ActiveUsersInsights />
+            </div>
+        </SceneContent>
     )
 }

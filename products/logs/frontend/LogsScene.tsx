@@ -1,9 +1,17 @@
-import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import {
+    IconClock,
+    IconFilter,
+    IconMinusSquare,
+    IconPin,
+    IconPinFilled,
+    IconPlusSquare,
+    IconRefresh,
+} from '@posthog/icons'
+import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonSegmentedButton,
@@ -14,9 +22,11 @@ import {
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+import { ListHog } from 'lib/components/hedgehogs'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -24,23 +34,35 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LogMessage } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { LogMessage, ProductKey } from '~/queries/schema/schema-general'
+import { PropertyOperator } from '~/types'
+
+import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 
 import { AttributeBreakdowns } from './AttributeBreakdowns'
-import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
-import { SearchTermFilter } from './filters/SearchTermFilter'
 import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
+import { ParsedLogMessage } from './types'
 
 export const scene: SceneExport = {
     component: LogsScene,
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const {
+        wrapBody,
+        prettifyJson,
+        pinnedParsedLogs,
+        parsedLogs,
+        sparklineData,
+        logsLoading,
+        sparklineLoading,
+        timestampFormat,
+        isPinned,
+    } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -60,13 +82,33 @@ export function LogsScene(): JSX.Element {
             : {}
 
     return (
-        <SceneContent className="h-screen">
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
+            />
+            <LemonBanner
+                type="warning"
+                dismissKey="logs-beta-banner"
+                action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
+            >
+                <p>
+                    Logs is in alpha and things will change as we figure out what works. Right now you have 7-day
+                    retention with ingestion rate limits. Tell us what you need, what's broken, or if you're hitting
+                    limits, we want to hear from you.
+                </p>
+            </LemonBanner>
+            <ProductIntroduction
+                productName="logs"
+                productKey={ProductKey.LOGS}
+                thingName="log"
+                description={sceneConfigurations[Scene.Logs].description ?? ''}
+                docsURL="https://posthog.com/docs/logs"
+                customHog={ListHog}
+                isEmpty={false}
             />
             <SceneDivider />
             <Filters />
@@ -86,67 +128,147 @@ export function LogsScene(): JSX.Element {
                 {sparklineLoading && <SpinnerOverlay />}
             </div>
             <SceneDivider />
-            <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
-                <LemonTable
-                    hideScrollbar
-                    dataSource={logs}
-                    loading={logsLoading}
-                    size="small"
-                    embedded
-                    columns={[
-                        {
-                            title: 'Timestamp',
-                            key: 'timestamp',
-                            dataIndex: 'timestamp',
-                            width: 0,
-                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                        },
-                        {
-                            title: 'Level',
-                            key: 'severity_text',
-                            dataIndex: 'severity_text',
-                            width: 0,
-                            render: (_, record) => <LogTag level={record.severity_text} />,
-                        },
-                        {
-                            title: 'Message',
-                            key: 'body',
-                            dataIndex: 'body',
-                            render: (_, { body }) => (
-                                <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
-                            ),
-                        },
-                    ]}
-                    expandable={{
-                        noIndent: true,
-                        expandedRowRender: (log) => <ExpandedLog log={log} />,
-                    }}
-                />
+            <div>
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-primary pt-2">
+                    <div className="pb-2">
+                        <DisplayOptions />
+                    </div>
+                    {pinnedParsedLogs.length > 0 && (
+                        <div className="border rounded-t bg-bg-light shadow-sm">
+                            <LogsTable
+                                dataSource={pinnedParsedLogs}
+                                loading={false}
+                                isPinned={isPinned}
+                                wrapBody={wrapBody}
+                                prettifyJson={prettifyJson}
+                                tzLabelFormat={tzLabelFormat}
+                            />
+                        </div>
+                    )}
+                </div>
+                <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                    <LogsTable
+                        showHeader={!pinnedParsedLogs.length}
+                        dataSource={parsedLogs}
+                        loading={logsLoading}
+                        isPinned={isPinned}
+                        wrapBody={wrapBody}
+                        prettifyJson={prettifyJson}
+                        tzLabelFormat={tzLabelFormat}
+                        showPinnedWithOpacity
+                    />
+                </div>
             </div>
         </SceneContent>
     )
 }
 
+interface LogsTableProps {
+    dataSource: ParsedLogMessage[]
+    loading: boolean
+    isPinned: (uuid: string) => boolean
+    wrapBody: boolean
+    prettifyJson: boolean
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    showPinnedWithOpacity?: boolean
+    showHeader?: boolean
+}
+
+function LogsTable({
+    dataSource,
+    loading,
+    isPinned,
+    wrapBody,
+    prettifyJson,
+    tzLabelFormat,
+    showPinnedWithOpacity = false,
+    showHeader = true,
+}: LogsTableProps): JSX.Element {
+    const { togglePinLog } = useActions(logsLogic)
+
+    return (
+        <LemonTable
+            hideScrollbar
+            showHeader={showHeader}
+            dataSource={dataSource}
+            loading={loading}
+            size="small"
+            embedded
+            rowClassName={(record) =>
+                isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
+            }
+            columns={[
+                {
+                    title: '',
+                    key: 'actions',
+                    width: 0,
+                    render: (_, record) => {
+                        const pinned = isPinned(record.uuid)
+                        return (
+                            <div className="flex items-center gap-1">
+                                <LemonButton
+                                    size="xsmall"
+                                    noPadding
+                                    icon={pinned ? <IconPinFilled /> : <IconPin />}
+                                    onClick={() => togglePinLog(record.uuid)}
+                                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                                    className={cn(
+                                        'transition-opacity',
+                                        pinned
+                                            ? 'text-primary opacity-100'
+                                            : 'text-muted opacity-0 group-hover:opacity-100'
+                                    )}
+                                />
+                                <LogsTableRowActions log={record} />
+                            </div>
+                        )
+                    },
+                },
+                {
+                    title: 'Timestamp',
+                    key: 'timestamp',
+                    dataIndex: 'timestamp',
+                    width: 180,
+                    render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                },
+                {
+                    title: 'Level',
+                    key: 'severity_text',
+                    dataIndex: 'severity_text',
+                    width: 100,
+                    render: (_, record) => <LogTag level={record.severity_text} />,
+                },
+                {
+                    title: 'Message',
+                    key: 'body',
+                    dataIndex: 'body',
+                    render: (_, { cleanBody, parsedBody }) => {
+                        if (parsedBody && prettifyJson) {
+                            return (
+                                <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                    {JSON.stringify(parsedBody, null, 2)}
+                                </pre>
+                            )
+                        }
+
+                        return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                    },
+                },
+            ]}
+            expandable={{
+                noIndent: true,
+                expandedRowRender: (log) => <ExpandedLog log={log} />,
+            }}
+        />
+    )
+}
+
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { filterGroup, expandedAttributeBreaksdowns } = useValues(logsLogic)
-    const { setFilterGroup, toggleAttributeBreakdown } = useActions(logsLogic)
+    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
-
-    const addFilter = (key: string, value: string, operator = PropertyOperator.Exact): void => {
-        const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
-
-        newGroup.values.push({
-            key,
-            value: [value],
-            operator: operator,
-            type: PropertyFilterType.Log,
-        })
-
-        setFilterGroup({ ...filterGroup, values: [newGroup] }, false)
-    }
 
     return (
         <LemonTable
@@ -192,6 +314,18 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     title: 'Value',
                     key: 'value',
                     dataIndex: 'value',
+                    render: (_, record) => (
+                        <CopyToClipboardInline
+                            explicitValue={String(record.value)}
+                            description="attribute value"
+                            iconSize="xsmall"
+                            iconPosition="start"
+                            selectable
+                            className="gap-1"
+                        >
+                            {String(record.value)}
+                        </CopyToClipboardInline>
+                    ),
                 },
             ]}
             dataSource={rows}
@@ -230,7 +364,6 @@ const Filters = (): JSX.Element => {
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
-                    <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">
                     <LemonButton
@@ -257,14 +390,14 @@ const Filters = (): JSX.Element => {
                     </LemonButton>
                 </div>
             </div>
-            <SearchTermFilter />
+            <LogsFilterGroup />
         </div>
     )
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
 
     return (
         <div className="flex gap-2">
@@ -284,6 +417,13 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonCheckbox
+                checked={prettifyJson}
+                bordered
+                onChange={setPrettifyJson}
+                label="Prettify JSON"
+                size="small"
+            />
             <LemonSelect
                 value={timestampFormat}
                 icon={<IconClock />}

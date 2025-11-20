@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[allow(dead_code)]
 pub fn create_new_job() -> JobInit {
     JobInit {
+        id: None,
         team_id: 1,
         function_id: Some(Uuid::now_v7()), // Lets us uniquely identify jobs without having the Uuid
         queue_name: "test".to_string(),

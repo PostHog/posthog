@@ -181,6 +181,9 @@ class JsonType(pa.ExtensionType):
     def __arrow_ext_serialize__(self):
         return b""
 
+    def __hash__(self):
+        return pa.DataType.__hash__(self)
+
     @classmethod
     def __arrow_ext_deserialize__(self, storage_type, serialized):
         return JsonType()

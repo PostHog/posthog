@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from products.tasks.backend.services.sandbox_agent import SandboxAgent
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+from posthog.temporal.common.utils import asyncify
+
+from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, RepositoryCloneError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -20,9 +21,10 @@ class CloneRepositoryInput:
 
 
 @activity.defn
-async def clone_repository(input: CloneRepositoryInput) -> str:
+@asyncify
+def clone_repository(input: CloneRepositoryInput) -> str:
     """Clone repository into sandbox. Idempotent: wipes existing directory. Returns clone logs."""
-    async with log_activity_execution(
+    with log_activity_execution(
         "clone_repository",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
@@ -30,23 +32,28 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
         repository=input.repository,
     ):
         try:
-            github_token = await get_github_token(input.github_integration_id)
+            github_token = get_github_token(input.github_integration_id)
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {input.github_integration_id}",
-                {"github_integration_id": input.github_integration_id, "error": str(e)},
+                {"github_integration_id": input.github_integration_id, "task_id": input.task_id, "error": str(e)},
+                cause=e,
             )
 
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-
-        agent = SandboxAgent(sandbox)
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await agent.clone_repository(input.repository, github_token)
+            result = sandbox.clone_repository(input.repository, github_token)
         except Exception as e:
             raise RepositoryCloneError(
                 f"Failed to clone repository {input.repository}",
-                {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
+                {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "task_id": input.task_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         if result.exit_code != 0:
@@ -56,7 +63,9 @@ async def clone_repository(input: CloneRepositoryInput) -> str:
                     "repository": input.repository,
                     "exit_code": result.exit_code,
                     "stderr": result.stderr[:500],
+                    "task_id": input.task_id,
                 },
+                cause=RuntimeError(f"Git clone exited with code {result.exit_code}: {result.stderr[:200]}"),
             )
 
         # NOTE: git clone returns it's output in stderr

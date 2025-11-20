@@ -23,7 +23,6 @@ from asgiref.sync import sync_to_async
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
@@ -46,10 +45,11 @@ from posthog.temporal.data_modeling.run_workflow import (
     start_run_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.modeling import DataWarehouseModelPath
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -406,6 +406,44 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     now_converted = row["now_converted"]
     now = row["now"]
     assert now_converted == now
+
+
+async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, minio_client, pageview_events):
+    query = """\
+    select NULL as nullable_nothing_column, toTypeName(nullable_nothing_column) as nullable_nothing_column_type
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        _, delta_table, _ = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+    table = delta_table.to_pyarrow_table(columns=["nullable_nothing_column", "nullable_nothing_column_type"])
+    assert table.num_rows == 1
+    assert table.num_columns == 2
+    assert table.column_names == ["nullable_nothing_column", "nullable_nothing_column_type"]
+    assert table.column(0).type == pa.string()  # Mapped to a string even though it was null
 
 
 async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
@@ -765,7 +803,7 @@ async def test_run_workflow_with_minio_bucket(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -784,7 +822,7 @@ async def test_run_workflow_with_minio_bucket(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -883,7 +921,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -902,7 +940,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -939,7 +977,7 @@ async def test_run_workflow_revert_materialization(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -958,7 +996,7 @@ async def test_run_workflow_revert_materialization(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )

@@ -11,25 +11,29 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
-import { MiniBreakdowns } from 'products/error_tracking/frontend/components/Breakdowns/MiniBreakdowns'
-
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { IssueTasks } from '../../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { BaseActions } from './BaseActions'
 import { IssueAssigneeSelect } from './IssueAssigneeSelect'
+import { IssueCohort } from './IssueCohort'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { SimilarIssuesList } from './SimilarIssuesList'
 
 const RESOURCE_TYPE = 'issue'
 
-export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActions?: boolean }): JSX.Element | null => {
+export const ErrorTrackingIssueScenePanel = ({
+    showActions = true,
+    showSimilarIssues = true,
+}: {
+    showActions?: boolean
+    showSimilarIssues?: boolean
+}): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
-    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     return issue ? (
         <div className="flex flex-col gap-2 @container">
@@ -54,11 +58,15 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            <IssueCohort issue={issue} />
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasNewIssueLayout && <IssueBreakdowns />}
-            {hasSimilarIssues && <SimilarIssuesList />}
+            {hasSimilarIssues && showSimilarIssues ? (
+                <ScenePanelLabel title="Similar issues">
+                    <SimilarIssuesList />
+                </ScenePanelLabel>
+            ) : null}
         </div>
     ) : null
 }
@@ -80,14 +88,6 @@ const IssueFingerprints = (): JSX.Element => {
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
-        </ScenePanelLabel>
-    )
-}
-
-const IssueBreakdowns = (): JSX.Element => {
-    return (
-        <ScenePanelLabel title="Breakdowns">
-            <MiniBreakdowns />
         </ScenePanelLabel>
     )
 }

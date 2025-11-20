@@ -13,6 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -247,6 +248,10 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
 
 
 class BaseStateWithTasks(BaseState):
@@ -299,7 +304,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_call_id: Annotated[Optional[str], replace] = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
@@ -311,7 +316,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The type of insight to generate.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    root_tool_calls_count: Annotated[Optional[int], replace] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
@@ -338,6 +343,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     summary_title: Optional[str] = Field(default=None)
     """
     The name of the summary to generate, based on the user's query and/or current filters.
+    """
+    session_summarization_limit: Optional[int] = Field(default=None)
+    """
+    The maximum number of sessions to summarize.
     """
     notebook_short_id: Optional[str] = Field(default=None)
     """
@@ -384,6 +393,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    USAGE_COMMAND_HANDLER = "usage_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"
@@ -399,7 +409,6 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
-    INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -411,6 +420,16 @@ class AssistantNodeName(StrEnum):
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
     REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
+    WEB_ANALYTICS_FILTER = "web_analytics_filter"
+    WEB_ANALYTICS_FILTER_OPTIONS_TOOLS = "web_analytics_filter_options_tools"
+
+
+class AssistantGraphName(StrEnum):
+    ASSISTANT = "assistant_graph"
+    AGENT_EXECUTOR = "agent_executor_graph"
+    INSIGHTS = "insights_graph"
+    TAXONOMY = "taxonomy_graph"
+    DEEP_RESEARCH = "deep_research_graph"
 
 
 class AssistantMode(StrEnum):
@@ -443,9 +462,33 @@ class NodeStartAction(BaseModel):
     type: Literal["NODE_START"] = "NODE_START"
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction
+class NodeEndAction(BaseModel, Generic[PartialStateType]):
+    type: Literal["NODE_END"] = "NODE_END"
+    state: PartialStateType | None = None
+
+
+class UpdateAction(BaseModel):
+    type: Literal["UPDATE"] = "UPDATE"
+    content: str
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+
+
+class NodePath(BaseModel):
+    """Defines a vertice of the assistant graph path."""
+
+    name: str
+    message_id: str | None = None
+    tool_call_id: str | None = None
 
 
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
+    node_path: tuple[NodePath, ...] | None = None
     node_name: str
+    node_run_id: str
+
+
+class LangGraphUpdateEvent(BaseModel):
+    update: Any

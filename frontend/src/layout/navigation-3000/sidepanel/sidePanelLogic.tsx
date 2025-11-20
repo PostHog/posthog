@@ -83,6 +83,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.Status)
+                }
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
@@ -98,9 +101,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
-                    tabs.push(SidePanelTab.Discussion)
-                }
+                tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
@@ -110,10 +111,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
                     tabs.push(SidePanelTab.SdkDoctor)
-                }
-
-                if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Status)
                 }
 
                 if (!currentTeam) {

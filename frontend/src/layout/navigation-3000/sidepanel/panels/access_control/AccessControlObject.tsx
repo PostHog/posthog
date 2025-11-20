@@ -149,7 +149,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         </p>
                     </div>
                 ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="ph-no-capture flex items-center gap-2">
                         <ProfilePicture user={member(ac as AccessControlTypeMember)?.user} />
                         <div>
                             <p className="font-medium mb-0">

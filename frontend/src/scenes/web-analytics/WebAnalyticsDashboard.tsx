@@ -42,8 +42,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps, ProductKey } from '~/types'
+import { ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -544,7 +544,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
+                <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
                     {/* Empty fragment so tabs are not part of the sticky bar */}
                     <Filters tabs={<></>} />

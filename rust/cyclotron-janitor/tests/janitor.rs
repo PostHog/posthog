@@ -64,6 +64,7 @@ async fn janitor_test(db: PgPool) {
 
     let uuid = Uuid::now_v7();
     let job_init = JobInit {
+        id: None,
         team_id: 1,
         queue_name: queue_name.clone(),
         priority: 0,

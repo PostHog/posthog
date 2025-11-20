@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
-import { IconInfo, IconPlay, IconPlayFilled, IconRedo, IconTestTube } from '@posthog/icons'
+import { IconInfo, IconPlayFilled, IconRedo, IconTestTube } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -72,7 +72,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
 
                 <p>Step through each action in your workflow and see how it behaves.</p>
 
-                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)} icon={<IconPlay />}>
+                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)}>
                     Start testing
                 </LemonButton>
             </div>
@@ -149,7 +149,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                             type="primary"
                             data-attr="test-workflow-panel-new"
                             onClick={() => submitTestInvocation()}
-                            icon={<IconPlay />}
                             loading={isTestInvocationSubmitting}
                             disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
                             size="small"

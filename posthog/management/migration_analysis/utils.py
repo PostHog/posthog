@@ -94,6 +94,7 @@ class OperationCategorizer:
             ("ADD" in sql_upper and "CONSTRAINT" in sql_upper and "NOT VALID" in sql_upper)
             or ("VALIDATE" in sql_upper and "CONSTRAINT" in sql_upper)
             or ("DROP" in sql_upper and "CONSTRAINT" in sql_upper)
+            or ("ADD" in sql_upper and "CONSTRAINT" in sql_upper and "USING INDEX" in sql_upper)
             or ("COMMENT ON" in sql_upper)
             or ("SET STATISTICS" in sql_upper)
             or ("SET (FILLFACTOR" in sql_upper)

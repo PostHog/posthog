@@ -16,7 +16,8 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2Type } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
@@ -56,7 +57,7 @@ export function StartupProgram(): JSX.Element {
         formSubmitted,
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
-        isUserOrganizationOwnerOrAdmin,
+        isAdminOrOwner,
         isYC,
         isReferralProgram,
         referrerDisplayName,
@@ -91,7 +92,7 @@ export function StartupProgram(): JSX.Element {
                         It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
                         {programName}. If you have any questions, please contact our support team.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -111,7 +112,7 @@ export function StartupProgram(): JSX.Element {
                             ? `your PostHog human ${accountOwner.name.split(' ')[0]} at ${accountOwner.email}`
                             : 'our support team'}
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -119,7 +120,7 @@ export function StartupProgram(): JSX.Element {
         )
     }
 
-    if (!isUserOrganizationOwnerOrAdmin) {
+    if (!isAdminOrOwner) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
@@ -128,7 +129,7 @@ export function StartupProgram(): JSX.Element {
                         You need to be an organization admin or owner to apply for the startup program. Please contact
                         your organization admin for assistance.
                     </p>
-                    <LemonButton type="primary" to={urls.projectHomepage()} className="mt-2">
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
                     </LemonButton>
                 </LemonBanner>
@@ -332,7 +333,7 @@ export function StartupProgram(): JSX.Element {
                                     Thank you for your application! We'll review it and get back to you as soon as
                                     possible. In the meantime, you can continue using PostHog.
                                 </p>
-                                <LemonButton type="primary" to={urls.projectHomepage()}>
+                                <LemonButton type="primary" to={urls.projectRoot()}>
                                     Return to PostHog
                                 </LemonButton>
                             </div>
