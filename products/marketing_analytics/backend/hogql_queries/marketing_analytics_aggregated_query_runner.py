@@ -79,12 +79,13 @@ class MarketingAnalyticsAggregatedQueryRunner(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
-        # Start with base columns but exclude Campaign, Source and rate metrics
+        # Start with base columns but exclude Campaign, Source, ID (strings) and rate metrics
         all_columns: dict[str, ast.Expr] = {
             str(k): v
             for k, v in BASE_COLUMN_MAPPING.items()
             if k
             not in (
+                MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
                 MarketingAnalyticsBaseColumns.CPC,
