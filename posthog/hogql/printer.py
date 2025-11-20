@@ -1638,32 +1638,13 @@ class _Printer(Visitor[str]):
                 )
 
             # Check for dmat (dynamic materialized) columns after mat_* columns
-            if self.context.property_swapper is not None:
-                properties_dict = None
-                if table_name == "events" and field_name == "properties":
-                    properties_dict = self.context.property_swapper.event_properties
-                elif (table_name == "persons" or table_name == "raw_persons") and field_name == "properties":
-                    properties_dict = self.context.property_swapper.person_properties
-                elif table_name == "events" and field_name == "person_properties":
-                    # Person properties on events (PoE mode)
-                    properties_dict = self.context.property_swapper.person_properties
-                elif table_name == "groups" and field_name == "properties":
-                    # Group properties are keyed as "{group_id}_{property_name}"
-                    # We need to check all group_properties for a match
-                    for group_key, group_prop_info in self.context.property_swapper.group_properties.items():
-                        if group_key.endswith(f"_{property_name}"):
-                            properties_dict = {property_name: group_prop_info}
-                            break
-
-                if properties_dict and property_name in properties_dict:
-                    prop_info = properties_dict[property_name]
-                    if "dmat" in prop_info:
-                        # Yield the dmat column - dmat columns are nullable
-                        yield PrintableMaterializedColumn(
-                            self.visit(field_type.table_type),
-                            self._print_identifier(prop_info["dmat"]),
-                            is_nullable=True,
-                        )
+            dmat_column = self._get_dmat_column(table_name, field_name, property_name)
+            if dmat_column is not None:
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(dmat_column),
+                    is_nullable=True,
+                )
 
             if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
@@ -1951,6 +1932,40 @@ class _Printer(Visitor[str]):
         return get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+
+    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
+        """
+        Get the dmat column name for a property if available.
+
+        Returns the column name (e.g., 'dmat_float_3') if a materialized slot exists,
+        otherwise None.
+        """
+        if self.context.property_swapper is None:
+            return None
+
+        swapper = self.context.property_swapper
+        properties_dict = None
+
+        # Event properties
+        if table_name == "events" and field_name == "properties":
+            properties_dict = swapper.event_properties
+        # Person properties (on persons table or events PoE)
+        elif field_name == "person_properties" or (
+            table_name in ("persons", "raw_persons") and field_name == "properties"
+        ):
+            properties_dict = swapper.person_properties
+        # Group properties (keyed as "{group_id}_{property_name}")
+        elif table_name == "groups" and field_name == "properties":
+            for group_key, group_prop_info in swapper.group_properties.items():
+                if group_key.endswith(f"_{property_name}"):
+                    properties_dict = {property_name: group_prop_info}
+                    break
+
+        if properties_dict and property_name in properties_dict:
+            prop_info = properties_dict[property_name]
+            return prop_info.get("dmat")
+
+        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
