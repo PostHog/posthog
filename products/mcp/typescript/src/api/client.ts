@@ -222,6 +222,10 @@ export class ApiClient {
                     body: JSON.stringify({
                         token: this.config.apiToken,
                     }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${this.config.apiToken}`,
+                    },
                 })
             },
         }

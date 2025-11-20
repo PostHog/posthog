@@ -2,6 +2,7 @@ import type { ApiClient } from '@/api/client'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
+import { ErrorCode } from '../errors'
 import type { ScopedCache } from './cache/ScopedCache'
 
 export class StateManager {
@@ -37,6 +38,7 @@ export class StateManager {
         if (isOAuthToken) {
             // Use OAuth introspection endpoint
             const introspectResult = await this._api.oauth().introspect()
+
             if (!introspectResult.success) {
                 throw new Error(`Failed to introspect OAuth token: ${introspectResult.error.message}`)
             }
@@ -44,7 +46,7 @@ export class StateManager {
             const introspection = introspectResult.data
 
             if (!introspection.active) {
-                throw new Error('OAuth token is not active')
+                throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
             }
 
             // Parse scopes from space-separated string if present
