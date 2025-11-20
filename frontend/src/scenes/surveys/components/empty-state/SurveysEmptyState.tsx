@@ -104,7 +104,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     'Create an NPS survey for customers who completed checkout',
                                     'Create a feedback survey asking about our new dashboard',
                                 ]}
-                                context={{ user_id: user.uuid }}
+                                context={{}}
                                 callback={(toolOutput: {
                                     survey_id?: string
                                     error?: string

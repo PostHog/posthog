@@ -41,4 +41,16 @@ export const manifest: ProductManifest = {
             sceneKeys: ['Dashboards', 'Dashboard'],
         },
     ],
+    treeItemsProducts: [
+        {
+            path: 'Dashboards',
+            category: 'Analytics',
+            type: 'dashboard',
+            iconType: 'dashboard',
+            iconColor: ['var(--color-product-dashboards-light)'],
+            href: urls.dashboards(),
+            sceneKey: 'Dashboards',
+            sceneKeys: ['Dashboard', 'Dashboards'],
+        },
+    ],
 }
