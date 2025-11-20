@@ -120,7 +120,8 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     if (
                         values.type === TaxonomicFilterGroupType.Events &&
                         values.definition &&
-                        'id' in values.definition
+                        'id' in values.definition &&
+                        values.definition.id
                     ) {
                         try {
                             const response = await api.objectMediaPreviews.list(
@@ -304,7 +305,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: ({ item }, __, ___, previousState) => {
             // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
@@ -314,7 +315,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 actions.recordHoverActivity()
             }
 
-            if (values.type === TaxonomicFilterGroupType.Events && values.definition && 'id' in values.definition) {
+            if (values.type === TaxonomicFilterGroupType.Events && item && 'id' in item && item.id) {
                 actions.loadExamples()
             }
         },
