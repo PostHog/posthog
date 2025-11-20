@@ -223,6 +223,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        // Edge case, storing the prompt when askMax is called but AIConsent hasn't been given (yet)
+        pendingPrompt: [
+            null as string | null,
+            {
+                askMax: (_, { prompt }) => prompt,
+                completeThreadGeneration: () => null,
+                stopGeneration: () => null,
+            },
+        ],
+
         // Whether generation should be immediately continued due to tool execution
         isAnotherAgenticIterationScheduled: [
             false,
