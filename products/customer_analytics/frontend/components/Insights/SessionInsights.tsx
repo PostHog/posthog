@@ -8,8 +8,10 @@ import { urls } from 'scenes/urls'
 import { ActivityTab } from '~/types'
 
 import { CustomerAnalyticsQueryCard } from 'products/customer_analytics/frontend/components/CustomerAnalyticsQueryCard'
-import { customerAnalyticsSceneLogic } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
-import { InsightDefinition } from 'products/customer_analytics/frontend/insightDefinitions'
+import {
+    InsightDefinition,
+    customerAnalyticsSceneLogic,
+} from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
 export function SessionInsights(): JSX.Element {
     const { sessionInsights, tabId } = useValues(customerAnalyticsSceneLogic)

@@ -10,8 +10,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { InsightDefinition } from '../../insightDefinitions'
+import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { eventConfigModalLogic } from './eventConfigModalLogic'
 

@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 
 import { CustomerAnalyticsQueryCard } from 'products/customer_analytics/frontend/components/CustomerAnalyticsQueryCard'
-import { customerAnalyticsSceneLogic } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
-import { InsightDefinition } from 'products/customer_analytics/frontend/insightDefinitions'
+import {
+    InsightDefinition,
+    customerAnalyticsSceneLogic,
+} from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
 export function SignupInsights(): JSX.Element {
     const { signupInsights, tabId } = useValues(customerAnalyticsSceneLogic)

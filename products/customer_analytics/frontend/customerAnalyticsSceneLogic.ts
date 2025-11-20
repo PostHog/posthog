@@ -6,7 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
     Breadcrumb,
@@ -21,13 +21,19 @@ import {
 
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
-import { InsightDefinition } from './insightDefinitions'
 
 export interface CustomerAnalyticsSceneLogicProps {
     tabId: string
 }
 
 export type SeriesType = EventsNode | ActionsNode | null
+export interface InsightDefinition {
+    name: string
+    description?: string
+    query: InsightVizNode
+    requiredSeries?: Record<string, (EventsNode | ActionsNode)[]>
+    className?: string
+}
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),

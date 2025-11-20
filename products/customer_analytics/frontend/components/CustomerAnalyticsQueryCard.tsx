@@ -7,10 +7,12 @@ import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
-import { customerAnalyticsSceneLogic } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
+import {
+    InsightDefinition,
+    customerAnalyticsSceneLogic,
+} from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
 import { SERIES_TO_EVENT_NAME_MAPPING } from '../constants'
-import { InsightDefinition } from '../insightDefinitions'
 import { eventConfigModalLogic } from './Insights/eventConfigModalLogic'
 
 interface CustomerAnalyticsQueryCardProps {
