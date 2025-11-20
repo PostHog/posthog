@@ -83,11 +83,24 @@ from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+
+# Lazy import to avoid loading session summary dependencies on startup
+# (session summary module may have heavy dependencies and is only needed for streaming summaries)
+_stream_recording_summary = None
+
+
+def _get_stream_recording_summary():
+    global _stream_recording_summary
+    if _stream_recording_summary is None:
+        from ee.hogai.session_summaries.session.stream import stream_recording_summary
+
+        _stream_recording_summary = stream_recording_summary
+    return _stream_recording_summary
+
 
 MAX_RECORDINGS_PER_BULK_ACTION = 20
 
@@ -1243,7 +1256,7 @@ class SessionRecordingViewSet(
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            _get_stream_recording_summary()(session_id=session_id, user_id=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 

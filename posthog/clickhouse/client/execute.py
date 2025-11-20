@@ -35,8 +35,20 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import ch_error_type, wrap_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.settings import API_QUERIES_ON_ONLINE_CLUSTER, CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
+
+# Lazy import to avoid loading temporal dependencies on startup
+_update_query_tags_with_temporal_info = None
+
+
+def _get_update_query_tags_with_temporal_info():
+    global _update_query_tags_with_temporal_info
+    if _update_query_tags_with_temporal_info is None:
+        from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
+
+        _update_query_tags_with_temporal_info = update_query_tags_with_temporal_info
+    return _update_query_tags_with_temporal_info
+
 
 QUERY_STARTED_COUNTER = Counter(
     "posthog_clickhouse_query_sent",
@@ -191,7 +203,7 @@ def sync_execute(
             ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
+    _get_update_query_tags_with_temporal_info()()
 
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI

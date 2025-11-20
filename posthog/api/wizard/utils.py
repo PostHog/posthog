@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from google.genai.types import Type
+Type = None
 
 
 def get_type_enum(json_type: str) -> Type:
+    global Type
+    if Type is None:
+        # google.genai takes ~1 sec to load, so we lazy load it
+        from google.genai.types import Type as _Type
+
+        Type = _Type
+
     """Convert JSON Schema type to Gemini Type enum"""
     type_mapping = {
         "string": Type.STRING,

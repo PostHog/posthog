@@ -6,7 +6,6 @@ from collections.abc import AsyncGenerator
 from django.conf import settings
 from django.http import StreamingHttpResponse
 
-import litellm
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -34,6 +33,20 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+# Lazy import to avoid loading litellm dependencies on startup
+# (litellm may have heavy dependencies and is only needed for LLM gateway endpoints)
+_litellm = None
+
+
+def _get_litellm():
+    global _litellm
+    if _litellm is None:
+        import litellm
+
+        _litellm = litellm
+    return _litellm
+
+
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -44,11 +57,13 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
 
     async def _anthropic_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
+        litellm = _get_litellm()
         response = await litellm.anthropic_messages(**data)
         async for chunk in response:
             yield chunk
 
     async def _openai_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
+        litellm = _get_litellm()
         response = await litellm.acompletion(**data)
         async for chunk in response:
             yield chunk
@@ -129,6 +144,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._create_streaming_response(sse_stream)
         else:
             try:
+                litellm = _get_litellm()
                 response = asyncio.run(litellm.anthropic_messages(**data))
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
                 return Response(response_dict)
@@ -201,6 +217,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._create_streaming_response(sse_stream)
         else:
             try:
+                litellm = _get_litellm()
                 response = asyncio.run(litellm.acompletion(**data))
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
                 return Response(response_dict)

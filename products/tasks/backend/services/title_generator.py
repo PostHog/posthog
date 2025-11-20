@@ -1,11 +1,10 @@
 import json
 import logging
 
-from anthropic.types import MessageParam
-
-from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
-
 logger = logging.getLogger(__name__)
+
+provider = None
+MessageParam = None
 
 
 def generate_task_title(description: str) -> str:
@@ -18,7 +17,17 @@ def generate_task_title(description: str) -> str:
         return "Untitled Task"
 
     try:
-        provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+        global provider
+        if provider is None:
+            from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+
+        global MessageParam
+        if MessageParam is None:
+            from anthropic.types import _MessageParam
+
+            MessageParam = _MessageParam
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 

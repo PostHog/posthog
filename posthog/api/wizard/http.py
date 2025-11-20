@@ -2,18 +2,12 @@ from __future__ import annotations
 
 import json
 import hashlib
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
 
 import posthoganalytics
-from google.genai.types import GenerateContentConfig, Schema
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
-from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -30,6 +24,87 @@ from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle, SetupWizardQueryRateThrottle
 from posthog.user_permissions import UserPermissions
+
+# Lazy import to avoid loading google.genai dependencies on startup
+# (google.genai may have heavy dependencies and is only needed for Gemini models)
+_GenerateContentConfig = None
+_Schema = None
+
+
+def _get_GenerateContentConfig():
+    global _GenerateContentConfig
+    if _GenerateContentConfig is None:
+        from google.genai.types import GenerateContentConfig
+
+        _GenerateContentConfig = GenerateContentConfig
+    return _GenerateContentConfig
+
+
+def _get_Schema():
+    global _Schema
+    if _Schema is None:
+        from google.genai.types import Schema
+
+        _Schema = Schema
+    return _Schema
+
+
+# Lazy import to avoid loading openai dependencies on startup
+_openai_chat_types = None
+
+
+def _get_openai_chat_types():
+    global _openai_chat_types
+    if _openai_chat_types is None:
+        from openai.types.chat import (
+            ChatCompletionMessageParam,
+            ChatCompletionSystemMessageParam,
+            ChatCompletionUserMessageParam,
+        )
+
+        _openai_chat_types = {
+            "ChatCompletionMessageParam": ChatCompletionMessageParam,
+            "ChatCompletionSystemMessageParam": ChatCompletionSystemMessageParam,
+            "ChatCompletionUserMessageParam": ChatCompletionUserMessageParam,
+        }
+    return _openai_chat_types
+
+
+# Import at module level for type checking, but use lazy loader in code
+if TYPE_CHECKING:
+    from openai.types.chat import (
+        ChatCompletionMessageParam,
+        ChatCompletionSystemMessageParam,
+        ChatCompletionUserMessageParam,
+    )
+else:
+    # Create placeholders that will be replaced on first access
+    ChatCompletionMessageParam = None
+    ChatCompletionSystemMessageParam = None
+    ChatCompletionUserMessageParam = None
+
+
+def __getattr__(name: str):
+    """Lazy load openai chat types on first access."""
+    if name in ("ChatCompletionMessageParam", "ChatCompletionSystemMessageParam", "ChatCompletionUserMessageParam"):
+        types = _get_openai_chat_types()
+        return types[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Lazy import to avoid loading genai dependencies on startup
+# (genai may have heavy dependencies and is only needed for Gemini models)
+_genai = None
+
+
+def _get_genai():
+    global _genai
+    if _genai is None:
+        from posthoganalytics.ai.gemini import genai
+
+        _genai = genai
+    return _genai
+
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -217,12 +292,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 )
                 raise error
 
+            genai = _get_genai()
             client = genai.Client(api_key=api_key, posthog_client=posthog_client)
 
             converted_schema = json_schema_to_gemini_schema(json_schema)
 
+            Schema = _get_Schema()
             response_schema = Schema(**converted_schema)
 
+            GenerateContentConfig = _get_GenerateContentConfig()
             config = GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0,
@@ -259,6 +337,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             response_data = response.parsed
 
         elif model in OPENAI_SUPPORTED_MODELS:
+            ChatCompletionSystemMessageParam = _get_openai_chat_types()["ChatCompletionSystemMessageParam"]
+            ChatCompletionUserMessageParam = _get_openai_chat_types()["ChatCompletionUserMessageParam"]
+
             system_message = ChatCompletionSystemMessageParam(
                 role="system",
                 content=system_prompt,

@@ -11,12 +11,11 @@ import json
 import uuid
 import logging
 from collections.abc import Callable, Generator
-from typing import Any, TypedDict, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, TypedDict, TypeGuard, cast
 
 from django.http import StreamingHttpResponse
 
 import posthoganalytics
-from anthropic.types import MessageParam
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -30,21 +29,60 @@ from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateT
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
-from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
-from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
-from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
-from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
+
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam
+
+# Lazy import to avoid loading provider dependencies on startup
+# (providers may have heavy dependencies and are only needed when making LLM calls)
+_providers = None
+
+
+def _get_providers():
+    """Lazy load all provider modules and configs, cached after first import."""
+    global _providers
+    if _providers is None:
+        from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
+        from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
+        from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
+        from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
+        from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
+
+        _providers = {
+            "AnthropicConfig": AnthropicConfig,
+            "AnthropicProvider": AnthropicProvider,
+            "CodestralConfig": CodestralConfig,
+            "CodestralProvider": CodestralProvider,
+            "GeminiConfig": GeminiConfig,
+            "GeminiProvider": GeminiProvider,
+            "InkeepConfig": InkeepConfig,
+            "InkeepProvider": InkeepProvider,
+            "OpenAIConfig": OpenAIConfig,
+            "OpenAIProvider": OpenAIProvider,
+        }
+    return _providers
+
 
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_MODELS_WITH_THINKING = (
-    AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
-)
+# Lazy constant - computed on first access
+_SUPPORTED_MODELS_WITH_THINKING = None
+
+
+def _get_supported_models_with_thinking():
+    """Get supported models with thinking capability, cached after first call."""
+    global _SUPPORTED_MODELS_WITH_THINKING
+    if _SUPPORTED_MODELS_WITH_THINKING is None:
+        providers = _get_providers()
+        _SUPPORTED_MODELS_WITH_THINKING = (
+            providers["AnthropicConfig"].SUPPORTED_MODELS_WITH_THINKING
+            + providers["OpenAIConfig"].SUPPORTED_MODELS_WITH_THINKING
+        )
+    return _SUPPORTED_MODELS_WITH_THINKING
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -96,7 +134,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         )
         return llm_analytics_enabled
 
-    def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
+    def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list["MessageParam"]]:
         if not messages:
             return False
         for msg in messages:
@@ -168,11 +206,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 tools_handler = LLMToolsHandler(tools_data)
 
                 # Convert tools to appropriate format based on provider type
-                if isinstance(provider, OpenAIProvider):
+                providers = _get_providers()
+                if isinstance(provider, providers["OpenAIProvider"]):
                     processed_tools = tools_handler.convert_to(ToolFormat.OPENAI)
-                elif isinstance(provider, AnthropicProvider):
+                elif isinstance(provider, providers["AnthropicProvider"]):
                     processed_tools = tools_handler.convert_to(ToolFormat.ANTHROPIC)
-                elif isinstance(provider, GeminiProvider):
+                elif isinstance(provider, providers["GeminiProvider"]):
                     processed_tools = tools_handler.convert_to(ToolFormat.GEMINI)
                 else:
                     # For other providers (like Inkeep), we don't have tools support yet
@@ -193,7 +232,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 }
 
                 # Only pass reasoning_level to OpenAI provider which supports it
-                if isinstance(provider, OpenAIProvider):
+                providers = _get_providers()
+                if isinstance(provider, providers["OpenAIProvider"]):
                     stream_kwargs["reasoning_level"] = serializer.validated_data.get("reasoning_level")
 
                 stream = self._create_stream_generator(
@@ -254,18 +294,19 @@ class LLMProxyViewSet(viewsets.ViewSet):
         model_id = data.get("model")
         thinking = data.get("thinking", False)
 
-        if thinking and model_id not in SUPPORTED_MODELS_WITH_THINKING:
+        if thinking and model_id not in _get_supported_models_with_thinking():
             return Response({"error": "Thinking is not supported for this model"}, status=400)
 
+        providers = _get_providers()
         match model_id:
-            case model_id if model_id in AnthropicConfig.SUPPORTED_MODELS:
-                return AnthropicProvider(model_id)
-            case model_id if model_id in InkeepConfig.SUPPORTED_MODELS:
-                return InkeepProvider(model_id)
-            case model_id if model_id in OpenAIConfig.SUPPORTED_MODELS:
-                return OpenAIProvider(model_id)
-            case model_id if model_id in GeminiConfig.SUPPORTED_MODELS:
-                return GeminiProvider(model_id)
+            case model_id if model_id in providers["AnthropicConfig"].SUPPORTED_MODELS:
+                return providers["AnthropicProvider"](model_id)
+            case model_id if model_id in providers["InkeepConfig"].SUPPORTED_MODELS:
+                return providers["InkeepProvider"](model_id)
+            case model_id if model_id in providers["OpenAIConfig"].SUPPORTED_MODELS:
+                return providers["OpenAIProvider"](model_id)
+            case model_id if model_id in providers["GeminiConfig"].SUPPORTED_MODELS:
+                return providers["GeminiProvider"](model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 
@@ -299,24 +340,29 @@ class LLMProxyViewSet(viewsets.ViewSet):
     def _get_fim_provider(self, data: ProviderData) -> Any:
         """Factory method for FIM providers"""
         model_id = data.get("model")
+        providers = _get_providers()
         match model_id:
-            case model_id if model_id in CodestralConfig.SUPPORTED_MODELS:
-                return CodestralProvider(model_id)
+            case model_id if model_id in providers["CodestralConfig"].SUPPORTED_MODELS:
+                return providers["CodestralProvider"](model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 
     @action(detail=False, methods=["GET"])
     def models(self, request):
         """Return a list of available models across providers"""
+        providers = _get_providers()
         model_list: list[dict[str, str]] = []
         model_list += [
-            {"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS
+            {"id": m, "name": m, "provider": "OpenAI", "description": ""}
+            for m in providers["OpenAIConfig"].SUPPORTED_MODELS
         ]
         model_list += [
-            {"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS
+            {"id": m, "name": m, "provider": "Anthropic", "description": ""}
+            for m in providers["AnthropicConfig"].SUPPORTED_MODELS
         ]
         model_list += [
-            {"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS
+            {"id": m, "name": m, "provider": "Gemini", "description": ""}
+            for m in providers["GeminiConfig"].SUPPORTED_MODELS
         ]
         return Response(model_list)
 

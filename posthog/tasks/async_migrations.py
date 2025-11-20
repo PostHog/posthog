@@ -1,13 +1,6 @@
 from celery import shared_task, states
 from celery.result import AsyncResult
 
-from posthog.async_migrations.runner import (
-    run_async_migration_operations,
-    run_migration_healthcheck,
-    start_async_migration,
-    update_migration_progress,
-)
-from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -17,6 +10,8 @@ from posthog.models.instance_setting import get_instance_setting
 # 3. ...
 @shared_task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
+    from posthog.async_migrations.runner import run_async_migration_operations, start_async_migration
+
     if fresh_start:
         start_async_migration(migration_name)
         return
@@ -30,6 +25,8 @@ def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
 # 2. Does a periodic healthcheck to make sure it's safe to continue running the migration
 # 3. Updates migration progress
 def check_async_migration_health() -> None:
+    from posthog.async_migrations.runner import run_migration_healthcheck, update_migration_progress
+    from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
     from posthog.celery import app
     from posthog.models.async_migration import AsyncMigration, MigrationStatus
 

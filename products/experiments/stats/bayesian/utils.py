@@ -6,12 +6,34 @@ posterior updates, credible intervals, probability calculations, and risk assess
 """
 
 import numpy as np
-from scipy.stats import norm, truncnorm
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
+
+# Lazy import to avoid loading scipy dependencies on startup
+# (scipy may have heavy dependencies and is only needed for statistical calculations)
+_norm = None
+_truncnorm = None
+
+
+def _get_norm():
+    global _norm
+    if _norm is None:
+        from scipy.stats import norm
+
+        _norm = norm
+    return _norm
+
+
+def _get_truncnorm():
+    global _truncnorm
+    if _truncnorm is None:
+        from scipy.stats import truncnorm
+
+        _truncnorm = truncnorm
+    return _truncnorm
 
 
 def calculate_effect_size_and_variance(
@@ -163,6 +185,7 @@ def chance_to_win(posterior_mean: float, posterior_std: float, inverse: bool = F
     if posterior_std <= 0:
         raise StatisticError("Posterior standard deviation must be positive")
 
+    norm = _get_norm()
     if inverse:
         # Lower is better
         return float(norm.cdf(0, loc=posterior_mean, scale=posterior_std))
@@ -193,6 +216,7 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
     if posterior_std <= 0:
         raise StatisticError("Posterior standard deviation must be positive")
 
+    norm = _get_norm()
     bounds = norm.ppf([alpha / 2, 1 - alpha / 2], loc=posterior_mean, scale=posterior_std)
     return (float(bounds[0]), float(bounds[1]))
 
@@ -215,6 +239,7 @@ def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, 
     if posterior_std <= 0:
         raise StatisticError("Posterior standard deviation must be positive")
 
+    norm = _get_norm()
     # Probability that control is better (effect < 0)
     prob_control_better = norm.cdf(0, loc=posterior_mean, scale=posterior_std)
 
@@ -263,6 +288,7 @@ def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bou
     upper_std = (upper_bound - mu) / sigma if not np.isinf(upper_bound) else upper_bound
 
     # Use scipy's truncated normal
+    truncnorm = _get_truncnorm()
     try:
         return float(truncnorm.mean(lower_std, upper_std, loc=mu, scale=sigma))
     except Exception as e:
