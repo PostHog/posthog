@@ -812,8 +812,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
-                const view = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
-                if (view) {
+                const view = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab.view?.id)
+                if (view && values.activeTab) {
                     actions.updateTab({ ...values.activeTab, view })
                     actions.setQueryInput(view.query.query || '')
                 }
