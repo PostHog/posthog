@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
@@ -743,10 +744,25 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Override to use CASCADE when truncating tables.
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
-        from django.core.management import call_command
-
         for db_name in self._databases_names(include_mirrors=False):
-            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            if db_name in ("persons_db_writer", "persons_db_reader"):
+                # Manually truncate persons database tables
+                # Can't use Django's flush because it emits post_migrate signals that try to
+                # create contenttypes/permissions tables that don't exist in persons database
+                conn = connections[db_name]
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE '_sqlx_%'
+                        AND tablename NOT LIKE '_persons_migrations'
+                    """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                    if tables:
+                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+            else:
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):

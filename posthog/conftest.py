@@ -173,7 +173,19 @@ def run_persons_sqlx_migrations():
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
-    # Create database if it doesn't exist (idempotent)
+    # Drop and recreate database to ensure clean state
+    try:
+        subprocess.run(
+            ["sqlx", "database", "drop", "-y"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError:
+        # Database might not exist, which is fine
+        pass
+
+    # Create fresh database
     try:
         subprocess.run(
             ["sqlx", "database", "create"],

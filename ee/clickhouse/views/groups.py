@@ -88,7 +88,7 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
-        if group_type_mapping.detail_dashboard:
+        if group_type_mapping.detail_dashboard_id:
             return response.Response(
                 {"detail": "Dashboard already exists for this group type."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -268,7 +268,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
             )
         except IntegrityError as exc:
-            if "unique team_id/group_key/group_type_index combo" in str(exc):
+            # Check for both constraint names: Django model name and actual database constraint name
+            if "unique team_id/group_key/group_type_index combo" in str(
+                exc
+            ) or "unique_team_group_key_group_type" in str(exc):
                 raise ValidationError({"detail": "A group with this key already exists"})
             raise
 
