@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 class ExecuteTaskInput:
     sandbox_id: str
     task_id: str
+    run_id: str
     repository: str
     distinct_id: str
 
@@ -37,13 +38,14 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         "execute_task_in_sandbox",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
+        run_id=input.run_id,
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = sandbox.execute_task(input.task_id, input.repository)
+            result = sandbox.execute_task(task_id=input.task_id, run_id=input.run_id, repository=input.repository)
         except Exception as e:
             raise SandboxExecutionError(
                 f"Failed to execute task in sandbox",

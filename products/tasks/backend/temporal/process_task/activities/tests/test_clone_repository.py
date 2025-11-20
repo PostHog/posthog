@@ -33,6 +33,7 @@ class TestCloneRepositoryActivity:
                 sandbox_id=sandbox.id,
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
+                run_id="test-run-123",
                 task_id="test-task-123",
                 distinct_id="test-user-id",
             )
@@ -81,6 +82,7 @@ class TestCloneRepositoryActivity:
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-idempotent",
+                run_id="test-run-idempotent",
                 distinct_id="test-user-id",
             )
 
@@ -127,6 +129,7 @@ class TestCloneRepositoryActivity:
                 repository="PostHog/private-test-repo-that-does-not-exist",
                 github_integration_id=github_integration.id,
                 task_id="test-task-auth-fail",
+                run_id="test-run-auth-fail",
                 distinct_id="test-user-id",
             )
 
@@ -171,6 +174,7 @@ class TestCloneRepositoryActivity:
                         repository=repo,
                         github_integration_id=github_integration.id,
                         task_id=f"test-task-{repo.split('/')[1]}",
+                        run_id="test-run-multiple-repos",
                         distinct_id="test-user-id",
                     )
 
@@ -201,6 +205,7 @@ class TestCloneRepositoryActivity:
             repository="posthog/posthog-js",
             github_integration_id=github_integration.id,
             task_id="test-task-not-found",
+            run_id="test-run-not-found",
             distinct_id="test-user-id",
         )
 
