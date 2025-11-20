@@ -1,0 +1,183 @@
+# ruff: noqa: F405  # Star imports are intentional
+from __future__ import annotations
+
+from typing import Any, Union
+
+from pydantic import Field, RootModel
+
+from posthog.schema.enums import *  # noqa: F403, F401
+from posthog.schema.nodes import *  # noqa: F403, F401
+from posthog.schema.other import *  # noqa: F403, F401
+from posthog.schema.queries import *  # noqa: F403, F401
+
+
+class SchemaRoot(RootModel[Any]):
+    root: Any
+
+
+class QuerySchemaRoot(
+    RootModel[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            DataWarehouseNode,
+            EventsQuery,
+            SessionsQuery,
+            ActorsQuery,
+            GroupsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+            SessionsTimelineQuery,
+            HogQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            HogQLAutocomplete,
+            HogQLASTQuery,
+            SessionAttributionExplorerQuery,
+            RevenueExampleEventsQuery,
+            RevenueExampleDataWarehouseTablesQuery,
+            ErrorTrackingQuery,
+            ErrorTrackingSimilarIssuesQuery,
+            ErrorTrackingBreakdownsQuery,
+            ErrorTrackingIssueCorrelationQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
+            ExperimentQuery,
+            ExperimentExposureQuery,
+            DocumentSimilarityQuery,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebExternalClicksTableQuery,
+            WebGoalsQuery,
+            WebVitalsQuery,
+            WebVitalsPathBreakdownQuery,
+            WebPageURLSearchQuery,
+            WebAnalyticsExternalSummaryQuery,
+            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsMetricsQuery,
+            RevenueAnalyticsMRRQuery,
+            RevenueAnalyticsOverviewQuery,
+            RevenueAnalyticsTopCustomersQuery,
+            MarketingAnalyticsTableQuery,
+            MarketingAnalyticsAggregatedQuery,
+            DataVisualizationNode,
+            DataTableNode,
+            SavedInsightNode,
+            InsightVizNode,
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            PathsQuery,
+            StickinessQuery,
+            LifecycleQuery,
+            FunnelCorrelationQuery,
+            DatabaseSchemaQuery,
+            LogsQuery,
+            SuggestedQuestionsQuery,
+            TeamTaxonomyQuery,
+            EventTaxonomyQuery,
+            ActorsPropertyTaxonomyQuery,
+            TracesQuery,
+            TraceQuery,
+            VectorSearchQuery,
+            UsageMetricsQuery,
+        ]
+    ]
+):
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        SessionsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ErrorTrackingSimilarIssuesQuery,
+        ErrorTrackingBreakdownsQuery,
+        ErrorTrackingIssueCorrelationQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        DocumentSimilarityQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsMRRQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        MarketingAnalyticsAggregatedQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        TraceQuery,
+        VectorSearchQuery,
+        UsageMetricsQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class RootAssistantMessage(
+    RootModel[
+        Union[
+            VisualizationMessage,
+            MultiVisualizationMessage,
+            ReasoningMessage,
+            AssistantMessage,
+            HumanMessage,
+            FailureMessage,
+            NotebookUpdateMessage,
+            PlanningMessage,
+            TaskExecutionMessage,
+            AssistantToolCallMessage,
+        ]
+    ]
+):
+    root: Union[
+        VisualizationMessage,
+        MultiVisualizationMessage,
+        ReasoningMessage,
+        AssistantMessage,
+        HumanMessage,
+        FailureMessage,
+        NotebookUpdateMessage,
+        PlanningMessage,
+        TaskExecutionMessage,
+        AssistantToolCallMessage,
+    ]
