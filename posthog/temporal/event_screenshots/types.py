@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -6,6 +8,7 @@ class GenerateEventScreenshotsInput(BaseModel):
 
 
 class EventType(BaseModel):
+    event_definition_id: UUID
     name: str
     team_id: int
 
@@ -18,6 +21,18 @@ class EventSession(BaseModel):
 
 class LoadEventSessionsResult(BaseModel):
     event_sessions: list[tuple[EventType, EventSession]]
+
+
+class TakeEventScreenshotInput(BaseModel):
+    event_type: EventType
+    event_session: EventSession
+
+
+class TakeEventScreenshotResult(BaseModel):
+    event_type: EventType
+    event_session: EventSession
+    exported_asset_id: int
+    content_location: str
 
 
 class ClickHouseResponse(BaseModel):

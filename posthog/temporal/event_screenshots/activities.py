@@ -4,7 +4,9 @@ from django.db import connection
 
 from temporalio import activity
 
+from posthog.models import ExportedAsset, ObjectMediaPreview
 from posthog.sync import database_sync_to_async
+from posthog.tasks.exporter import export_asset_direct
 from posthog.temporal.common.clickhouse import get_client as get_ch_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.event_screenshots.types import (
@@ -12,6 +14,8 @@ from posthog.temporal.event_screenshots.types import (
     EventSession,
     EventType,
     LoadEventSessionsResult,
+    TakeEventScreenshotInput,
+    TakeEventScreenshotResult,
 )
 
 LOGGER = get_write_only_logger()
@@ -19,7 +23,8 @@ LOGGER = get_write_only_logger()
 
 EVENT_TYPE_QUERY = """
 SELECT
-	ed.name,
+	ed.id,
+    ed.name,
 	ed.team_id
 FROM posthog_eventdefinition ed
 INNER JOIN posthog_eventproperty ep
@@ -40,8 +45,9 @@ def _query_event_types():
         results = cur.fetchall()
     return [
         EventType(
-            name=row[0],
-            team_id=row[1],
+            event_definition_id=row[0],
+            name=row[1],
+            team_id=row[2],
         )
         for row in results
     ]
@@ -119,4 +125,46 @@ async def load_event_sessions(event_types: list[EventType]) -> LoadEventSessions
 
     return LoadEventSessionsResult(
         event_sessions=result,
+    )
+
+
+@activity.defn(name="take-event-screenshot")
+async def take_event_screenshot(input: TakeEventScreenshotInput) -> TakeEventScreenshotResult:
+    asset = await ExportedAsset.objects.acreate(
+        team_id=input.event_type.team_id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        created_by_id=1,
+    )
+
+    asset.export_context = {
+        "session_recording_id": input.event_session.session_id,
+        "timestamp": input.event_session.timestamp,
+    }
+
+    await asset.asave()
+
+    await database_sync_to_async(export_asset_direct)(asset)
+
+    await asset.arefresh_from_db()
+
+    return TakeEventScreenshotResult(
+        event_type=input.event_type,
+        event_session=input.event_session,
+        exported_asset_id=asset.id,
+        content_location=asset.content_location,
+    )
+
+
+@activity.defn(name="store-event-screenshot")
+async def store_event_screenshot(input: TakeEventScreenshotResult):
+    await ObjectMediaPreview.objects.acreate(
+        team_id=input.event_type.team_id,
+        exported_asset_id=input.exported_asset_id,
+        event_definition_id=input.event_type.event_definition_id,
+        metadata={
+            "session_id": input.event_session.session_id,
+            "timestamp": input.event_session.timestamp,
+            "url": input.event_session.url,
+            "event_name": input.event_type.name,
+        },
     )
