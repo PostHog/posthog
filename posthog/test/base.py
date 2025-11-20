@@ -692,7 +692,7 @@ class PostHogTestCase(SimpleTestCase):
         """
         if using != "__all__":
             # Use Django's standard single-database assertion
-            return super().assertNumQueries(num, func, *args, using=using, **kwargs)
+            return super().assertNumQueries(num, func, *args, using=using, **kwargs)  # type: ignore[misc]
 
         # Multi-database query counting
         from django.test.utils import CaptureQueriesContext

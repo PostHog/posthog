@@ -242,7 +242,7 @@ class Command(BaseCommand):
 
         if self.dry_run:
             # Group by team and count
-            team_counts = defaultdict(int)
+            team_counts: dict[int, int] = defaultdict(int)
             for mapping_id in misaligned_ids:
                 mapping = GroupTypeMapping.objects.get(id=mapping_id)
                 team_counts[mapping.team_id] += 1
