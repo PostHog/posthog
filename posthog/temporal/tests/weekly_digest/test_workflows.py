@@ -278,6 +278,7 @@ async def test_send_weekly_digest_workflow():
                 SendWeeklyDigestWorkflow.run,
                 SendWeeklyDigestInput(
                     dry_run=True,
+                    allow_already_sent=False,
                     digest=digest,
                     common=CommonInput(batch_size=TEST_BATCH_SIZE, redis_host="localhost", redis_port=6379),
                 ),

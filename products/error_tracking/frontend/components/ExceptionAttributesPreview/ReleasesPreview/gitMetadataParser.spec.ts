@@ -18,10 +18,10 @@ describe('GitMetadataParser', () => {
             expect(result).toBe('https://github.com/user/repo/commit/commit-sha')
         })
 
-        it('should return undefined for non-GitHub URLs', () => {
-            const gitlabUrl = 'https://gitlab.com/user/repo.git'
+        it('should return undefined for unknown git providers', () => {
+            const unknownUrl = 'https://bitbucket.org/user/repo.git'
             const commitSha = 'commit-sha'
-            const result = GitMetadataParser.resolveRemoteUrlWithCommitToLink(gitlabUrl, commitSha)
+            const result = GitMetadataParser.resolveRemoteUrlWithCommitToLink(unknownUrl, commitSha)
 
             expect(result).toBeUndefined()
         })

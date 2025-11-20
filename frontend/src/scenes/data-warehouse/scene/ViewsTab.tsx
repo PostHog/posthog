@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
-import { viewsTabLogic } from './viewsTabLogic'
+import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
 
 const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Running: 'primary',
@@ -77,9 +77,12 @@ export function ViewsTab(): JSX.Element {
     const {
         filteredViews,
         filteredMaterializedViews,
+        visibleMaterializedViews,
+        visibleViews,
         viewsLoading,
         searchTerm,
-        dependenciesMapLoading,
+        materializedViewDependenciesMapLoading,
+        viewDependenciesMapLoading,
         runHistoryMapLoading,
         materializedViewsCurrentPage,
         viewsCurrentPage,
@@ -109,7 +112,7 @@ export function ViewsTab(): JSX.Element {
                         performance.
                     </p>
                     <LemonTable
-                        dataSource={filteredMaterializedViews}
+                        dataSource={visibleMaterializedViews}
                         loading={viewsLoading}
                         columns={[
                             {
@@ -194,7 +197,7 @@ export function ViewsTab(): JSX.Element {
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.upstream_dependency_count}
-                                        loading={dependenciesMapLoading}
+                                        loading={materializedViewDependenciesMapLoading}
                                     />
                                 ),
                             },
@@ -205,7 +208,7 @@ export function ViewsTab(): JSX.Element {
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.downstream_dependency_count}
-                                        loading={dependenciesMapLoading}
+                                        loading={materializedViewDependenciesMapLoading}
                                     />
                                 ),
                             },
@@ -233,8 +236,10 @@ export function ViewsTab(): JSX.Element {
                             },
                         ]}
                         pagination={{
-                            pageSize: 10,
+                            controlled: true,
+                            pageSize: PAGE_SIZE,
                             currentPage: materializedViewsCurrentPage,
+                            entryCount: filteredMaterializedViews.length,
                             onForward: () => {
                                 setMaterializedViewsPage(materializedViewsCurrentPage + 1)
                             },
@@ -254,7 +259,7 @@ export function ViewsTab(): JSX.Element {
                         Views are virtual tables created from SQL queries. They are computed on-the-fly when queried.
                     </p>
                     <LemonTable
-                        dataSource={filteredViews}
+                        dataSource={visibleViews}
                         loading={viewsLoading}
                         columns={[
                             {
@@ -307,7 +312,7 @@ export function ViewsTab(): JSX.Element {
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.upstream_dependency_count}
-                                        loading={dependenciesMapLoading}
+                                        loading={viewDependenciesMapLoading}
                                     />
                                 ),
                             },
@@ -318,7 +323,7 @@ export function ViewsTab(): JSX.Element {
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.downstream_dependency_count}
-                                        loading={dependenciesMapLoading}
+                                        loading={viewDependenciesMapLoading}
                                     />
                                 ),
                             },
@@ -343,8 +348,10 @@ export function ViewsTab(): JSX.Element {
                             },
                         ]}
                         pagination={{
-                            pageSize: 10,
+                            controlled: true,
+                            pageSize: PAGE_SIZE,
                             currentPage: viewsCurrentPage,
+                            entryCount: filteredViews.length,
                             onForward: () => {
                                 setViewsPage(viewsCurrentPage + 1)
                             },

@@ -105,6 +105,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
 
     const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
@@ -485,7 +486,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="ToggleShortcutMenu"
-                                keybind={['command', 'shift', 'k']}
+                                keybind={keyBinds.toggleShortcutMenu}
                                 intent="Toggle shortcut menu"
                                 interaction="click"
                                 asChild
@@ -496,7 +497,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     iconOnly={isLayoutNavCollapsed}
                                     tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
                                     tooltipPlacement="right"
-                                    onClick={() => setAppShortcutMenuOpen(true)}
+                                    onClick={() => setAppShortcutMenuOpen(!appShortcutMenuOpen)}
                                     menuItem={!isLayoutNavCollapsed}
                                     className="hidden"
                                 />
