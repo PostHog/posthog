@@ -139,8 +139,9 @@ class CDPProducer:
                         self.logger.debug(f"Producing batch {index} from file {file_path} to Kafka")
 
                         for row in batch.to_pylist():
+                            row_as_props = {"team_id": self.team_id, "properties": row}
                             KafkaProducer().produce(
-                                topic=KAFKA_DWH_CDP_RAW_TABLE, data=row, value_serializer=self._serialize_json
+                                topic=KAFKA_DWH_CDP_RAW_TABLE, data=row_as_props, value_serializer=self._serialize_json
                             )
 
                 self.logger.debug(f"Finished producing file {file_path} to Kafka")
