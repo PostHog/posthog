@@ -20,6 +20,7 @@ export function EventConfigModal(): JSX.Element {
     const handleSave = (): void => {
         saveEvents()
         toggleModalOpen(false)
+        clearEventsToHighlight()
     }
 
     const onClose = (): void => {
