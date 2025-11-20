@@ -47,7 +47,7 @@ def _get_billing_config_payload() -> dict | None:
         "posthog-ai-billing-free-tier-credits", "internal_billing_events"
     )
 
-    if not payload or not isinstance(payload, dict):
+    if not isinstance(payload, dict):
         return None
 
     return payload

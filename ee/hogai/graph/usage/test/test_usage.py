@@ -79,7 +79,8 @@ class TestUsage(BaseTest):
         )
         start_time = get_conversation_start_time(conversation.id)
         self.assertIsNotNone(start_time)
-        assert start_time is not None  # type narrowing for mypy
+        if start_time is None:
+            raise AssertionError("start_time should not be None")
         self.assertEqual(start_time.replace(microsecond=0), conversation.created_at.replace(microsecond=0))
 
     def test_get_conversation_start_time_not_exists(self):
