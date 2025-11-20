@@ -2444,6 +2444,36 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_restore_allows_payload_with_additional_fields(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Restorable Experiment",
+                "feature_flag_key": "restore-flag",
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+            format="json",
+        )
+        experiment = create_response.json()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"deleted": True},
+            format="json",
+        )
+
+        restore_payload = {"deleted": False, "name": experiment["name"]}
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            restore_payload,
+            format="json",
+        )
+
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore_response.json()["deleted"])
+
     def test_create_experiment_with_missing_parameters(self):
         ff_key = "a-b-tests"
 

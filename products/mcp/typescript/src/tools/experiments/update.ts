@@ -30,9 +30,7 @@ export const updateHandler: ToolBase<typeof schema>['handler'] = async (context:
         url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`,
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(experimentWithUrl, null, 2) }],
-    }
+    return experimentWithUrl
 }
 
 const definition = getToolDefinition('experiment-update')

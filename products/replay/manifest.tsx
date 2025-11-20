@@ -32,7 +32,6 @@ export const manifest: ProductManifest = {
             filterKey: 'session_recording_playlist',
         },
     },
-    treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Session replay',
@@ -43,6 +42,17 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             sceneKey: 'Replay',
             sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
+        },
+        // TODO: Move over to the `heatmaps` product folder once it exists
+        {
+            path: 'Heatmaps',
+            category: 'Behavior',
+            iconType: 'heatmap',
+            iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
+            href: urls.heatmaps(),
+            tags: ['beta'],
+            sceneKey: 'Heatmaps',
+            sceneKeys: ['Heatmaps'],
         },
     ],
 }

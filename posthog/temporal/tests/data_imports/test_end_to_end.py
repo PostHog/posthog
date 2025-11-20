@@ -51,6 +51,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -68,6 +69,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -2890,3 +2892,45 @@ async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_clie
         )
 
         mock_raise_if_is_worker_shutdown.assert_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+
+        with pytest.raises(Exception):
+            await _run(
+                team=team,
+                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                table_name="stripe_customer",
+                source_type="Stripe",
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                mock_data_response=stripe_customer["data"],
+                ignore_assertions=True,
+            )
+
+    # Incremental and resumable source syncs retry up to 9 times
+    assert mock_get_rows.call_count == 9
+
+    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    non_retryable_error = next(iter(non_retryable_errors.keys()))
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+        mock_get_rows.side_effect = Exception(non_retryable_error)
+
+        with pytest.raises(Exception):
+            await _run(
+                team=team,
+                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                table_name="stripe_customer",
+                source_type="Stripe",
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+                mock_data_response=stripe_customer["data"],
+                ignore_assertions=True,
+            )
+
+    # We should early exit on the first attempt with a non-retryable error
+    assert mock_get_rows.call_count == 1
