@@ -70,7 +70,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return []
                     }
-                    const response = await api.get(`api/materialized_column_slots/?team_id=${values.currentTeam.id}`)
+                    const response = await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/`)
                     return response.results || []
                 },
             },
@@ -82,7 +82,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return null
                     }
-                    return await api.get(`api/materialized_column_slots/slot_usage/?team_id=${values.currentTeam.id}`)
+                    return await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/slot_usage/`)
                 },
             },
         ],
@@ -94,7 +94,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                         return []
                     }
                     return await api.get(
-                        `api/materialized_column_slots/available_properties/?team_id=${values.currentTeam.id}`
+                        `api/projects/${values.currentTeam.id}/materialized_column_slots/available_properties/`
                     )
                 },
             },
@@ -103,7 +103,12 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
             [] as AutoMaterializedColumn[],
             {
                 loadAutoMaterializedColumns: async () => {
-                    return await api.get(`api/materialized_column_slots/auto_materialized/`)
+                    if (!values.currentTeam) {
+                        return []
+                    }
+                    return await api.get(
+                        `api/projects/${values.currentTeam.id}/materialized_column_slots/auto_materialized/`
+                    )
                 },
             },
         ],
@@ -138,7 +143,10 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
         },
         deleteSlot: async ({ slotId }) => {
             try {
-                await api.delete(`api/materialized_column_slots/${slotId}/`)
+                if (!values.currentTeam) {
+                    return
+                }
+                await api.delete(`api/projects/${values.currentTeam.id}/materialized_column_slots/${slotId}/`)
                 lemonToast.success('Slot deleted successfully')
                 actions.loadSlots()
             } catch (error) {
