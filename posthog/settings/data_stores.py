@@ -183,6 +183,17 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+    # Configure test database creation for persons databases
+    if TEST:
+        # Tell Django to create separate test database for persons
+        # Use same test database name as writer for reader (they're the same in tests)
+        DATABASES["persons_db_writer"]["TEST"] = {
+            "NAME": DATABASES["persons_db_writer"]["NAME"],
+        }
+        DATABASES["persons_db_reader"]["TEST"] = {
+            "NAME": DATABASES["persons_db_writer"]["NAME"],  # Point to same test DB as writer
+        }
+
     # Register PersonDBRouter in both test and production modes
     # This ensures cross-database joins are properly blocked in tests (mirroring production)
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
