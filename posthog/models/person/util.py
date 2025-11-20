@@ -55,7 +55,7 @@ if TEST:
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         _delete_person(
-            instance.team.id,
+            instance.team_id,
             instance.uuid,
             int(instance.version or 0),
             instance.created_at,
