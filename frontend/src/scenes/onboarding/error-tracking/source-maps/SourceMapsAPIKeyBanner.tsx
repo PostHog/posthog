@@ -1,0 +1,33 @@
+import { useActions } from 'kea'
+
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
+import { API_KEY_SCOPE_PRESETS } from 'lib/scopes'
+import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
+
+export function SourceMapsAPIKeyBanner(): JSX.Element {
+    const { setEditingKeyId, setEditingKeyValues } = useActions(personalAPIKeysLogic)
+
+    const openAPIKeyModal = (): void => {
+        const preset = API_KEY_SCOPE_PRESETS.find((p) => p.value === 'source_map_upload')
+        if (preset) {
+            setEditingKeyId('new')
+            setEditingKeyValues({
+                preset: preset.value,
+                label: preset.label,
+                scopes: preset.scopes,
+                access_type: preset.access_type || 'all',
+            })
+        }
+    }
+
+    return (
+        <LemonBanner type="info" className="mb-4">
+            <strong>Note:</strong> The project API key is not the same as the personal API token required to upload
+            source maps.{' '}
+            <LemonButton type="secondary" size="xsmall" onClick={openAPIKeyModal}>
+                Generate personal API key
+            </LemonButton>
+        </LemonBanner>
+    )
+}
