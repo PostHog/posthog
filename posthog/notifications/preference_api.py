@@ -32,6 +32,12 @@ class NotificationPreferenceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         """Filter preferences for current user."""
         return queryset.filter(user=self.request.user)
 
+    def get_serializer_context(self):
+        """Add team to serializer context."""
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context
+
     @action(detail=False, methods=["post"])
     def reset(self, request, *args, **kwargs):
         """
