@@ -123,7 +123,7 @@ def _do_backfill(
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    team_id_chunks = config.team_id_chunks or 1
+    team_id_chunks = max(1, config.team_id_chunks or 1)
 
     context.log.info(
         f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
