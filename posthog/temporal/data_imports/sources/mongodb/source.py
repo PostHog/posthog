@@ -116,7 +116,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         label="Connection String",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="mongodb://username:password@host:port/database?authSource=admin",
+                        placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                     )
                 ],
             ),
