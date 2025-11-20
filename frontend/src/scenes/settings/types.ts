@@ -121,6 +121,7 @@ export type SettingId =
     | '2fa'
     | 'personal-api-keys'
     | 'notifications'
+    | 'notification-preferences'
     | 'feature-previews'
     | 'optout'
     | 'theme'

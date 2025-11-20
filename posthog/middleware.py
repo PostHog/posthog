@@ -746,7 +746,7 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            connect_debug_url = "ws://localhost:8234 ws://localhost:9001" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",

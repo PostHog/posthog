@@ -53,8 +53,18 @@ services:
                         path /public/m/*
                     }
 
+                    @websocket {
+                        path /ws
+                        path /ws/
+                        path /ws/*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3000
+                    }
+
+                    handle @websocket {
+                        reverse_proxy websocket-server:8001
                     }
 
                     handle @replay-capture {
@@ -218,6 +228,20 @@ services:
         <<: *worker
         command: ./bin/start-backend & ./bin/start-frontend
         restart: on-failure
+
+    websocket-server:
+        <<: *worker
+        command: daphne -b 0.0.0.0 -p 8001 posthog.routing:application
+        restart: on-failure
+        environment:
+            <<: *worker_env
+            NOTIFICATIONS_WEBSOCKET_ENABLED: 'true'
+            NOTIFICATIONS_REDIS_URL: 'redis://redis:6379/'
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
 
     capture:
         image: ghcr.io/posthog/posthog/capture:master

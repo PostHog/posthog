@@ -7,6 +7,8 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
+from posthog.notifications.api import NotificationViewSet as UnifiedNotificationViewSet
+from posthog.notifications.preference_api import NotificationPreferenceViewSet
 from posthog.settings import EE_AVAILABLE
 
 import products.logs.backend.api as logs
@@ -222,6 +224,22 @@ projects_router.register(
     "project_notifications",
     ["project_id"],
 )
+
+# Unified notifications hub
+projects_router.register(
+    r"notifications",
+    UnifiedNotificationViewSet,
+    "project_unified_notifications",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"notification_preferences",
+    NotificationPreferenceViewSet,
+    "project_notification_preferences",
+    ["project_id"],
+)
+
 project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,

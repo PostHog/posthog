@@ -52,8 +52,17 @@ services:
                         path /public/m/*
                     }
 
+                    @websocket {
+                        path /ws
+                        path /ws/*
+                    }
+
                     handle @capture {
                         reverse_proxy capture:3307
+                    }
+
+                    handle @websocket {
+                        reverse_proxy web:8000
                     }
 
                     handle @replay-capture {

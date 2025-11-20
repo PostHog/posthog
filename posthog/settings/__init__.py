@@ -34,6 +34,7 @@ from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
 from posthog.settings.metrics import *
+from posthog.settings.notifications import *
 from posthog.settings.schedules import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *

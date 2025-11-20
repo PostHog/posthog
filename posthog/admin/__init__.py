@@ -22,6 +22,8 @@ def register_all_admin():
         InsightAdmin,
         InstanceSettingAdmin,
         LinkAdmin,
+        NotificationAdmin,
+        NotificationPreferenceAdmin,
         OAuthApplicationAdmin,
         OrganizationAdmin,
         OrganizationDomainAdmin,
@@ -52,6 +54,8 @@ def register_all_admin():
         Insight,
         InstanceSetting,
         Link,
+        Notification,
+        NotificationPreference,
         Organization,
         OrganizationDomain,
         PersonalAPIKey,
@@ -97,6 +101,9 @@ def register_all_admin():
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
     admin.site.register(Survey, SurveyAdmin)
+
+    admin.site.register(Notification, NotificationAdmin)
+    admin.site.register(NotificationPreference, NotificationPreferenceAdmin)
 
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
