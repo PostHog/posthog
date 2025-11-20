@@ -46,8 +46,8 @@ impl RedisClient {
     /// * `response_timeout` - Optional timeout for Redis command responses. `None` means no timeout (blocks indefinitely).
     /// * `connection_timeout` - Optional timeout for establishing connections. `None` means no timeout (blocks indefinitely).
     ///
-    /// # Panics
-    /// Panics if `Some(Duration::ZERO)` is passed - use `None` for no timeout instead.
+    /// # Errors
+    /// Returns `CustomRedisError::InvalidConfiguration` if `Some(Duration::ZERO)` is passed - use `None` for no timeout instead.
     ///
     /// # Examples
     /// ```no_run
@@ -113,14 +113,18 @@ impl RedisClient {
         // Validate that Duration::ZERO is not passed - use None instead
         if let Some(timeout) = response_timeout {
             if timeout.is_zero() {
-                panic!("Redis response timeout cannot be Duration::ZERO - use None for no timeout");
+                return Err(CustomRedisError::InvalidConfiguration(
+                    "Redis response timeout cannot be Duration::ZERO - use None for no timeout"
+                        .to_string(),
+                ));
             }
         }
         if let Some(timeout) = connection_timeout {
             if timeout.is_zero() {
-                panic!(
+                return Err(CustomRedisError::InvalidConfiguration(
                     "Redis connection timeout cannot be Duration::ZERO - use None for no timeout"
-                );
+                        .to_string(),
+                ));
             }
         }
 
@@ -449,6 +453,46 @@ mod tests {
             assert!(config.enabled);
             assert_eq!(config.threshold, 512);
             assert_eq!(config.level, 0);
+        }
+
+        #[tokio::test]
+        async fn test_zero_response_timeout_returns_error() {
+            let result = RedisClient::with_config(
+                "redis://localhost:6379".to_string(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Pickle,
+                Some(Duration::ZERO),
+                None,
+            )
+            .await;
+
+            assert!(matches!(
+                result,
+                Err(CustomRedisError::InvalidConfiguration(_))
+            ));
+            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                assert!(msg.contains("response timeout"));
+            }
+        }
+
+        #[tokio::test]
+        async fn test_zero_connection_timeout_returns_error() {
+            let result = RedisClient::with_config(
+                "redis://localhost:6379".to_string(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Pickle,
+                None,
+                Some(Duration::ZERO),
+            )
+            .await;
+
+            assert!(matches!(
+                result,
+                Err(CustomRedisError::InvalidConfiguration(_))
+            ));
+            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                assert!(msg.contains("connection timeout"));
+            }
         }
     }
 

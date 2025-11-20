@@ -22,6 +22,8 @@ use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValue
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = config.build().await.unwrap();
@@ -95,6 +97,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = ReadWriteClient::with_config(config).await.unwrap();
@@ -105,6 +109,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// )
 /// .build()
 /// .await
@@ -159,6 +165,8 @@ impl ReadWriteClient {
     ///         "redis://replica:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -169,6 +177,8 @@ impl ReadWriteClient {
     ///         "redis://primary:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -203,6 +213,8 @@ impl ReadWriteClient {
     ///     "redis://replica:6379".to_string(),
     ///     CompressionConfig::default(),
     ///     RedisValueFormat::Pickle,
+    ///     None, // No response timeout
+    ///     None, // No connection timeout
     /// );
     ///
     /// let client = ReadWriteClient::with_config(config).await.unwrap();

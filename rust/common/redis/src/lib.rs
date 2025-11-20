@@ -11,6 +11,8 @@ pub use redis::RetryMethod;
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
     #[error("Parse error: {0}")]
     ParseError(String),
     #[error("Timeout error")]
@@ -58,6 +60,9 @@ impl CustomRedisError {
             // Timeouts are transient - not unrecoverable
             CustomRedisError::Timeout => false,
 
+            // Configuration errors are permanent - unrecoverable
+            CustomRedisError::InvalidConfiguration(_) => true,
+
             // Parse errors are permanent bugs - unrecoverable
             CustomRedisError::ParseError(_) => true,
 
@@ -94,6 +99,9 @@ impl CustomRedisError {
         match self {
             // Timeouts: wait before retrying to avoid hammering the service
             CustomRedisError::Timeout => RetryMethod::WaitAndRetry,
+
+            // Configuration errors are permanent - don't retry
+            CustomRedisError::InvalidConfiguration(_) => RetryMethod::NoRetry,
 
             // Parse errors are permanent bugs - don't retry
             CustomRedisError::ParseError(_) => RetryMethod::NoRetry,
@@ -265,6 +273,12 @@ mod tests {
             assert!(err.is_unrecoverable_error());
         }
 
+        #[test]
+        fn test_invalid_configuration_is_unrecoverable() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
+            assert!(err.is_unrecoverable_error());
+        }
+
         // Smoke test: verify we delegate to redis::RedisError instead of reimplementing
         #[test]
         fn test_redis_error_delegation() {
@@ -301,6 +315,12 @@ mod tests {
         #[test]
         fn test_not_found_no_retry() {
             let err = CustomRedisError::NotFound;
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        #[test]
+        fn test_invalid_configuration_no_retry() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
             assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
         }
 
