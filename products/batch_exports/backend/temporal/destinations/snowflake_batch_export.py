@@ -761,7 +761,7 @@ class SnowflakeClient:
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
 
-            if e.errno == 608:
+            if e.errno == 608 or e.errno == 90073:
                 err_msg = (
                     f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
                 )
