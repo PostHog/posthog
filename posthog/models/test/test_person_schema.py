@@ -3,15 +3,17 @@
 import pytest
 
 from django.conf import settings
-from django.db import connection
+from django.db import connections
 from django.test import TestCase
 
 from posthog.models.person import Person
 
 
 def table_exists(table_name: str) -> bool:
-    """Check if a table exists."""
-    with connection.cursor() as cursor:
+    """Check if a table exists in persons database."""
+    # Use persons_db_writer connection since person tables are in separate database
+    persons_conn = connections["persons_db_writer"]
+    with persons_conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT EXISTS (
@@ -25,8 +27,10 @@ def table_exists(table_name: str) -> bool:
 
 
 def is_table_partitioned(table_name: str) -> bool:
-    """Check if a table is partitioned."""
-    with connection.cursor() as cursor:
+    """Check if a table is partitioned in persons database."""
+    # Use persons_db_writer connection since person tables are in separate database
+    persons_conn = connections["persons_db_writer"]
+    with persons_conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT EXISTS (
@@ -41,8 +45,10 @@ def is_table_partitioned(table_name: str) -> bool:
 
 
 def get_partition_strategy(table_name: str) -> str | None:
-    """Get the partitioning strategy for a table (h = HASH, r = RANGE, l = LIST)."""
-    with connection.cursor() as cursor:
+    """Get the partitioning strategy for a table (h = HASH, r = RANGE, l = LIST) in persons database."""
+    # Use persons_db_writer connection since person tables are in separate database
+    persons_conn = connections["persons_db_writer"]
+    with persons_conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT pt.partstrat
@@ -57,8 +63,10 @@ def get_partition_strategy(table_name: str) -> str | None:
 
 
 def get_partition_count(parent_table: str) -> int:
-    """Count how many partitions exist for a parent table."""
-    with connection.cursor() as cursor:
+    """Count how many partitions exist for a parent table in persons database."""
+    # Use persons_db_writer connection since person tables are in separate database
+    persons_conn = connections["persons_db_writer"]
+    with persons_conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT COUNT(*)
@@ -73,6 +81,9 @@ def get_partition_count(parent_table: str) -> int:
 
 class TestPersonSchemaConsistency(TestCase):
     """Verify person table structure created by sqlx migrations."""
+
+    # Person tables are in separate persons_db_writer database
+    databases = ["default", "persons_db_writer"]
 
     def test_person_table_exists(self):
         """Verify person table exists."""
@@ -113,8 +124,10 @@ class TestPersonSchemaConsistency(TestCase):
     def test_partition_tables_exist(self):
         """Verify individual partition tables exist (spot check)."""
         # Check a few partitions exist
+        # Note: sqlx migration hardcodes partition names as posthog_person_p{i}
+        # regardless of whether parent table is posthog_person or posthog_person_new
         for i in [0, 1, 31, 63]:
-            partition_name = f"{settings.PERSON_TABLE_NAME}_p{i}"
+            partition_name = f"posthog_person_p{i}"
             self.assertTrue(
                 table_exists(partition_name),
                 f"Partition {partition_name} does not exist. "
