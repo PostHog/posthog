@@ -329,7 +329,7 @@ Workflow outputs:
 {
   "batch_run_id": "team_123_2025-01-15T12:00:00Z",
   "traces_queried": 100,
-  "summaries_generated": 98,  // Some may fail
+  "summaries_generated": 98, // Some may fail
   "events_emitted": 98,
   "duration_seconds": 315.23
 }
