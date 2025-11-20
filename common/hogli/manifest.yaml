@@ -108,6 +108,7 @@ core:
         services:
             - postgresql
             - clickhouse
+            - django
     dev:reset:
         steps:
             - docker:services:remove
