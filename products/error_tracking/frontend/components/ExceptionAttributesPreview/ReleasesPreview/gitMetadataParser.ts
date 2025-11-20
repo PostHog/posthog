@@ -1,4 +1,5 @@
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'unknown'
+export const supportedProviders = ['github', 'gitlab']
 
 export type ParsedRemoteUrl = {
     provider: GitProvider
