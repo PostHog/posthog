@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MaxExperimentMetricResult, MaxExperimentSummaryContext } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, ProductKey } from '~/types'
 
@@ -77,6 +78,10 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',
         context: maxToolContext,
+        contextDescription: {
+            text: maxToolContext.experiment_name,
+            icon: iconForType('experiment'),
+        },
         active: shouldShowMaxSummaryTool,
         initialMaxPrompt: `Summarize the experiment "${experiment.name}"`,
         callback(toolOutput) {

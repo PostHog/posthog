@@ -21,6 +21,7 @@ import {
 } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { maxContextLogicType } from './maxContextLogicType'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import {
     InsightWithQuery,
     MaxActionContext,
@@ -64,7 +65,7 @@ export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['scenes', 'max', 'maxContextLogic']),
     connect(() => ({
-        values: [sceneLogic, ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene']],
+        values: [sceneLogic, ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene'], maxGlobalLogic, ['toolMap']],
         actions: [router, ['locationChanged']],
     })),
     actions({
@@ -584,6 +585,26 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextActions: MaxActionContext[]
             ): boolean => {
                 return [contextInsights, contextDashboards, contextEvents, contextActions].some((arr) => arr.length > 0)
+            },
+        ],
+        toolContextItems: [
+            (s: any) => [s.toolMap],
+            (toolMap: any): Array<{ text: string; icon: any }> => {
+                const items: Array<{ text: string; icon: any }> = []
+                const addedNames = new Set<string>()
+
+                // First, add all tool context items (they have precedence)
+                Object.values(toolMap).forEach((tool: any) => {
+                    if (tool.contextDescription) {
+                        const itemName = tool.contextDescription.text.toLowerCase()
+                        if (!addedNames.has(itemName)) {
+                            items.push(tool.contextDescription)
+                            addedNames.add(itemName)
+                        }
+                    }
+                })
+
+                return items
             },
         ],
     }),

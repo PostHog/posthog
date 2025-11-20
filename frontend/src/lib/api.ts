@@ -538,8 +538,14 @@ export class ApiRequest {
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
     }
+
     public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
+    }
+
+    // # User product list
+    public userProductList(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('user_product_list')
     }
 
     // # Plugins
@@ -1932,6 +1938,26 @@ const api = {
         },
     },
 
+    userProductList: {
+        async list(): Promise<
+            CountedPaginatedResponse<{
+                id: string
+                product_path: string
+                enabled: boolean
+                created_at: string
+                updated_at: string
+            }>
+        > {
+            return await new ApiRequest().userProductList().get()
+        },
+        async updateByPath(data: {
+            product_path: string
+            enabled: boolean
+        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
+        },
+    },
+
     organizationFeatureFlags: {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -2230,6 +2256,9 @@ const api = {
     eventDefinitions: {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
+        },
+        async create(eventDefinitionData: Partial<EventDefinition>): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().create({ data: eventDefinitionData })
         },
         async update({
             eventDefinitionId,
@@ -3203,6 +3232,18 @@ const api = {
                 .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
                 .get()
         },
+        async resolveGitlab(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_gitlab')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
+        },
     },
 
     recordings: {
@@ -3726,6 +3767,15 @@ const api = {
                 .survey(surveyId)
                 .withAction('duplicate_to_projects')
                 .create({ data: { target_team_ids: targetTeamIds } })
+        },
+        async archiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/archive`).create()
+        },
+        async unarchiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/unarchive`).create()
+        },
+        async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
+            return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
         },
     },
 

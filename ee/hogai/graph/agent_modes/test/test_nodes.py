@@ -16,6 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AgentMode,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -775,8 +776,16 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
+    def test_get_updated_agent_mode(self):
+        node = _create_agent_node(self.team, self.user)
+        message = AssistantMessage(content="test")
+        self.assertEqual(
+            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
+        )
+        self.assertIsNone(node._get_updated_agent_mode(message, None))
 
-class TestAgentToolsNode(BaseTest):
+
+class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
         node = _create_agent_tools_node(self.team, self.user)
 
@@ -1119,3 +1128,51 @@ class TestAgentToolsNode(BaseTest):
             self.assertIsInstance(captured_error, MaxToolError)
             self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
             self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
+        """Test that pydantic ValidationError is caught and converted to tool message."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        read_taxonomy_mock.side_effect = PydanticValidationError.from_exception_data(
+            "ValidationError",
+            [
+                {
+                    "type": "missing",
+                    "loc": ("query", "kind"),
+                    "input": {},
+                }
+            ],
+        )
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool with invalid args",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        with patch("ee.hogai.graph.agent_modes.nodes.capture_exception") as mock_capture:
+            result = await node.arun(state, {})
+
+            self.assertIsInstance(result, PartialAssistantState)
+            assert result is not None
+            self.assertEqual(len(result.messages), 1)
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
+            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+            self.assertIn("validation error", result.messages[0].content.lower())
+            self.assertIn("field required", result.messages[0].content.lower())
+
+            # Verify exception was captured
+            mock_capture.assert_called_once()
+            captured_error = mock_capture.call_args.args[0]
+            from pydantic import ValidationError as PydanticValidationError
+
+            self.assertIsInstance(captured_error, PydanticValidationError)
