@@ -45,6 +45,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
+import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
@@ -52,6 +53,7 @@ import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
+import { EvaluationTemplatesEmptyState } from './evaluations/EvaluationTemplates'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
@@ -398,7 +400,7 @@ function LLMAnalyticsEvaluations(): JSX.Element {
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
+    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
@@ -408,6 +410,11 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
     )
+
+    // Show templates when there are no evaluations at all (not just filtered empty)
+    if (!evaluationsLoading && evaluations.length === 0) {
+        return <EvaluationTemplatesEmptyState />
+    }
 
     const columns: LemonTableColumns<EvaluationConfig> = [
         {
@@ -562,7 +569,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
-                    to={urls.llmAnalyticsEvaluation('new')}
+                    to={urls.llmAnalyticsEvaluationTemplates()}
                     data-attr="create-evaluation-button"
                 >
                     Create Evaluation
@@ -647,6 +654,27 @@ export function LLMAnalyticsScene(): JSX.Element {
             'data-attr': 'users-tab',
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB]) {
+        tabs.push({
+            key: 'errors',
+            label: (
+                <>
+                    Errors{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsErrors />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+            'data-attr': 'errors-tab',
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
         tabs.push({

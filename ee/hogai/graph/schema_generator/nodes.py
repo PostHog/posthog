@@ -19,6 +19,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 
@@ -58,13 +59,21 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1",
+            model="gpt-5.1",
             temperature=0.3,
             disable_streaming=True,
             user=self._user,
             team=self._team,
             max_tokens=8192,
             billable=True,
+            output_version="responses/v1",
+            use_responses_api=True,
+            reasoning={
+                "effort": "none",
+            },
+            model_kwargs={
+                "prompt_cache_key": f"team_{self._team.id}",
+            },
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="json_schema",
@@ -235,6 +244,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
+
+    def _has_agent_modes_feature_flag(self) -> bool:
+        return has_agent_modes_feature_flag(self._team, self._user)
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

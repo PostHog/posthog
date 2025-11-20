@@ -4,9 +4,11 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent_modes.factory import AgentModeDefinition
-from ee.hogai.graph.agent_modes.nodes import AgentToolkit
-from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, SessionSummarizationTool
+from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool, SessionSummarizationTool
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
+
+from ..factory import AgentModeDefinition
+from ..nodes import AgentToolkit
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -17,13 +19,14 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
     def custom_tools(self) -> list[type["MaxTool"]]:
         tools: list[type[MaxTool]] = []
 
-        # The contextual insights tool overrides the static tool. Only inject if it's injected.
-        if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
-            tools.append(CreateAndQueryInsightTool)
-
-        # Add session summarization tool if enabled
-        if self._has_session_summarization_feature_flag():
-            tools.append(SessionSummarizationTool)
+        if has_agent_modes_feature_flag(self._team, self._user):
+            tools.append(CreateInsightTool)
+        else:
+            # The contextual insights tool overrides the static tool. Only inject if it's injected.
+            if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
+                tools.append(CreateAndQueryInsightTool)
+            if self._has_session_summarization_feature_flag():
+                tools.append(SessionSummarizationTool)
 
         # Add other lower-priority tools
         tools.append(CreateDashboardTool)

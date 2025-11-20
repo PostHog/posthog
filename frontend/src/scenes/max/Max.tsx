@@ -1,13 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconChevronLeft, IconExternal, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -47,7 +48,12 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
+    if (
+        sidePanelOpen &&
+        selectedTab === SidePanelTab.Max &&
+        sidepanelConversationId &&
+        sidepanelConversationId === tabConversationId
+    ) {
         return (
             <SceneContent className="px-4 py-4">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
@@ -74,9 +80,14 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId: string
+    isAIOnlyMode?: boolean
 }
 
-export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({
+    sidePanel,
+    tabId,
+    isAIOnlyMode,
+}: MaxInstanceProps): JSX.Element {
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -86,9 +97,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         conversation,
         conversationId,
     } = useValues(maxLogic({ tabId }))
-    const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic({ tabId }))
+    const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
+    const { exitAIOnlyMode } = useActions(appLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -101,60 +113,57 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const content = (
         <BindLogic logic={maxLogic} props={{ tabId }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <div
-                    style={
-                        {
-                            // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
-                            display: 'contents',
-                        } as React.CSSProperties
-                    }
-                >
-                    {conversationHistoryVisible ? (
-                        <ConversationHistory sidePanel={sidePanel} />
-                    ) : !threadVisible ? (
-                        // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
-                        // is at the same viewport height as the QuestionInput text that appear after going into a thread.
-                        // This makes the transition from one view into another just that bit smoother visually.
-                        <div
-                            className={
-                                sidePanel
-                                    ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
-                                    : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
-                            }
-                        >
-                            <div className="flex-1 items-center justify-center flex flex-col gap-3">
-                                <Intro />
-                                <SidebarQuestionInputWithSuggestions />
-                            </div>
-                            <HistoryPreview sidePanel={sidePanel} />
+                {conversationHistoryVisible ? (
+                    <ConversationHistory sidePanel={sidePanel} />
+                ) : !threadVisible ? (
+                    // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                    // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                    // This makes the transition from one view into another just that bit smoother visually.
+                    <div
+                        className={
+                            sidePanel
+                                ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
+                                : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                        }
+                    >
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                            <Intro />
+                            <SidebarQuestionInputWithSuggestions />
                         </div>
-                    ) : (
-                        /** Must be the last child and be a direct descendant of the scrollable element */
-                        <ThreadAutoScroller>
-                            {conversation?.has_unsupported_content && (
-                                <div className="px-4 pt-4">
-                                    <LemonBanner type="warning">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <span>This thread contains content that is no longer supported.</span>
-                                            <LemonButton type="primary" onClick={() => startNewConversation()}>
-                                                Start a new thread
-                                            </LemonButton>
-                                        </div>
-                                    </LemonBanner>
-                                </div>
-                            )}
-                            <Thread className="p-3" />
-                            {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
-                        </ThreadAutoScroller>
-                    )}
-                </div>
+                        <HistoryPreview sidePanel={sidePanel} />
+                    </div>
+                ) : (
+                    /** Must be the last child and be a direct descendant of the scrollable element */
+                    <ThreadAutoScroller>
+                        {conversation?.has_unsupported_content && (
+                            <div className="px-4 pt-4">
+                                <LemonBanner type="warning">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <span>This thread contains content that is no longer supported.</span>
+                                        <LemonButton type="primary" onClick={() => startNewConversation()}>
+                                            Start a new thread
+                                        </LemonButton>
+                                    </div>
+                                </LemonBanner>
+                            </div>
+                        )}
+                        <Thread className="p-3" />
+                        {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
+                    </ThreadAutoScroller>
+                )}
             </BindLogic>
         </BindLogic>
     )
 
     return sidePanel ? (
         <>
-            <SidePanelPaneHeader className="transition-all duration-200" onClose={() => startNewConversation()}>
+            <SidePanelPaneHeader
+                className="transition-all duration-200"
+                onClose={() => {
+                    exitAIOnlyMode()
+                    startNewConversation()
+                }}
+            >
                 <div className="flex flex-1">
                     <div className="flex items-center flex-1">
                         <AnimatedBackButton in={!backButtonDisabled}>
@@ -182,7 +191,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             )}
                         </h3>
                     </div>
-                    {!conversationHistoryVisible && !threadVisible && (
+                    {!conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
                         <LemonButton
                             size="small"
                             icon={<IconPlus />}
@@ -191,24 +200,26 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             tooltipPlacement="bottom"
                         />
                     )}
-                    <LemonButton
-                        size="small"
-                        sideIcon={<IconExternal />}
-                        to={urls.max(conversationId ?? undefined)}
-                        onClick={() => {
-                            closeSidePanel()
-                            startNewConversation()
-                        }}
-                        targetBlank
-                        tooltip="Open as main focus"
-                        tooltipPlacement="bottom-end"
-                    />
+                    {!isAIOnlyMode && (
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExternal />}
+                            to={urls.max(conversationId ?? undefined)}
+                            onClick={() => {
+                                closeSidePanel()
+                                startNewConversation()
+                            }}
+                            targetBlank
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        />
+                    )}
                 </div>
             </SidePanelPaneHeader>
             {content}
         </>
     ) : (
-        <SceneContent className="px-4 py-4">
+        <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
             <SceneTitleSection
                 name={null}
                 resourceType={{ type: 'chat' }}
@@ -217,27 +228,18 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <LemonButton
                             size="small"
                             type="secondary"
-                            sideIcon={<IconSidePanel />}
+                            sideIcon={<IconOpenSidebar />}
                             onClick={() => {
                                 openSidePanelMax(conversationId)
                                 closeTabId(tabId)
                             }}
                         >
-                            Open in sidepanel
-                        </LemonButton>
-                    ) : !conversationHistoryVisible ? (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            sideIcon={<IconClockRewind />}
-                            onClick={() => toggleConversationHistory()}
-                        >
-                            Chat history
+                            Open in side panel
                         </LemonButton>
                     ) : undefined
                 }
             />
-            {content}
+            <div className="grow flex flex-col">{content}</div>
         </SceneContent>
     )
 })
