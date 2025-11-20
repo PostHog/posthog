@@ -1259,51 +1259,12 @@ impl TestContext {
         let mut non_persons_conn = self.non_persons_writer.get_connection().await?;
 
         // Delete from persons DB (in dependency order)
-        sqlx::query("TRUNCATE TABLE posthog_cohortpeople CASCADE")
-            .execute(&mut *persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_persondistinctid CASCADE")
-            .execute(&mut *persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_person CASCADE")
-            .execute(&mut *persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_grouptypemapping CASCADE")
+        sqlx::query("TRUNCATE TABLE posthog_cohortpeople, posthog_persondistinctid, posthog_person, posthog_grouptypemapping CASCADE")
             .execute(&mut *persons_conn)
             .await?;
 
         // Delete from non-persons DB (in dependency order)
-        sqlx::query("TRUNCATE TABLE posthog_featureflagrollback CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_featureflagevaluationtag CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_featureflag CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_cohort CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_suppressionrule CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_personalapikey CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_organizationmembership CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_user CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_team CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_project CASCADE")
-            .execute(&mut *non_persons_conn)
-            .await?;
-        sqlx::query("TRUNCATE TABLE posthog_organization CASCADE")
+        sqlx::query("TRUNCATE TABLE posthog_featureflagrollback, posthog_featureflagevaluationtag, posthog_featureflag, posthog_cohort, posthog_suppressionrule, posthog_personalapikey, posthog_organizationmembership, posthog_user, posthog_team, posthog_project, posthog_organization CASCADE")
             .execute(&mut *non_persons_conn)
             .await?;
 
