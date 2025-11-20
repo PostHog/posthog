@@ -41,3 +41,15 @@ ADD_FLAG_KEYS_BLOOM_FILTER = """
 ALTER TABLE {table_name}
 ADD INDEX IF NOT EXISTS flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
 """
+
+
+DROP_URLS = """
+ALTER TABLE {table_name}
+DROP COLUMN IF EXISTS urls
+"""
+
+
+ADD_URLS = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER max_inserted_at
+"""
