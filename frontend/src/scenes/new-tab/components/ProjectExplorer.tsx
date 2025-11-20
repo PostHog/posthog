@@ -728,7 +728,7 @@ function ExplorerRowListItem({
                     <span className="flex w-5 justify-center">
                         {isExpandableFolder ? (
                             <ButtonPrimitive
-                                size="xs"
+                                size="xxs"
                                 iconOnly
                                 tabIndex={-1}
                                 className="shrink-0"
@@ -752,7 +752,16 @@ function ExplorerRowListItem({
                                 />
                             </ButtonPrimitive>
                         ) : (
-                            <span className="block w-3" />
+                            <ButtonPrimitive
+                                size="xxs"
+                                iconOnly
+                                tabIndex={-1}
+                                className="pointer-events-none opacity-0"
+                                aria-hidden
+                            >
+                                {/* Hidden spacer */}
+                                <IconChevronRight className="size-3" />
+                            </ButtonPrimitive>
                         )}
                     </span>
                     <span
