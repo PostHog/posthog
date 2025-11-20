@@ -222,42 +222,46 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
             closeOnClickInside={false}
             overlay={
                 <div style={{ minWidth: 200 }}>
-                    <div className="space-y-px p-1">
-                        {/* "All domains" option */}
-                        <LemonButton
-                            fullWidth
-                            type="tertiary"
-                            size="small"
-                            onClick={handleToggleAllDomains}
-                            icon={<LemonCheckbox checked={isAllDomainsSelected} className="pointer-events-none" />}
-                        >
-                            All domains
+                    <div className="p-1">
+                        {/* Select all / Clear all toggle */}
+                        <LemonButton fullWidth size="small" onClick={handleToggleAllDomains}>
+                            <span className="flex items-center gap-2">
+                                <LemonCheckbox checked={isAllDomainsSelected} className="pointer-events-none" />
+                                <span className="font-semibold">
+                                    {isAllDomainsSelected ? 'Select all' : 'Clear all'}
+                                </span>
+                            </span>
                         </LemonButton>
 
+                        {/* Separator */}
+                        <div className="border-t border-border my-1" />
+
                         {/* Individual domain options */}
-                        {authorizedDomains.map((domain) => {
-                            const isSelected = domainFilter?.includes(domain) ?? false
-                            return (
-                                <LemonButton
-                                    key={domain}
-                                    fullWidth
-                                    type="tertiary"
-                                    size="small"
-                                    onClick={() => handleToggleDomain(domain)}
-                                    icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
-                                    sideAction={{
-                                        icon: <IconExternal />,
-                                        tooltip: 'Open domain',
-                                        onClick: (e) => {
-                                            e.stopPropagation()
-                                            window.open(domain, '_blank', 'noopener,noreferrer')
-                                        },
-                                    }}
-                                >
-                                    {domain}
-                                </LemonButton>
-                            )
-                        })}
+                        <div className="space-y-px">
+                            {authorizedDomains.map((domain) => {
+                                const isSelected = domainFilter?.includes(domain) ?? false
+                                return (
+                                    <LemonButton
+                                        key={domain}
+                                        fullWidth
+                                        type="tertiary"
+                                        size="small"
+                                        onClick={() => handleToggleDomain(domain)}
+                                        icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
+                                        sideAction={{
+                                            icon: <IconExternal />,
+                                            tooltip: 'Open domain',
+                                            onClick: (e) => {
+                                                e.stopPropagation()
+                                                window.open(domain, '_blank', 'noopener,noreferrer')
+                                            },
+                                        }}
+                                    >
+                                        {domain}
+                                    </LemonButton>
+                                )
+                            })}
+                        </div>
                     </div>
 
                     {/* Footer with settings link */}
