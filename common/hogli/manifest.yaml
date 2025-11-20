@@ -92,6 +92,11 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:sync-flags:
+        cmd: python manage.py sync_feature_flags
+        description: Sync feature flags from configuration
+        services:
+            - postgresql
     dev:reset:
         steps:
             - docker:services:remove
@@ -100,7 +105,7 @@ core:
             - check:clickhouse
             - migrations:run
             - dev:demo-data
-            - migrations:sync-flags
+            - dev:sync-flags
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         destructive: true
 health_checks:
@@ -341,11 +346,6 @@ migrations:
     migrations:kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
-    migrations:sync-flags:
-        cmd: python manage.py sync_feature_flags
-        description: Sync feature flags from configuration
-        services:
-            - postgresql
 tests:
     test:python:
         cmd: pytest

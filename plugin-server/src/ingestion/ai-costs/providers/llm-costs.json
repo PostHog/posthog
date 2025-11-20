@@ -892,6 +892,19 @@
         }
     },
     {
+        "model": "deepcogito/cogito-v2.1-671b",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00000125
+            },
+            "together": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00000125
+            }
+        }
+    },
+    {
         "model": "deepseek/deepseek-chat",
         "cost": {
             "default": {
@@ -5427,11 +5440,6 @@
                 "prompt_token": 8e-8,
                 "completion_token": 5.5e-7
             },
-            "crusoe-bf16": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 8e-7,
-                "cache_read_token": 1.1e-7
-            },
             "deepinfra-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 5.7e-7
@@ -5814,10 +5822,6 @@
             "chutes-bf16": {
                 "prompt_token": 6e-8,
                 "completion_token": 2.5e-7
-            },
-            "deepinfra-fp8": {
-                "prompt_token": 7e-8,
-                "completion_token": 2.6e-7
             },
             "nebius-fp8": {
                 "prompt_token": 1e-7,
