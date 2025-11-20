@@ -30,7 +30,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
-function EditKeyModal(): JSX.Element {
+export function EditKeyModal(): JSX.Element {
     const {
         editingKeyId,
         isEditingKeySubmitting,

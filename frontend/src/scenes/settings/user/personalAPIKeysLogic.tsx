@@ -461,7 +461,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setEditingKeyId: ({ id }) => {
             if (!id) {
                 // When the modal is closed, remove the preset from the URL
-                return [router.values.location.pathname, {}, router.values.location.hash]
+                const { preset, ...searchParams } = router.values.searchParams
+                return [router.values.location.pathname, searchParams, router.values.location.hash]
             }
         },
     })),
