@@ -10,6 +10,7 @@ import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { generateInsightHCL } from 'lib/components/ExportButton/hclExporter'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -348,6 +349,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         format: ExporterFormat.XLSX,
                                         context: exportContext,
                                         dataAttr: `${RESOURCE_TYPE}-export-xlsx`,
+                                    },
+                                    {
+                                        format: ExporterFormat.HCL,
+                                        label: '.tf (Terraform)',
+                                        context: {
+                                            localData: generateInsightHCL(insight),
+                                            filename: `${insight.name || insight.derived_name || `insight_${insight.id}`}.tf`,
+                                            mediaType: ExporterFormat.HCL,
+                                        },
+                                        dataAttr: `${RESOURCE_TYPE}-export-hcl`,
                                     },
                                 ]}
                             />
