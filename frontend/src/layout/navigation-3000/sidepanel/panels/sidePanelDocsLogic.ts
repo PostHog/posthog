@@ -129,6 +129,8 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         navigateToPage: ({ path }) => {
             if (path) {
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 props.iframeRef.current?.contentWindow?.postMessage(
                     {
                         type: 'navigate',

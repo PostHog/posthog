@@ -409,6 +409,10 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     )
 }
 
+export function isOperatorBetween(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
+}
+
 /** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
