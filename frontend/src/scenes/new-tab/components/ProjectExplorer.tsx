@@ -246,7 +246,7 @@ export function ProjectExplorer({
             if (isParentNavigationRow && activeExplorerFolderPath) {
                 setHighlightedExplorerEntryPath(activeExplorerFolderPath)
             } else {
-                setHighlightedExplorerEntryPath(null)
+                setHighlightedExplorerEntryPath(explorerFolderPath)
             }
             setActiveExplorerFolderPath(entry.path)
         } else if (entry.href) {
