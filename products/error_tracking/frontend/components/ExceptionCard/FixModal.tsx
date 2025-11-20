@@ -8,21 +8,24 @@ import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { fixModalLogic } from './fixModalLogic'
 
 interface FixModalProps {
     isOpen: boolean
     onClose: () => void
+    issueId: string
 }
 
-export function FixModal({ isOpen, onClose }: FixModalProps): JSX.Element {
+export function FixModal({ isOpen, onClose, issueId }: FixModalProps): JSX.Element {
     const { exceptionList } = useValues(errorPropertiesLogic)
     const { stackFrameRecords } = useValues(stackFrameLogic)
     const { mode } = useValues(fixModalLogic)
     const { setMode } = useActions(fixModalLogic)
 
     const generatePrompt = (): string => {
+        const issueUrl = window.location.origin + urls.errorTrackingIssue(issueId)
         const stacktraceText = exceptionList
             .map((exception) => generateExceptionText(exception, stackFrameRecords))
             .join('\n\n')
@@ -47,6 +50,8 @@ The final output should be:
 - A comprehensive technical explanation of the root cause
 - A walkthrough of the relevant code paths
 - A detailed summary of exactly how the issue occurs
+
+PostHog issue: ${issueUrl}
 `
         }
         return `Please help me fix this error. Here's the stack trace:
@@ -67,6 +72,8 @@ Can you:
 The final output of your efforts should be:
 - An implemented fix for the issue applied directly to the code
 - A brief explanation of what was changed and why
+
+PostHog issue: ${issueUrl}
 `
     }
 

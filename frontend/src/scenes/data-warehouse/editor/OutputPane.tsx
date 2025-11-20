@@ -68,6 +68,7 @@ interface RowDetailsModalProps {
     onClose: () => void
     row: Record<string, any> | null
     columns: string[]
+    columnKeys: string[]
 }
 
 const CLICKHOUSE_TYPES = [
@@ -156,7 +157,7 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     return type.replace(/\(.+\)+/, '')
 }
 
-function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
     const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
     const [wordWrap, setWordWrap] = useState<Record<string, boolean>>({})
 
@@ -173,8 +174,9 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
         }
     }
 
-    const tableData = columns.map((column) => {
-        const value = row[column]
+    const tableData = columns.map((column, index) => {
+        const columnKey = columnKeys[index]
+        const value = row[columnKey]
         const isStringifiedJson = typeof value === 'string' && isJsonString(value)
         const isJson = typeof value === 'object' || isStringifiedJson
         const jsonValue = isStringifiedJson ? JSON.parse(value) : value
@@ -684,6 +686,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 onClose={() => setSelectedRow(null)}
                 row={selectedRow}
                 columns={response?.columns || []}
+                columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
         </div>
     )

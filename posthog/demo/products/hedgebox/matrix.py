@@ -2,6 +2,8 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from posthog.schema import (
@@ -46,6 +48,7 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 from posthog.models.event_definition import EventDefinition
+from posthog.models.oauth import OAuthApplication
 from posthog.models.property_definition import PropertyType
 from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
@@ -1003,3 +1006,19 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass
+
+        if settings.OIDC_RSA_PRIVATE_KEY:
+            try:
+                OAuthApplication.objects.create(
+                    name="Demo OAuth Application",
+                    client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+                    client_secret="GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
+                    redirect_uris="http://localhost:3000/callback https://example.com/callback http://localhost:8237/callback http://localhost:8239/callback",
+                    user=user,
+                    organization=team.organization,
+                    client_type=OAuthApplication.CLIENT_PUBLIC,
+                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    algorithm="RS256",
+                )
+            except (IntegrityError, ValidationError):
+                pass

@@ -483,6 +483,47 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @action(methods=["POST"], detail=False, url_path="coupons/claim")
+    def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to claim a coupon")
+
+        organization = self._get_org_required()
+
+        try:
+            membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise PermissionDenied("You need to be a member of this organization to claim coupons")
+
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to claim coupons")
+
+        code = request.data.get("code")
+        if not code:
+            raise ValidationError({"code": "This field is required."})
+
+        billing_manager = self.get_billing_manager()
+
+        try:
+            res = billing_manager.claim_coupon(organization, {"code": code})
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message") or detail_object.get("detail") or detail_object,
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
     @action(
         methods=["GET"],
         detail=False,
