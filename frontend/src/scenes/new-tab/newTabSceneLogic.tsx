@@ -248,6 +248,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setActiveExplorerFolderPath: (path: string | null) => ({ path }),
         toggleExplorerFolderExpansion: (path: string) => ({ path }),
         setHighlightedExplorerEntryPath: (path: string | null) => ({ path }),
+        setExplorerExpandedFoldersForFolder: (folderPath: string, expandedFolders: Record<string, boolean>) => ({
+            folderPath,
+            expandedFolders,
+        }),
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -705,14 +709,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setActiveExplorerFolderPath: (_, { path }) => path,
             },
         ],
-        explorerExpandedFolders: [
-            {} as Record<string, boolean>,
+        explorerExpandedFoldersByFolder: [
+            { '': {} } as Record<string, Record<string, boolean>>,
             {
-                toggleExplorerFolderExpansion: (state, { path }) => ({
+                setExplorerExpandedFoldersForFolder: (state, { folderPath, expandedFolders }) => ({
                     ...state,
-                    [path]: !state[path],
+                    [folderPath]: expandedFolders,
                 }),
-                setActiveExplorerFolderPath: () => ({}),
+                setActiveExplorerFolderPath: (state, { path }) => {
+                    const folderKey = path ?? ''
+                    if (state[folderKey]) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [folderKey]: {},
+                    }
+                },
             },
         ],
         highlightedExplorerEntryPath: [
@@ -723,6 +737,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        explorerExpandedFolders: [
+            (s) => [s.activeExplorerFolderPath, s.explorerExpandedFoldersByFolder],
+            (activeExplorerFolderPath, explorerExpandedFoldersByFolder): Record<string, boolean> => {
+                const folderKey = activeExplorerFolderPath ?? ''
+
+                return explorerExpandedFoldersByFolder[folderKey] ?? {}
+            },
+        ],
         sceneLogViewsByRef: [
             (s) => [s.sceneLogViews],
             (sceneLogViews): Record<string, string> => {
@@ -1736,6 +1758,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        toggleExplorerFolderExpansion: ({ path }) => {
+            const folderKey = values.activeExplorerFolderPath ?? ''
+            const expandedFolders = values.explorerExpandedFoldersByFolder[folderKey] ?? {}
+
+            actions.setExplorerExpandedFoldersForFolder(folderKey, {
+                ...expandedFolders,
+                [path]: !expandedFolders[path],
+            })
+        },
+        setActiveExplorerFolderPath: ({ path }) => {
+            const folderKey = path ?? ''
+
+            if (!values.explorerExpandedFoldersByFolder[folderKey]) {
+                actions.setExplorerExpandedFoldersForFolder(folderKey, {})
+            }
+        },
         loadMoreRecents: () => {
             if (values.recentsLoading) {
                 return

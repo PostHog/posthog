@@ -186,6 +186,28 @@ describe('newTabSceneLogic - recents search', () => {
         expect(logic.values.activeExplorerFolderPath).toBe('project://dashboards')
         expect(logic.values.search).toBe('')
     })
+    it('persists explorer expanded folders per active folder', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.toggleExplorerFolderExpansion('project://dashboards/reports')
+
+        await expectLogic(logic).toMatchValues({
+            explorerExpandedFolders: expect.objectContaining({ 'project://dashboards/reports': true }),
+        })
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards/reports')
+
+        await expectLogic(logic).toMatchValues({ explorerExpandedFolders: {} })
+
+        logic.actions.setActiveExplorerFolderPath('project://dashboards')
+
+        await expectLogic(logic).toMatchValues({
+            explorerExpandedFolders: expect.objectContaining({ 'project://dashboards/reports': true }),
+        })
+    })
     it('exposes folder breadcrumbs for the explorer', async () => {
         await expectLogic(logic).toFinishAllListeners()
 

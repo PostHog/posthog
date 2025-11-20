@@ -298,8 +298,9 @@ export function ProjectExplorer({
         if (!listboxRef.current || !highlightedFocusKey) {
             return
         }
-        listboxRef.current.focusItemByKey(highlightedFocusKey)
-        setHighlightedExplorerEntryPath(null)
+        if (listboxRef.current.focusItemByKey(highlightedFocusKey)) {
+            setHighlightedExplorerEntryPath(null)
+        }
     }, [highlightedFocusKey, listboxRef, setHighlightedExplorerEntryPath])
 
     useEffect(() => {
