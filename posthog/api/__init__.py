@@ -57,6 +57,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
+from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
@@ -700,6 +701,13 @@ projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"session_group_summaries",
+    SessionGroupSummaryViewSet,
+    "project_session_group_summaries",
     ["project_id"],
 )
 

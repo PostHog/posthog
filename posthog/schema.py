@@ -127,8 +127,13 @@ class AssistantFormOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: str
-    variant: Optional[str] = None
+    href: Optional[str] = Field(
+        default=None, description="When href is set, the button opens the link rather than sending an AI message."
+    )
+    value: str = Field(..., description="Button label, which is also the message that gets sent on click.")
+    variant: Optional[str] = Field(
+        default=None, description="'primary', 'secondary', or 'tertiary' - default 'secondary'"
+    )
 
 
 class AssistantFunnelsBreakdownType(StrEnum):
@@ -274,6 +279,7 @@ class AssistantTool(StrEnum):
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1136,6 +1142,14 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingExplainIssueToolContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_name: str
+    stacktrace: str
+
+
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1461,15 +1475,6 @@ class FailureMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
-
-
-class FileSystemCount(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    entries: list[FileSystemEntry]
-    has_more: bool
 
 
 class Tag(StrEnum):
@@ -2332,6 +2337,25 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProductItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Optional[str] = None
+    iconType: Optional[str] = None
+    path: str
+    type: Optional[str] = None
+
+
+class ProductsData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    games: list[ProductItem]
+    metadata: list[ProductItem]
+    products: list[ProductItem]
 
 
 class PropertyFilterType(StrEnum):
@@ -4254,6 +4278,15 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class FileSystemCount(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    entries: list[FileSystemEntry]
+    has_more: bool
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4991,6 +5024,9 @@ class SavedInsightNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
@@ -15355,6 +15391,7 @@ class EndpointRequest(BaseModel):
         extra="forbid",
     )
     cache_age_seconds: Optional[float] = None
+    derived_from_insight: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_materialized: Optional[bool] = Field(
@@ -15733,6 +15770,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")

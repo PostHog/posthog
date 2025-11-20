@@ -185,6 +185,11 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
+import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type {
+    SessionGroupSummaryListItemType,
+    SessionGroupSummaryType,
+} from 'products/session_summaries/frontend/types'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
@@ -195,6 +200,7 @@ import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1084,6 +1090,14 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public errorTrackingReleases(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('releases')
+    }
+
+    public errorTrackingRelease(id: ErrorTrackingRelease['id']): ApiRequest {
+        return this.errorTrackingReleases().addPathComponent(id)
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -1596,6 +1610,15 @@ export class ApiRequest {
     // Session summary
     public sessionSummary(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
+
+    // Session group summaries
+    public sessionGroupSummaries(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('session_group_summaries')
+    }
+
+    public sessionGroupSummary(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.sessionGroupSummaries(projectId).addPathComponent(id)
     }
 
     // Heatmap screenshots
@@ -3123,12 +3146,14 @@ const api = {
                 status,
                 offset = 0,
                 limit = 100,
+                orderBy = '-created_at',
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
+                orderBy?: SymbolSetOrder
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
-                const queryString = { order_by: '-created_at', status, offset, limit }
+                const queryString = { order_by: orderBy, status, offset, limit }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
@@ -3138,6 +3163,19 @@ const api = {
 
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
+        },
+
+        releases: {
+            async list({
+                offset = 0,
+                limit = 100,
+            }: {
+                offset?: number
+                limit?: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+                const queryString = { order_by: '-created_at', offset, limit }
+                return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryString)).get()
             },
         },
 
@@ -3488,6 +3526,26 @@ const api = {
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
+        },
+    },
+
+    sessionGroupSummaries: {
+        async get(id: string): Promise<SessionGroupSummaryType> {
+            return await new ApiRequest().sessionGroupSummary(id).get()
+        },
+        async list(
+            params: {
+                created_by?: string
+                search?: string
+                order?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<SessionGroupSummaryListItemType>> {
+            return await new ApiRequest().sessionGroupSummaries().withQueryString(toParams(params)).get()
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().sessionGroupSummary(id).delete()
         },
     },
 

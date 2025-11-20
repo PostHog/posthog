@@ -102,7 +102,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -120,7 +120,7 @@ class TestConversation(APIBaseTest):
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.user_id, self.user.id)
                 self.assertEqual(workflow_inputs.is_new_conversation, True)
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
@@ -129,7 +129,7 @@ class TestConversation(APIBaseTest):
 
     def test_add_message_to_existing_conversation(self):
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -149,14 +149,14 @@ class TestConversation(APIBaseTest):
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.user_id, self.user.id)
                 self.assertEqual(workflow_inputs.is_new_conversation, False)
                 self.assertEqual(workflow_inputs.conversation_id, conversation.id)
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
 
-    def test_cant_access_other_users_conversation(self):
+    def test_cant_start_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
 
         self.client.force_login(self.user)
@@ -166,6 +166,18 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_cancel_other_users_conversation(self):
+        """Test that cancel action cannot use other user's conversation ID"""
+        conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cant_access_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
@@ -183,7 +195,7 @@ class TestConversation(APIBaseTest):
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -215,7 +227,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -251,7 +263,7 @@ class TestConversation(APIBaseTest):
 
     def test_nonexistent_conversation(self):
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -284,7 +296,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation(self, mock_cancel):
         conversation = Conversation.objects.create(
             user=self.user,
@@ -313,11 +325,12 @@ class TestConversation(APIBaseTest):
         # should be idempotent
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_cancel_other_users_conversation(self):
+    def test_cannot_cancel_other_users_conversation_in_same_project(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
+        # This should fail because cancel action also filters by user
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_other_teams_conversation(self):
@@ -327,7 +340,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
         """Test that cancel endpoint properly handles async cleanup."""
         conversation = Conversation.objects.create(
@@ -347,7 +360,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    @patch("ee.hogai.stream.conversation_stream.ConversationStreamManager.cancel_conversation")
+    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
         """Test cancel endpoint behavior when async cleanup fails."""
         conversation = Conversation.objects.create(
@@ -415,7 +428,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -484,50 +497,63 @@ class TestConversation(APIBaseTest):
             self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
 
-    def test_retrieve_conversation_without_title_returns_404(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT
+    def test_list_conversations_only_returns_own_conversations(self):
+        """Test that listing conversations only returns the current user's conversations"""
+        # Create conversations for different users
+        own_conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+        Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
         )
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_retrieve_non_assistant_conversation_returns_404(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_conversation_serializer_returns_empty_messages_on_validation_error(self):
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Conversation with validation error", type=Conversation.Type.ASSISTANT
-        )
-
-        # Mock the get_state method to return data that will cause a validation error
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
-
-            class MockSnapshot:
-                values = {"invalid_key": "invalid_value"}  # Invalid structure for AssistantState
-
-            mock_get_state.return_value = MockSnapshot()
-
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # Should return empty messages array when validation fails
-            self.assertEqual(response.json()["messages"], [])
+            results = response.json()["results"]
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["id"], str(own_conversation.id))
+            self.assertEqual(results[0]["title"], "My conversation")
 
-    def test_list_conversations_ordered_by_updated_at(self):
-        """Verify conversations are listed with most recently updated first"""
+    def test_retrieve_own_conversation_succeeds(self):
+        """Test that user can retrieve their own conversation"""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["id"], str(conversation.id))
+
+    def test_retrieve_other_users_conversation_succeeds(self):
+        """Test that user can retrieve another user's conversation in the same team"""
+        conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["id"], str(conversation.id))
+
+    def test_retrieve_other_teams_conversation_fails(self):
+        """Test that user cannot retrieve conversation from another team"""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.other_team, title="Other team conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_conversations_ordered_by_updated_at_descending(self):
+        """Test that conversations are ordered by updated_at in descending order"""
         # Create conversations with different update times
         conversation1 = Conversation.objects.create(
             user=self.user, team=self.team, title="Older conversation", type=Conversation.Type.ASSISTANT
         )
-
         conversation2 = Conversation.objects.create(
             user=self.user, team=self.team, title="Newer conversation", type=Conversation.Type.ASSISTANT
         )
@@ -535,7 +561,6 @@ class TestConversation(APIBaseTest):
         # Set updated_at explicitly to ensure order
         conversation1.updated_at = timezone.now() - datetime.timedelta(hours=1)
         conversation1.save()
-
         conversation2.updated_at = timezone.now()
         conversation2.save()
 
@@ -546,7 +571,7 @@ class TestConversation(APIBaseTest):
             results = response.json()["results"]
             self.assertEqual(len(results), 2)
 
-            # First result should be the newer conversation
+            # First result should be the newer conversation (most recent first)
             self.assertEqual(results[0]["id"], str(conversation2.id))
             self.assertEqual(results[0]["title"], "Newer conversation")
 
@@ -581,7 +606,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -597,7 +622,7 @@ class TestConversation(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.billing_context, self.billing_context)
 
     def test_billing_context_validation_invalid_data(self):
@@ -605,7 +630,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -621,5 +646,5 @@ class TestConversation(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 call_args = mock_start_workflow_and_stream.call_args
-                workflow_inputs = call_args[0][0]
+                workflow_inputs = call_args[0][1]
                 self.assertEqual(workflow_inputs.billing_context, None)

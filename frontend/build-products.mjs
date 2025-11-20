@@ -334,7 +334,11 @@ export function buildProductManifests() {
     // 8. Assemble `products.json`, write, format, move to src/
     // A much simplified version of `products.tsx` to simplify consumption from Python
     // without any of the AST/TSX code generation logic
-
+    //
+    // NOTE: The structure of products.json must match the TypeScript types defined in
+    // frontend/src/queries/schema/schema-general.ts (ProductItem and ProductsData).
+    // These types are used to generate Pydantic models in posthog/schema.py.
+    // If you change the keys here (keysToKeep), make sure to update the TypeScript types.
     const keysToKeep = ['path', 'category', 'iconType', 'type']
     const productsJson = {
         products: extractKeys(treeItemsProducts, keysToKeep),
@@ -385,14 +389,14 @@ function withoutImport(prop) {
 }
 
 // Helper to extract only specific keys from AST nodes
-function extractKeys(dict, keysToKeep) {
-    return Object.values(dict).map((node) => {
+function extractKeys(dict /* : Record<any, ASTNode> */, keysToKeep /* : string[] */) {
+    return Object.values(dict).map((node /* : ASTNode */) => {
         if (!ts.isObjectLiteralExpression(node)) {
             return {}
         }
-        const result = {}
+        const result /* : Record<string, string | boolean> */ = {}
         keysToKeep.forEach((key) => {
-            const prop = node.properties.find((p) => p.name?.text === key)
+            const prop /* : PropertyAssignment */ = node.properties.find((p) => p.name?.text === key)
             result[key] = null // default to null
 
             if (prop && prop.initializer) {

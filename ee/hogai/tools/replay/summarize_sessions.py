@@ -1,23 +1,21 @@
 import asyncio
 from typing import Any, Literal, Self
+from uuid import uuid4
 
 import structlog
 import posthoganalytics
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.models import Team, User
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
-
-from products.notebooks.backend.models import Notebook
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.session_summaries.constants import (
@@ -29,12 +27,6 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
-from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    SummaryNotebookIntermediateState,
-    create_empty_notebook_for_summary,
-    generate_notebook_content_from_summary,
-    update_notebook_from_summary_content,
-)
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.state import prepare_reasoning_progress_message
@@ -253,9 +245,17 @@ class SummarizeSessionsTool(MaxTool):
     name: Literal["summarize_sessions"] = "summarize_sessions"
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._intermediate_state: SummaryNotebookIntermediateState | None = None
+    def _stream_filters(self, filters: MaxRecordingUniversalFilters) -> None:
+        """Stream filters to the user"""
+        self.dispatcher.message(
+            AssistantToolCallMessage(
+                content="",
+                ui_payload={"search_session_recordings": filters.model_dump(exclude_none=True)},
+                # Randomized tool call ID, as we don't want this to be THE result of the actual session summarization tool call
+                # - it's OK because this is only dispatched ephemerally, so the tool message doesn't get added to the state
+                tool_call_id=str(uuid4()),
+            )
+        )
 
     @classmethod
     async def create_tool_class(
@@ -278,6 +278,9 @@ class SummarizeSessionsTool(MaxTool):
     async def _arun_impl(
         self, search_query: MaxRecordingUniversalFilters, summary_title: str, session_summarization_limit: int
     ) -> tuple[str, ToolMessagesArtifact | None]:
+        # Stream filters to the user at the start
+        self._stream_filters(search_query)
+
         # Convert filters to recordings query
         recordings_query = self._convert_max_filters_to_recordings_query(search_query)
 
@@ -297,10 +300,35 @@ class SummarizeSessionsTool(MaxTool):
             return "No sessions were found matching the specified criteria.", None
 
         # Summarize the sessions
-        summaries_content = await self._summarize_sessions(
+        summaries_content, session_group_summary_id = await self._summarize_sessions(
             session_ids=session_ids,
             summary_title=summary_title,
         )
+
+        # Build messages artifact for group summaries (with "Open report" button)
+        if session_group_summary_id:
+            messages = [
+                AssistantMessage(
+                    meta={
+                        "form": {
+                            "options": [
+                                {
+                                    "value": "Open report",
+                                    "href": f"/session-summaries/{session_group_summary_id}",
+                                    "variant": "primary",
+                                }
+                            ]
+                        }
+                    },
+                    content=f"Report complete: {summary_title or 'Sessions summary'}",
+                    id=str(uuid4()),
+                ),
+                AssistantToolCallMessage(
+                    content=summaries_content, tool_call_id=self._state.root_tool_call_id or "unknown", id=str(uuid4())
+                ),
+            ]
+            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
 
         return summaries_content, None
 
@@ -316,32 +344,11 @@ class SummarizeSessionsTool(MaxTool):
             send_feature_flag_events=False,
         )
 
-    async def _stream_progress(self, progress_message: str) -> None:
+    def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
             self.dispatcher.update(content)
-
-    async def _stream_notebook_content(self, content: dict, partial: bool = True) -> None:
-        """Stream TipTap content directly to a notebook if notebook_id is present in state."""
-        from uuid import uuid4
-
-        from posthog.schema import NotebookUpdateMessage
-
-        # Check if we have a notebook_id in the state
-        if not self._state.notebook_short_id:
-            logger.exception("No notebook_short_id in state, skipping notebook update")
-            return
-        if partial:
-            # Create a notebook update message; not providing id to count it as a partial message on FE
-            notebook_message = NotebookUpdateMessage(notebook_id=self._state.notebook_short_id, content=content)
-        else:
-            # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
-            notebook_message = NotebookUpdateMessage(
-                notebook_id=self._state.notebook_short_id, content=content, id=str(uuid4())
-            )
-        # Stream the notebook update
-        self.dispatcher.message(notebook_message)
 
     def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
         """Convert Max-generated filters into recordings query format"""
@@ -406,13 +413,13 @@ class SummarizeSessionsTool(MaxTool):
             )
             completed += 1
             # Update the user on the progress
-            await self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
+            self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
         # Run all tasks concurrently
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-        await self._stream_progress(progress_message=f"Generating a summary, almost there")
+        self._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
@@ -426,28 +433,21 @@ class SummarizeSessionsTool(MaxTool):
         self,
         session_ids: list[str],
         summary_title: str | None,
-        notebook: Notebook | None,
-    ) -> str:
-        """Summarize sessions as a group (for larger sets)."""
+    ) -> tuple[str, str]:
+        """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._has_video_validation_feature_flag()
-        # Initialize intermediate state with plan
-        self._intermediate_state = SummaryNotebookIntermediateState(
-            team_name=self._team.name, summary_title=summary_title
-        )
-        # Stream initial plan
-        initial_state = self._intermediate_state.format_intermediate_state()
-        await self._stream_notebook_content(initial_state)
 
-        async for update_type, step, data in execute_summarize_session_group(
+        async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=self._user.id,
             team=self._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
+            summary_title=summary_title,
             extra_summary_context=None,
             video_validation_enabled=video_validation_enabled,
         ):
@@ -458,51 +458,25 @@ class SummarizeSessionsTool(MaxTool):
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
-                # Update intermediate state based on step enum (no content, as it's just a status message)
-                self._intermediate_state.update_step_progress(content=None, step=step)
                 # Status message - stream to user
-                await self._stream_progress(progress_message=data)
-            # Notebook intermediate data update messages
-            elif update_type == SessionSummaryStreamUpdate.NOTEBOOK_UPDATE:
-                if not isinstance(data, dict):
-                    raise TypeError(
-                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.NOTEBOOK_UPDATE}: {type(data)} "
-                        f"(expected: dict)"
-                    )
-                # Update intermediate state based on step enum
-                self._intermediate_state.update_step_progress(content=data, step=step)
-                # Stream the updated intermediate state
-                formatted_state = self._intermediate_state.format_intermediate_state()
-                await self._stream_notebook_content(formatted_state)
+                self._stream_progress(progress_message=data)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
-                if not isinstance(data, EnrichedSessionGroupSummaryPatternsList):
+                if not isinstance(data, tuple) or len(data) != 2:
                     raise ValueError(
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
+                        f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
+                    )
+                summary, session_group_summary_id = data
+                if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
+                    raise ValueError(
+                        f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
-                # Replace the intermediate state with final report
-                summary = data
-                tasks_available = await database_sync_to_async(
-                    check_is_feature_available_for_team, thread_sensitive=False
-                )(self._team.id, "TASK_SUMMARIES")
-                summary_content = generate_notebook_content_from_summary(
-                    summary=summary,
-                    session_ids=session_ids,
-                    project_name=self._team.name,
-                    team_id=self._team.id,
-                    tasks_available=tasks_available,
-                    summary_title=summary_title,
-                )
-                await self._stream_notebook_content(summary_content, partial=False)
-                # Update the notebook through BE for cases where the chat was closed
-                await update_notebook_from_summary_content(
-                    notebook=notebook, summary_content=summary_content, session_ids=session_ids
-                )
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
-                return summary_str
+                return summary_str, session_group_summary_id
             else:
                 raise ValueError(
                     f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
@@ -516,32 +490,26 @@ class SummarizeSessionsTool(MaxTool):
         self,
         session_ids: list[str],
         summary_title: str | None,
-    ) -> str:
+    ) -> tuple[str, str | None]:
+        """
+        Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
+        session_group_summary_id is None for individual summaries, as report is not generated.
+        """
         # Process sessions based on count
         base_message = f"Found sessions ({len(session_ids)})"
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            await self._stream_progress(
+            self._stream_progress(
                 progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
             )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
-            return summaries_content
-        # Check if the notebook is provided, create a notebook to fill if not
-        notebook = None
-        if not self._state.notebook_short_id:
-            notebook = await create_empty_notebook_for_summary(
-                user=self._user, team=self._team, summary_title=summary_title
-            )
-            # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
-            self._state.notebook_short_id = notebook.short_id
+            return summaries_content, None
         # For large groups, process in detail, searching for patterns
-        # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
-        await self._stream_progress(
-            progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
+        self._stream_progress(
+            progress_message=f"{base_message}. We will analyze in detail, and store the report",
         )
-        summaries_content = await self._summarize_sessions_as_group(
+        summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,
-            notebook=notebook,
         )
-        return summaries_content
+        return summaries_content, session_group_summary_id
