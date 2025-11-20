@@ -537,6 +537,7 @@ export class ApiRequest {
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
     }
+
     public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.persistedFolder(projectId).addPathComponent(id)
     }
@@ -2247,6 +2248,9 @@ const api = {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
         },
+        async create(eventDefinitionData: Partial<EventDefinition>): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().create({ data: eventDefinitionData })
+        },
         async update({
             eventDefinitionId,
             eventDefinitionData,
@@ -3741,6 +3745,15 @@ const api = {
                 .survey(surveyId)
                 .withAction('duplicate_to_projects')
                 .create({ data: { target_team_ids: targetTeamIds } })
+        },
+        async archiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/archive`).create()
+        },
+        async unarchiveResponse(surveyId: Survey['id'], responseUuid: string): Promise<{ success: boolean }> {
+            return await new ApiRequest().survey(surveyId).withAction(`responses/${responseUuid}/unarchive`).create()
+        },
+        async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
+            return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
         },
     },
 

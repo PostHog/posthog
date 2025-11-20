@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -79,8 +79,9 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
+    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange, showArchivedResponses } =
+        useValues(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
@@ -227,15 +228,22 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         ]}
                     />
                 </div>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={handleResetFilters}
-                    className="self-start"
-                >
-                    Reset all filters
-                </LemonButton>
+                <div className="flex gap-2 items-center">
+                    <LemonSwitch
+                        checked={showArchivedResponses}
+                        onChange={setShowArchivedResponses}
+                        label="Show archived"
+                    />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={handleResetFilters}
+                        className="self-start"
+                    >
+                        Reset all filters
+                    </LemonButton>
+                </div>
             </div>
 
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
