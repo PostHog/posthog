@@ -29,3 +29,11 @@ else
     sed -i '' -e 's/str, Enum/StrEnum/g' posthog/schema.py
     sed -i '' 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
 fi
+
+# Remove unused classes from schema.py
+echo "Removing unused classes from schema.py..."
+python3 "$(dirname "$0")/remove-unused-schema-classes.py"
+
+# Add auto-regeneration hook for missing classes
+echo "Adding auto-regeneration hook..."
+python3 "$(dirname "$0")/schema_auto_regen.py"

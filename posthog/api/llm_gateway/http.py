@@ -6,6 +6,7 @@ from typing import Any
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
+from schema import TracesQueryResponse
 
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
