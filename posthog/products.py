@@ -29,11 +29,11 @@ class Products:
 
     def _load_data(self) -> None:
         """Load products.json data from disk and validate with Pydantic."""
-        if not self._file_path.exists():
+        if self._file_path is None or not self._file_path.exists():
             raise FileNotFoundError(
-                f"products.json not found at {self._file_path}. "
-                "Generate it by running: pnpm --filter=@posthog/frontend build:products"
+                f"products.json not found at {self._file_path}. " "Generate it by running: hogli build:products"
             )
+
         with open(self._file_path) as f:
             data = json.load(f)
         self._data = ProductsData.model_validate(data)
@@ -50,6 +50,8 @@ class Products:
         instance = Products()
         if instance._data is None:
             instance._load_data()
+
+        assert instance._data is not None
         return instance._data
 
     @staticmethod
