@@ -81,7 +81,12 @@ pub async fn do_stack_processing(
             if let Some(RawFrame::Java(frame)) = frames.first() {
                 if let Some(module) = &exception.module {
                     let r = frame
-                        .remap_class(team_id, module, &exception.exception_type, &context.catalog)
+                        .remap_class(
+                            team_id,
+                            module,
+                            q & exception.exception_type,
+                            &context.catalog,
+                        )
                         .await?;
 
                     exception.exception_type = r;
