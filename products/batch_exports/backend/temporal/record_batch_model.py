@@ -198,7 +198,7 @@ INSERT INTO FUNCTION
 class SavedQueryRecordBatchModel(RecordBatchModel):
     """A model to produce record batches from a saved query (materialized view)."""
 
-    def __init__(self, team_id: int, saved_query_id: str | None = None, batch_export_id: str | None = None):
+    def __init__(self, team_id: int, saved_query_id: str, batch_export_id: str | None = None):
         super().__init__(team_id, batch_export_id)
         self.saved_query_id = saved_query_id
 
@@ -219,26 +219,16 @@ class SavedQueryRecordBatchModel(RecordBatchModel):
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
-        context = await self.get_hogql_context()
 
         saved_query = await DataWarehouseSavedQuery.objects.select_related("table").aget(id=self.saved_query_id)
         # sanity check
+        # TODO - gracefully handle if the saved query is not materialized
         assert saved_query.table is not None
         assert saved_query.is_materialized is True
 
-        table_sql = saved_query.table.to_printed_clickhouse(context)
-        table_sql = f"SELECT * FROM {table_sql}"
-
-        # prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        #     hogql_query, context=context, dialect="clickhouse", stack=[]
-        # )
-        # assert prepared_hogql_query is not None
-        # printed = print_prepared_ast(
-        #     prepared_hogql_query,
-        #     context=context,
-        #     dialect="clickhouse",
-        #     stack=[],
-        # )
+        s3_table_func, placeholder_context = await database_sync_to_async(saved_query.table.get_function_call)()
+        quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+        table_sql = f"SELECT * FROM {s3_table_func}" % quoted_placeholders
 
         log_comment = "log_comment={log_comment}"
         if "settings" not in table_sql.lower():
@@ -246,6 +236,7 @@ class SavedQueryRecordBatchModel(RecordBatchModel):
         else:
             log_comment = ", " + log_comment
 
+        context = await self.get_hogql_context()
         insert_query = f"""
 INSERT INTO FUNCTION
    s3(
@@ -286,7 +277,9 @@ def resolve_batch_exports_model(
             if model_name == "sessions":
                 record_batch_model = SessionsRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
             elif model_name == "saved_query" and model.saved_query_id is not None:
-                record_batch_model = SavedQueryRecordBatchModel(team_id=team_id, batch_export_id=batch_export_id)
+                record_batch_model = SavedQueryRecordBatchModel(
+                    team_id=team_id, saved_query_id=model.saved_query_id, batch_export_id=batch_export_id
+                )
         else:
             model_name = "events"
             extra_query_parameters = None

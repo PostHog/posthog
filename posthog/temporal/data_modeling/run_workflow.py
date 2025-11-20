@@ -31,6 +31,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.batch_exports.models import BatchExport
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -45,6 +46,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 
+from products.batch_exports.backend.temporal.batch_exports import start_workflow as start_batch_export_workflow
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import (
     DataWarehouseModelPath,
@@ -1345,6 +1347,37 @@ async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
 
 
 @dataclasses.dataclass
+class TriggerBatchExportsActivityInputs:
+    saved_query_ids: list[str]
+    team_id: int
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+        }
+
+
+@temporalio.activity.defn
+async def trigger_batch_exports_activity(inputs: TriggerBatchExportsActivityInputs) -> None:
+    """Activity to start batch exports."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    batch_exports_to_run: list[BatchExport] = []
+    for saved_query_id in inputs.saved_query_ids:
+        # check if any batch exports are using this model
+        related_batch_exports = await database_sync_to_async(
+            BatchExport.objects.filter(team_id=inputs.team_id, saved_query_pk=saved_query_id).all
+        )()
+        batch_exports_to_run.extend(related_batch_exports)
+
+    for batch_export in batch_exports_to_run:
+        await start_batch_export_workflow(batch_export)
+        logger.info(f"Triggered batch export {batch_export.id}")
+
+
+@dataclasses.dataclass
 class RunWorkflowInputs:
     """Inputs to `RunWorkflow`.
 
@@ -1480,6 +1513,21 @@ class RunWorkflow(PostHogWorkflow):
             raise
 
         completed, failed, ancestor_failed = results
+
+        trigger_batch_exports_activity_inputs = TriggerBatchExportsActivityInputs(
+            saved_query_ids=[label for label in completed if dag[label].selected is True],
+            team_id=inputs.team_id,
+        )
+        await temporalio.workflow.execute_activity(
+            trigger_batch_exports_activity,
+            trigger_batch_exports_activity_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=1,
+            ),
+        )
 
         # publish metrics
         if failed or ancestor_failed:

@@ -7,20 +7,26 @@ import datetime as dt
 import operator
 import dataclasses
 import collections.abc
+from dataclasses import fields
 
 from django.conf import settings
 
 import pyarrow as pa
 import aiokafka
+import temporalio
+import temporalio.common
+import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
     BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
+    BatchExportModel,
     acount_failed_batch_export_runs,
     apause_batch_export,
     cancel_running_batch_export_backfill,
@@ -971,3 +977,69 @@ async def execute_batch_export_insert_activity(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+
+async def start_workflow(batch_export: BatchExport) -> None:
+    # maybe consolidate some of this logic with what we have in service.py
+    workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+    destination_config_fields = {field.name for field in fields(workflow_inputs)}
+    destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+    task_queue = (
+        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type == "HTTP"
+        else settings.BATCH_EXPORTS_TASK_QUEUE
+    )
+    workflow_inputs(
+        team_id=batch_export.team.id,
+        batch_export_id=str(batch_export.id),
+        # TODO - should we make this optional or in the case of saved queries, use the sync frequency interval?
+        interval=str(batch_export.interval),
+        batch_export_model=BatchExportModel(
+            name="saved_query",
+            schema=None,
+            saved_query_id=batch_export.saved_query.id,
+        ),
+        # TODO: This field is deprecated, but we still set it for backwards compatibility.
+        # New exports created will always have `batch_export_schema` set to `None`, but existing
+        # batch exports may still be using it.
+        # This assignment should be removed after updating all existing exports to use
+        # `batch_export_model` instead.
+        batch_export_schema=None,
+        integration_id=batch_export.destination.integration_id,
+        **destination_config,
+    )
+    # search_attributes: collections.abc.Sequence[temporalio.common.SearchAttributePair[typing.Any]] = [
+    #     temporalio.common.SearchAttributePair(
+    #         key=temporalio.common.SearchAttributeKey.for_text("TemporalScheduledById"), value=description.id
+    #     ),
+    #     temporalio.common.SearchAttributePair(
+    #         key=temporalio.common.SearchAttributeKey.for_datetime("TemporalScheduledStartTime"),
+    #         value=backfill_end_at,
+    #     ),
+    # ]
+
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+    # TODO - decide on this
+    workflow_id = f"{batch_export.id}-saved-query"
+    try:
+        await client.start_workflow(
+            workflow,
+            workflow_inputs,
+            id=workflow_id,
+            task_queue=task_queue,
+            # TODO - decide on this
+            run_timeout=dt.timedelta(hours=6),
+            # TODO - decide on this
+            task_timeout=dt.timedelta(minutes=5),
+            id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            # search_attributes=
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        pass

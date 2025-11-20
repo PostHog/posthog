@@ -11,6 +11,7 @@ NOTE: Once all batch exports have been moved to use the internal stage, the
 import uuid
 import asyncio
 import datetime as dt
+import functools
 
 import pytest
 import unittest.mock
@@ -18,6 +19,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import aioboto3
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -25,6 +27,18 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from posthog.temporal.data_modeling.run_workflow import (
+    RunWorkflow,
+    RunWorkflowInputs,
+    Selector,
+    build_dag_activity,
+    cleanup_running_jobs_activity,
+    create_job_model_activity,
+    fail_jobs_activity,
+    finish_run_activity,
+    run_dag_activity,
+    start_run_activity,
+)
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -620,13 +634,62 @@ async def test_postgres_export_workflow_with_many_files(
     )
 
 
+TEST_ROOT_BUCKET = "test-data-modeling"
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@pytest.fixture
+def bucket_name(request) -> str:
+    """Name for a test S3 bucket."""
+    try:
+        return request.param
+    except AttributeError:
+        return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
+
+
+@pytest.fixture
+async def minio_client(bucket_name):
+    """Manage an S3 client to interact with a MinIO bucket.
+
+    Yields the client after creating a bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    async with create_test_client(
+        "s3",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ) as minio_client:
+        try:
+            await minio_client.head_bucket(Bucket=bucket_name)
+        except:
+            await minio_client.create_bucket(Bucket=bucket_name)
+
+        yield minio_client
+
+
 @pytest.fixture
 async def saved_query(ateam):
-    return await DataWarehouseSavedQuery.objects.acreate(
+    # new_credential = await DataWarehouseCredential.objects.acreate(
+    #     team=ateam, access_key="_accesskey", access_secret="_secret"
+    # )
+    # table = await DataWarehouseTable.objects.acreate(
+    #     name="my-events-table",
+    #     team=ateam,
+    #     columns={"uuid": "String", "event": "String", "timestamp": "DateTime64(3, 'UTC')"},
+    #     credential=new_credential,
+    #     url_pattern="",
+    # )
+    query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
-        name="my-saved-query",
+        name="my_saved_query",
         query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
+        columns={"uuid": "String", "event": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        # table=table,
+        is_materialized=True,
+        # status=DataWarehouseSavedQuery.Status.,
     )
+    return query
 
 
 async def test_postgres_export_workflow_with_saved_query(
@@ -643,12 +706,56 @@ async def test_postgres_export_workflow_with_saved_query(
     data_interval_end,
     use_internal_stage,
     saved_query,
+    minio_client,
+    bucket_name,
 ):
     """Test we can export data from a saved query.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the local development PostgreSQL database.
     """
+
+    # first run the data modeling workflow to materialize the saved query
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(
+        team_id=ateam.pk,
+        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)],
+    )
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+    ):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                workflows=[RunWorkflow],
+                activities=[
+                    start_run_activity,
+                    build_dag_activity,
+                    run_dag_activity,
+                    finish_run_activity,
+                    create_job_model_activity,
+                    fail_jobs_activity,
+                    cleanup_running_jobs_activity,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await activity_environment.client.execute_workflow(
+                    RunWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
     batch_export_schema = None
     batch_export_model = BatchExportModel(name="saved_query", schema=None, saved_query_id=saved_query.id)
 
@@ -666,7 +773,6 @@ async def test_postgres_export_workflow_with_saved_query(
     sort_key = "uuid"
 
     use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
     with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(

@@ -1226,8 +1226,8 @@ def test_creating_batch_export_with_filters(
 def saved_query(team):
     return DataWarehouseSavedQuery.objects.create(
         team=team,
-        name="my-saved-query",
-        query="select uuid, event, timestamp from events",
+        name="my_saved_query",
+        query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
     )
 
 
@@ -1240,6 +1240,8 @@ def test_creating_batch_export_for_saved_query(
     saved_query,
 ):
     """Test validation of the filters field when creating a batch export."""
+
+    # TODO - add validation to ensure saved query is materialized
 
     batch_export_data = {
         "name": "my-destination",

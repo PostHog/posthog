@@ -23,7 +23,7 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import (
     create_test_client,
     delete_all_from_s3,
 )
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -279,11 +279,26 @@ async def test_insert_into_stage_activity_for_events_model(
 
 @pytest.fixture
 async def saved_query(ateam):
-    return await DataWarehouseSavedQuery.objects.acreate(
-        team=ateam,
-        name="my-saved-query",
-        query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
+    new_credential = await DataWarehouseCredential.objects.acreate(
+        team=ateam, access_key="_accesskey", access_secret="_secret"
     )
+    table = await DataWarehouseTable.objects.acreate(
+        name="my-events-table",
+        team=ateam,
+        columns={"uuid": "String", "event": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        credential=new_credential,
+        url_pattern="",
+    )
+    query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_saved_query",
+        query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
+        columns={"uuid": "String", "event": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        table=table,
+        is_materialized=True,
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    return query
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
