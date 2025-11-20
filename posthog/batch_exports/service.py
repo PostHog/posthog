@@ -27,6 +27,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -321,7 +322,7 @@ class WorkflowsBatchExportInputs(BaseBatchExportInputs):
     are not related to Temporal Workflows.
     """
 
-    topic: str
+    topic: str = KAFKA_CDP_BACKFILL_EVENTS
 
 
 @dataclass(kw_only=True)
