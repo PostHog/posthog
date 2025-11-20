@@ -5824,7 +5824,6 @@ export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
-    user: UserBasicType
     status: ConversationStatus
     title: string | null
     created_at: string | null

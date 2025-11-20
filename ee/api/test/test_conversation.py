@@ -156,7 +156,7 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(str(workflow_inputs.trace_id), trace_id)
                 self.assertEqual(workflow_inputs.message["content"], "test query")
 
-    def test_cant_start_other_users_conversation(self):
+    def test_cant_access_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
 
         self.client.force_login(self.user)
@@ -166,18 +166,6 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_cannot_cancel_other_users_conversation(self):
-        """Test that cancel action cannot use other user's conversation ID"""
-        conversation = Conversation.objects.create(
-            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cant_access_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
@@ -325,12 +313,11 @@ class TestConversation(APIBaseTest):
         # should be idempotent
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_cannot_cancel_other_users_conversation_in_same_project(self):
+    def test_cancel_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        # This should fail because cancel action also filters by user
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_other_teams_conversation(self):
@@ -497,63 +484,50 @@ class TestConversation(APIBaseTest):
             self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
 
-    def test_list_conversations_only_returns_own_conversations(self):
-        """Test that listing conversations only returns the current user's conversations"""
-        # Create conversations for different users
-        own_conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
-        )
-        Conversation.objects.create(
-            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            results = response.json()["results"]
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["id"], str(own_conversation.id))
-            self.assertEqual(results[0]["title"], "My conversation")
-
-    def test_retrieve_own_conversation_succeeds(self):
-        """Test that user can retrieve their own conversation"""
+    def test_retrieve_conversation_without_title_returns_404(self):
         conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
-
-    def test_retrieve_other_users_conversation_succeeds(self):
-        """Test that user can retrieve another user's conversation in the same team"""
-        conversation = Conversation.objects.create(
-            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
-        )
-
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
-
-    def test_retrieve_other_teams_conversation_fails(self):
-        """Test that user cannot retrieve conversation from another team"""
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.other_team, title="Other team conversation", type=Conversation.Type.ASSISTANT
+            user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT
         )
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_conversations_ordered_by_updated_at_descending(self):
-        """Test that conversations are ordered by updated_at in descending order"""
+    def test_retrieve_non_assistant_conversation_returns_404(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_conversation_serializer_returns_empty_messages_on_validation_error(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation with validation error", type=Conversation.Type.ASSISTANT
+        )
+
+        # Mock the get_state method to return data that will cause a validation error
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = {"invalid_key": "invalid_value"}  # Invalid structure for AssistantState
+
+            mock_get_state.return_value = MockSnapshot()
+
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Should return empty messages array when validation fails
+            self.assertEqual(response.json()["messages"], [])
+
+    def test_list_conversations_ordered_by_updated_at(self):
+        """Verify conversations are listed with most recently updated first"""
         # Create conversations with different update times
         conversation1 = Conversation.objects.create(
             user=self.user, team=self.team, title="Older conversation", type=Conversation.Type.ASSISTANT
         )
+
         conversation2 = Conversation.objects.create(
             user=self.user, team=self.team, title="Newer conversation", type=Conversation.Type.ASSISTANT
         )
@@ -561,6 +535,7 @@ class TestConversation(APIBaseTest):
         # Set updated_at explicitly to ensure order
         conversation1.updated_at = timezone.now() - datetime.timedelta(hours=1)
         conversation1.save()
+
         conversation2.updated_at = timezone.now()
         conversation2.save()
 
@@ -571,7 +546,7 @@ class TestConversation(APIBaseTest):
             results = response.json()["results"]
             self.assertEqual(len(results), 2)
 
-            # First result should be the newer conversation (most recent first)
+            # First result should be the newer conversation
             self.assertEqual(results[0]["id"], str(conversation2.id))
             self.assertEqual(results[0]["title"], "Newer conversation")
 
