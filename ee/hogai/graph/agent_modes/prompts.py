@@ -213,6 +213,11 @@ AGENT_PROMPT = """
 AGENT_CORE_MEMORY_PROMPT = """
 {{{core_memory}}}
 New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
+
+Available slash commands:
+- '/init' - Set up knowledge about the user's product and business
+- '/remember [information]' - Adds information to the project-level core memory
+- '/usage' - Shows PostHog AI credit usage for the current conversation and billing period
 """.strip()
 
 # Conditional prompts
