@@ -139,13 +139,14 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     extraction_sql = _generate_property_extraction_sql(inputs.property_name, inputs.property_type)
 
     # Build the ALTER TABLE UPDATE query
-    partition_clause = f"AND partition = '{inputs.partition_id}'" if inputs.partition_id else ""
+    partition_clause = f"IN PARTITION '{inputs.partition_id}'" if inputs.partition_id else ""
 
     # Note: Using sharded_events table directly (not distributed table)
     query = f"""
         ALTER TABLE sharded_events
         UPDATE {inputs.mat_column_name} = {extraction_sql}
-        WHERE team_id = %(team_id)s {partition_clause}
+        {partition_clause}
+        WHERE team_id = %(team_id)s
     """
 
     logger.info(

@@ -167,7 +167,7 @@ class TestBackfillMaterializedColumn:
         )
 
         query = mock_sync_execute.call_args[0][0]
-        assert "AND partition = '202401'" in query
+        assert "IN PARTITION '202401'" in query
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_without_partition_id(self, mock_sync_execute, activity_environment):
@@ -185,7 +185,7 @@ class TestBackfillMaterializedColumn:
 
         query = mock_sync_execute.call_args[0][0]
         # Should NOT have partition clause
-        assert "AND partition" not in query
+        assert "IN PARTITION" not in query
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_clickhouse_error(self, mock_sync_execute, activity_environment):
