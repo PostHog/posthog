@@ -191,12 +191,12 @@ def scan_delete_chunk(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Query to find posthog_persondistinctid rows without a parent posthog_person row
+                    # Query to find posthog_person_deletes_log rows
                     scan_query = f"""
-SELECT p.id, p.team_id
+SELECT pdl.id, pdl.team_id
 FROM posthog_person_deletes_log AS pdl
 WHERE pdl.id >= %s AND pdl.id <= %s
-  AND NOT EXISTS (
+  AND EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
     WHERE pdl.id = p.id

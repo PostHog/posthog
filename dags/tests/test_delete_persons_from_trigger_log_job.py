@@ -308,7 +308,7 @@ class TestScanDeleteChunk:
         assert "FROM posthog_person_deletes_log" in scan_query
         assert "WHERE pdl.id >=" in scan_query
         assert "AND pdl.id <=" in scan_query
-        assert "NOT EXISTS" in scan_query
+        assert "EXISTS" in scan_query
 
         # Verify DELETE queries were called (one per person)
         delete_calls = [call for call in execute_calls if "DELETE FROM posthog_person_new" in call]
@@ -575,7 +575,7 @@ class TestScanDeleteChunk:
         assert "FROM posthog_person_deletes_log" in scan_query
         assert "WHERE pdl.id >=" in scan_query
         assert "AND pdl.id <=" in scan_query
-        assert "NOT EXISTS" in scan_query
+        assert "EXISTS" in scan_query
         assert "SELECT" in scan_query
 
     def test_scan_delete_chunk_session_settings_applied_once(self):
