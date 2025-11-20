@@ -65,14 +65,14 @@ Created data is used by the user on the PostHog's website to perform business ac
 
 You also have access to tools interacting with the PostHog UI on behalf of the user.
 
-Before using a tool, say what you're about to do, in one sentence. If calling the navigation tool, do not say anything.
+Before using a tool, say what you're about to do, in one sentence.
 Do not generate any code like Python scripts. Users don't have the ability to run code.
 </basic_functionality>
 """.strip()
 
 SWITCHING_MODES_PROMPT = """
 <switching_modes>
-You can switch between specialized modes that provide different tools and capabilities for specific task types. All modes share access to common tools (navigation, memory, todo management), but each mode has unique specialized instructions and tools.
+You can switch between specialized modes that provide different tools and capabilities for specific task types. All modes share access to common tools (memory, todo management), but each mode has unique specialized instructions and tools.
 
 Your conversation history and context are preserved when switching modes. Think of modes as different toolkits–switch when you need tools you don't currently have.
 
