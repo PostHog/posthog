@@ -1628,6 +1628,7 @@ class _Printer(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
+            # Check for traditional mat_* columns first (they have priority)
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column is not None:
                 yield PrintableMaterializedColumn(
@@ -1635,6 +1636,34 @@ class _Printer(Visitor[str]):
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
+
+            # Check for dmat (dynamic materialized) columns after mat_* columns
+            if self.context.property_swapper is not None:
+                properties_dict = None
+                if table_name == "events" and field_name == "properties":
+                    properties_dict = self.context.property_swapper.event_properties
+                elif (table_name == "persons" or table_name == "raw_persons") and field_name == "properties":
+                    properties_dict = self.context.property_swapper.person_properties
+                elif table_name == "events" and field_name == "person_properties":
+                    # Person properties on events (PoE mode)
+                    properties_dict = self.context.property_swapper.person_properties
+                elif table_name == "groups" and field_name == "properties":
+                    # Group properties are keyed as "{group_id}_{property_name}"
+                    # We need to check all group_properties for a match
+                    for group_key, group_prop_info in self.context.property_swapper.group_properties.items():
+                        if group_key.endswith(f"_{property_name}"):
+                            properties_dict = {property_name: group_prop_info}
+                            break
+
+                if properties_dict and property_name in properties_dict:
+                    prop_info = properties_dict[property_name]
+                    if "dmat" in prop_info:
+                        # Yield the dmat column - dmat columns are nullable
+                        yield PrintableMaterializedColumn(
+                            self.visit(field_type.table_type),
+                            self._print_identifier(prop_info["dmat"]),
+                            is_nullable=True,
+                        )
 
             if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,

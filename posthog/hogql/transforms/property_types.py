@@ -282,11 +282,14 @@ class PropertySwapper(CloningVisitor):
         prop_info = properties_by_type[property_type].get(property_name, {})
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
-        if "dmat" in prop_info:
-            self._add_property_notice(node, property_type, field_type, prop_info["dmat"])
-            return ast.Field(chain=[prop_info["dmat"]])
+        # Add notice about the property type and materialization status
+        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        self._add_property_notice(node, property_type, field_type, None)
+        if "dmat" in prop_info:
+            # Don't rewrite the AST - let the printer substitute the dmat column
+            # The printer will check context.property_swapper and use the dmat column
+            return node
+
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
