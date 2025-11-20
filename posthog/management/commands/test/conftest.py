@@ -28,7 +28,7 @@ def sync_connect_with_retry(max_retries: int = 5, initial_delay: float = 0.5) ->
         RPCError: If connection fails after all retries
     """
     delay = initial_delay
-    last_error = None
+    last_error: RPCError | None = None
 
     for attempt in range(max_retries):
         try:
@@ -52,7 +52,8 @@ def sync_connect_with_retry(max_retries: int = 5, initial_delay: float = 0.5) ->
                 # If it's a different error, don't retry
                 raise
 
-    # If we get here, all retries failed
+    # If we get here, all retries failed and last_error must be set
+    assert last_error is not None
     raise last_error
 
 
