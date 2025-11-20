@@ -1067,6 +1067,11 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
+        defaultInterval: 'day',
+    },
+    {
         key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
