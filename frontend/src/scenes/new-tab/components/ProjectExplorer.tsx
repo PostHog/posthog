@@ -13,7 +13,7 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { CSSProperties, HTMLAttributes, MouseEvent, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -516,6 +516,31 @@ export function ProjectExplorer({
     )
 }
 
+interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
+    rowIndex: number
+    rowKey: string
+    focusBase: string
+    rowGridClass: string
+    isHighlighted: boolean
+    handleRowClick: (event: MouseEvent<HTMLElement>) => void
+    handleRowFocus: () => void
+    nameColumnIndentStyle?: CSSProperties
+    isExpandableFolder: boolean
+    isExpanded: boolean
+    handleToggleFolder: (path: string) => void
+    icon: JSX.Element
+    nameLabel: JSX.Element | string
+    folderStates: Record<string, string | undefined>
+    entry: FileSystemEntry
+    shouldUseSearchRows: boolean
+    folderLabel: JSX.Element | string
+    renderCreatedBy: (entry: FileSystemEntry) => JSX.Element
+    renderCreatedAt: (entry: FileSystemEntry) => string
+    isParentNavigationRow: boolean
+    treeItem: TreeDataItem | null
+    projectTreeLogicProps: ProjectTreeLogicProps
+}
+
 function ExplorerRowListItem({
     rowIndex,
     rowKey,
@@ -539,30 +564,8 @@ function ExplorerRowListItem({
     isParentNavigationRow,
     treeItem,
     projectTreeLogicProps,
-}: {
-    rowIndex: number
-    rowKey: string
-    focusBase: string
-    rowGridClass: string
-    isHighlighted: boolean
-    handleRowClick: (event: MouseEvent<HTMLElement>) => void
-    handleRowFocus: () => void
-    nameColumnIndentStyle?: CSSProperties
-    isExpandableFolder: boolean
-    isExpanded: boolean
-    handleToggleFolder: (path: string) => void
-    icon: JSX.Element
-    nameLabel: JSX.Element | string
-    folderStates: Record<string, string | undefined>
-    entry: FileSystemEntry
-    shouldUseSearchRows: boolean
-    folderLabel: JSX.Element | string
-    renderCreatedBy: (entry: FileSystemEntry) => JSX.Element
-    renderCreatedAt: (entry: FileSystemEntry) => string
-    isParentNavigationRow: boolean
-    treeItem: TreeDataItem | null
-    projectTreeLogicProps: ProjectTreeLogicProps
-}): JSX.Element {
+    ...contextMenuProps
+}: ExplorerRowListItemProps): JSX.Element {
     const droppableId = isParentNavigationRow ? `project://${entry.path}` : (treeItem?.id ?? rowKey)
     const isDraggable = !!treeItem?.record?.path
     const isDroppable =
@@ -603,6 +606,7 @@ function ExplorerRowListItem({
             key={rowKey}
             ref={setNodeRefs}
             {...dragProps}
+            {...contextMenuProps}
         >
             <Link
                 to={entry.href || '#'}
