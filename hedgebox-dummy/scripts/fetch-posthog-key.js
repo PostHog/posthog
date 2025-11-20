@@ -39,6 +39,7 @@ async function fetchPostHogKey() {
     } catch (error) {
         console.warn('⚠ Error fetching PostHog key:', error.message)
         console.warn('  Continuing without PostHog API key...\n')
+        return
     } finally {
         await client.end()
     }
