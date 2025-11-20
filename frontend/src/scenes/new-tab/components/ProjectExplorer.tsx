@@ -400,6 +400,20 @@ export function ProjectExplorer({
                                 const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
                                 const isHighlighted = highlightedExplorerEntryPath === entry.path
                                 const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
+                                    const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
+                                        '[data-explorer-row-clickable]'
+                                    )
+
+                                    if (!isClickOnActiveArea) {
+                                        event.preventDefault()
+                                        return
+                                    }
+
+                                    event.preventDefault()
+                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                                }
+
+                                const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
                                     event.preventDefault()
                                     handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
                                 }
@@ -423,6 +437,7 @@ export function ProjectExplorer({
                                         rowGridClass={rowGridClass}
                                         isHighlighted={isHighlighted}
                                         handleRowClick={handleRowClick}
+                                        handleRowDoubleClick={handleRowDoubleClick}
                                         handleRowFocus={handleRowFocus}
                                         nameColumnIndentStyle={nameColumnIndentStyle}
                                         isExpandableFolder={isExpandableFolder}
@@ -519,6 +534,7 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     rowGridClass: string
     isHighlighted: boolean
     handleRowClick: (event: MouseEvent<HTMLElement>) => void
+    handleRowDoubleClick: (event: MouseEvent<HTMLElement>) => void
     handleRowFocus: () => void
     nameColumnIndentStyle?: CSSProperties
     isExpandableFolder: boolean
@@ -544,6 +560,7 @@ function ExplorerRowListItem({
     rowGridClass,
     isHighlighted,
     handleRowClick,
+    handleRowDoubleClick,
     handleRowFocus,
     nameColumnIndentStyle,
     isExpandableFolder,
@@ -612,12 +629,13 @@ function ExplorerRowListItem({
                 data-explorer-entry-expandable={isExpandableFolder ? 'true' : 'false'}
                 className={clsx(
                     rowGridClass,
-                    'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary',
+                    'group/explorer-row rounded border-t border-border text-primary no-underline focus-visible:outline-none first:border-t-0 data-[focused=true]:bg-primary-alt-highlight data-[focused=true]:text-primary cursor-default',
                     isHighlighted && 'bg-primary-alt-highlight text-primary',
                     droppableHighlight && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
                     isParentNavigationRow && 'py-0.5'
                 )}
                 onClick={handleRowClick}
+                onDoubleClick={handleRowDoubleClick}
                 onFocus={handleRowFocus}
             >
                 <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm" style={nameColumnIndentStyle}>
@@ -644,8 +662,10 @@ function ExplorerRowListItem({
                             <span className="block w-3" />
                         )}
                     </span>
-                    <span className="shrink-0 text-primary">{icon}</span>
-                    <span className="truncate">{nameLabel}</span>
+                    <span data-explorer-row-clickable className="flex min-w-0 items-center gap-2 cursor-pointer">
+                        <span className="shrink-0 text-primary">{icon}</span>
+                        <span className="truncate">{nameLabel}</span>
+                    </span>
                     {isExpandableFolder && folderStates[entry.path] === 'loading' ? (
                         <Spinner className="size-3" />
                     ) : null}
