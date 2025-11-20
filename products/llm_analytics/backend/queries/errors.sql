@@ -235,4 +235,4 @@ SELECT
 FROM whitespace_normalized
 GROUP BY normalized_error
 ORDER BY __ORDER_BY__ __ORDER_DIRECTION__
-LIMIT 50
+LIMIT 100
