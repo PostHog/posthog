@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 from uuid import uuid4
 
 import structlog
+import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -26,6 +27,7 @@ from posthog.schema import (
     HumanMessage,
 )
 
+from posthog.event_usage import groups
 from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
@@ -550,15 +552,30 @@ class AgentToolsExecutable(BaseAgentExecutable):
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
             )
+            user_distinct_id = self._get_user_distinct_id(config)
             capture_exception(
                 e,
-                distinct_id=self._get_user_distinct_id(config),
+                distinct_id=user_distinct_id,
                 properties={
                     **self._get_debug_props(config),
                     "tool": tool_call.name,
                     "retry_strategy": e.retry_strategy,
                 },
             )
+
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="max_tool_error",
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool_name": tool_call.name,
+                        "error_type": e.__class__.__name__,
+                        "retry_strategy": e.retry_strategy,
+                        "error_message": str(e),
+                    },
+                    groups=groups(self._user.current_organization, self._team),
+                )
 
             content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
             return PartialAssistantState(
