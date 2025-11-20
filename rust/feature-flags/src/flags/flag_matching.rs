@@ -1,7 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{
-    ConfigResponse, FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch,
-};
+use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -29,7 +27,6 @@ use crate::utils::graph_utils::{
     log_dependency_graph_operation_error, DependencyGraph,
 };
 use anyhow::Result;
-use chrono::Utc;
 use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -268,15 +265,12 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse {
-            errors_while_computing_flags: flag_hash_key_override_error
-                || flags_response.errors_while_computing_flags,
-            flags: flags_response.flags,
-            quota_limited: None,
+        FlagsResponse::new(
+            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
+            flags_response.flags,
+            None,
             request_id,
-            evaluated_at: Utc::now().timestamp_millis(),
-            config: ConfigResponse::default(),
-        }
+        )
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -473,32 +467,14 @@ impl FeatureFlagMatcher {
         let (global_dependency_graph, graph_errors) =
             match build_dependency_graph(&feature_flags, self.team_id) {
                 Some((graph, errors)) => (graph, errors),
-                None => {
-                    return FlagsResponse {
-                        errors_while_computing_flags: true,
-                        flags: evaluated_flags_map,
-                        quota_limited: None,
-                        request_id,
-                        evaluated_at: Utc::now().timestamp_millis(),
-                        config: ConfigResponse::default(),
-                    }
-                }
+                None => return FlagsResponse::new(true, evaluated_flags_map, None, request_id),
             };
 
         // Step 4: Filter graph by flag keys if specified
         let dependency_graph = if let Some(keys) = flag_keys {
             match filter_graph_by_keys(&global_dependency_graph, &keys) {
                 Some(filtered_graph) => filtered_graph,
-                None => {
-                    return FlagsResponse {
-                        errors_while_computing_flags: true,
-                        flags: evaluated_flags_map,
-                        quota_limited: None,
-                        request_id,
-                        evaluated_at: Utc::now().timestamp_millis(),
-                        config: ConfigResponse::default(),
-                    }
-                }
+                None => return FlagsResponse::new(true, evaluated_flags_map, None, request_id),
             }
         } else {
             global_dependency_graph
@@ -521,14 +497,12 @@ impl FeatureFlagMatcher {
             .await;
         errors_while_computing_flags |= graph_evaluation_errors;
 
-        FlagsResponse {
+        FlagsResponse::new(
             errors_while_computing_flags,
-            flags: evaluated_flags_map,
-            quota_limited: None,
+            evaluated_flags_map,
+            None,
             request_id,
-            evaluated_at: Utc::now().timestamp_millis(),
-            config: ConfigResponse::default(),
-        }
+        )
     }
 
     /// Evaluates flags using the provided dependency graph.

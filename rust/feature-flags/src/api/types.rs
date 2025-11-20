@@ -335,6 +335,24 @@ impl FlagsResponse {
         flags: HashMap<String, FlagDetails>,
         quota_limited: Option<Vec<String>>,
         request_id: Uuid,
+    ) -> Self {
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            evaluated_at: chrono::Utc::now().timestamp_millis(),
+            config: ConfigResponse::default(),
+        }
+    }
+
+    /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
+    #[cfg(test)]
+    pub fn with_evaluated_at(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
         evaluated_at: i64,
     ) -> Self {
         Self {
@@ -736,7 +754,8 @@ mod tests {
 
         let request_id = Uuid::new_v4();
         let evaluated_at = Utc::now().timestamp_millis();
-        let response = FlagsResponse::new(false, flags, None, request_id, evaluated_at);
+        let response =
+            FlagsResponse::with_evaluated_at(false, flags, None, request_id, evaluated_at);
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included
@@ -769,13 +788,7 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_skipped_when_none() {
-        let response = FlagsResponse::new(
-            false,
-            HashMap::new(),
-            None,
-            Uuid::new_v4(),
-            Utc::now().timestamp_millis(),
-        );
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
         let json = serde_json::to_value(&response).unwrap();
         let obj = json.as_object().unwrap();
@@ -793,13 +806,7 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_included_when_set() {
-        let mut response = FlagsResponse::new(
-            false,
-            HashMap::new(),
-            None,
-            Uuid::new_v4(),
-            Utc::now().timestamp_millis(),
-        );
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
         // Set some config fields
         response.config.analytics = Some(AnalyticsConfig {
@@ -819,13 +826,7 @@ mod tests {
     #[test]
     fn test_evaluated_at_field_is_present() {
         let before = Utc::now().timestamp_millis();
-        let response = FlagsResponse::new(
-            false,
-            HashMap::new(),
-            None,
-            Uuid::new_v4(),
-            Utc::now().timestamp_millis(),
-        );
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
         let after = Utc::now().timestamp_millis();
 
         let json = serde_json::to_value(&response).unwrap();
