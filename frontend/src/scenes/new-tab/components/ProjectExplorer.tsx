@@ -346,6 +346,20 @@ export function ProjectExplorer({
         [allEntries, checkedItems, moveCheckedItems, moveItem, projectTreeLogicProps.key]
     )
 
+    const currentFolderMenuItem = useMemo<TreeDataItem>(
+        () => ({
+            id: rootDroppableId,
+            name: breadcrumbSegments[breadcrumbSegments.length - 1] || 'Project root',
+            record: {
+                id: rootDroppableId,
+                path: explorerFolderPath,
+                type: 'folder',
+                protocol: 'project://',
+            },
+        }),
+        [breadcrumbSegments, explorerFolderPath, rootDroppableId]
+    )
+
     if (!hasActiveFolder) {
         return null
     }
@@ -478,16 +492,32 @@ export function ProjectExplorer({
                             </div>
                         ) : null}
                     </ListBox.Group>
-                    <div
-                        ref={setRootDropZoneRef}
-                        className={clsx(
-                            'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
-                            isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
-                            isOverRoot && 'border-accent bg-accent-highlight-secondary text-primary'
-                        )}
-                    >
-                        Drop here to move into this folder
-                    </div>
+                    <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                            <div
+                                ref={setRootDropZoneRef}
+                                className={clsx(
+                                    'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
+                                    isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
+                                    isOverRoot && 'border-accent bg-accent-highlight-secondary text-primary'
+                                )}
+                            >
+                                Drop here to move into this folder
+                            </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent loop className="max-w-[250px]">
+                            <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                                <MenuItems
+                                    item={currentFolderMenuItem}
+                                    type="context"
+                                    root={projectTreeLogicProps.root}
+                                    logicKey={projectTreeLogicProps.key}
+                                    onlyTree={false}
+                                    showSelectMenuOption={false}
+                                />
+                            </ContextMenuGroup>
+                        </ContextMenuContent>
+                    </ContextMenu>
                 </div>
             </div>
 
