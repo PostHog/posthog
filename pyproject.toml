@@ -83,7 +83,6 @@ dependencies = [
     "nh3==0.2.14",
     "numpy~=2.1.0",
     "openai==1.109.1",
-    "opentelemetry-proto==1.38.0",
     "openpyxl==3.1.2",
     "orjson==3.10.15",
     "pandas~=2.2.2",
