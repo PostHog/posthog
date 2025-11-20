@@ -27,8 +27,9 @@ def team(organization):
 
     yield team
 
-    # Clean up any remaining Persons before deleting team to avoid FK violations
+    # Clean up any remaining Persons and PersonOverrides before deleting team to avoid FK violations
     Person.objects.filter(team=team).delete()
+    PersonOverride.objects.filter(team=team).delete()
     team.delete()
 
 
