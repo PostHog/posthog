@@ -2907,7 +2907,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -2970,7 +2970,7 @@
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
-      event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -4122,7 +4122,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -4185,7 +4185,7 @@
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
-      event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -5325,7 +5325,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -5388,7 +5388,7 @@
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
-      event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -6718,7 +6718,7 @@
       max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
   
       -- urls
-      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
       entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -6781,7 +6781,7 @@
       flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
-      event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
