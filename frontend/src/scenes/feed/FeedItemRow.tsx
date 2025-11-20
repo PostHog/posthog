@@ -37,6 +37,29 @@ function getItemUrl(item: FeedItem): string | undefined {
             return urls.replayPlaylist(item.id as string)
         case 'expiring_recordings':
             return urls.replay() // Link to replay page
+        case 'notification':
+            // Try to link to the resource if resource_type and resource_id are available
+            if (item.additional_data?.resource_type && item.additional_data?.resource_id) {
+                const resourceType = item.additional_data.resource_type
+                const resourceId = item.additional_data.resource_id
+                switch (resourceType) {
+                    case 'dashboard':
+                        return urls.dashboard(parseInt(resourceId))
+                    case 'event_definition':
+                        return urls.eventDefinition(resourceId)
+                    case 'experiment':
+                        return urls.experiment(parseInt(resourceId))
+                    case 'feature_flag':
+                        return urls.featureFlag(parseInt(resourceId))
+                    case 'survey':
+                        return urls.survey(resourceId)
+                    case 'session_recording_playlist':
+                        return urls.replayPlaylist(resourceId)
+                    default:
+                        return undefined
+                }
+            }
+            return undefined
         default:
             return undefined
     }
@@ -52,6 +75,7 @@ function getActivityTypeLabel(type: string): string {
         survey: 'Survey',
         session_recording_playlist: 'Replay playlist',
         external_data_source: 'Data source',
+        notification: 'Notification',
         expiring_recordings: 'Warning',
     }
     return labels[type] || type

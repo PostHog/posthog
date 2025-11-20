@@ -84,6 +84,12 @@ const FEED_TYPE_CONFIGS: Record<string, { title: string; icon: JSX.Element; colo
         color: availableOnboardingProducts[ProductKey.DATA_WAREHOUSE].iconColor,
         borderColor: availableOnboardingProducts[ProductKey.DATA_WAREHOUSE].iconColor,
     },
+    notification: {
+        title: 'Notifications',
+        icon: <IconNotification />,
+        color: 'rgb(59 130 246)', // Blue for notifications
+        borderColor: 'rgb(59 130 246)',
+    },
     expiring_recordings: {
         title: 'Expiring recordings',
         icon: <IconClock />,
@@ -173,13 +179,17 @@ export function Feed(): JSX.Element {
                         <div key={dateGroup}>
                             <h3 className="text-muted-alt text-xs uppercase font-semibold mb-2">{dateGroup}</h3>
                             <div className="space-y-4">
-                                {Object.entries(typeGroups).map(([type, items]) => {
+                                {Object.entries(typeGroups as Record<string, any[]>).map(([type, items]) => {
                                     const config = FEED_TYPE_CONFIGS[type]
                                     if (!config) {
                                         return null
                                     }
                                     return (
-                                        <FeedGroupedCard key={`${dateGroup}-${type}`} items={items} config={config} />
+                                        <FeedGroupedCard
+                                            key={`${dateGroup}-${type}`}
+                                            items={items as any[]}
+                                            config={config}
+                                        />
                                     )
                                 })}
                             </div>

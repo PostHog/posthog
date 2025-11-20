@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import type { feedLogicType } from './feedLogicType'
+
 export interface FeedItem {
     id: string | number
     type: string
@@ -17,7 +19,7 @@ export interface FeedFilters {
     days: number
 }
 
-export const feedLogic = kea([
+export const feedLogic = kea<feedLogicType>([
     path(['scenes', 'feed', 'feedLogic']),
     actions({
         setFilters: (filters) => ({ filters }),
@@ -48,7 +50,7 @@ export const feedLogic = kea([
     selectors({
         groupedFeedItems: [
             (s) => [s.feedItems],
-            (items): Record<string, Record<string, FeedItem[]>> => {
+            (items: FeedItem[]): Record<string, Record<string, FeedItem[]>> => {
                 // Separate upcoming/warning items from regular activity items
                 const upcomingItems: FeedItem[] = []
                 const regularItems: FeedItem[] = []

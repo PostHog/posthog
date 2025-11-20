@@ -13,6 +13,7 @@ from posthog.models import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.notification import Notification
 from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording import ttl_days
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -176,6 +177,35 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "name": f"{source['source_type']} data source",
                     "created_at": source["created_at"],
                     "description": "New data source connected",
+                }
+            )
+
+        # Notifications
+        notifications = Notification.objects.filter(
+            team_id=team.id,
+            user=request.user,
+            created_at__gt=period_start,
+            created_at__lte=period_end,
+        ).select_related("user")[:5]
+        for notification in notifications:
+            # Try to extract created_by from context if available
+            created_by = notification.context.get("actor", {}).get("email") if notification.context else None
+
+            feed_items.append(
+                {
+                    "id": str(notification.id),
+                    "type": "notification",
+                    "name": notification.title,
+                    "created_at": notification.created_at,
+                    "description": notification.message,
+                    "created_by": created_by,
+                    "additional_data": {
+                        "resource_type": notification.resource_type,
+                        "resource_id": notification.resource_id,
+                        "priority": notification.priority,
+                        "is_read": notification.read_at is not None,
+                        "context": notification.context,
+                    },
                 }
             )
 
