@@ -21,7 +21,7 @@ async fn main() {
             println!("✅ Test databases cleaned successfully!");
         }
         Err(e) => {
-            eprintln!("❌ Failed to cleanup test databases: {}", e);
+            eprintln!("❌ Failed to cleanup test databases: {e}");
             std::process::exit(1);
         }
     }
