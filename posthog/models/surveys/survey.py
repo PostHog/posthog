@@ -81,6 +81,15 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_index=False,
         db_constraint=False,  # Constraint will be added in follow-up migration
     )
+    demo_fk_issue = models.ForeignKey(
+        "posthog.Insight",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_demo_fk_issue",
+        related_query_name="survey_demo_fk_issue",
+        help_text="demoing the behavior of analyzer when trying to add fk with constraint/index",
+    )
     internal_targeting_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
