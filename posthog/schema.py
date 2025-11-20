@@ -127,8 +127,13 @@ class AssistantFormOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    value: str
-    variant: Optional[str] = None
+    href: Optional[str] = Field(
+        default=None, description="When href is set, the button opens the link rather than sending an AI message."
+    )
+    value: str = Field(..., description="Button label, which is also the message that gets sent on click.")
+    variant: Optional[str] = Field(
+        default=None, description="'primary', 'secondary', or 'tertiary' - default 'secondary'"
+    )
 
 
 class AssistantFunnelsBreakdownType(StrEnum):

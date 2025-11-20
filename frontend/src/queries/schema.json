@@ -882,10 +882,16 @@
         "AssistantFormOption": {
             "additionalProperties": false,
             "properties": {
+                "href": {
+                    "description": "When href is set, the button opens the link rather than sending an AI message.",
+                    "type": "string"
+                },
                 "value": {
+                    "description": "Button label, which is also the message that gets sent on click.",
                     "type": "string"
                 },
                 "variant": {
+                    "description": "'primary', 'secondary', or 'tertiary' - default 'secondary'",
                     "type": "string"
                 }
             },
