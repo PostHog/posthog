@@ -34,7 +34,7 @@ pytestmark = [
 async def workflows_batch_export(ateam, interval, exclude_events, temporal_client, topic, security_protocol, hosts):
     destination_data = {
         "type": "Workflows",
-        "config": {"topic": topic, "hosts": hosts, "security_protocol": security_protocol},
+        "config": {"topic": topic},
     }
     batch_export_data = {
         "name": "my-production-workflows-export",
@@ -83,6 +83,7 @@ async def test_workflows_export_workflow(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
+        exclude_events=exclude_events,
         **workflows_batch_export.destination.config,
     )
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -119,13 +120,12 @@ async def test_workflows_export_workflow(
     await assert_clickhouse_records_in_kafka(
         clickhouse_client=clickhouse_client,
         topic=topic,
-        hosts=hosts,
         date_ranges=[(data_interval_start, data_interval_end)],
-        security_protocol=security_protocol,
         team_id=ateam.pk,
         batch_export_model=model,
         exclude_events=exclude_events,
-        sort_key="_inserted_at",
+        sort_key="event",
+        batch_export_id=str(workflows_batch_export.id),
     )
 
 
