@@ -58,21 +58,18 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             const target = activeElement
             const entryPath = target?.getAttribute('data-explorer-entry-path')
             const entryType = target?.getAttribute('data-explorer-entry-type')
-            const isParentRow = target?.getAttribute('data-explorer-entry-parent') === 'true'
             const isExpandable = target?.getAttribute('data-explorer-entry-expandable') === 'true'
             const focusKey = target?.getAttribute('data-focus-key') ?? null
-
-            if (!entryPath || entryType !== 'folder' || isParentRow || !isExpandable) {
-                return
-            }
 
             e.preventDefault()
             e.stopPropagation()
 
-            const wasExpanded = !!explorerExpandedFolders[entryPath]
-            toggleExplorerFolderExpansion(entryPath)
-            if (!wasExpanded) {
-                loadFolder(entryPath)
+            if (entryPath && (entryType === 'folder' || isExpandable)) {
+                const wasExpanded = !!explorerExpandedFolders[entryPath]
+                toggleExplorerFolderExpansion(entryPath)
+                if (!wasExpanded) {
+                    loadFolder(entryPath)
+                }
             }
 
             if (focusKey) {
