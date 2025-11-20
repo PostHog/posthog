@@ -143,7 +143,7 @@ def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
         s.append(f"dmat_bool_{i}")
     for i in range(10):
         s.append(f"dmat_datetime_{i}")
-    return "\n".join(s)
+    return ",\n".join(s)
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""

@@ -141,7 +141,7 @@ describe('prepareEventStep()', () => {
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
         const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
+        const chEvent = await runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -158,7 +158,7 @@ describe('prepareEventStep()', () => {
             },
         }
         const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
+        const chEvent = await runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -172,7 +172,7 @@ describe('prepareEventStep()', () => {
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
         const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
-        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
+        const chEvent = await runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
         expect(chEvent.properties).toEqual('{"a":1}')
