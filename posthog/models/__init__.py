@@ -64,6 +64,7 @@ from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapp
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
+from .product_recommendation import ProductRecommendation
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
@@ -169,6 +170,7 @@ __all__ = [
     "PluginLogEntry",
     "PluginSourceFile",
     "ProductIntent",
+    "ProductRecommendation",
     "Project",
     "Property",
     "PropertyDefinition",

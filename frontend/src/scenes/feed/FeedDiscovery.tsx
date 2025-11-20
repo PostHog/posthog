@@ -1,8 +1,10 @@
+import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { IconDashboard, IconPlaylist, IconSparkles, IconTrends } from '@posthog/icons'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -38,6 +40,15 @@ const DISCOVERY_PROMPTS = [
         hasInput: true,
         buttonText: 'Ask AI',
     },
+    {
+        title: 'Instrument logs',
+        subtitle: 'Get AI help writing instrumentation snippets for your logs',
+        placeholder: 'e.g., "frontend errors with user_id"',
+        promptPrefix: 'Generate log instrumentation for ',
+        icon: <IconSparkles />,
+        hasInput: true,
+        buttonText: 'Draft instrumentation',
+    },
 ]
 
 export function FeedDiscovery(): JSX.Element {
@@ -57,9 +68,22 @@ export function FeedDiscovery(): JSX.Element {
                 <IconSparkles className="text-lg" style={{ color: '#F7B955' }} />
                 <h2 className="text-lg font-semibold mb-0">Discovery</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <ScrollableShadows
+                direction="horizontal"
+                className="py-1"
+                innerClassName="flex gap-4"
+                styledScrollbars
+                hideScrollbars={false}
+            >
                 {DISCOVERY_PROMPTS.map((item, index) => (
-                    <LemonCard key={index} className="flex flex-col h-full">
+                    <LemonCard
+                        key={index}
+                        className={clsx(
+                            'flex flex-col h-full',
+                            'min-w-[280px] flex-shrink-0',
+                            'md:min-w-0 md:flex-shrink'
+                        )}
+                    >
                         <div className="flex items-start gap-3 mb-4">
                             <div className="flex-shrink-0 text-2xl">{item.icon}</div>
                             <div className="flex-1">
@@ -96,7 +120,7 @@ export function FeedDiscovery(): JSX.Element {
                         </div>
                     </LemonCard>
                 ))}
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }

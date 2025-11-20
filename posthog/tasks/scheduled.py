@@ -16,6 +16,7 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.product_recommendations import calculate_product_recommendations_for_orgs
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -155,6 +156,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="30"),
         send_hog_functions_daily_digest.s(),
         name="send HogFunctions daily digest",
+    )
+
+    # Calculate next best product recommendations for organizations - daily at 2 AM UTC
+    sender.add_periodic_task(
+        crontab(hour="2", minute="0"),
+        calculate_product_recommendations_for_orgs.s(),
+        name="calculate product recommendations for orgs",
     )
 
     # PostHog Cloud cron jobs
