@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from google.genai.types import Type as _TypeEnum
 else:
     _TypeEnum = Any
 
-_Type: _TypeEnum | None = None
+_Type: type[_TypeEnum] | None = None
 
 
 def get_type_enum(json_type: str) -> _TypeEnum:
@@ -18,16 +18,19 @@ def get_type_enum(json_type: str) -> _TypeEnum:
 
         _Type = TypeEnum
 
+    # At this point _Type is guaranteed to be set
+    type_class = cast(type[_TypeEnum], _Type)
+
     """Convert JSON Schema type to Gemini Type enum"""
     type_mapping = {
-        "string": _Type.STRING,
-        "number": _Type.NUMBER,
-        "integer": _Type.INTEGER,
-        "boolean": _Type.BOOLEAN,
-        "array": _Type.ARRAY,
-        "object": _Type.OBJECT,
+        "string": type_class.STRING,
+        "number": type_class.NUMBER,
+        "integer": type_class.INTEGER,
+        "boolean": type_class.BOOLEAN,
+        "array": type_class.ARRAY,
+        "object": type_class.OBJECT,
     }
-    return type_mapping.get(json_type, _Type.STRING)
+    return type_mapping.get(json_type, type_class.STRING)
 
 
 def get_field_mappings() -> dict[str, str]:

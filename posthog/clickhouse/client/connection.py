@@ -1,6 +1,6 @@
 import os
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
@@ -128,7 +128,7 @@ class ProxyClient:
 
 
 _clickhouse_http_pool_mgr: Any | None = None
-_get_client: Callable[..., "HttpClient"] | None = None
+_get_client: Any | None = None
 
 
 @contextmanager
@@ -164,6 +164,8 @@ def get_http_client(**overrides):
         from clickhouse_connect import get_client
 
         _get_client = get_client
+    # At this point _get_client is guaranteed to be set
+    assert _get_client is not None
     client = _get_client(**kwargs)
     yield ProxyClient(client)  # type: ignore[arg-type]
 

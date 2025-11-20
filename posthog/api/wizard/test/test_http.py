@@ -29,7 +29,7 @@ class SetupWizardTests(APIBaseTest):
         import sys
 
         http_module = sys.modules["posthog.api.wizard.http"]
-        http_module._genai = None
+        http_module._genai = None  # type: ignore[attr-defined]
 
     def test_initialize_creates_hash(self):
         response = self.client.post(self.initialize_url)
@@ -459,6 +459,6 @@ class SetupWizardTests(APIBaseTest):
         import sys
 
         http_module = sys.modules["posthog.api.wizard.http"]
-        http_module._genai = None
+        http_module._genai = None  # type: ignore[attr-defined]
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
