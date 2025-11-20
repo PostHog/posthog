@@ -388,11 +388,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ],
         ],
         signupInsights: [
-            (s) => [s.signupSeries, s.paymentSeries, s.subscriptionSeries, s.signupPageviewSeries],
-            (signupSeries, paymentSeries, subscriptionSeries, signupPageviewSeries): InsightDefinition[] => [
+            (s) => [s.signupSeries, s.paymentSeries, s.subscriptionSeries, s.signupPageviewSeries, s.dauSeries],
+            (signupSeries, paymentSeries, subscriptionSeries, signupPageviewSeries, dauSeries): InsightDefinition[] => [
                 {
                     name: 'User Signups',
-                    description: 'Signup event',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -428,7 +427,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
                 {
                     name: 'Total Paying Customers',
-                    description: 'Subscription paid event',
                     requiredSeries: { paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -460,7 +458,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
                 {
                     name: 'User signups and subscriptions',
-                    description: 'Signup event, Subscription event',
                     requiredSeries: { signupSeries, subscriptionSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -493,7 +490,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
                 {
                     name: 'New Signups (Weekly)',
-                    description: 'Signup event',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -525,7 +521,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
                 {
                     name: 'Cumulative Signups (Adoption)',
-                    description: 'Signup event',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -558,7 +553,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
                 {
                     name: 'Signup Conversion Rate',
-                    description: 'Signup event, Signup page view event',
                     requiredSeries: { signupSeries, signupPageviewSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -580,6 +574,58 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 funnelWindowInterval: 14,
                                 breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                                 funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                            },
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                            },
+                            filterTestAccounts: true,
+                        },
+                    },
+                },
+                {
+                    name: 'Which customers are highly engaged?',
+                    requiredSeries: { dauSeries },
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.LifecycleQuery,
+                            series: [dauSeries],
+                            interval: 'week',
+                            dateRange: {
+                                date_from: '-30d',
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            lifecycleFilter: {
+                                showLegend: false,
+                            },
+                            filterTestAccounts: true,
+                            aggregation_group_type_index: 0,
+                        },
+                    },
+                },
+                {
+                    name: 'Free to Paid User Conversion',
+                    requiredSeries: { signupSeries, paymentSeries },
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.FunnelsQuery,
+                            series: [signupSeries, paymentSeries],
+                            dateRange: {
+                                date_from: '-90d',
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            funnelsFilter: {
+                                layout: FunnelLayout.horizontal,
+                                exclusions: [],
+                                funnelVizType: FunnelVizType.Steps,
+                                funnelOrderType: StepOrderValue.ORDERED,
+                                funnelStepReference: FunnelStepReference.total,
+                                funnelWindowInterval: 6,
+                                breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                             },
                             breakdownFilter: {
                                 breakdown_type: 'event',

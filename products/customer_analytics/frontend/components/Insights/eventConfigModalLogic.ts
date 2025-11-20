@@ -38,6 +38,9 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
         setPaymentEventSelection: (filters: FilterType | null) => ({
             filters,
         }),
+        setSubscriptionEventSelection: (filters: FilterType | null) => ({
+            filters,
+        }),
         saveEvents: true,
         toggleModalOpen: (isOpen?: boolean) => ({ isOpen }),
     }),
@@ -67,6 +70,13 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             null as FilterType | null,
             {
                 setPaymentEventSelection: (_, { filters }) => filters,
+                clearFilterSelections: () => null,
+            },
+        ],
+        subscriptionEventSelection: [
+            null as FilterType | null,
+            {
+                setSubscriptionEventSelection: (_, { filters }) => filters,
                 clearFilterSelections: () => null,
             },
         ],
@@ -142,34 +152,59 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 }
             },
         ],
+        subscriptionEventFilters: [
+            (s) => [s.subscriptionEvent, s.subscriptionEventSelection],
+            (subscriptionEvent, subscriptionEventSelection): FilterType | null => {
+                if (subscriptionEventSelection) {
+                    return subscriptionEventSelection
+                }
+                if (isEmptyObject(subscriptionEvent as object)) {
+                    return null
+                }
+                return {
+                    insight: InsightType.TRENDS,
+                    ...seriesToActionsAndEvents([subscriptionEvent]),
+                }
+            },
+        ],
         hasChanges: [
             (s) => [
                 s.activityEventSelection,
                 s.signupEventSelection,
                 s.signupPageviewEventSelection,
                 s.paymentEventSelection,
+                s.subscriptionEventSelection,
             ],
             (
                 activityEventSelection,
                 signupEventSelection,
                 signupPageviewEventSelection,
-                paymentEventSelection
+                paymentEventSelection,
+                subscriptionEventSelection
             ): boolean => {
                 return (
                     activityEventSelection !== null ||
                     signupEventSelection !== null ||
                     signupPageviewEventSelection !== null ||
-                    paymentEventSelection !== null
+                    paymentEventSelection !== null ||
+                    subscriptionEventSelection !== null
                 )
             },
         ],
         eventSelectors: [
-            (s) => [s.activityEventFilters, s.signupEventFilters, s.signupPageviewEventFilters, s.paymentEventFilters],
+            (s) => [
+                s.activityEventFilters,
+                s.signupEventFilters,
+                s.signupPageviewEventFilters,
+                s.paymentEventFilters,
+                s.subscriptionEventFilters,
+            ],
             (
                 activityEventFilters,
                 signupEventFilters,
                 signupPageviewEventFilters,
-                paymentEventFilters
+                paymentEventFilters,
+                subscriptionEventFilters
             ): EventSelectorProps[] => [
                 {
                     title: 'Activity event',
@@ -194,6 +229,12 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                     caption: 'Tracks when users complete payment transactions',
                     filters: paymentEventFilters,
                     setFilters: actions.setPaymentEventSelection,
+                },
+                {
+                    title: 'Subscription event',
+                    caption: 'Tracks when users subscribe to a plan',
+                    filters: subscriptionEventFilters,
+                    setFilters: actions.setSubscriptionEventSelection,
                 },
             ],
         ],
@@ -233,6 +274,14 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 )
                 events['payment_event'] = paymentEvents[0]
             }
+            if (values.subscriptionEventSelection) {
+                const subscriptionEvents = actionsAndEventsToSeries(
+                    values.subscriptionEventSelection as any,
+                    true,
+                    MathAvailability.None
+                )
+                events['subscription_event'] = subscriptionEvents[0]
+            }
             actions.updateEvents(events)
         },
         toggleModalOpen: ({ isOpen }) => {
@@ -242,6 +291,7 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 actions.setSignupEventSelection(null)
                 actions.setSignupPageviewEventSelection(null)
                 actions.setPaymentEventSelection(null)
+                actions.setSubscriptionEventSelection(null)
             }
         },
     })),

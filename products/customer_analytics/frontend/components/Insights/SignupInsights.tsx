@@ -26,6 +26,13 @@ export function SignupInsights(): JSX.Element {
                     )
                 })}
             </div>
+            <div className="grid grid-cols-2 gap-2">
+                {signupInsights.slice(6).map((insight, index) => {
+                    return (
+                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
+                    )
+                })}
+            </div>
         </div>
     )
 }
