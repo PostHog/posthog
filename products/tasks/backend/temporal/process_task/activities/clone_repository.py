@@ -17,6 +17,7 @@ class CloneRepositoryInput:
     repository: str
     github_integration_id: int
     task_id: str
+    run_id: str
     distinct_id: str
 
 
@@ -28,6 +29,7 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         "clone_repository",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
+        run_id=input.run_id,
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):

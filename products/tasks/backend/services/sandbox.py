@@ -269,17 +269,17 @@ class Sandbox:
 
         return is_clean, result.stdout
 
-    def execute_task(self, task_id: str, repository: str) -> ExecutionResult:
+    def execute_task(self, task_id: str, run_id: str, repository: str) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError(f"Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        task_command = self._get_task_command(task_id, repo_path)
+        task_command = self._get_task_command(task_id, run_id, repo_path)
         command = f"cd {repo_path} && {task_command}"
 
-        logger.info(f"Executing task {task_id} in {repo_path} in sandbox {self.id}")
+        logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
         logger.info(f"Task command: {task_command}")
         logger.info(f"Full command: {command}")
 
@@ -294,8 +294,8 @@ class Sandbox:
 
         return result
 
-    def _get_task_command(self, task_id: str, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --repositoryPath {repo_path}"
+    def _get_task_command(self, task_id: str, run_id: str, repo_path: str) -> str:
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"

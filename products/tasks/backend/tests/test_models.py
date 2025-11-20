@@ -64,11 +64,15 @@ class TestTask(TestCase):
         self.assertEqual(task.created_by, user)
         self.assertEqual(task.repository, "posthog/posthog")
 
-        mock_execute_workflow.assert_called_once_with(
-            task_id=str(task.id),
-            team_id=self.team.id,
-            user_id=user.id,
-        )
+        mock_execute_workflow.assert_called_once()
+        call_args = mock_execute_workflow.call_args
+        self.assertEqual(call_args.kwargs["task_id"], str(task.id))
+        self.assertEqual(call_args.kwargs["team_id"], self.team.id)
+        self.assertEqual(call_args.kwargs["user_id"], user.id)
+        self.assertIsNotNone(call_args.kwargs["run_id"])
+        task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
+        self.assertEqual(task_run.task, task)
+        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_repository(self, mock_execute_workflow):
