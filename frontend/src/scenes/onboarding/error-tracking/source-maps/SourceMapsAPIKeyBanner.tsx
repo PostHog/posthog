@@ -25,7 +25,7 @@ export function SourceMapsAPIKeyBanner(): JSX.Element {
         <LemonBanner type="info" className="mb-4">
             <div className="flex items-center gap-2 justify-between">
                 The project API key used to initialize PostHog is not the same as the personal API key required to
-                upload source maps.{' '}
+                upload source maps. If you want to upload source maps, you can create a personal API key here.
                 <LemonButton type="primary" onClick={openAPIKeyModal}>
                     Create personal API key
                 </LemonButton>
