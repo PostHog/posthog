@@ -466,11 +466,12 @@ export function ProjectExplorer({
                                         return
                                     }
 
+                                    const isKeyboardInitiated = event.detail === 0
                                     const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
                                         '[data-explorer-row-clickable]'
                                     )
 
-                                    if (!isClickOnActiveArea) {
+                                    if (!isKeyboardInitiated && !isClickOnActiveArea) {
                                         event.preventDefault()
                                         return
                                     }
@@ -871,9 +872,11 @@ function ExplorerNameEditor({ initialName, onSubmit, onCancel }: ExplorerNameEdi
             onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                     event.preventDefault()
+                    event.stopPropagation()
                     finishEditing(true)
                 } else if (event.key === 'Escape') {
                     event.preventDefault()
+                    event.stopPropagation()
                     finishEditing(false)
                 }
             }}
