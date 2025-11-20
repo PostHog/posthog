@@ -18,7 +18,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -275,6 +275,10 @@ export const teamLogic = kea<teamLogicType>([
         baseCurrency: [
             (selectors) => [selectors.currentTeam],
             (currentTeam: TeamType): CurrencyCode => currentTeam?.base_currency ?? DEFAULT_CURRENCY,
+        ],
+        customerAnalyticsConfig: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType): CustomerAnalyticsConfig => currentTeam.customer_analytics_config,
         ],
     })),
     listeners(({ actions }) => ({

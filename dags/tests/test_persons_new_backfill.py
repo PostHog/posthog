@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import psycopg2.errors
 from dagster import build_op_context
 
-from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks
+from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks, get_id_range
 
 
 class TestCreateChunks:
@@ -483,3 +483,117 @@ class TestCopyChunk:
 
         if set_indices and begin_indices:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
+
+
+class TestGetIdRange:
+    """Test the get_id_range function."""
+
+    def test_get_id_range_uses_min_id_override(self):
+        """Test that min_id override is honored when provided."""
+        config = PersonsNewBackfillConfig(min_id=100, max_id=None, source_table="posthog_persons")
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"max_id": 5000}
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (100, 5000)
+        assert result[0] == 100  # min_id override used
+
+        # Verify min_id query was NOT executed (override used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
+
+        # Verify max_id query WAS executed
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(max_queries) == 1, "Should query for max_id when override is not provided"
+
+    def test_get_id_range_uses_max_id_override(self):
+        """Test that max_id override is honored when provided."""
+        config = PersonsNewBackfillConfig(min_id=None, max_id=5000, source_table="posthog_persons")
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"min_id": 1}
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (1, 5000)
+        assert result[1] == 5000  # max_id override used
+
+        # Verify max_id query was NOT executed (override used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
+
+        # Verify min_id query WAS executed
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        assert len(min_queries) == 1, "Should query for min_id when override is not provided"
+
+    def test_get_id_range_uses_both_overrides(self):
+        """Test that both min_id and max_id overrides are honored when provided."""
+        config = PersonsNewBackfillConfig(min_id=100, max_id=5000, source_table="posthog_persons")
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (100, 5000)
+        assert result[0] == 100  # min_id override used
+        assert result[1] == 5000  # max_id override used
+
+        # Verify NO queries were executed (both overrides used)
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
+        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
+
+    def test_get_id_range_queries_database_when_no_overrides(self):
+        """Test that database is queried when no overrides are provided."""
+        config = PersonsNewBackfillConfig(min_id=None, max_id=None, source_table="posthog_persons")
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        # First call returns min_id, second call returns max_id
+        cursor.fetchone.side_effect = [{"min_id": 1}, {"max_id": 5000}]
+
+        context = build_op_context(resources={"database": mock_db})
+
+        result = get_id_range(context, config)
+
+        assert result == (1, 5000)
+
+        # Verify both queries were executed
+        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        min_queries = [call for call in execute_calls if "MIN(id)" in call]
+        max_queries = [call for call in execute_calls if "MAX(id)" in call]
+        assert len(min_queries) == 1, "Should query for min_id when override is not provided"
+        assert len(max_queries) == 1, "Should query for max_id when override is not provided"
+
+    def test_get_id_range_validates_max_id_greater_than_min_id(self):
+        """Test that validation fails when max_id < min_id."""
+        config = PersonsNewBackfillConfig(min_id=5000, max_id=100, source_table="posthog_persons")
+        mock_db = create_mock_database_resource()
+
+        context = build_op_context(resources={"database": mock_db})
+
+        from dagster import Failure
+
+        try:
+            get_id_range(context, config)
+            raise AssertionError("Expected Dagster.Failure to be raised")
+        except Failure as e:
+            assert e.description is not None
+            description = e.description
+            assert "max_id" in description.lower() or "invalid" in description.lower()
+            assert "5000" in description or "100" in description

@@ -570,6 +570,8 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
         sha_hash = hashlib.sha256(value.encode()).hexdigest()
 
+        # this value isn't use controllable and can't generate html/js, so there's no risk of xss
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_query_{sha_hash}"
 
 

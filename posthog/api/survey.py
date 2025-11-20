@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -46,9 +47,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
+    get_archived_response_uuids,
     get_unique_survey_event_uuids_sql_subquery,
 )
 from posthog.models.team.team import Team
@@ -833,7 +836,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
+    queryset = Survey.objects.select_related(
+        "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
+    ).all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
@@ -873,8 +878,27 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return f"uuid IN {unique_uuids_subquery}"
 
+    def _get_archived_responses_filter(self, survey_id: str | None = None) -> tuple[str, dict]:
+        archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
+
+        if not archived_uuids:
+            return "", {}
+
+        params = {"archived_uuids": list(archived_uuids)}
+        return "uuid NOT IN %(archived_uuids)s", params
+
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
+        """Get response counts for all surveys.
+
+        Args:
+            exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+
+        Returns:
+            Dictionary mapping survey IDs to response counts
+        """
+        exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
+
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
         )["start_date__min"]
@@ -883,12 +907,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
+        params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
+
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
                 "timestamp >= %(timestamp)s",
             ],
         )
+
+        archived_filter = ""
+        if exclude_archived:
+            archived_filter_sql, archived_params = self._get_archived_responses_filter()
+            if archived_filter_sql:
+                archived_filter = f"AND {archived_filter_sql}"
+                params.update(archived_params)
 
         query = f"""
             SELECT
@@ -900,13 +933,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
+                {archived_filter}
             GROUP BY survey_id
         """
 
-        data = sync_execute(
-            query,
-            {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
-        )
+        data = sync_execute(query, params)
 
         counts = {}
         for survey_id, count in data:
@@ -1043,13 +1074,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             }
         return rates
 
-    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
+    def _get_survey_stats(
+        self, date_from: str | None, date_to: str | None, survey_id: str | None = None, exclude_archived: bool = False
+    ) -> dict:
         """Get survey statistics from ClickHouse.
 
         Args:
             date_from: Optional ISO timestamp for start date with timezone info
             date_to: Optional ISO timestamp for end date with timezone info
             survey_id: Optional survey ID to filter for. If None, gets stats for all surveys.
+            exclude_archived: If True, exclude archived responses. Defaults to False (includes archived).
 
         Returns:
             Dictionary containing survey statistics and rates
@@ -1066,6 +1100,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if parsed_to:
             date_filter += " AND timestamp <= %(date_to)s"
             params["date_to"] = parsed_to
+
+        # Add archive filter if needed
+        archive_filter = ""
+        if survey_id and exclude_archived:
+            archive_filter_sql, archive_params = self._get_archived_responses_filter(survey_id)
+            if archive_filter_sql:
+                archive_filter = f"AND {archive_filter_sql}"
+                params.update(archive_params)
 
         # Add survey filter if specific survey
         survey_filter = ""
@@ -1109,6 +1151,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            {archive_filter}
             AND (
                 event != %(dismissed)s
                 OR
@@ -1139,6 +1182,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                  {archive_filter}
                 AND (
                     event != %(dismissed)s
                     OR
@@ -1207,6 +1251,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         Args:
             date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
             date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+            exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
 
         Returns:
             Survey statistics including event counts, unique respondents, and conversion rates
@@ -1214,13 +1259,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         survey_id = kwargs["pk"]
         date_from = request.query_params.get("date_from", None)
         date_to = request.query_params.get("date_to", None)
+        exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
 
         try:
             survey = self.get_object()
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        response_data = self._get_survey_stats(date_from, date_to, survey_id)
+        response_data = self._get_survey_stats(date_from, date_to, survey_id, exclude_archived)
 
         # Add survey metadata
         response_data["survey_id"] = survey_id
@@ -1228,6 +1274,86 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         response_data["end_date"] = survey.end_date
 
         return Response(response_data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="responses/(?P<response_uuid>[^/]+)/archive",
+        required_scopes=["survey:write"],
+    )
+    def archive_response(self, request: request.Request, response_uuid: str, **kwargs) -> Response:
+        """Archive a single survey response."""
+        survey = self.get_object()
+
+        try:
+            UUID(response_uuid)
+        except ValueError:
+            return Response({"detail": "Invalid UUID format"}, status=400)
+
+        archive, created = SurveyResponseArchive.objects.get_or_create(
+            team_id=self.team_id,
+            survey=survey,
+            response_uuid=response_uuid,
+        )
+
+        if created:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_archived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
+
+        return Response(status.HTTP_200_OK)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="responses/(?P<response_uuid>[^/]+)/unarchive",
+        required_scopes=["survey:write"],
+    )
+    def unarchive_response(self, request: request.Request, response_uuid: str, **kwargs) -> Response:
+        """Unarchive a single survey response."""
+        survey = self.get_object()
+
+        try:
+            UUID(response_uuid)
+        except ValueError:
+            return Response({"detail": "Invalid UUID format"}, status=400)
+
+        deleted_count, _ = SurveyResponseArchive.objects.filter(
+            team_id=self.team_id, survey=survey, response_uuid=response_uuid
+        ).delete()
+
+        if deleted_count > 0:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=survey.id,
+                scope="Survey",
+                activity="response_unarchived",
+                detail=Detail(name=f"Response {response_uuid}"),
+            )
+
+        return Response(status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])
+    def archived_response_uuids(self, request: request.Request, **kwargs) -> Response:
+        """
+        Get list of archived response UUIDs for HogQL filtering.
+
+        Returns list of UUIDs that the frontend can use to filter out archived responses
+        in HogQL queries.
+        """
+        survey = self.get_object()
+        uuids = get_archived_response_uuids(str(survey.id), self.team_id)
+        return Response(list(uuids))
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["survey:read"])
     def global_stats(self, request: request.Request, **kwargs) -> Response:
