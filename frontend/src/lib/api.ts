@@ -4209,6 +4209,9 @@ const api = {
         async delete(previewId: string): Promise<void> {
             return await new ApiRequest().objectMediaPreviewDetail(previewId).delete()
         },
+        async update(previewId: string, data: Partial<ObjectMediaPreview>): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).update({ data })
+        },
     },
 
     queryStatus: {

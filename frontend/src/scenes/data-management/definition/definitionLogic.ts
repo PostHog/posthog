@@ -50,11 +50,14 @@ export const definitionLogic = kea<definitionLogicType>([
         loadMetrics: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
         loadPreferredPreview: true,
+        loadPreviews: true,
         createMediaPreview: (uploadedMediaId: string, metadata?: Record<string, any>) => ({
             uploadedMediaId,
             metadata,
         }),
         deleteMediaPreview: (previewId: string) => ({ previewId }),
+        setPreviewModalOpen: (isOpen: boolean) => ({ isOpen }),
+        selectPreview: (preview: ObjectMediaPreview) => ({ preview }),
     }),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
@@ -64,6 +67,12 @@ export const definitionLogic = kea<definitionLogicType>([
             false,
             {
                 setDefinitionMissing: () => true,
+            },
+        ],
+        isPreviewModalOpen: [
+            false,
+            {
+                setPreviewModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
     })),
@@ -127,6 +136,37 @@ export const definitionLogic = kea<definitionLogicType>([
                 },
             },
         ],
+        previews: [
+            [] as ObjectMediaPreview[],
+            {
+                loadPreviews: async () => {
+                    if (!values.isEvent || !values.definition.id || values.definition.id === 'new') {
+                        return []
+                    }
+                    try {
+                        const response = await api.objectMediaPreviews.list(values.definition.id)
+                        return response.results
+                    } catch {
+                        return []
+                    }
+                },
+                selectPreview: async ({ preview }) => {
+                    try {
+                        await api.objectMediaPreviews.update(preview.id, {
+                            metadata: { ...preview.metadata, _last_selected_at: new Date().toISOString() },
+                        })
+                        lemonToast.success('Preview selected')
+                        actions.loadPreferredPreview()
+                        actions.setPreviewModalOpen(false)
+                        // Reload previews to update order or metadata if needed, though currently we just return existing
+                        return values.previews
+                    } catch (error) {
+                        lemonToast.error('Failed to select preview')
+                        throw error
+                    }
+                },
+            },
+        ],
         preview: [
             null as ObjectMediaPreview | null,
             {
@@ -151,6 +191,7 @@ export const definitionLogic = kea<definitionLogicType>([
                         })
                         lemonToast.success('Media preview added successfully')
                         actions.loadPreferredPreview()
+                        actions.loadPreviews()
                         return null
                     } catch (error) {
                         lemonToast.error('Failed to add media preview')
@@ -161,6 +202,7 @@ export const definitionLogic = kea<definitionLogicType>([
                     try {
                         await api.objectMediaPreviews.delete(previewId)
                         lemonToast.success('Media preview deleted')
+                        actions.loadPreviews()
                         return null
                     } catch (error) {
                         lemonToast.error('Failed to delete media preview')

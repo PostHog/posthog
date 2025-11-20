@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { createRef } from 'react'
 
-import { IconImage, IconTrash } from '@posthog/icons'
+import { IconImage, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -30,6 +30,7 @@ import { isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { MediaPreviewModal } from './MediaPreviewModal'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
@@ -51,7 +52,8 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
 
     const { preview, previewLoading } = useValues(definitionLogicInstance)
-    const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
+    const { createMediaPreview, deleteMediaPreview, loadPreviews, setPreviewModalOpen } =
+        useActions(definitionLogicInstance)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_url, _fileName, uploadedMediaId) => {
@@ -222,15 +224,26 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                                             alt="Event preview"
                                                             className="max-w-full max-h-80 rounded"
                                                         />
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            type="secondary"
-                                                            status="danger"
-                                                            size="small"
-                                                            onClick={() => deleteMediaPreview(preview.id)}
-                                                            className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                            tooltip="Delete preview"
-                                                        />
+                                                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <LemonButton
+                                                                icon={<IconPencil />}
+                                                                type="secondary"
+                                                                size="small"
+                                                                onClick={() => {
+                                                                    loadPreviews()
+                                                                    setPreviewModalOpen(true)
+                                                                }}
+                                                                tooltip="Change preview"
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconTrash />}
+                                                                type="secondary"
+                                                                status="danger"
+                                                                size="small"
+                                                                onClick={() => deleteMediaPreview(preview.id)}
+                                                                tooltip="Delete preview"
+                                                            />
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -290,6 +303,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
             </SceneContent>
+            <MediaPreviewModal props={props} />
         </Form>
     )
 }
