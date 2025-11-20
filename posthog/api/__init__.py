@@ -703,73 +703,89 @@ projects_router.register(
     ["project_id"],
 )
 
+## This viewset is duplicated (env and project) for retro compatibility with CLI
 environments_router.register(
     r"error_tracking/releases",
     ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release",
+    "environment_error_tracking_release_environment",
     ["team_id"],
 )
 
+projects_router.register(
+    r"error_tracking/releases",
+    ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release_project",
+    ["project_id"],
+)
+
+## This viewset is duplicated (env and project) for retro compatibility with CLI
 environments_router.register(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
+    "environment_error_tracking_symbol_set",
     ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking/symbol_sets",
+    ErrorTrackingSymbolSetViewSet,
+    "project_error_tracking_symbol_set",
+    ["project_id"],
 )
 
 environments_router.register(
     r"error_tracking/assignment_rules",
     ErrorTrackingAssignmentRuleViewSet,
-    "project_error_tracking_assignment_rule",
+    "environment_error_tracking_assignment_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/grouping_rules",
     ErrorTrackingGroupingRuleViewSet,
-    "project_error_tracking_grouping_rule",
+    "environment_error_tracking_grouping_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/suppression_rules",
     ErrorTrackingSuppressionRuleViewSet,
-    "project_error_tracking_suppression_rule",
+    "environment_error_tracking_suppression_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/fingerprints",
     ErrorTrackingFingerprintViewSet,
-    "project_error_tracking_fingerprint",
+    "environment_error_tracking_fingerprint",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/issues",
     ErrorTrackingIssueViewSet,
-    "project_error_tracking_issue",
+    "environment_error_tracking_issue",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/external_references",
     ErrorTrackingExternalReferenceViewSet,
-    "project_error_tracking_external_references",
+    "environment_error_tracking_external_references",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/stack_frames",
     ErrorTrackingStackFrameViewSet,
-    "project_error_tracking_stack_frames",
+    "environment_error_tracking_stack_frames",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
-    "project_error_tracking_git_provider_file_links",
+    "environment_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 
