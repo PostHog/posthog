@@ -52,6 +52,68 @@ class CommentSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _send_mention_notifications(self, comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+        """
+        Send in-app notifications to users mentioned in a comment.
+
+        Args:
+            comment: The comment instance
+            mentioned_user_ids: List of user IDs that were mentioned
+            slug: URL slug for the resource being commented on
+        """
+        from posthog.notifications.producer import broadcast_notification
+
+        if not mentioned_user_ids:
+            return
+
+        # Build notification message
+        author_name = comment.created_by.first_name or comment.created_by.email
+
+        # Determine what was commented on
+        resource_name = self._get_resource_name_from_scope(comment.scope)
+
+        # Get a preview of the comment (first 100 chars)
+        comment_preview = (comment.content or "")[:100]
+        if len(comment.content or "") > 100:
+            comment_preview += "..."
+
+        # Build context with all relevant information
+        context = {
+            "comment_id": str(comment.id),
+            "author_id": comment.created_by_id,
+            "author_name": author_name,
+            "comment_preview": comment_preview,
+            "scope": comment.scope,
+            "item_id": comment.item_id,
+            "slug": slug,
+            "is_reply": comment.source_comment_id is not None,
+        }
+
+        # Send notification to each mentioned user
+        for user_id in mentioned_user_ids:
+            broadcast_notification(
+                team_id=comment.team_id,
+                user_id=user_id,  # Direct to specific user
+                resource_type="mention",
+                event_type="created",
+                title=f"{author_name} mentioned you",
+                message=f'{author_name} mentioned you in a comment on {resource_name}: "{comment_preview}"',
+                resource_id=str(comment.id),
+                context=context,
+            )
+
+    def _get_resource_name_from_scope(self, scope: str) -> str:
+        """Convert scope to user-friendly resource name."""
+        scope_map = {
+            "Insight": "an insight",
+            "FeatureFlag": "a feature flag",
+            "Dashboard": "a dashboard",
+            "Replay": "a replay",
+            "Comment": "a comment thread",
+            "Notebook": "a notebook",
+        }
+        return scope_map.get(scope, f"a {scope.lower()}")
+
     def create(self, validated_data: Any) -> Any:
         mentions: list[int] = validated_data.pop("mentions", [])
         slug: str = validated_data.pop("slug", "")
@@ -61,6 +123,9 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if mentions:
             send_discussions_mentioned.delay(comment.id, mentions, slug)
+
+            # Send in-app notifications to mentioned users
+            self._send_mention_notifications(comment, mentions, slug)
 
         return comment
 
@@ -84,6 +149,9 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if mentions:
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
+
+            # Send in-app notifications to mentioned users
+            self._send_mention_notifications(updated_instance, mentions, slug)
 
         return updated_instance
 
