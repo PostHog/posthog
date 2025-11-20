@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -198,6 +199,104 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertIsNotNone(task.id)
+
+    @parameterized.expand(
+        [
+            (
+                "valid_simple_schema",
+                {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                    "required": ["name"],
+                },
+                True,
+            ),
+            (
+                "valid_nested_schema",
+                {
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}, "email": {"type": "string"}},
+                        }
+                    },
+                },
+                True,
+            ),
+            (
+                "valid_array_schema",
+                {"type": "array", "items": {"type": "string"}},
+                True,
+            ),
+            (
+                "invalid_schema_bad_type",
+                {"type": "invalid_type"},
+                False,
+            ),
+            (
+                "invalid_schema_bad_structure",
+                {"properties": {"name": "not_an_object"}},
+                False,
+            ),
+        ]
+    )
+    def test_json_schema_validation(self, name, schema, should_succeed):
+        if should_succeed:
+            task = Task.objects.create(
+                team=self.team,
+                title="Test Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository="posthog/posthog",
+                json_schema=schema,
+            )
+            self.assertEqual(task.json_schema, schema)
+        else:
+            with self.assertRaises(ValidationError) as cm:
+                Task.objects.create(
+                    team=self.team,
+                    title="Test Task",
+                    description="Description",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    repository="posthog/posthog",
+                    json_schema=schema,
+                )
+            self.assertIn("json_schema", str(cm.exception))
+
+    def test_json_schema_none_allowed(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            json_schema=None,
+        )
+        self.assertIsNone(task.json_schema)
+
+    def test_json_schema_from_pydantic_model(self):
+        class UserOutput(BaseModel):
+            name: str
+            email: str
+            age: int
+
+        schema = UserOutput.model_json_schema()
+
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            json_schema=schema,
+        )
+
+        self.assertIsNotNone(task.json_schema)
+        self.assertEqual(task.json_schema.get("type"), "object")
+        self.assertIn("name", task.json_schema.get("properties", {}))
+        self.assertIn("email", task.json_schema.get("properties", {}))
+        self.assertIn("age", task.json_schema.get("properties", {}))
 
 
 class TestTaskSlug(TestCase):
