@@ -10,6 +10,7 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 from temporalio.client import ScheduleActionStartWorkflow
+from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.fixtures import create_organization
@@ -19,6 +20,8 @@ from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
 from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
+
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 pytestmark = [
     pytest.mark.django_db,
@@ -1217,3 +1220,55 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
+
+
+@pytest.fixture
+def saved_query(team):
+    return DataWarehouseSavedQuery.objects.create(
+        team=team,
+        name="my-saved-query",
+        query="select uuid, event, timestamp from events",
+    )
+
+
+def test_creating_batch_export_for_saved_query(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    saved_query,
+):
+    """Test validation of the filters field when creating a batch export."""
+
+    batch_export_data = {
+        "name": "my-destination",
+        "destination": {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        },
+        "interval": "hour",
+        "model": "saved_query",
+        "saved_query": saved_query.pk,
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    # Batch exports for saved queries are triggered by the materialized view workflow and therefore don't need a
+    # Temporal schedule. Therefore we verify that one hasn't been created.
+    data = response.json()
+    with pytest.raises(RPCError):
+        describe_schedule(temporal, data["id"])
