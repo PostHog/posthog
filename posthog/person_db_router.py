@@ -74,23 +74,17 @@ class PersonDBRouter:
         else:
             # One model is in persons_db, the other is not.
             # Allow specific cross-database relationships where the FK constraint is removed (db_constraint=False)
-            # Person -> Team: Person.team has db_constraint=False
-            # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
-            # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
-            # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
-            from posthog.models import Dashboard, Person, Project, Team
+            # All persons_db models -> Team: all have team FK with db_constraint=False
+            # GroupTypeMapping -> Project: has db_constraint=False
+            # GroupTypeMapping -> Dashboard: has db_constraint=False
+            from posthog.models import Dashboard, Project, Team
             from posthog.models.group_type_mapping import GroupTypeMapping
 
-            # Allow Person -> Team relation
-            if isinstance(obj1, Person) and isinstance(obj2, Team):
+            # Allow any persons_db model -> Team relation
+            # (Person, PersonDistinctId, Group, CohortPeople, etc. all have team FK)
+            if isinstance(obj2, Team) and obj1_in_persons_db:
                 return True
-            if isinstance(obj1, Team) and isinstance(obj2, Person):
-                return True
-
-            # Allow GroupTypeMapping -> Team relation
-            if isinstance(obj1, GroupTypeMapping) and isinstance(obj2, Team):
-                return True
-            if isinstance(obj1, Team) and isinstance(obj2, GroupTypeMapping):
+            if isinstance(obj1, Team) and obj2_in_persons_db:
                 return True
 
             # Allow GroupTypeMapping -> Project relation
