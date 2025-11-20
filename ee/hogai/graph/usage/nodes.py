@@ -56,7 +56,7 @@ class UsageNode(AssistantNode):
             now = timezone.now()
 
             # Calculate credits for current conversation
-            conversation_credits = await sync_to_async(get_ai_credits_for_conversation)(
+            conversation_credits = await sync_to_async(get_ai_credits_for_conversation, thread_sensitive=False)(
                 team_id=self._team.id,
                 conversation_id=conversation_id,
                 begin=conversation_start,
