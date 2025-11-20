@@ -93,6 +93,8 @@ export function ProjectExplorer({
     const { setActiveExplorerFolderPath, toggleExplorerFolderExpansion, setHighlightedExplorerEntryPath } = useActions(
         newTabSceneLogic({ tabId })
     )
+    const hasActiveFolder = activeExplorerFolderPath !== null
+    const explorerFolderPath = activeExplorerFolderPath ?? ''
     const mouseSensor = useSensor(MouseSensor, {
         activationConstraint: {
             distance: 10,
@@ -105,7 +107,8 @@ export function ProjectExplorer({
         },
     })
     const sensors = useSensors(mouseSensor, touchSensor)
-    const { setNodeRef: setRootNodeRef, isOver: isOverRoot } = useDroppable({ id: 'project://' })
+    const rootDroppableId = `project://${explorerFolderPath}`
+    const { setNodeRef: setRootNodeRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
     const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
 
     useEffect(() => {
@@ -117,8 +120,6 @@ export function ProjectExplorer({
         }
     }, [activeExplorerFolderPath, folders, folderStates, loadFolder])
 
-    const hasActiveFolder = activeExplorerFolderPath !== null
-    const explorerFolderPath = activeExplorerFolderPath ?? ''
     const currentEntries = hasActiveFolder ? folders[explorerFolderPath] || [] : []
 
     const rows = useMemo(() => {
@@ -552,10 +553,11 @@ function ExplorerRowListItem({
     treeItem: TreeDataItem | null
     projectTreeLogicProps: ProjectTreeLogicProps
 }): JSX.Element {
-    const droppableId = treeItem?.id ?? rowKey
+    const droppableId = isParentNavigationRow ? `project://${entry.path}` : (treeItem?.id ?? rowKey)
     const isDraggable = !!treeItem?.record?.path
     const isDroppable =
-        !!treeItem?.record?.path && isExpandableFolder && !isParentNavigationRow && !treeItem?.record?.href
+        isParentNavigationRow ||
+        (!!treeItem?.record?.path && isExpandableFolder && !isParentNavigationRow && !treeItem?.record?.href)
 
     const {
         attributes,
