@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
@@ -23,14 +23,14 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
     const { setActions, toggleEditing } = useActions(notebookNodeLogic)
-    const { personId, groupKey, groupTypeIndex } = attributes
+    const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
               query: {
                   kind: NodeKind.UsageMetricsQuery,
                   person_id: personId,
               },
-              key: personId,
+              key: `${personId}-${tabId}`,
           }
         : groupKey
           ? {
@@ -39,11 +39,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                     group_key: groupKey,
                     group_type_index: groupTypeIndex,
                 },
-                key: groupKey,
+                key: `${groupKey}-${tabId}`,
             }
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
 
     useEffect(() => {
         setActions([
@@ -52,8 +53,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 icon: <IconPlusSmall />,
                 onClick: () => toggleEditing(true),
             },
+            {
+                text: 'Refresh',
+                icon: <IconRefresh />,
+                onClick: loadData,
+            },
         ])
-    }, [])
+    }, [setActions, loadData, toggleEditing])
 
     if (!expanded) {
         return null
@@ -115,6 +121,7 @@ type NotebookNodeUsageMetricsAttributes = {
     personId?: string
     groupKey?: string
     groupTypeIndex?: number
+    tabId: string
 }
 
 export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsageMetricsAttributes>({
@@ -130,5 +137,6 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
         personId: {},
         groupKey: {},
         groupTypeIndex: {},
+        tabId: {},
     },
 })

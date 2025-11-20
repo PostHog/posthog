@@ -9,8 +9,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
 import structlog
-from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -250,7 +250,26 @@ if settings.DEBUG:
     # that in production we expose these metrics on a separate port (8001), to ensure
     # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
     # for details on the production metrics setup.
-    urlpatterns.append(path("_metrics", ExportToDjangoView))
+
+    # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
+    import os
+
+    def metrics_view(request):
+        """Metrics endpoint that aggregates from all processes using multiprocess mode."""
+        registry = CollectorRegistry()
+        # If prometheus_multiproc_dir is set, collect from all processes
+        if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+            multiprocess.MultiProcessCollector(registry)
+        else:
+            # Fallback to default registry if multiprocess not configured
+            from prometheus_client import REGISTRY
+
+            registry = REGISTRY
+
+        metrics_output = generate_latest(registry)
+        return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")
+
+    urlpatterns.append(path("_metrics", metrics_view))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 

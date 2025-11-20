@@ -6,6 +6,7 @@ from typing import Generic
 from django.conf import settings
 
 import orjson
+from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceInputs
@@ -14,10 +15,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableDa
 class ResumableSourceManager(Generic[ResumableData]):
     _inputs: SourceInputs
     _data_class: type[ResumableData]
+    _logger: FilteringBoundLogger
 
     def __init__(self, inputs: SourceInputs, data_class: type[ResumableData]):
         self._inputs = inputs
         self._data_class = data_class
+        self._logger = inputs.logger
 
     @contextmanager
     def _get_redis(self):
@@ -60,16 +63,23 @@ class ResumableSourceManager(Generic[ResumableData]):
     def save_state(self, data: ResumableData) -> None:
         with self._get_redis() as redis:
             json_data = self._dump_json(data)
+            self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
+
             redis.set(self._key, json_data, ex=60 * 60 * 24)  # 24 hours expiration
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
-            return redis.exists(self._key) == 1
+            exists = redis.exists(self._key) == 1
+            self._logger.debug(f"Checking resumable source state. key={self._key}, exists={exists}")
+
+            return exists
 
     def load_state(self) -> ResumableData | None:
         with self._get_redis() as redis:
             data = redis.get(self._key)
             if not data:
+                self._logger.debug(f"No resumable source state found. key={self._key}")
                 return None
 
+            self._logger.debug(f"Loading resumable source state. key={self._key}, data={data}")
             return self._load_json(data)

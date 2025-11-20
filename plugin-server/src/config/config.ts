@@ -93,6 +93,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
@@ -299,11 +301,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DISABLED: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
-        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
-        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
         COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
         COOKIELESS_IDENTIFIES_TTL_SECONDS:
-            (24 + // max supported ingestion lag
+            (72 + // max supported ingestion lag in hours
                 12 + // max negative timezone in the world*/
                 14 + // max positive timezone in the world */
                 24) * // amount of time salt is valid in one timezone
@@ -333,6 +335,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        // Enable person table cutover migration
+        PERSON_TABLE_CUTOVER_ENABLED: false,
+        // New person table name for cutover migration
+        PERSON_NEW_TABLE_NAME: 'posthog_person_new',
+        // Person ID offset threshold - person IDs >= this value route to new table
+        // Default is max safe integer to ensure cutover doesn't activate accidentally
+        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,

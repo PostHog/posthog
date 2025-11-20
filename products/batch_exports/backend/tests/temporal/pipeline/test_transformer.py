@@ -315,7 +315,7 @@ async def test_schema_transformer(
     class TestTable(Table):
         pass
 
-    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type)])  # type: ignore[attr-defined]
+    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type), TestField("extra", pa.string())])  # type: ignore[attr-defined]
     transformer = SchemaTransformer(t, compatible_types)
 
     transformed_record_batches = [record_batch async for record_batch in transformer.iter(record_batch_iter())]
