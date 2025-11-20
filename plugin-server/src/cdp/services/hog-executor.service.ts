@@ -36,13 +36,13 @@ import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
-const cdpHttpRequests = new Counter({
+export const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
     labelNames: ['status', 'template_id'],
 })
 
-const cdpHttpRequestTiming = new Histogram({
+export const cdpHttpRequestTiming = new Histogram({
     name: 'cdp_http_request_timing_ms',
     help: 'Timing of HTTP requests',
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
@@ -109,14 +109,14 @@ export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
-const hogExecutionDuration = new Histogram({
+export const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
 })
 
-const hogFunctionStateMemory = new Histogram({
+export const hogFunctionStateMemory = new Histogram({
     name: 'cdp_hog_function_execution_state_memory_kb',
     help: 'The amount of memory in kb used by a hog function',
     buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],

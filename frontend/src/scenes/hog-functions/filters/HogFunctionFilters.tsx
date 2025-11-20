@@ -37,6 +37,21 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
         }))
     }
 
+    if (filters.data_warehouse) {
+        sanitized.data_warehouse = filters.data_warehouse.map((f) => ({
+            id: f.id,
+            type: 'data_warehouse',
+            name: f.name,
+            order: f.order,
+            properties: f.properties,
+            uuid: f.uuid,
+            table_name: f.table_name,
+            id_field: f.id_field,
+            timestamp_field: f.timestamp_field,
+            distinct_id_field: f.distinct_id_field,
+        }))
+    }
+
     if (filters.actions) {
         sanitized.actions = filters.actions.map((f) => ({
             id: f.id,
@@ -71,6 +86,7 @@ export function HogFunctionFilters({
     } = useActions(hogFunctionConfigurationLogic)
 
     const isTransformation = type === 'transformation'
+    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
     const excludedProperties: ExcludedProperties = {
@@ -106,8 +122,12 @@ export function HogFunctionFilters({
             )
         }
 
+        if (isDataWarehouse) {
+            types.push(TaxonomicFilterGroupType.DataWarehouseProperties)
+        }
+
         return types
-    }, [isTransformation, groupsTaxonomicTypes])
+    }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
     const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
 
@@ -117,7 +137,8 @@ export function HogFunctionFilters({
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
     const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
-    const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
+    const showEventMatchers =
+        !useMapping && ['events', 'data-warehouse'].includes(configuration?.filters?.source ?? 'events')
 
     const mainContent = (
         <div
@@ -138,6 +159,9 @@ export function HogFunctionFilters({
                             <b>Events</b> will trigger from the real-time stream of ingested events.
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
+                            <br />
+                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
+                            warehouse.
                         </>
                     }
                 >
@@ -147,6 +171,7 @@ export function HogFunctionFilters({
                                 options={[
                                     { value: 'events', label: 'Events' },
                                     { value: 'person-updates', label: 'Person updates' },
+                                    { value: 'data-warehouse', label: 'Data warehouse' },
                                 ]}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
@@ -159,7 +184,7 @@ export function HogFunctionFilters({
             )}
             <LemonField
                 name="filters"
-                label={useMapping ? 'Global filters' : 'Filters'}
+                label={isDataWarehouse ? null : useMapping ? 'Global filters' : 'Filters'}
                 info={
                     useMapping
                         ? 'Filters applied to all events before they reach a mapping'
@@ -179,41 +204,49 @@ export function HogFunctionFilters({
 
                     return (
                         <>
-                            {useMapping && (
-                                <p className="mb-0 text-sm text-secondary">
-                                    Filters here apply for all events that could trigger this function, regardless of
-                                    mappings.
-                                </p>
+                            {isDataWarehouse ? null : (
+                                <>
+                                    {useMapping && (
+                                        <p className="mb-0 text-sm text-secondary">
+                                            Filters here apply for all events that could trigger this function,
+                                            regardless of mappings.
+                                        </p>
+                                    )}
+                                    {!isTransformation && (
+                                        <TestAccountFilterSwitch
+                                            checked={currentFilters?.filter_test_accounts ?? false}
+                                            onChange={(filter_test_accounts) => {
+                                                const newValue = { ...currentFilters, filter_test_accounts }
+                                                onChange(newValue)
+                                            }}
+                                            fullWidth
+                                        />
+                                    )}
+                                    <PropertyFilters
+                                        propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                        onChange={(properties: AnyPropertyFilter[]) => {
+                                            const newValue = {
+                                                ...currentFilters,
+                                                properties,
+                                            }
+                                            onChange(newValue as CyclotronJobFiltersType)
+                                        }}
+                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                        excludedProperties={excludedProperties}
+                                    />
+                                </>
                             )}
-                            {!isTransformation && (
-                                <TestAccountFilterSwitch
-                                    checked={currentFilters?.filter_test_accounts ?? false}
-                                    onChange={(filter_test_accounts) => {
-                                        const newValue = { ...currentFilters, filter_test_accounts }
-                                        onChange(newValue)
-                                    }}
-                                    fullWidth
-                                />
-                            )}
-                            <PropertyFilters
-                                propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                onChange={(properties: AnyPropertyFilter[]) => {
-                                    const newValue = {
-                                        ...currentFilters,
-                                        properties,
-                                    }
-                                    onChange(newValue as CyclotronJobFiltersType)
-                                }}
-                                pageKey={`HogFunctionPropertyFilters.${id}`}
-                                excludedProperties={excludedProperties}
-                            />
 
                             {showEventMatchers ? (
                                 <>
                                     <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
-                                            {isTransformation ? 'Match events' : 'Match events and actions'}
+                                            {isDataWarehouse
+                                                ? 'Match tables'
+                                                : isTransformation
+                                                  ? 'Match events'
+                                                  : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
@@ -236,16 +269,25 @@ export function HogFunctionFilters({
                                         actionsTaxonomicGroupTypes={
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
-                                                : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                                                : isDataWarehouse
+                                                  ? [TaxonomicFilterGroupType.DataWarehouse]
+                                                  : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
-                                        addFilterDefaultOptions={{
-                                            id: '$pageview',
-                                            name: '$pageview',
-                                            type: EntityTypes.EVENTS,
-                                        }}
-                                        buttonCopy="Add event matcher"
+                                        addFilterDefaultOptions={
+                                            isDataWarehouse
+                                                ? {
+                                                      name: 'Select a table',
+                                                      type: EntityTypes.DATA_WAREHOUSE,
+                                                  }
+                                                : {
+                                                      id: '$pageview',
+                                                      name: '$pageview',
+                                                      type: EntityTypes.EVENTS,
+                                                  }
+                                        }
+                                        buttonCopy={isDataWarehouse ? 'Add table matcher' : 'Add event matcher'}
                                         excludedProperties={excludedProperties}
                                     />
                                 </>

@@ -15355,6 +15355,7 @@ class EndpointRequest(BaseModel):
         extra="forbid",
     )
     cache_age_seconds: Optional[float] = None
+    derived_from_insight: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_materialized: Optional[bool] = Field(

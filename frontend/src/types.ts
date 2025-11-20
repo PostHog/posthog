@@ -2170,6 +2170,7 @@ export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
+    derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
@@ -5506,6 +5507,15 @@ export interface CyclotronJobFilterEvents extends CyclotronJobFilterBase {
     type: 'events'
 }
 
+export interface CyclotronJobFilterDataWarehouse extends CyclotronJobFilterBase {
+    type: 'data_warehouse'
+    uuid: string
+    table_name: string
+    id_field: string
+    timestamp_field: string
+    distinct_id_field: string
+}
+
 export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
     type: 'actions'
 }
@@ -5520,8 +5530,9 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates'
+    source?: 'events' | 'person-updates' | 'data-warehouse'
     events?: CyclotronJobFilterEvents[]
+    data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
@@ -5823,6 +5834,7 @@ export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
+    user: UserBasicType
     status: ConversationStatus
     title: string | null
     created_at: string | null

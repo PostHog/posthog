@@ -9,7 +9,6 @@ from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     insight_funnels_use_udf,
     insight_funnels_use_udf_time_to_convert,
-    insight_funnels_use_udf_trends,
 )
 from posthog.models import Team
 
@@ -18,7 +17,7 @@ def use_udf(funnelsFilter: FunnelsFilter, team: Team):
     if funnelsFilter.useUdf:
         return True
     funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
+    if funnelVizType == FunnelVizType.TRENDS:
         return True
     if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
         return True
@@ -43,16 +42,13 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
         FunnelActors,
         FunnelStrictActors,
-        FunnelTrendsActors,
         FunnelTrendsUDF,
         FunnelUDF,
         FunnelUnorderedActors,
     )
 
     if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-        if use_udf:
-            return FunnelTrendsUDF
-        return FunnelTrendsActors
+        return FunnelTrendsUDF
 
     if use_udf:
         return FunnelUDF
