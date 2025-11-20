@@ -460,7 +460,9 @@ function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): J
     const options = linksOnly ? form.options.filter((option) => option.href) : form.options
 
     return (
-        <div className="flex flex-wrap gap-1.5">
+        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
+        // Also makes it clear the form is subservient to the message. *Harmony*
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
             {options.map((option) => (
                 <LemonButton
                     key={option.value}
