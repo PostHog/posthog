@@ -43,14 +43,13 @@ def _get_billing_config_payload() -> dict | None:
         }
     }
     """
-    payload = posthoganalytics.get_feature_flag_payload(
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
         "posthog-ai-billing-free-tier-credits", "internal_billing_events"
     )
 
-    if not isinstance(payload, dict):
-        return None
-
-    return payload
+    if isinstance(payload, dict):
+        return payload
+    return None
 
 
 def get_ai_free_tier_credits(team_id: int) -> int:

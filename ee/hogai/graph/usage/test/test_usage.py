@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -79,9 +80,10 @@ class TestUsage(BaseTest):
         )
         start_time = get_conversation_start_time(conversation.id)
         self.assertIsNotNone(start_time)
-        if start_time is None:
-            raise AssertionError("start_time should not be None")
-        self.assertEqual(start_time.replace(microsecond=0), conversation.created_at.replace(microsecond=0))
+        self.assertEqual(
+            cast(datetime, start_time).replace(microsecond=0),
+            cast(datetime, conversation.created_at).replace(microsecond=0),
+        )
 
     def test_get_conversation_start_time_not_exists(self):
         """Test that non-existent conversation returns None."""
