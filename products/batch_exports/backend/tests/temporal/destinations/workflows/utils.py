@@ -150,6 +150,16 @@ async def assert_clickhouse_records_in_kafka(
     for record in expected_records:
         record.pop("_inserted_at")
 
+    # if it's the last run of the backfill, the workflows consumer expects a final message to be
+    # produced to indicate this
+    if backfill_details is not None and backfill_details.is_last_backfill_run is True:
+        expected_records.append(
+            {
+                "isLastBackfillingMessage": True,
+                "backfillId": backfill_details.backfill_id,
+            }
+        )
+
     assert (
         produced_column_names == expected_column_names
     ), f"Expected column names to be '{expected_column_names}', got '{produced_column_names}'"
