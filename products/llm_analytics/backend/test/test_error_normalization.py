@@ -135,47 +135,21 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
         # Flush events to ClickHouse
         flush_persons_and_events()
 
-        # Load query from shared errors.sql file and customize for testing
-        base_query = get_errors_query(
+        # Use the actual production query as-is
+        query = get_errors_query(
             order_by="generations",
             order_direction="DESC",
         )
 
         # Replace {filters} with team_id filter for testing
-        base_query = base_query.replace("{filters}", f"team_id = {self.team.pk}")
-
-        # Modify the query to count generations (which our test events are) instead of all metrics
-        # Replace the final SELECT with a simpler version for testing
-        query = base_query.replace(
-            """SELECT
-    normalized_error as error,
-    countDistinctIf(ai_trace_id, isNotNull(ai_trace_id) AND ai_trace_id != '') as traces,
-    countIf(event = '$ai_generation') as generations,
-    countIf(event = '$ai_span') as spans,
-    countIf(event = '$ai_embedding') as embeddings,
-    countDistinctIf(ai_session_id, isNotNull(ai_session_id) AND ai_session_id != '') as sessions,
-    uniq(distinct_id) as users,
-    uniq(toDate(timestamp)) as days_seen,
-    min(timestamp) as first_seen,
-    max(timestamp) as last_seen
-FROM all_numbers_normalized
-GROUP BY normalized_error
-ORDER BY {orderBy} {orderDirection}
-LIMIT 50""",
-            """SELECT
-    normalized_error as error,
-    countIf(event = '$ai_generation') as occurrences
-FROM all_numbers_normalized
-GROUP BY normalized_error
-ORDER BY occurrences DESC""",
-        )
+        query = query.replace("{filters}", f"team_id = {self.team.pk}")
 
         result = execute_hogql_query(
             query=query,
             team=self.team,
         )
 
-        # Return error and generations count (index 2, not 1 which is traces)
+        # Return error and generations count
         # Query returns: (error, traces, generations, spans, embeddings, sessions, users, days_seen, first_seen, last_seen)
         return [(row[0], row[2]) for row in result.results]
 
