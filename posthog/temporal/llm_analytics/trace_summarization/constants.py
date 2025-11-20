@@ -1,7 +1,7 @@
 """Constants for batch trace summarization workflows."""
 
 # Window processing configuration
-DEFAULT_MAX_TRACES_PER_WINDOW = 500  # Max traces to process per window
+DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
 DEFAULT_MODE = "minimal"  # Summary detail level: 'minimal' or 'detailed'
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)

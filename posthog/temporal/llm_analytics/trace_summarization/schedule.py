@@ -7,6 +7,12 @@ from django.conf import settings
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MODE,
+    DEFAULT_WINDOW_MINUTES,
+)
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import BatchTraceSummarizationCoordinatorInputs
 
 
@@ -20,10 +26,10 @@ async def create_batch_trace_summarization_schedule(client: Client):
         action=ScheduleActionStartWorkflow(
             "batch-trace-summarization-coordinator",
             BatchTraceSummarizationCoordinatorInputs(
-                max_traces=500,
-                batch_size=10,
-                mode="minimal",
-                window_minutes=60,
+                max_traces=DEFAULT_MAX_TRACES_PER_WINDOW,
+                batch_size=DEFAULT_BATCH_SIZE,
+                mode=DEFAULT_MODE,
+                window_minutes=DEFAULT_WINDOW_MINUTES,
                 lookback_hours=24,
             ),
             id="batch-trace-summarization-coordinator-schedule",
