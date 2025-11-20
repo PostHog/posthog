@@ -21,11 +21,16 @@ from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
+from posthog.temporal.ai.chat_agent import (
+    CHAT_AGENT_STREAM_MAX_LENGTH,
+    CHAT_AGENT_WORKFLOW_TIMEOUT,
+    AssistantConversationRunnerWorkflow,
+    AssistantConversationRunnerWorkflowInputs,
+)
 from posthog.utils import get_instance_region
 
+from ee.hogai.agent.executor import AgentExecutor
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.stream.conversation_stream import ConversationStreamManager
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode
@@ -84,17 +89,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only allow access to conversations created by the current user
-        qs = queryset.filter(user=self.request.user)
-
-        # Allow sending messages to any conversation
-        if self.action == "create":
-            return qs
-
-        # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(
-            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-        ).order_by("-updated_at")
+        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
+        if self.action != "retrieve":
+            queryset = queryset.filter(user=self.request.user)
+        # For listing or single retrieval, conversations must be from the assistant and have a title
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.filter(
+                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+            ).order_by("-updated_at")
+        return queryset
 
     def get_throttles(self):
         if (
@@ -133,7 +136,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         has_message = serializer.validated_data.get("content") is not None
         is_deep_research = serializer.validated_data.get("deep_research_mode", False)
-        mode = AssistantMode.DEEP_RESEARCH if is_deep_research else AssistantMode.ASSISTANT
+        if is_deep_research:
+            raise NotImplementedError("Deep research is not supported yet")
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -177,15 +181,18 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
-            mode=mode,
+            mode=AssistantMode.ASSISTANT,
         )
+        workflow_class = AssistantConversationRunnerWorkflow
 
         async def async_stream(
             workflow_inputs: AssistantConversationRunnerWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            stream_manager = ConversationStreamManager(conversation)
-            async for chunk in stream_manager.astream(workflow_inputs):
+            stream_manager = AgentExecutor(
+                conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
+            )
+            async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
                 yield serializer.dumps(chunk).encode("utf-8")
 
         return StreamingHttpResponse(
@@ -203,8 +210,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():
-            conversation_manager = ConversationStreamManager(conversation)
-            await conversation_manager.cancel_conversation()
+            agent_executor = AgentExecutor(conversation)
+            await agent_executor.cancel_workflow()
 
         try:
             asgi_async_to_sync(cancel_workflow)()

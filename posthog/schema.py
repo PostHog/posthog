@@ -279,6 +279,7 @@ class AssistantTool(StrEnum):
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1139,6 +1140,14 @@ class Status(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class ErrorTrackingExplainIssueToolContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_name: str
+    stacktrace: str
 
 
 class FirstEvent(BaseModel):
@@ -4996,6 +5005,9 @@ class SavedInsightNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
@@ -15360,6 +15372,7 @@ class EndpointRequest(BaseModel):
         extra="forbid",
     )
     cache_age_seconds: Optional[float] = None
+    derived_from_insight: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
     is_materialized: Optional[bool] = Field(
@@ -15738,6 +15751,9 @@ class DataTableNode(BaseModel):
     )
     showPropertyFilter: Optional[Union[bool, list[TaxonomicFilterGroupType]]] = Field(
         default=None, description="Include a property filter above the table"
+    )
+    showRecordingColumn: Optional[bool] = Field(
+        default=None, description="Show a recording column for events with session recordings"
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")

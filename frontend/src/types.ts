@@ -2170,6 +2170,7 @@ export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
+    derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
@@ -5823,6 +5824,7 @@ export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
+    user: UserBasicType
     status: ConversationStatus
     title: string | null
     created_at: string | null
