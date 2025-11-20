@@ -170,6 +170,10 @@ def build_event_properties(
     if content_output:
         properties["$ai_output_choices"] = stringify_content(content_output)
 
+    # Span name
+    if span.get("name"):
+        properties["$ai_span_name"] = span["name"]
+
     # Metadata
     properties["$ai_otel_transformer_version"] = OTEL_TRANSFORMER_VERSION
     properties["$ai_otel_span_kind"] = str(span.get("kind", 0))
@@ -183,6 +187,11 @@ def build_event_properties(
     properties["$ai_instrumentation_scope_name"] = scope.get("name", "unknown")
     if scope.get("version"):
         properties["$ai_instrumentation_scope_version"] = scope["version"]
+
+    # Extract tool definitions from llm.request.functions.* attributes
+    tools = _extract_tools_from_attributes(attributes)
+    if tools:
+        properties["$ai_tools"] = tools
 
     # Add remaining span attributes (not already mapped)
     mapped_keys = {
@@ -201,21 +210,80 @@ def build_event_properties(
 
     for key, value in attributes.items():
         if key not in mapped_keys and not key.startswith("posthog.ai.") and not key.startswith("gen_ai."):
-            # Add unmapped attributes with prefix
-            properties[f"otel.{key}"] = value
+            # Skip llm.request.functions.* as they're now in $ai_tools
+            if not key.startswith("llm.request.functions."):
+                # Add unmapped attributes with prefix
+                properties[f"otel.{key}"] = value
 
     return properties
+
+
+def _extract_tools_from_attributes(attributes: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """
+    Extract tool definitions from llm.request.functions.* attributes.
+
+    Converts flat attributes like:
+      llm.request.functions.0.name = "get_weather"
+      llm.request.functions.0.description = "Get weather"
+      llm.request.functions.0.parameters = "{...}"
+
+    Into structured array:
+      [{"name": "get_weather", "description": "Get weather", "input_schema": {...}}]
+    """
+    from collections import defaultdict
+
+    tools_by_index: dict[int, dict[str, Any]] = defaultdict(dict)
+
+    for key, value in attributes.items():
+        if not key.startswith("llm.request.functions."):
+            continue
+
+        # Parse: llm.request.functions.0.name -> index=0, field=name
+        parts = key[len("llm.request.functions.") :].split(".", 1)
+        if len(parts) != 2:
+            continue
+
+        try:
+            index = int(parts[0])
+            field = parts[1]
+
+            # Map OTEL field names to PostHog SDK format
+            if field == "parameters":
+                # Parse JSON string to dict for input_schema
+                try:
+                    tools_by_index[index]["input_schema"] = json.loads(value) if isinstance(value, str) else value
+                except (json.JSONDecodeError, TypeError):
+                    tools_by_index[index]["input_schema"] = value
+            else:
+                tools_by_index[index][field] = value
+
+        except (ValueError, IndexError):
+            continue
+
+    if not tools_by_index:
+        return None
+
+    # Convert to sorted list
+    return [tools_by_index[i] for i in sorted(tools_by_index.keys())]
 
 
 def determine_event_type(span: dict[str, Any], attrs: dict[str, Any]) -> str:
     """Determine AI event type from span."""
     op_name = attrs.get("operation_name", "").lower()
 
-    # Check operation name
+    # Check operation name first (highest priority)
     if op_name in ("chat", "completion"):
         return "$ai_generation"
     elif op_name in ("embedding", "embeddings"):
         return "$ai_embedding"
+
+    # Check if span has LLM-specific attributes (provider, model, tokens)
+    # These indicate it's an actual LLM generation, not just a wrapper span
+    has_llm_attrs = bool(
+        attrs.get("provider") and attrs.get("model") and (attrs.get("input_tokens") is not None or attrs.get("prompt"))
+    )
+    if has_llm_attrs:
+        return "$ai_generation"
 
     # Check if span is root (no parent)
     if not span.get("parent_span_id"):
@@ -264,11 +332,23 @@ def extract_distinct_id(resource: dict[str, Any], baggage: dict[str, str]) -> st
     return "anonymous"
 
 
-def stringify_content(content: Any) -> str:
-    """Stringify content (handles objects and strings)."""
-    if isinstance(content, str):
+def stringify_content(content: Any) -> Any:
+    """
+    Return content in appropriate format for PostHog properties.
+
+    Keep structured data (lists/dicts) as-is for better UI rendering.
+    Only convert to JSON string if it's already a string (rare case).
+    """
+    if isinstance(content, list | dict):
         return content
-    return json.dumps(content)
+    if isinstance(content, str):
+        # If it's already a JSON string, parse it to get structured data
+        try:
+            parsed = json.loads(content)
+            return parsed
+        except (json.JSONDecodeError, TypeError):
+            return content
+    return content
 
 
 def span_uses_known_conventions(span: dict[str, Any]) -> bool:

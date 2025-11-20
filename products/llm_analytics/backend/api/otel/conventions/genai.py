@@ -7,6 +7,7 @@ when PostHog-native attributes are not present.
 Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 """
 
+from collections import defaultdict
 from typing import Any
 
 
@@ -14,6 +15,49 @@ def has_genai_attributes(span: dict[str, Any]) -> bool:
     """Check if span uses GenAI semantic conventions."""
     attributes = span.get("attributes", {})
     return any(key.startswith("gen_ai.") for key in attributes.keys())
+
+
+def _extract_indexed_messages(attributes: dict[str, Any], prefix: str) -> list[dict[str, Any]] | None:
+    """
+    Extract indexed message attributes like gen_ai.prompt.{N}.{field} into a list of message dicts.
+
+    Args:
+        attributes: Span attributes dictionary
+        prefix: Message prefix (e.g., "gen_ai.prompt" or "gen_ai.completion")
+
+    Returns:
+        List of message dicts with role, content, etc., or None if no messages found
+    """
+    # Group attributes by index
+    messages_by_index: dict[int, dict[str, Any]] = defaultdict(dict)
+
+    for key, value in attributes.items():
+        if not key.startswith(f"{prefix}."):
+            continue
+
+        # Parse: gen_ai.prompt.0.role -> index=0, field=role
+        parts = key[len(prefix) + 1 :].split(".", 1)
+        if len(parts) != 2:
+            continue
+
+        try:
+            index = int(parts[0])
+            field = parts[1]
+            messages_by_index[index][field] = value
+        except (ValueError, IndexError):
+            continue
+
+    if not messages_by_index:
+        return None
+
+    # Convert to sorted list of messages
+    messages = []
+    for index in sorted(messages_by_index.keys()):
+        msg = messages_by_index[index]
+        if msg:  # Only include non-empty messages
+            messages.append(msg)
+
+    return messages if messages else None
 
 
 def extract_genai_attributes(span: dict[str, Any]) -> dict[str, Any]:
@@ -50,9 +94,19 @@ def extract_genai_attributes(span: dict[str, Any]) -> dict[str, Any]:
         result["output_tokens"] = output_tokens
 
     # Content (prompt and completion)
-    if (prompt := attributes.get("gen_ai.prompt")) is not None:
+    # Try indexed messages first (gen_ai.prompt.0.role, gen_ai.prompt.0.content, etc.)
+    prompts = _extract_indexed_messages(attributes, "gen_ai.prompt")
+    if prompts:
+        result["prompt"] = prompts
+    # Fallback to direct gen_ai.prompt attribute
+    elif (prompt := attributes.get("gen_ai.prompt")) is not None:
         result["prompt"] = prompt
-    if (completion := attributes.get("gen_ai.completion")) is not None:
+
+    completions = _extract_indexed_messages(attributes, "gen_ai.completion")
+    if completions:
+        result["completion"] = completions
+    # Fallback to direct gen_ai.completion attribute
+    elif (completion := attributes.get("gen_ai.completion")) is not None:
         result["completion"] = completion
 
     # Model parameters

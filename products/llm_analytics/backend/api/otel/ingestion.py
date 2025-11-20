@@ -8,23 +8,26 @@ Endpoints:
 - POST /api/projects/:project_id/ai/otel/v1/logs
 
 Content-Type: application/x-protobuf
-Authorization: Bearer <api_key>
+Authorization: Bearer <project_token>
+
+Authentication uses project API token (phc_...), NOT personal API key.
+Token can be provided via Authorization header or ?token= query parameter.
 """
 
-from typing import Any
+import re
+from typing import Any, Optional, Union
 
 from django.http import HttpRequest
 
 import structlog
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from rest_framework import authentication, status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.capture import capture_batch_internal
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import Team
 
 from .logs_parser import parse_otlp_logs_request
@@ -48,6 +51,65 @@ OTEL_LIMITS = {
 }
 
 
+class ProjectTokenAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates using a project API token (phc_...).
+
+    This is used for ingestion endpoints where a public project token is used
+    instead of a personal API key. Supports token in:
+    1. Authorization header: Bearer <token>
+    2. Query parameter: ?token=<token>
+
+    Similar to logs ingestion pattern.
+    """
+
+    keyword = "Bearer"
+
+    @classmethod
+    def find_token(
+        cls,
+        request: Union[HttpRequest, Request],
+    ) -> Optional[str]:
+        """Try to find project token in request and return it."""
+        # Try Authorization header first
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                token = authorization_match.group(1).strip()
+                # Only accept project tokens (phc_...), not personal keys
+                if token.startswith("phc_"):
+                    return token
+                return None
+
+        # Try query parameter
+        if "token" in request.GET:
+            token = request.GET["token"]
+            if token.startswith("phc_"):
+                return token
+
+        return None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Team]]:
+        token = self.find_token(request)
+
+        if not token:
+            return None
+
+        # Get the team from the project token
+        team = Team.objects.get_team_from_cache_or_token(token)
+
+        if team is None:
+            raise AuthenticationFailed(detail="Invalid project token.")
+
+        # Return team as the "user" for this authentication
+        # The team itself acts as the authenticated entity
+        return (team, token)
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
+
+
 @extend_schema(
     description="""
     OpenTelemetry traces ingestion endpoint for LLM Analytics.
@@ -65,9 +127,13 @@ OTEL_LIMITS = {
 
     exporter = OTLPSpanExporter(
         endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/v1/traces",
-        headers={"Authorization": "Bearer phc_your_api_key"}
+        headers={"Authorization": "Bearer phc_your_project_token"}
     )
     ```
+
+    Authentication:
+    - Use your project API token (starts with phc_...), NOT a personal API key
+    - Token can be provided via Authorization header (Bearer token) or ?token= query parameter
 
     Rate limits and quotas apply as per normal PostHog event ingestion.
     """,
@@ -80,8 +146,8 @@ OTEL_LIMITS = {
     },
 )
 @api_view(["POST"])
-@authentication_classes([PersonalAPIKeyAuthentication])
-@permission_classes([IsAuthenticated])
+@authentication_classes([ProjectTokenAuthentication])
+@permission_classes([])
 def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
     """
     Process OTLP trace export requests.
@@ -94,13 +160,23 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
     5. Routes events to capture pipeline for ingestion
     """
 
-    # Verify team access
-    try:
-        team = Team.objects.get(id=project_id, organization=request.user.current_organization)
-    except Team.DoesNotExist:
+    # Get authenticated team from request
+    # ProjectTokenAuthentication returns (team, token) tuple
+    if not hasattr(request, "user") or not isinstance(request.user, Team):
         return Response(
-            {"error": "Project not found or access denied"},
-            status=status.HTTP_404_NOT_FOUND,
+            {
+                "error": "Invalid authentication. Use project token (phc_...) in Authorization header or ?token= parameter."
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    team = request.user
+
+    # Verify the team ID matches the project_id in URL
+    if team.id != project_id:
+        return Response(
+            {"error": "Project ID in URL does not match authenticated project token"},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     # Check content type
@@ -381,9 +457,13 @@ def capture_events(events: list[dict[str, Any]], team: Team) -> None:
 
     exporter = OTLPLogExporter(
         endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/v1/logs",
-        headers={"Authorization": "Bearer phc_your_api_key"}
+        headers={"Authorization": "Bearer phc_your_project_token"}
     )
     ```
+
+    Authentication:
+    - Use your project API token (starts with phc_...), NOT a personal API key
+    - Token can be provided via Authorization header (Bearer token) or ?token= query parameter
 
     Rate limits and quotas apply as per normal PostHog event ingestion.
     """,
@@ -396,8 +476,8 @@ def capture_events(events: list[dict[str, Any]], team: Team) -> None:
     },
 )
 @api_view(["POST"])
-@authentication_classes([PersonalAPIKeyAuthentication])
-@permission_classes([IsAuthenticated])
+@authentication_classes([ProjectTokenAuthentication])
+@permission_classes([])
 def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
     """
     Process OTLP logs export requests.
@@ -410,13 +490,23 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
     5. Routes events to capture pipeline for ingestion
     """
 
-    # Verify team access
-    try:
-        team = Team.objects.get(id=project_id, organization=request.user.current_organization)
-    except Team.DoesNotExist:
+    # Get authenticated team from request
+    # ProjectTokenAuthentication returns (team, token) tuple
+    if not hasattr(request, "user") or not isinstance(request.user, Team):
         return Response(
-            {"error": "Project not found or access denied"},
-            status=status.HTTP_404_NOT_FOUND,
+            {
+                "error": "Invalid authentication. Use project token (phc_...) in Authorization header or ?token= parameter."
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    team = request.user
+
+    # Verify the team ID matches the project_id in URL
+    if team.id != project_id:
+        return Response(
+            {"error": "Project ID in URL does not match authenticated project token"},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     # Check content type
