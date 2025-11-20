@@ -29,6 +29,8 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
+import { startNotificationPreferenceFilterConsumer } from './main/ingestion-queues/notification-preference-filter-consumer'
+import { startNotificationsConsumer } from './main/ingestion-queues/notifications-consumer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -294,6 +296,13 @@ export class PluginServer {
                     await consumer.start()
                     return consumer.service
                 })
+            }
+
+            if (capabilities.notifications) {
+                // Stage 2: Preference filter (fan-out from team events to user events)
+                serviceLoaders.push(() => startNotificationPreferenceFilterConsumer(hub))
+                // Stage 3: User dispatch (create DB + WebSocket delivery)
+                serviceLoaders.push(() => startNotificationsConsumer(hub))
             }
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))

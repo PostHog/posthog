@@ -98,6 +98,7 @@ import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { NotificationPreferences } from './user/NotificationPreferences'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -880,8 +881,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'notifications',
-                title: 'Notifications',
+                title: 'Email preferences',
                 component: <UpdateEmailPreferences />,
+            },
+            {
+                id: 'notification-preferences',
+                title: 'In-app notification preferences',
+                component: <NotificationPreferences />,
             },
         ],
     },

@@ -59,3 +59,7 @@ export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
 export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
 export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
+
+// Notifications topics (three-stage pipeline)
+export const KAFKA_NOTIFICATION_EVENTS = `${prefix}notification_events${suffix}` // Stage 1: Generic team-scoped
+export const KAFKA_NOTIFICATION_USER_DISPATCH = `${prefix}notification_user_dispatch${suffix}` // Stage 3: User-specific

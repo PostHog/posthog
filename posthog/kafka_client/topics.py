@@ -52,3 +52,9 @@ KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = f"{KAFKA_PREFIX}cohort_membership_changed_trigger{SUFFIX}"
+
+# Unified notifications hub (three-stage pipeline)
+KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"  # Stage 1: Generic team-scoped events
+KAFKA_NOTIFICATION_USER_DISPATCH = (
+    f"{KAFKA_PREFIX}notification_user_dispatch{SUFFIX}"  # Stage 3: User-specific dispatch
+)

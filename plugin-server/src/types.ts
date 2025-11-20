@@ -568,6 +568,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    notifications?: boolean
 }
 
 export interface EnqueuedPluginJob {

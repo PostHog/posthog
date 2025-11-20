@@ -48,11 +48,13 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     const hookCannon = new HookCommander(postgres, teamManager, rustyHook, appMetrics, hub.EXTERNAL_REQUEST_TIMEOUT_MS)
     const concurrency = hub.TASKS_PER_WORKER || 20
 
+    let inflightBatch: Promise<void> | null = null
+
     await actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) =>
-            eachBatchWebhooksHandlers(
+        eachBatch: async (payload) => {
+            inflightBatch = eachBatchWebhooksHandlers(
                 payload,
                 actionMatcher,
                 hookCannon,
@@ -60,7 +62,10 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
                 groupTypeManager,
                 teamManager,
                 groupRepository
-            ),
+            )
+            await inflightBatch
+            inflightBatch = null
+        },
     })
 
     const onShutdown = async () => {
@@ -69,6 +74,10 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
             await consumer.stop()
         } catch (e) {
             logger.error('🚨', 'Error stopping consumer', e)
+        }
+        if (inflightBatch) {
+            logger.info('🔁', 'Waiting for in-flight webhook batch to complete...')
+            await inflightBatch
         }
         try {
             await consumer.disconnect()

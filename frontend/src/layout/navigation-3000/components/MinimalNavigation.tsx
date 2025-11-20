@@ -5,6 +5,7 @@ import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { ProjectMenu } from 'lib/components/Account/ProjectMenu'
+import { NotificationBell } from 'lib/components/Notifications'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -25,6 +26,7 @@ export function MinimalNavigation(): JSX.Element {
                         }}
                     />
                 ) : null}
+                <NotificationBell />
                 <AccountMenu
                     align="end"
                     side="bottom"

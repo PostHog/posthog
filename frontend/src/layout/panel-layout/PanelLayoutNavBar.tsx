@@ -27,6 +27,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { NotificationBell } from 'lib/components/Notifications'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -611,6 +612,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}
                             </Link>
+
+                            <NotificationBell isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
                             <AccountMenu
                                 align="end"

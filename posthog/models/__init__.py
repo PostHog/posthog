@@ -57,6 +57,8 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
+from .notification import Notification
+from .notification_preference import NotificationPreference
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
@@ -148,6 +150,8 @@ __all__ = [
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
+    "Notification",
+    "NotificationPreference",
     "NotificationViewed",
     "Organization",
     "OrganizationDomain",

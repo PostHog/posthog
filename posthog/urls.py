@@ -43,6 +43,7 @@ from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from posthog.notifications.health import health_check as websocket_health_check
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
@@ -165,6 +166,8 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    # WebSocket server health check
+    opt_slash_path("ws/_health", websocket_health_check),
     # ee
     *ee_urlpatterns,
     # api

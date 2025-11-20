@@ -2802,10 +2802,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).get()
-                  : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).get()
-                    : null
+                    ? new ApiRequest().insightSharing(insightId).get()
+                    : recordingId
+                        ? new ApiRequest().recordingSharing(recordingId).get()
+                        : null
         },
 
         async update(
@@ -2823,10 +2823,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
-                  : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                    : null
+                    ? new ApiRequest().insightSharing(insightId).update({ data })
+                    : recordingId
+                        ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                        : null
         },
 
         async createPassword(
@@ -2844,10 +2844,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
                 : insightId
-                  ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
-                  : recordingId
-                    ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
-                    : null
+                    ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
+                    : recordingId
+                        ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
+                        : null
         },
 
         async deletePassword(
@@ -2865,10 +2865,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
                 : insightId
-                  ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
-                  : recordingId
-                    ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
-                    : null
+                    ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
+                    : recordingId
+                        ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
+                        : null
         },
     },
 
@@ -3020,8 +3020,8 @@ const api = {
                 offset?: number
                 search?: string
             } = {
-                limit: LINK_PAGE_SIZE,
-            }
+                    limit: LINK_PAGE_SIZE,
+                }
         ): Promise<CountedPaginatedResponse<LinkType>> {
             return await new ApiRequest().links().withQueryString(args).get()
         },
@@ -3682,8 +3682,8 @@ const api = {
                 offset?: number
                 search?: string
             } = {
-                limit: SURVEY_PAGE_SIZE,
-            }
+                    limit: SURVEY_PAGE_SIZE,
+                }
         ): Promise<CountedPaginatedResponse<Survey>> {
             return await new ApiRequest().surveys().withQueryString(args).get()
         },
@@ -4405,10 +4405,10 @@ const api = {
         }
     ): Promise<
         T extends { [response: string]: any }
-            ? T['response'] extends infer P | undefined
-                ? P
-                : T['response']
-            : Record<string, any>
+        ? T['response'] extends infer P | undefined
+        ? P
+        : T['response']
+        : Record<string, any>
     > {
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
@@ -4670,23 +4670,23 @@ const api = {
             signal,
         }:
             | {
-                  method?: 'GET'
-                  /** GET requests cannot contain a body, use URL params instead. */
-                  data?: never
-                  onMessage: (data: EventSourceMessage) => void
-                  onError: (error: any) => void
-                  headers?: Record<string, string>
-                  signal?: AbortSignal
-              }
+                method?: 'GET'
+                /** GET requests cannot contain a body, use URL params instead. */
+                data?: never
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                headers?: Record<string, string>
+                signal?: AbortSignal
+            }
             | {
-                  method: 'POST'
-                  /** Any JSON-serializable object. */
-                  data: any
-                  onMessage: (data: EventSourceMessage) => void
-                  onError: (error: any) => void
-                  headers?: Record<string, string>
-                  signal?: AbortSignal
-              }
+                method: 'POST'
+                /** Any JSON-serializable object. */
+                data: any
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                headers?: Record<string, string>
+                signal?: AbortSignal
+            }
     ): Promise<void> {
         await fetchEventSource(url, {
             method,
@@ -4807,11 +4807,66 @@ const api = {
         },
     },
 
+
     feed: {
         async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
             return await new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
+
+    notifications: {
+        async list(params?: Record<string, any>): Promise<{ results: any[]; next: string | null }> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notifications')
+                .withQueryString(params)
+                .get()
+        },
+        async update(notificationId: string, data: { is_read?: boolean }): Promise<void> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notifications')
+                .addPathComponent(notificationId)
+                .update({ data })
+        },
+        async markAllRead(): Promise<void> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notifications')
+                .addPathComponent('mark_all_read')
+                .create()
+        },
+        async unreadCount(): Promise<{ unread_count: number }> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notifications')
+                .addPathComponent('unread_count')
+                .get()
+        },
+    },
+
+    notificationPreferences: {
+        async list(): Promise<{ results: any[] }> {
+            return await new ApiRequest().projectsDetail().addPathComponent('notification_preferences').get()
+        },
+        async update(data: { resource_type: string; enabled: boolean }): Promise<any> {
+            return await new ApiRequest().projectsDetail().addPathComponent('notification_preferences').create({ data })
+        },
+        async bulkUpdate(preferences: Array<{ resource_type: string; enabled: boolean }>): Promise<any> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notification_preferences')
+                .addPathComponent('bulk_update')
+                .create({ data: { preferences } })
+        },
+        async reset(): Promise<void> {
+            return await new ApiRequest()
+                .projectsDetail()
+                .addPathComponent('notification_preferences')
+                .addPathComponent('reset')
+                .create()
+        }
+    }
 }
 
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
