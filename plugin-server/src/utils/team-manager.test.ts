@@ -262,12 +262,14 @@ describe('TeamManager()', () => {
             expect(teamWithSlots!.materialized_column_slots).toEqual([
                 {
                     property_definition_id: propertyDef1.id,
+                    property_name: 'custom_property',
                     slot_index: 0,
                     slot_property_type: 'string',
                     state: 'READY',
                 },
                 {
                     property_definition_id: propertyDef2.id,
+                    property_name: 'user_age',
                     slot_index: 5,
                     slot_property_type: 'numeric',
                     state: 'READY',
@@ -351,12 +353,14 @@ describe('TeamManager()', () => {
                 expect.arrayContaining([
                     {
                         property_definition_id: propertyDef1.id,
+                        property_name: 'ready_property',
                         slot_index: 0,
                         slot_property_type: 'string',
                         state: 'READY',
                     },
                     {
                         property_definition_id: propertyDef2.id,
+                        property_name: 'backfill_property',
                         slot_index: 1,
                         slot_property_type: 'bool',
                         state: 'BACKFILL',

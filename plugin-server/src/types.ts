@@ -810,6 +810,7 @@ export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' 
 /** Materialized column slot assignment for a team. */
 export interface MaterializedColumnSlot {
     property_definition_id: string
+    property_name: string
     slot_index: number
     slot_property_type: 'string' | 'numeric' | 'bool' | 'datetime'
     state: 'READY' | 'BACKFILL' | 'ERROR'
@@ -908,6 +909,46 @@ export interface RawClickHouseEvent extends BaseEvent {
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
+    dmat_string_0?: string
+    dmat_string_1?: string
+    dmat_string_2?: string
+    dmat_string_3?: string
+    dmat_string_4?: string
+    dmat_string_5?: string
+    dmat_string_6?: string
+    dmat_string_7?: string
+    dmat_string_8?: string
+    dmat_string_9?: string
+    dmat_numeric_0?: number
+    dmat_numeric_1?: number
+    dmat_numeric_2?: number
+    dmat_numeric_3?: number
+    dmat_numeric_4?: number
+    dmat_numeric_5?: number
+    dmat_numeric_6?: number
+    dmat_numeric_7?: number
+    dmat_numeric_8?: number
+    dmat_numeric_9?: number
+    dmat_bool_0?: number
+    dmat_bool_1?: number
+    dmat_bool_2?: number
+    dmat_bool_3?: number
+    dmat_bool_4?: number
+    dmat_bool_5?: number
+    dmat_bool_6?: number
+    dmat_bool_7?: number
+    dmat_bool_8?: number
+    dmat_bool_9?: number
+    dmat_datetime_0?: string | number | Date
+    dmat_datetime_1?: string | number | Date
+    dmat_datetime_2?: string | number | Date
+    dmat_datetime_3?: string | number | Date
+    dmat_datetime_4?: string | number | Date
+    dmat_datetime_5?: string | number | Date
+    dmat_datetime_6?: string | number | Date
+    dmat_datetime_7?: string | number | Date
+    dmat_datetime_8?: string | number | Date
+    dmat_datetime_9?: string | number | Date
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {

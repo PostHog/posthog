@@ -133,6 +133,19 @@ def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
     return f"ALTER TABLE {table} \n {separator.join(s)}"
 
 
+def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
+    s = []
+    for i in range(10):
+        s.append(f"dmat_string_{i}")
+    for i in range(10):
+        s.append(f"dmat_numeric_{i}")
+    for i in range(10):
+        s.append(f"dmat_bool_{i}")
+    for i in range(10):
+        s.append(f"dmat_datetime_{i}")
+    return "\n".join(s)
+
+
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
@@ -146,46 +159,6 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-    , dmat_string_0 Nullable(String)
-    , dmat_string_1 Nullable(String)
-    , dmat_string_2 Nullable(String)
-    , dmat_string_3 Nullable(String)
-    , dmat_string_4 Nullable(String)
-    , dmat_string_5 Nullable(String)
-    , dmat_string_6 Nullable(String)
-    , dmat_string_7 Nullable(String)
-    , dmat_string_8 Nullable(String)
-    , dmat_string_9 Nullable(String)
-    , dmat_float_0 Nullable(Float64)
-    , dmat_float_1 Nullable(Float64)
-    , dmat_float_2 Nullable(Float64)
-    , dmat_float_3 Nullable(Float64)
-    , dmat_float_4 Nullable(Float64)
-    , dmat_float_5 Nullable(Float64)
-    , dmat_float_6 Nullable(Float64)
-    , dmat_float_7 Nullable(Float64)
-    , dmat_float_8 Nullable(Float64)
-    , dmat_float_9 Nullable(Float64)
-    , dmat_bool_0 Nullable(UInt8)
-    , dmat_bool_1 Nullable(UInt8)
-    , dmat_bool_2 Nullable(UInt8)
-    , dmat_bool_3 Nullable(UInt8)
-    , dmat_bool_4 Nullable(UInt8)
-    , dmat_bool_5 Nullable(UInt8)
-    , dmat_bool_6 Nullable(UInt8)
-    , dmat_bool_7 Nullable(UInt8)
-    , dmat_bool_8 Nullable(UInt8)
-    , dmat_bool_9 Nullable(UInt8)
-    , dmat_datetime_0 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_1 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_2 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_3 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_4 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_5 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_6 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_7 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_8 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_9 Nullable(DateTime64(6, 'UTC'))
     , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -209,46 +182,6 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
     , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-    , dmat_string_0 Nullable(String)
-    , dmat_string_1 Nullable(String)
-    , dmat_string_2 Nullable(String)
-    , dmat_string_3 Nullable(String)
-    , dmat_string_4 Nullable(String)
-    , dmat_string_5 Nullable(String)
-    , dmat_string_6 Nullable(String)
-    , dmat_string_7 Nullable(String)
-    , dmat_string_8 Nullable(String)
-    , dmat_string_9 Nullable(String)
-    , dmat_float_0 Nullable(Float64)
-    , dmat_float_1 Nullable(Float64)
-    , dmat_float_2 Nullable(Float64)
-    , dmat_float_3 Nullable(Float64)
-    , dmat_float_4 Nullable(Float64)
-    , dmat_float_5 Nullable(Float64)
-    , dmat_float_6 Nullable(Float64)
-    , dmat_float_7 Nullable(Float64)
-    , dmat_float_8 Nullable(Float64)
-    , dmat_float_9 Nullable(Float64)
-    , dmat_bool_0 Nullable(UInt8)
-    , dmat_bool_1 Nullable(UInt8)
-    , dmat_bool_2 Nullable(UInt8)
-    , dmat_bool_3 Nullable(UInt8)
-    , dmat_bool_4 Nullable(UInt8)
-    , dmat_bool_5 Nullable(UInt8)
-    , dmat_bool_6 Nullable(UInt8)
-    , dmat_bool_7 Nullable(UInt8)
-    , dmat_bool_8 Nullable(UInt8)
-    , dmat_bool_9 Nullable(UInt8)
-    , dmat_datetime_0 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_1 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_2 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_3 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_4 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_5 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_6 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_7 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_8 Nullable(DateTime64(6, 'UTC'))
-    , dmat_datetime_9 Nullable(DateTime64(6, 'UTC'))
     , {", ".join(property_groups.get_create_table_pieces("events"))}
 """
 
@@ -309,7 +242,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
         extra_fields="",
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )
@@ -342,6 +275,7 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+{dynamically_materialized_columns},
 _timestamp,
 _offset,
 arrayMap(
@@ -354,6 +288,7 @@ arrayMap(
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -478,7 +413,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )
