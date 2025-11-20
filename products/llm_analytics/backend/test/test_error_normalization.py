@@ -44,10 +44,12 @@ class TestErrorNormalization(ClickhouseTestMixin, APIBaseTest):
 
         # Load query from shared errors.sql file and customize for testing
         base_query = get_errors_query(
-            filters=f"team_id = {self.team.pk}",
             order_by="generations",
             order_direction="DESC",
         )
+
+        # Replace {filters} with team_id filter for testing
+        base_query = base_query.replace("{filters}", f"team_id = {self.team.pk}")
 
         # Modify the query to count generations (which our test events are) instead of all metrics
         # Replace the final SELECT with a simpler version for testing
@@ -258,7 +260,27 @@ ORDER BY occurrences DESC""",
     )
     def test_new_normalization_patterns(self, test_name, error_variants, expected_normalized):
         """Test specifically for the new normalization patterns."""
-        self.test_error_normalization_step(test_name, error_variants, expected_normalized)
+        # Create events with different error variants
+        for error in error_variants:
+            self._create_ai_event_with_error(error)
+
+        # Execute normalization query
+        results = self._execute_normalization_query()
+
+        # Should have exactly one normalized error
+        assert len(results) == 1, f"{test_name}: Expected 1 normalized error, got {len(results)}: {results}"
+
+        normalized_error, occurrence_count = results[0]
+
+        # Check it matches expected pattern
+        assert (
+            normalized_error == expected_normalized
+        ), f"{test_name}: Expected '{expected_normalized}', got '{normalized_error}'"
+
+        # Check all variants were grouped together
+        assert occurrence_count == len(
+            error_variants
+        ), f"{test_name}: Expected {len(error_variants)} occurrences, got {occurrence_count}"
 
     def test_complex_error_with_multiple_normalizations(self):
         """Test that errors requiring multiple normalization steps are handled correctly."""

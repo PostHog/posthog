@@ -20,7 +20,7 @@ extract
 -- Ordered from most specific to least specific to prevent pattern interference
 */
 
-WITH 
+WITH
 
 extracted_errors AS (
     -- Step 1: Extract error messages from various JSON structures in $ai_error
@@ -58,7 +58,7 @@ uuids_normalized AS (
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(raw_error, '(req_[a-zA-Z0-9]+|[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})', '<ID>') as error_text
+        replaceRegexpAll(raw_error, '(req_[a-zA-Z0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', '<ID>') as error_text
     FROM extracted_errors
 ),
 
@@ -70,7 +70,7 @@ timestamps_normalized AS (
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}.[0-9]+Z?', '<TIMESTAMP>') as error_text
+        replaceRegexpAll(error_text, '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]+Z?', '<TIMESTAMP>') as error_text
     FROM uuids_normalized
 ),
 
@@ -105,7 +105,7 @@ json_id_fields_normalized AS (
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, '"id":\s*"[a-zA-Z0-9_-]+"', '"id": "<ID>"') as error_text
+        replaceRegexpAll(error_text, '"id":\\s*"[a-zA-Z0-9_-]+"', '"id": "<ID>"') as error_text
     FROM response_ids_normalized
 ),
 
@@ -134,14 +134,14 @@ call_ids_normalized AS (
 ),
 
 user_ids_normalized AS (
-    -- Step 9: Normalize user IDs ('user_id': 'user_xxx' pattern)
+    -- Step 9: Normalize user IDs (user_id.{0,4}user_xxx pattern)
     SELECT
         distinct_id,
         timestamp,
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, '''user_id'':\s*''user_[a-zA-Z0-9]+''', '''user_id'': ''user_<USER_ID>''') as error_text
+        replaceRegexpAll(error_text, '(user_id.{0,4})user_[a-zA-Z0-9]+', '\\1user_<USER_ID>') as error_text
     FROM call_ids_normalized
 ),
 
@@ -189,7 +189,7 @@ ids_normalized AS (
         event,
         ai_trace_id,
         ai_session_id,
-        replaceRegexpAll(error_text, '[0-9]{{9,}}', '<ID>') as error_text
+        replaceRegexpAll(error_text, '[0-9]{9,}', '<ID>') as error_text
     FROM token_counts_normalized
 ),
 
@@ -218,5 +218,5 @@ SELECT
     max(timestamp) as last_seen
 FROM all_numbers_normalized
 GROUP BY normalized_error
-ORDER BY {orderBy} {orderDirection}
+ORDER BY __ORDER_BY__ __ORDER_DIRECTION__
 LIMIT 50
