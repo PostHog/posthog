@@ -13,7 +13,17 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { CSSProperties, HTMLAttributes, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+    CSSProperties,
+    HTMLAttributes,
+    KeyboardEvent,
+    MouseEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -115,6 +125,15 @@ export function ProjectExplorer({
     const { setNodeRef: setRootDropZoneRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
     const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
     const isDragging = !!activeDragItem
+    const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null)
+    const preserveCurrentFocus = useCallback(() => {
+        const focusHistory = listboxRef.current?.getFocusHistory()
+        const lastFocusKey = focusHistory?.[focusHistory.length - 1]
+
+        if (lastFocusKey) {
+            setPendingFocusKey(lastFocusKey)
+        }
+    }, [listboxRef])
 
     useEffect(() => {
         if (activeExplorerFolderPath === null) {
@@ -283,6 +302,16 @@ export function ProjectExplorer({
         setHighlightedExplorerEntryPath(null)
     }, [highlightedFocusKey, listboxRef, setHighlightedExplorerEntryPath])
 
+    useEffect(() => {
+        if (!pendingFocusKey) {
+            return
+        }
+
+        if (listboxRef.current?.focusItemByKey(pendingFocusKey)) {
+            setPendingFocusKey(null)
+        }
+    }, [displayRows, listboxRef, pendingFocusKey])
+
     const getEntryFolderLabel = (entry: FileSystemEntry): string => {
         const segments = splitPath(entry.path)
         if (segments.length <= 1) {
@@ -404,6 +433,13 @@ export function ProjectExplorer({
                                 const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
                                 const isHighlighted = highlightedExplorerEntryPath === entry.path
 
+                                const handleRowKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                        handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                                    }
+                                }
+
                                 const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
                                     if (isEditing) {
                                         event.preventDefault()
@@ -453,6 +489,7 @@ export function ProjectExplorer({
                                         isHighlighted={isHighlighted}
                                         handleRowClick={handleRowClick}
                                         handleRowDoubleClick={handleRowDoubleClick}
+                                        handleRowKeyDown={handleRowKeyDown}
                                         handleRowFocus={handleRowFocus}
                                         nameColumnIndentStyle={nameColumnIndentStyle}
                                         isExpandableFolder={isExpandableFolder}
@@ -473,6 +510,7 @@ export function ProjectExplorer({
                                         rawNameLabel={rawNameLabel}
                                         rename={rename}
                                         setEditingItemId={setEditingItemId}
+                                        preserveCurrentFocus={preserveCurrentFocus}
                                     />
                                 )
 
@@ -554,6 +592,7 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     isHighlighted: boolean
     handleRowClick: (event: MouseEvent<HTMLElement>) => void
     handleRowDoubleClick: (event: MouseEvent<HTMLElement>) => void
+    handleRowKeyDown: (event: KeyboardEvent<HTMLElement>) => void
     handleRowFocus: () => void
     nameColumnIndentStyle?: CSSProperties
     isExpandableFolder: boolean
@@ -574,6 +613,7 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     rawNameLabel: string
     rename: (value: string, item: FileSystemEntry) => void
     setEditingItemId: (id: string) => void
+    preserveCurrentFocus: () => void
 }
 
 function ExplorerRowListItem({
@@ -584,6 +624,7 @@ function ExplorerRowListItem({
     isHighlighted,
     handleRowClick,
     handleRowDoubleClick,
+    handleRowKeyDown,
     handleRowFocus,
     nameColumnIndentStyle,
     isExpandableFolder,
@@ -604,6 +645,7 @@ function ExplorerRowListItem({
     rawNameLabel,
     rename,
     setEditingItemId,
+    preserveCurrentFocus,
     ...contextMenuProps
 }: ExplorerRowListItemProps): JSX.Element {
     const droppableId = isParentNavigationRow ? `project://${entry.path}` : (treeItem?.id ?? rowKey)
@@ -678,6 +720,7 @@ function ExplorerRowListItem({
                 )}
                 onClick={handleRowClick}
                 onDoubleClick={handleRowDoubleClick}
+                onKeyDown={handleRowKeyDown}
                 onFocus={handleRowFocus}
             >
                 <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm" style={nameColumnIndentStyle}>
@@ -690,9 +733,19 @@ function ExplorerRowListItem({
                                 className="shrink-0"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={(event) => {
+                                    preserveCurrentFocus()
+                                    if (event.detail > 1) {
+                                        event.stopPropagation()
+                                        event.preventDefault()
+                                        return
+                                    }
                                     event.stopPropagation()
                                     event.preventDefault()
                                     handleToggleFolder(entry.path)
+                                }}
+                                onDoubleClick={(event) => {
+                                    event.stopPropagation()
+                                    event.preventDefault()
                                 }}
                                 aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
                             >
