@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { IconList } from '@posthog/icons'
+
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
@@ -22,6 +24,10 @@ export function useErrorTrackingExplainIssueMaxTool(): ReturnType<typeof useMaxT
     const maxToolResult = useMaxTool({
         identifier: 'error_tracking_explain_issue',
         context,
+        contextDescription: {
+            text: 'Issue stacktrace',
+            icon: <IconList />,
+        },
         active: ready,
         initialMaxPrompt: `Explain this issue to me`,
         callback() {
