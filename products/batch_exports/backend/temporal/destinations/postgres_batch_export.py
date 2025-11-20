@@ -1044,6 +1044,8 @@ def _get_merge_settings(
     update_key: Fields = []
     primary_key: Fields | None = None
 
+    # TODO - support merges for saved queries
+
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
             requires_merge = True

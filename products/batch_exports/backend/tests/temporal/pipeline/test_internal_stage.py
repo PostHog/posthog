@@ -23,6 +23,7 @@ from products.batch_exports.backend.tests.temporal.utils.s3 import (
     create_test_client,
     delete_all_from_s3,
 )
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -243,6 +244,64 @@ async def test_insert_into_stage_activity_for_events_model(
 ):
     """Test that the insert_into_internal_stage_activity produces expected files in S3."""
 
+    include_events = None
+    batch_export_id = str(uuid.uuid4())
+
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=batch_export_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        run_id=None,
+        batch_export_schema=None,
+        batch_export_model=model,
+        backfill_details=None,
+        destination_default_fields=None,
+    )
+
+    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    await assert_files_in_s3(
+        minio_client,
+        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+        key_prefix=get_s3_staging_folder(
+            batch_export_id,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+        ),
+        file_format="Arrow",
+        compression=None,
+        json_columns=None,
+    )
+
+
+@pytest.fixture
+async def saved_query(ateam):
+    return await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my-saved-query",
+        query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
+    )
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_for_saved_query_model(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    exclude_events,
+    saved_query,
+):
+    """Test that the insert_into_internal_stage_activity produces expected files in S3."""
+
+    model = BatchExportModel(name="saved_query", schema=None, saved_query_id=saved_query.id)
     include_events = None
     batch_export_id = str(uuid.uuid4())
 

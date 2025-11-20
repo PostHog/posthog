@@ -41,6 +41,7 @@ from products.batch_exports.backend.tests.temporal.destinations.postgres.utils i
     assert_clickhouse_records_in_postgres,
 )
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -616,4 +617,101 @@ async def test_postgres_export_workflow_with_many_files(
         exclude_events=exclude_events,
         batch_export_model=model,
         sort_key="event",
+    )
+
+
+@pytest.fixture
+async def saved_query(ateam):
+    return await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my-saved-query",
+        query={"query": "select uuid, event, timestamp from events", "kind": "HogQLQuery"},
+    )
+
+
+async def test_postgres_export_workflow_with_saved_query(
+    clickhouse_client,
+    postgres_config,
+    postgres_connection,
+    postgres_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    table_name,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    use_internal_stage,
+    saved_query,
+):
+    """Test we can export data from a saved query.
+
+    The workflow should update the batch export run status to completed and produce the expected
+    records to the local development PostgreSQL database.
+    """
+    batch_export_schema = None
+    batch_export_model = BatchExportModel(name="saved_query", schema=None, saved_query_id=saved_query.id)
+
+    workflow_id = str(uuid.uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **postgres_batch_export.destination.config,
+    )
+
+    sort_key = "uuid"
+
+    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
+
+    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=[PostgresBatchExportWorkflow],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_postgres_activity,
+                    insert_into_postgres_activity_from_stage,
+                    insert_into_internal_stage_activity,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                    await activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=10),
+                    )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    events_to_export_created, persons_to_export_created = generate_test_data
+
+    run = runs[0]
+    assert run.status == "Completed"
+    # since our saved query is selecting everything from the events table we expect the same number of records as the
+    # events table
+    assert run.records_completed == len(events_to_export_created)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=batch_export_model,
+        exclude_events=exclude_events,
+        sort_key=sort_key,
     )
