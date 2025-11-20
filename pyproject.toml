@@ -63,6 +63,7 @@ dependencies = [
     "hogql-parser==1.2.11",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
+    "jsonschema==4.24.0",
     "kafka-python==2.0.6",
     "kombu==5.3.7",
     "langchain==0.3.26",
