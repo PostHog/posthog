@@ -22,6 +22,7 @@ const HOG_FUNCTION_FIELDS = [
     'type',
     'template_id',
     'execution_order',
+    'batch_export_id',
     'created_at',
     'updated_at',
 ]
@@ -153,6 +154,22 @@ export class HogFunctionManagerService {
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogFunctionType | null>> {
         return await this.lazyLoader.getMany(ids)
+    }
+
+    public async getHogFunctionByBatchExportId(batchExportId: string): Promise<HogFunctionType | null> {
+        const items: HogFunctionType[] = (
+            await this.hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE batch_export_id = $1 AND enabled = TRUE AND deleted = FALSE`,
+                [batchExportId],
+                'fetchHogFunctionByBatchExportId'
+            )
+        ).rows
+
+        this.sanitize(items)
+        return items[0] ?? null
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
