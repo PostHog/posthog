@@ -106,7 +106,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
-import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
+import { FeatureFlagVariantsForm, focusVariantKeyField, EditableResult } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
@@ -134,18 +134,18 @@ export function createMaxToolSurveyConfig(
         suggestions:
             multivariateEnabled && variants?.length > 0
                 ? [
-                      `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
-                      `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
-                      `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
-                      `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
-                      `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
-                  ]
+                    `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
+                    `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
+                    `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
+                    `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
+                    `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
+                ]
                 : [
-                      `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
-                      `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
-                      `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
-                      `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
-                  ],
+                    `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
+                    `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
+                    `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
+                    `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
+                ],
         context: {
             user_id: user?.uuid,
             feature_flag_key: featureFlag.key,
@@ -157,10 +157,10 @@ export function createMaxToolSurveyConfig(
             variants:
                 multivariateEnabled && variants?.length > 0
                     ? variants.map((v) => ({
-                          key: v.key,
-                          name: v.name || '',
-                          rollout_percentage: v.rollout_percentage,
-                      }))
+                        key: v.key,
+                        name: v.name || '',
+                        rollout_percentage: v.rollout_percentage,
+                    }))
                     : [],
             variant_count: variants?.length || 0,
         },
@@ -241,11 +241,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         ref: featureFlag?.id,
         enabled: Boolean(
             currentTeamId &&
-                !featureFlagMissing &&
-                !accessDeniedToFeatureFlag &&
-                props.id !== 'new' &&
-                props.id !== 'link' &&
-                featureFlag?.id
+            !featureFlagMissing &&
+            !accessDeniedToFeatureFlag &&
+            props.id !== 'new' &&
+            props.id !== 'link' &&
+            featureFlag?.id
         ),
         deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
@@ -1016,14 +1016,14 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         posthog.capture('viewed recordings from feature flag', properties)
     }
 
-    const canEditVariant = (index: number): boolean => {
+    const canEditVariant = (index: number): EditableResult => {
         if (hasExperiment && !isDraftExperiment) {
-            return false
+            return { canEdit: false, reason: "Cannot delete variants from a feature flag that is part of a launched experiment." }
         }
         if (hasExperiment && isDraftExperiment && index === 0) {
-            return false
+            return { canEdit: false, reason: "Cannot delete the control variant from an experiment." }
         }
-        return true
+        return { canEdit: true }
     }
 
     return (
@@ -1237,11 +1237,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             ].map((option) => (
                                                 <div
                                                     key={option.value}
-                                                    className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                        value === option.value
-                                                            ? 'border-primary bg-primary-highlight'
-                                                            : 'border-border'
-                                                    }`}
+                                                    className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${value === option.value
+                                                        ? 'border-primary bg-primary-highlight'
+                                                        : 'border-border'
+                                                        }`}
                                                     onClick={() => onChange(option.value)}
                                                 >
                                                     <div className="flex items-start gap-3">

@@ -13,6 +13,10 @@ import { FeatureFlagGroupType, MultivariateFlagVariant } from '~/types'
 
 import { VariantError } from './featureFlagLogic'
 
+export type EditableResult =
+    | { canEdit: true }
+    | { canEdit: false; reason: string }
+
 export interface FeatureFlagVariantsFormProps {
     variants: MultivariateFlagVariant[]
     payloads?: Record<string, any>
@@ -20,7 +24,7 @@ export interface FeatureFlagVariantsFormProps {
     onAddVariant?: () => void
     onRemoveVariant?: (index: number) => void
     onDistributeEqually?: () => void
-    canEditVariant?: (index: number) => boolean
+    canEditVariant?: (index: number) => EditableResult
     hasExperiment?: boolean
     isDraftExperiment?: boolean
     readOnly?: boolean
@@ -44,7 +48,7 @@ export function FeatureFlagVariantsForm({
     onAddVariant,
     onRemoveVariant,
     onDistributeEqually,
-    canEditVariant = () => true,
+    canEditVariant = () => ({ canEdit: true }),
     hasExperiment = false,
     isDraftExperiment = false,
     readOnly = false,
@@ -162,7 +166,7 @@ export function FeatureFlagVariantsForm({
                                 autoCapitalize="off"
                                 autoCorrect="off"
                                 spellCheck={false}
-                                disabled={!canEditVariant(index)}
+                                disabledReason={canEditVariant(index).reason}
                                 value={variant.key}
                                 onChange={(value) => onVariantChange?.(index, 'key', value)}
                             />
@@ -231,13 +235,7 @@ export function FeatureFlagVariantsForm({
                                 data-attr={`delete-prop-filter-${index}`}
                                 noPadding
                                 onClick={() => onRemoveVariant(index)}
-                                disabledReason={
-                                    !canEditVariant(index)
-                                        ? isDraftExperiment
-                                            ? 'Cannot delete the control variant from an experiment.'
-                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
-                                        : undefined
-                                }
+                                disabledReason={canEditVariant(index).reason}
                                 tooltipPlacement="top-end"
                             />
                         )}
