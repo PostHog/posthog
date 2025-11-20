@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import operator
 
@@ -25,6 +26,7 @@ async def assert_clickhouse_records_in_kafka(
     expected_fields: list[str] | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
+    is_backfill: bool = False,
 ):
     json_columns = {"properties", "set", "set_once", "person_properties"}
 
@@ -38,10 +40,20 @@ async def assert_clickhouse_records_in_kafka(
     produced_records = []
 
     async with consumer:
-        async for msg in consumer:
+        while True:
+            try:
+                async with asyncio.timeout(5):
+                    msg = await consumer.getone()
+            except TimeoutError:
+                break
+
             record = json.loads(msg.value)
 
-            if (event := record.get("event", None)) is not None and event == "$backfill_complete":
+            if (
+                is_backfill
+                and (is_last := record.get("isLastBackfillingMessage", None)) is not None
+                and is_last is True
+            ):
                 break
 
             for timestamp_column in ("timestamp", "created_at"):
