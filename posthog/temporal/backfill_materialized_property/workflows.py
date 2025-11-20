@@ -52,16 +52,17 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
         """Execute the backfill workflow."""
 
         try:
-            # Wait 2 minutes for plugin-server TeamManager cache to refresh
-            # IMPORTANT: Keep in sync with plugin-server/src/utils/team-manager.ts refreshAgeMs (2 * 60 * 1000 ms)
+            # Wait 3 minutes for plugin-server TeamManager cache to refresh
+            # IMPORTANT: plugin-server/src/utils/team-manager.ts has refreshAgeMs=2min + refreshJitterMs=30s
+            # We wait 3 minutes to account for max refresh time (2.5min) + buffer
             # This prevents a gap where new events come in after backfill completes
             # but before the ingestion server knows about the new materialized column
             workflow.logger.info(
-                "Waiting 2 minutes for ingestion cache refresh",
+                "Waiting 3 minutes for ingestion cache refresh",
                 team_id=inputs.team_id,
                 slot_id=inputs.slot_id,
             )
-            await workflow.sleep(dt.timedelta(seconds=120))
+            await workflow.sleep(dt.timedelta(seconds=180))
 
             # Get slot details
             workflow.logger.info("Getting slot details", slot_id=inputs.slot_id)

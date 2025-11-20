@@ -16,7 +16,8 @@ export class TeamManager {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
-            // IMPORTANT: Keep in sync with posthog/temporal/backfill_materialized_property/workflows.py (120 seconds)
+            // IMPORTANT: If you change these values, update posthog/temporal/backfill_materialized_property/workflows.py
+            // The workflow waits 3 minutes to account for refreshAgeMs + refreshJitterMs + buffer
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
             loader: async (teamIdOrTokens: string[]) => {
