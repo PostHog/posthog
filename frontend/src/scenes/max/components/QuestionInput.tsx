@@ -55,7 +55,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, cancelLoading, submissionDisabledReason, deepResearchMode } =
+    const { threadLoading, inputDisabled, cancelLoading, submissionDisabledReason, deepResearchMode, pendingPrompt } =
         useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
@@ -156,7 +156,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
-                            onApprove={() => askMax(question)}
+                            onApprove={() => askMax(pendingPrompt || question)}
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[
                                 offset((state) => ({
