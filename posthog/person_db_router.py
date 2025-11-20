@@ -63,11 +63,33 @@ class PersonDBRouter:
             # Neither model is in persons_db, allow relation on default db
             return None  # Allow default behavior (usually True on 'default' db)
         else:
-            # One model is in persons_db, the other is not. Disallow by default.
-            # You might need specific logic here for allowed cross-db FKs.
-            # For example, if obj1 is Person and obj2 is Team, you might want to return True
-            # if the foreign key constraint is removed or handled appropriately.
-            # For now, returning False prevents potential issues.
+            # One model is in persons_db, the other is not.
+            # Allow specific cross-database relationships where the FK constraint is removed (db_constraint=False)
+            # Person -> Team: Person.team has db_constraint=False
+            # GroupTypeMapping -> Team: GroupTypeMapping.team has db_constraint=False
+            # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
+            from posthog.models import Person, Project, Team
+            from posthog.models.group_type_mapping import GroupTypeMapping
+
+            # Allow Person -> Team relation
+            if isinstance(obj1, Person) and isinstance(obj2, Team):
+                return True
+            if isinstance(obj1, Team) and isinstance(obj2, Person):
+                return True
+
+            # Allow GroupTypeMapping -> Team relation
+            if isinstance(obj1, GroupTypeMapping) and isinstance(obj2, Team):
+                return True
+            if isinstance(obj1, Team) and isinstance(obj2, GroupTypeMapping):
+                return True
+
+            # Allow GroupTypeMapping -> Project relation
+            if isinstance(obj1, GroupTypeMapping) and isinstance(obj2, Project):
+                return True
+            if isinstance(obj1, Project) and isinstance(obj2, GroupTypeMapping):
+                return True
+
+            # Disallow all other cross-database relations
             return False
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
