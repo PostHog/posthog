@@ -19,8 +19,8 @@ export function useNotificationsWebSocket(): { connected: boolean } {
         const connect = (): void => {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
             const tokenParam = user.personal_api_key ? `?token=${user.personal_api_key}` : ''
-            // Temporarily use port 9001 for Daphne WebSocket server
-            const wsUrl = `${protocol}//localhost:9001/ws/notifications/${tokenParam}`
+            // Use the same host as the current page for WebSocket connection
+            const wsUrl = `${protocol}//${window.location.host}/ws/notifications/${tokenParam}`
 
             try {
                 const ws = new WebSocket(wsUrl)
