@@ -1,3 +1,4 @@
+import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -129,4 +130,8 @@ export const createMaxContextHelpers = {
         type: MaxContextType.ACTION,
         data: action,
     }),
+}
+
+export function isAgentMode(mode: unknown): mode is AgentMode {
+    return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }

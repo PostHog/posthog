@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.296.1
-        version: 1.296.1
+        specifier: 1.297.0
+        version: 1.297.0
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -829,8 +829,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.296.1
-        version: 1.296.1
+        specifier: 1.297.0
+        version: 1.297.0
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1804,8 +1804,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.296.1
-        version: 1.296.1
+        specifier: 1.297.0
+        version: 1.297.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2162,6 +2162,9 @@ importers:
 
   products/mcp/typescript:
     dependencies:
+      '@byjohann/toon':
+        specifier: ^0.4.0
+        version: 0.4.1
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.3
         version: 1.19.1
@@ -2468,8 +2471,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.296.1
-        version: 1.296.1
+        specifier: 1.297.0
+        version: 1.297.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2540,8 +2543,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.296.1
-        version: 1.296.1
+        specifier: 1.297.0
+        version: 1.297.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -3810,6 +3813,9 @@ packages:
 
   '@bufbuild/protobuf@2.3.0':
     resolution: {integrity: sha512-WK6zH4MtBp/uesX8KGCnwDDRVnEVHUvwjsigKXcSR57Oo8Oyv1vRS9qyUlSP+6KWRl5z8tNAU5qpf3QodeVYxA==}
+
+  '@byjohann/toon@0.4.1':
+    resolution: {integrity: sha512-d3E5Ebq2W/+KV0kLnoy5xHPyiZqPCONlp+eZ12PZmXJAnjxoVD8DRhhlAqh0tc8FhmYreV9OAnBkhGaYwvYnGA==}
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
@@ -6447,8 +6453,8 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.5.2':
-    resolution: {integrity: sha512-iedUP3EnOPPxTA2VaIrsrd29lSZnUV+ZrMnvY56timRVeZAXoYCkmjfIs3KBAsF8OUT5h1GXLSkoQdrV0r31OQ==}
+  '@posthog/core@1.5.3':
+    resolution: {integrity: sha512-1cHCMR2uS/rAdBIFlBPJ4rPYaw1O42VkFy/LwQLtoy2hMQb2DdhCoSHfgA66R9TvcOybZsSANlbuihmGEZUKVQ==}
 
   '@posthog/icons@0.35.2':
     resolution: {integrity: sha512-JLPjPzaK+K7xy8VSXQ8+u+Bpq9jl1vddIeofX6GcbH98X+C+UG14JFYoCejjAen/xL1o7fBco6uvvmeu+mDfEQ==}
@@ -16440,8 +16446,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.296.1:
-    resolution: {integrity: sha512-Qc0S5dkQHzYzpUu7sfU2JkDkf7AE4wI8Yffog4hKWL9i8YbutuXLhJ1duZlY1V8HyaVVnn6qx5wd55SNwVcfhQ==}
+  posthog-js@1.297.0:
+    resolution: {integrity: sha512-+kHHe3oTRLPBokks5E2pojDfx0yAzkXLeN8BCfVY9kZ7eaaHuezpFb4DQ7i4hzI5nMFDe5qWotsUO73/GR6lmw==}
 
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
@@ -18949,8 +18955,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.325.0:
-    resolution: {integrity: sha512-GJZb61v2/0p+RhvsZUUp+hPAeqjnr3oW5hZBA3Mo2j01SQGx4lCT15KsmHY9foE+uR+CZUaJut40rkM41EfArA==}
+  unlayer-types@1.327.0:
+    resolution: {integrity: sha512-5roPxBm5l/xWoKDpEvrJFixUsP6h1vawUfwefx74VkMjtZmy/PyrqU+RBVoOuQjTTerhX2u9+WN+4Zj9Yx+M9A==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -22463,6 +22469,8 @@ snapshots:
 
   '@bufbuild/protobuf@2.3.0': {}
 
+  '@byjohann/toon@0.4.1': {}
+
   '@cfworker/json-schema@4.1.1': {}
 
   '@clickhouse/client-common@1.12.0': {}
@@ -25619,7 +25627,7 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.5.2':
+  '@posthog/core@1.5.3':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -28368,7 +28376,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -35010,7 +35018,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35290,7 +35298,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -38264,9 +38272,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.296.1:
+  posthog-js@1.297.0:
     dependencies:
-      '@posthog/core': 1.5.2
+      '@posthog/core': 1.5.3
       core-js: 3.47.0
       fflate: 0.4.8
       preact: 10.27.2
@@ -39088,7 +39096,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.325.0
+      unlayer-types: 1.327.0
 
   react-error-overlay@6.0.9: {}
 
@@ -41292,7 +41300,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.325.0: {}
+  unlayer-types@1.327.0: {}
 
   unpipe@1.0.0: {}
 

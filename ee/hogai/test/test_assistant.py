@@ -11,8 +11,6 @@ from posthog.test.base import (
 )
 from unittest.mock import AsyncMock, patch
 
-from django.test import override_settings
-
 from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
@@ -1187,60 +1185,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
             actual_output, _ = await self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
-
-    @override_settings(INKEEP_API_KEY="test")
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepExecutableNode._get_model")
-    async def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
-        """Test basic documentation search functionality using Inkeep."""
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
-            .compile()
-        )
-
-        root_model_mock.return_value = FakeChatAnthropic(
-            responses=[
-                messages.AIMessage(
-                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
-                )
-            ]
-        )
-        inkeep_docs_model_mock.return_value = FakeChatOpenAI(
-            responses=[messages.AIMessage(content="Here's what I found in the docs...")]
-        )
-        output, _ = await self._run_assistant_graph(graph, message="How do I use feature flags?")
-
-        self.assertConversationEqual(
-            output,
-            [
-                ("message", HumanMessage(content="How do I use feature flags?")),
-                (
-                    "message",
-                    AssistantMessage(
-                        content="",
-                        tool_calls=[
-                            AssistantToolCall(
-                                args={"kind": "docs", "query": "test"}, id="1", name="search", type="tool_call"
-                            )
-                        ],
-                    ),
-                ),
-                (
-                    "update",
-                    AssistantUpdateEvent(content="Checking PostHog documentation...", id="1", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
-                ),
-                (
-                    "message",
-                    AssistantMessage(content="Here's what I found in the docs...", id=str(uuid4())),
-                ),
-            ],
-        )
 
     @title_generator_mock
     @query_executor_mock

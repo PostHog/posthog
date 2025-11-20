@@ -22,9 +22,7 @@ export const eventDefinitionsHandler: ToolBase<typeof schema>['handler'] = async
 
     const simplifiedEvents = eventDefsResult.data.map((def) => EventDefinitionSchema.parse(def))
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(simplifiedEvents) }],
-    }
+    return simplifiedEvents
 }
 
 const tool = (): ToolBase<typeof schema> => ({
