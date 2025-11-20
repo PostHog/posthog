@@ -1,4 +1,4 @@
-"""Dagster job for deleting posthog_persondistictid rows that have no associated posthog_person (new) rows."""
+"""Dagster job for deleting posthog_persondistinctid rows that have no associated posthog_person (new) rows."""
 
 import os
 import time
@@ -61,7 +61,7 @@ def get_id_range(
             max_id = config.max_id
             context.log.info(f"Using configured max_id override: {max_id}")
         else:
-            max_query = f"SELECT MAX(id) as max_id FROM posthog_person"
+            max_query = f"SELECT MAX(id) as max_id FROM posthog_persondistinctid"
             context.log.info(f"Querying max ID: {max_query}")
             cursor.execute(max_query)
             max_result = cursor.fetchone()
@@ -200,7 +200,7 @@ WHERE pd.id >= %s AND pd.id <= %s
     WHERE pd.person_id = p.id
       AND pd.team_id = p.team_id
   )
-ORDER BY p.id DESC
+ORDER BY pd.id DESC
 """
                     cursor.execute(scan_query, (batch_start_id, batch_end_id))
                     rows = cursor.fetchall()
@@ -211,7 +211,7 @@ ORDER BY p.id DESC
                     cursor.execute("COMMIT")
 
                     records_deleted = 0
-                    ids_list = list(ids_to_delete)
+                    ids_list = list[int](sorted(ids_to_delete))
                     for i in range(0, len(ids_list), config.delete_batch_size):
                         delete_batch = ids_list[i : i + config.delete_batch_size]
                         try:
@@ -223,14 +223,19 @@ ORDER BY p.id DESC
                             )
                             records_deleted += cursor.rowcount
                             cursor.execute("COMMIT")
-                        except Exception:
-                            pass  # Don't fail on delete error
+                        except Exception as delete_error:
+                            # bubble up errors to be retried on deadlock etc. or fail the job
+                            context.log.exception(
+                                f"Failed to delete sub-batch of size {len(delete_batch)} "
+                                f"(min={min(delete_batch)}, max={max(delete_batch)}): {delete_error}"
+                            )
+                            raise
 
                     try:
                         metrics_client.increment(
                             "distinct_ids_without_person_records_attempted_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_scanned),
+                            value=float(records_scanned + 1),
                         ).result()
                     except Exception:
                         pass  # Don't fail on metrics error
@@ -309,7 +314,7 @@ ORDER BY p.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -327,7 +332,7 @@ ORDER BY p.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -366,7 +371,7 @@ ORDER BY p.id DESC
         raise
     except Exception as e:
         # Catch any other unexpected errors
-        error_msg = f"Unexpected error scanning and deleteting from chunk {chunk_min}-{chunk_max}: {str(e)}"
+        error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
         # Report fatal error metric before raising
         try:
