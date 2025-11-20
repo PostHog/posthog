@@ -31,7 +31,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
@@ -313,7 +313,7 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(0..10_000_000),
+        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
     };
     let token = random_string("phc_", 12);
     let team = Team {
@@ -362,7 +362,7 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
     let payload_flag = match flag {
         Some(mut value) => {
@@ -1105,7 +1105,7 @@ impl TestContext {
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
         // Create team model
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
             project_id: Some(id as i64),
@@ -1249,6 +1249,64 @@ impl TestContext {
         .bind(level)
         .execute(&mut *conn)
         .await?;
+        Ok(())
+    }
+
+    /// Cleans up all test data from the database
+    /// This truncates all test-related tables in the correct order to handle foreign key constraints
+    pub async fn cleanup_all_test_data(&self) -> Result<(), Error> {
+        let mut persons_conn = self.persons_writer.get_connection().await?;
+        let mut non_persons_conn = self.non_persons_writer.get_connection().await?;
+
+        // Delete from persons DB (in dependency order)
+        sqlx::query("TRUNCATE TABLE posthog_cohortpeople CASCADE")
+            .execute(&mut *persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_persondistinctid CASCADE")
+            .execute(&mut *persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_person CASCADE")
+            .execute(&mut *persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_grouptypemapping CASCADE")
+            .execute(&mut *persons_conn)
+            .await?;
+
+        // Delete from non-persons DB (in dependency order)
+        sqlx::query("TRUNCATE TABLE posthog_featureflagrollback CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_featureflagevaluationtag CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_featureflag CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_cohort CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_suppressionrule CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_personalapikey CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_organizationmembership CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_user CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_team CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_project CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+        sqlx::query("TRUNCATE TABLE posthog_organization CASCADE")
+            .execute(&mut *non_persons_conn)
+            .await?;
+
         Ok(())
     }
 }

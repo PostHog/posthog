@@ -323,8 +323,8 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        let random_id_1 = rand::thread_rng().gen_range(0..10_000_000);
-        let random_id_2 = rand::thread_rng().gen_range(0..10_000_000);
+        let random_id_1 = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let random_id_2 = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
         let flag1 = FeatureFlagRow {
             id: random_id_1,
