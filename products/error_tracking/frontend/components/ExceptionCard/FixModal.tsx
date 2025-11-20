@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { useStacktraceDisplay } from '../../hooks/use-stacktrace-display'
 import { fixModalLogic } from './fixModalLogic'
@@ -11,14 +12,17 @@ import { fixModalLogic } from './fixModalLogic'
 interface FixModalProps {
     isOpen: boolean
     onClose: () => void
+    issueId: string
 }
 
-export function FixModal({ isOpen, onClose }: FixModalProps): JSX.Element {
+export function FixModal({ isOpen, onClose, issueId }: FixModalProps): JSX.Element {
     const { mode } = useValues(fixModalLogic)
     const { setMode } = useActions(fixModalLogic)
     const { stacktraceText } = useStacktraceDisplay()
 
     const generatePrompt = (): string => {
+        const issueUrl = window.location.origin + urls.errorTrackingIssue(issueId)
+
         if (mode === 'explain') {
             return `Please help me understand this error in depth. Here's the stack trace:
 
@@ -39,6 +43,8 @@ The final output should be:
 - A comprehensive technical explanation of the root cause
 - A walkthrough of the relevant code paths
 - A detailed summary of exactly how the issue occurs
+
+PostHog issue: ${issueUrl}
 `
         }
         return `Please help me fix this error. Here's the stack trace:
@@ -59,6 +65,8 @@ Can you:
 The final output of your efforts should be:
 - An implemented fix for the issue applied directly to the code
 - A brief explanation of what was changed and why
+
+PostHog issue: ${issueUrl}
 `
     }
 
