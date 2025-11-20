@@ -65,6 +65,20 @@ export function generateInsightHCL(insight: Partial<InsightModel>): string {
 
     const lines: string[] = []
 
+    if (insight.id !== undefined) {
+        lines.push(`# Generated from PostHog insight ID: ${insight.id}`)
+    }
+    if (insight.short_id) {
+        lines.push(`# Short ID: ${insight.short_id}`)
+    }
+    if (insight.created_at) {
+        lines.push(`# Created: ${insight.created_at}`)
+    }
+    if (insight.last_modified_at) {
+        lines.push(`# Last modified: ${insight.last_modified_at}`)
+    }
+
+    lines.push('')
     lines.push(`resource "posthog_insight" "${resourceName}" {`)
 
     if (insight.id) {
@@ -109,20 +123,6 @@ export function generateInsightHCL(insight: Partial<InsightModel>): string {
     }
 
     lines.push('}')
-
-    lines.push('')
-    if (insight.id !== undefined) {
-        lines.push(`# Generated from PostHog insight ID: ${insight.id}`)
-    }
-    if (insight.short_id) {
-        lines.push(`# Short ID: ${insight.short_id}`)
-    }
-    if (insight.created_at) {
-        lines.push(`# Created: ${insight.created_at}`)
-    }
-    if (insight.last_modified_at) {
-        lines.push(`# Last modified: ${insight.last_modified_at}`)
-    }
 
     return lines.join('\n')
 }
