@@ -27,6 +27,8 @@ def team(organization):
 
     yield team
 
+    # Clean up any remaining Persons before deleting team to avoid FK violations
+    Person.objects.filter(team=team).delete()
     team.delete()
 
 
@@ -42,9 +44,7 @@ def people(team):
 
     yield (p1, p2, p3)
 
-    p1.delete()
-    p2.delete()
-    p3.delete()
+    # Persons will be cleaned up by team fixture
 
 
 @pytest.fixture
