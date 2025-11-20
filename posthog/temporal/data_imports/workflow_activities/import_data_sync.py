@@ -268,7 +268,7 @@ def _run(
             source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
         )
         result = pipeline.run()
-        logger.debug("Finished running pipeline")
+        logger.debug(f"Finished running pipeline. Result = {result}")
         del pipeline
 
         return result

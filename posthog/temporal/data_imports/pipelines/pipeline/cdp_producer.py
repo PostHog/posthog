@@ -92,6 +92,9 @@ class CDPProducer:
         if table is None:
             raise ValueError(f"CDPProducer: Table {table_id} (schema: {schema.name}) not found in hogql database")
 
+        self.logger.debug(f"Checking if table {table.name} is used in any HogQL functions")
+        self.logger.debug(f"Using table_name = {table.name}, source = data-warehouse")
+
         return HogFunction.objects.filter(
             team_id=self.team_id,
             filters__source="data-warehouse",
