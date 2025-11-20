@@ -45,7 +45,7 @@ export function StacktraceTab({
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool()
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId)
 
     return (
         <TabsPrimitiveContent {...props}>
