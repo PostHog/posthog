@@ -1,1 +1,1 @@
-0912_alter_survey_linked_insight_type
+0913_alter_survey_linked_insight
