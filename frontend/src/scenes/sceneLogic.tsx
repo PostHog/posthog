@@ -39,7 +39,7 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, OnboardingStepKey } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
