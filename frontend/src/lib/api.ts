@@ -185,6 +185,7 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
+import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
@@ -3132,12 +3133,14 @@ const api = {
                 status,
                 offset = 0,
                 limit = 100,
+                orderBy = '-created_at',
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
+                orderBy?: SymbolSetOrder
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
-                const queryString = { order_by: '-created_at', status, offset, limit }
+                const queryString = { order_by: orderBy, status, offset, limit }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
