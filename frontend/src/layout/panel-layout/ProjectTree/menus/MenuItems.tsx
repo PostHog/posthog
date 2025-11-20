@@ -218,19 +218,20 @@ export function MenuItems({
                 </>
             ) : null}
             {item.record?.path ? (
-                root === 'shortcuts://' ? (
-                    item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/') ? (
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                item.record && deleteShortcut(item.record?.id)
-                            }}
-                            data-attr="tree-item-menu-remove-from-shortcuts-button"
-                        >
-                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
-                        </MenuItem>
-                    ) : null
+                (root === 'shortcuts://' || root === 'custom-products://') &&
+                (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (item.record) {
+                                deleteShortcut(item.record?.id)
+                            }
+                        }}
+                        data-attr="tree-item-menu-remove-from-shortcuts-button"
+                    >
+                        <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                    </MenuItem>
                 ) : isItemAlreadyInShortcut ? (
                     <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
                         <ButtonPrimitive menuItem disabled={true}>
@@ -242,7 +243,9 @@ export function MenuItems({
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            item.record && addShortcutItem(item.record as FileSystemEntry)
+                            if (item.record) {
+                                addShortcutItem(item.record as FileSystemEntry)
+                            }
                         }}
                         data-attr="tree-item-menu-add-to-shortcuts-button"
                     >

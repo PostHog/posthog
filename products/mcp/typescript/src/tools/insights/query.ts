@@ -34,7 +34,7 @@ export const queryHandler: ToolBase<typeof schema>['handler'] = async (context: 
         results: queryResult.data.results,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(responseData) }] }
+    return responseData
 }
 
 const tool = (): ToolBase<typeof schema> => ({

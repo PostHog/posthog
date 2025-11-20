@@ -21,7 +21,6 @@ class AgentExecutorGraph(BaseAssistantGraph[AssistantState, PartialAssistantStat
         self._has_start_node = True
         root_node = AgentGraphNode(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT, root_node)
-        self.add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT,
             router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router),
