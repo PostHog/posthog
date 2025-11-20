@@ -68,7 +68,7 @@
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
         "syncpack": "^13.0.4",
-        "turbo": "^2.6.1"
+        "turbo": "^2.4.2"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
