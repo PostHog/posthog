@@ -36,12 +36,12 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, symbolSetOrder } = useValues(symbolSetLogic)
+    const { symbolSetStatusFilter } = useValues(symbolSetLogic)
     const { loadSymbolSets, setSymbolSetStatusFilter } = useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
-    }, [loadSymbolSets, symbolSetOrder])
+    }, [loadSymbolSets])
 
     return (
         <div className="deprecated-space-y-4">

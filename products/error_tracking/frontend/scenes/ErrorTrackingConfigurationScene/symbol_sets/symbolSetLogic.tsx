@@ -113,6 +113,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         },
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
+        setSymbolSetOrder: () => actions.loadSymbolSets(),
     })),
 
     selectors(({ actions }) => ({
