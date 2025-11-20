@@ -33,3 +33,8 @@ async def topic(hosts):
 
     await admin_client.delete_topics([test_topic])
     await admin_client.close()
+
+
+@pytest.fixture
+def events_table() -> str:
+    return "sharded_events"

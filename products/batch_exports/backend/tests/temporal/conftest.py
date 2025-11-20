@@ -383,6 +383,15 @@ def count_no_prop(request) -> int:
 
 
 @pytest.fixture
+def events_table(request) -> str | None:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return None
+
+
+@pytest.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -393,9 +402,12 @@ async def generate_test_data(
     test_person_properties,
     insert_sessions,
     count_no_prop,
+    events_table,
 ):
     """Generate test data in ClickHouse."""
-    if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+    if events_table:
+        table = events_table
+    elif data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         table = "events_recent"
     else:
         table = "sharded_events"

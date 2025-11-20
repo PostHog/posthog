@@ -8,6 +8,7 @@ from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportMo
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsInsertInputs,
     insert_into_kafka_activity_from_stage,
+    workflows_default_fields,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
@@ -74,9 +75,10 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             num_partitions=1,
-            order_by_timestamp=True,
+            is_workflows=True,
             batch_export_model=copy_inputs.batch_export.batch_export_model,
             batch_export_schema=copy_inputs.batch_export.batch_export_schema,
+            destination_default_fields=workflows_default_fields(),
         ),
     )
     result = await activity_environment.run(insert_into_kafka_activity_from_stage, copy_inputs)

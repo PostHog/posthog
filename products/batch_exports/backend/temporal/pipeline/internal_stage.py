@@ -51,6 +51,7 @@ from products.batch_exports.backend.temporal.sql import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
+    EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
@@ -150,7 +151,7 @@ class BatchExportInsertIntoInternalStageInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     num_partitions: int | None = None
-    order_by_timestamp: bool = False
+    is_workflows: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -221,7 +222,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
                 num_partitions=inputs.num_partitions,
-                order_by_timestamp=inputs.order_by_timestamp,
+                is_workflows=inputs.is_workflows,
             )
             query_or_model = query
 
@@ -249,7 +250,7 @@ async def _get_query(
     destination_default_fields: list[BatchExportField] | None = None,
     filters: list[dict[str, str | list[str] | None]] | None = None,
     num_partitions: int | None = None,
-    order_by_timestamp: bool = False,
+    is_workflows: bool = False,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)
@@ -324,32 +325,33 @@ async def _get_query(
 
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
-        if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+        if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
             logger.info("Using events_recent table for 5 min batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
-            order_by = "ORDER BY events_recent.inserted_at"
         # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
         # which is a distributed table that sits in front of the `events_recent` table
-        elif use_distributed_events_recent_table(
-            is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+        elif (
+            use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            )
+            and not is_workflows
         ):
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-            order_by = "ORDER BY distributed_events_recent.inserted_at"
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             logger.info("Using unbounded events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
-            order_by = "ORDER BY events.timestamp"
+        elif is_workflows:
+            logger.info("Using workflows events query for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
         elif is_backfill:
             logger.info("Using events_batch_export_backfill query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
-            order_by = "ORDER BY events.timestamp"
         else:
             logger.info("Using events table for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
-            order_by = "ORDER BY events.timestamp"
 
         if "_inserted_at" not in [field["alias"] for field in fields]:
             control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
@@ -372,7 +374,6 @@ async def _get_query(
                 data_interval_end=data_interval_end,
             ),
             num_partitions=num_partitions,
-            order=order_by if order_by_timestamp else "",
         )
 
     parameters["team_id"] = team_id
