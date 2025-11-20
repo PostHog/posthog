@@ -1,0 +1,176 @@
+# serializer version: 1
+# name: TestPersonTrends.test_trends_people_endpoint_filters_search
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value ,
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e."properties" as "properties",
+            e."$window_id" as $window_id,
+            e."$session_id" as $session_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id,
+            e.uuid as uuid
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = '$pageview'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event = '$pageview'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestPersonTrends.test_trends_people_endpoint_filters_search.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 99999
+    and session_id in []
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
+  '''
+# ---
+# name: TestPersonTrends.test_trends_people_endpoint_filters_search.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value ,
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e."properties" as "properties",
+            e."$window_id" as $window_id,
+            e."$session_id" as $session_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id,
+            e.uuid as uuid
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = '$pageview'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+     WHERE team_id = 99999
+       AND event = '$pageview'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%ben%'
+             OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%ben%'
+             OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%ben%')
+            AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))) )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestPersonTrends.test_trends_people_endpoint_filters_search.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 99999
+    and session_id in []
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
+  '''
+# ---
+# name: TestPersonTrends.test_trends_people_endpoint_includes_recordings
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value ,
+         groupUniqArray(100)((timestamp, uuid,
+                                         $session_id,
+                                         $window_id)) as matching_events
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e."properties" as "properties",
+            e."$window_id" as $window_id,
+            e."$session_id" as $session_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id,
+            e.uuid as uuid
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = '$pageview'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event = '$pageview'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestPersonTrends.test_trends_people_endpoint_includes_recordings.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT session_id
+  FROM session_replay_events
+  WHERE team_id = 99999
+    and session_id in ['s1']
+    AND min_first_timestamp >= '2020-01-07 00:00:00'
+    AND max_last_timestamp <= '2020-01-13 23:59:59'
+  '''
+# ---
