@@ -13,6 +13,9 @@ FETCH_HIERARCHY_TIMEOUT_SECONDS = 30  # 30 seconds per trace hierarchy fetch
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 120  # 2 minutes per summary generation (includes LLM call)
 EMIT_EVENTS_TIMEOUT_SECONDS = 60  # 1 minute for batch event emission
 
+# Workflow-level timeouts (in minutes)
+WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 90  # Max time for single team workflow (worst case: 100 traces * 30s = ~58min)
+
 # Retry configuration
 MAX_RETRY_ATTEMPTS_SAMPLE = 3  # Retries for sampling activity
 MAX_RETRY_ATTEMPTS_FETCH = 3  # Retries for fetching trace hierarchy

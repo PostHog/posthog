@@ -15,6 +15,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.trace_summarization.constants import WORKFLOW_EXECUTION_TIMEOUT_MINUTES
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
@@ -158,6 +159,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         model=inputs.model,
                     ),
                     id=f"batch-summarization-team-{team_id}-{temporalio.workflow.now().isoformat()}",
+                    execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 

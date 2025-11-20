@@ -27,13 +27,14 @@ Usage:
 # ruff: noqa: T201
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.llm_analytics.trace_summarization.constants import WORKFLOW_EXECUTION_TIMEOUT_MINUTES
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import BatchTraceSummarizationCoordinatorInputs
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 
@@ -118,6 +119,7 @@ def trigger_coordinator(
             inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            execution_timeout=timedelta(hours=2),
         )
 
         print(f"\n{'='*60}")
@@ -217,6 +219,7 @@ def trigger_single_team(
             inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
         )
 
         print(f"\n{'='*60}")
@@ -305,6 +308,7 @@ async def trigger_batch_summarization_async(
         inputs,
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
     )
 
     print(f"\n{'='*60}")
