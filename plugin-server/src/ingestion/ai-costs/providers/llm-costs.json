@@ -945,8 +945,8 @@
                 "completion_token": 8.4e-7
             },
             "crusoe-fp8": {
-                "prompt_token": 2.8e-7,
-                "completion_token": 0.00000115,
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000015,
                 "cache_read_token": 1.4e-7
             },
             "deepinfra-fp4": {
@@ -1124,8 +1124,8 @@
                 "completion_token": 0.00000175
             },
             "crusoe-fp8": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.00000218
+                "prompt_token": 0.00000135,
+                "completion_token": 0.0000054
             },
             "deepinfra-fp4": {
                 "prompt_token": 5e-7,
@@ -1804,8 +1804,8 @@
                 "completion_token": 5.6e-7
             },
             "crusoe-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 1e-7,
+                "prompt_token": 8e-8,
+                "completion_token": 3e-7,
                 "cache_read_token": 3e-8
             },
             "deepinfra-bf16": {
@@ -2403,8 +2403,8 @@
                 "completion_token": 0.00000225
             },
             "crusoe-bf16": {
-                "prompt_token": 1.3e-7,
-                "completion_token": 4e-7,
+                "prompt_token": 2.5e-7,
+                "completion_token": 7.5e-7,
                 "cache_read_token": 7e-8
             },
             "deepinfra-base": {
@@ -3583,8 +3583,8 @@
                 "completion_token": 0.0000025
             },
             "siliconflow-fp8": {
-                "prompt_token": 0.0000011,
-                "completion_token": 0.0000045
+                "prompt_token": 5.5e-7,
+                "completion_token": 0.0000025
             },
             "together": {
                 "prompt_token": 0.0000012,
@@ -4542,7 +4542,7 @@
             },
             "crusoe-bf16": {
                 "prompt_token": 1.5e-7,
-                "completion_token": 5e-7,
+                "completion_token": 6e-7,
                 "cache_read_token": 8e-8
             },
             "deepinfra-fp4": {
@@ -4926,32 +4926,6 @@
         "model": "openrouter/auto",
         "cost": {
             "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
-        "model": "openrouter/sherlock-dash-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
-        "model": "openrouter/sherlock-think-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
@@ -6581,6 +6555,19 @@
                 "prompt_token": 2e-7,
                 "completion_token": 5e-7,
                 "cache_read_token": 5e-8
+            }
+        }
+    },
+    {
+        "model": "x-ai/grok-4.1-fast",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "xai": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
