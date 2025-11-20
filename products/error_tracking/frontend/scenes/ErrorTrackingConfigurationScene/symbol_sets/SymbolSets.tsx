@@ -86,14 +86,7 @@ const SymbolSetTable = (): JSX.Element => {
                 )
             },
         },
-        {
-            title: 'Usage',
-            dataIndex: 'frames_count',
-            tooltip: 'Number of frames using this symbol set',
-            render: (count) => {
-                return <span className="text-secondary">{count}</span>
-            },
-        },
+
         {
             title: 'Status',
             render: (_, { failure_reason }) => {
@@ -111,6 +104,11 @@ const SymbolSetTable = (): JSX.Element => {
                     </Tooltip>
                 )
             },
+        },
+        {
+            title: 'Last Used',
+            dataIndex: 'last_used',
+            render: (data) => (data ? humanFriendlyDetailedTime(data as string) : '-'),
         },
         { title: 'Created At', dataIndex: 'created_at', render: (data) => humanFriendlyDetailedTime(data as string) },
         {
