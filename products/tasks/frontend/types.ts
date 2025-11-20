@@ -9,10 +9,12 @@ export enum OriginProduct {
 }
 
 export enum TaskRunStatus {
-    STARTED = 'started',
+    NOT_STARTED = 'not_started',
+    QUEUED = 'queued',
     IN_PROGRESS = 'in_progress',
     COMPLETED = 'completed',
     FAILED = 'failed',
+    CANCELLED = 'cancelled',
 }
 
 export interface TaskRun {

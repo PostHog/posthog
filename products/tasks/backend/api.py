@@ -144,7 +144,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=None,
         responses={
-            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Task run created and queued"),
+            200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",

@@ -13,7 +13,7 @@ from .services.title_generator import generate_task_title
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255)
+    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -101,7 +101,7 @@ class AgentDefinitionSerializer(serializers.Serializer):
 
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=["queued", "in_progress", "completed", "failed"],
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         required=False,
         help_text="Current execution status",
     )

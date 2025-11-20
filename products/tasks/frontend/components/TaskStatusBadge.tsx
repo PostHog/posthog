@@ -12,7 +12,7 @@ const STATUS_TO_TAG_TYPE: Record<string, 'primary' | 'success' | 'danger' | 'war
 }
 
 export function TaskStatusBadge({ task }: { task: Task }): JSX.Element {
-    const config = task.latest_run ? TASK_STATUS_CONFIG[task.latest_run.status] : TASK_STATUS_CONFIG.not_started
+    const config = TASK_STATUS_CONFIG[task.latest_run?.status || 'not_started']
     const tagType = STATUS_TO_TAG_TYPE[config.status || 'muted'] || 'default'
 
     return <LemonTag type={tagType}>{config.label}</LemonTag>

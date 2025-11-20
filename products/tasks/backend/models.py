@@ -46,7 +46,9 @@ class Task(DeletedMetaFields, models.Model):
         help_text="GitHub integration for this task",
     )
 
-    repository = models.CharField(max_length=255)  # Format is organization/repo, for example posthog/posthog-js
+    repository = models.CharField(
+        max_length=255, null=True, blank=True
+    )  # Format is organization/repo, for example posthog/posthog-js
 
     json_schema = models.JSONField(
         default=None,
@@ -162,10 +164,12 @@ class Task(DeletedMetaFields, models.Model):
 
 class TaskRun(models.Model):
     class Status(models.TextChoices):
+        NOT_STARTED = "not_started", "Not Started"
         QUEUED = "queued", "Queued"
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     class Environment(models.TextChoices):
         LOCAL = "local", "Local"
@@ -188,7 +192,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
 
     log_storage_path = models.CharField(max_length=500, blank=True, null=True, help_text="S3 path to log file")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")

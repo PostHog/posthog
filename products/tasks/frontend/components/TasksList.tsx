@@ -97,10 +97,12 @@ export function TasksList(): JSX.Element {
 
     const statusOptions: LemonSelectOption<TaskRunStatus | 'all'>[] = [
         'all',
-        TaskRunStatus.STARTED,
+        TaskRunStatus.NOT_STARTED,
+        TaskRunStatus.QUEUED,
         TaskRunStatus.IN_PROGRESS,
         TaskRunStatus.COMPLETED,
         TaskRunStatus.FAILED,
+        TaskRunStatus.CANCELLED,
     ].map((key) => {
         const config = TASK_STATUS_CONFIG[key as TaskRunStatus | 'all']
         return {
