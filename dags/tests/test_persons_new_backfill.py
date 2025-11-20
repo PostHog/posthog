@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 import psycopg2.errors
 from dagster import build_op_context
 
-from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks, get_id_range
+from dags.persons_new_backfill import PersonsNewBackfillConfig, copy_chunk, create_chunks_for_pnb, get_id_range_for_pnb
 
 
-class TestCreateChunks:
-    """Test the create_chunks function."""
+class TestCreateChunksForPnb:
+    """Test the create_chunks_for_pnb function."""
 
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
@@ -17,7 +17,7 @@ class TestCreateChunks:
         id_range = (1, 5000)  # min_id=1, max_id=5000
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -38,7 +38,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -61,7 +61,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         # First chunk in the list (yielded first, highest IDs)
         first_chunk_min, first_chunk_max = chunks[0].value
@@ -78,7 +78,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         # Last chunk in the list (yielded last, lowest IDs)
         final_chunk_min, final_chunk_max = chunks[-1].value
@@ -95,7 +95,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         # Verify chunks are in descending order by max_id
         for i in range(len(chunks) - 1):
@@ -112,7 +112,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         assert len(chunks) == 5, f"Expected 5 chunks, got {len(chunks)}"
 
@@ -129,7 +129,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         assert len(chunks) == 4, f"Expected 4 chunks, got {len(chunks)}"
 
@@ -146,7 +146,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pnb(context, config, id_range))
 
         assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
         assert chunks[0].value == (100, 500), f"Chunk should be (100, 500), got {chunks[0].value}"
@@ -485,8 +485,8 @@ class TestCopyChunk:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
 
 
-class TestGetIdRange:
-    """Test the get_id_range function."""
+class TestGetIdRangeForPnb:
+    """Test the get_id_range_for_pnb function."""
 
     def test_get_id_range_uses_min_id_override(self):
         """Test that min_id override is honored when provided."""
@@ -498,7 +498,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pnb(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -522,7 +522,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pnb(context, config)
 
         assert result == (1, 5000)
         assert result[1] == 5000  # max_id override used
@@ -545,7 +545,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pnb(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -569,7 +569,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pnb(context, config)
 
         assert result == (1, 5000)
 
@@ -590,7 +590,7 @@ class TestGetIdRange:
         from dagster import Failure
 
         try:
-            get_id_range(context, config)
+            get_id_range_for_pnb(context, config)
             raise AssertionError("Expected Dagster.Failure to be raised")
         except Failure as e:
             assert e.description is not None
