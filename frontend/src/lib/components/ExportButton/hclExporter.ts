@@ -79,6 +79,11 @@ export function generateInsightHCL(insight: Partial<InsightModel>): string {
     }
 
     lines.push('')
+    lines.push(`import {`)
+    lines.push(`  to = posthog_insight.${resourceName}`)
+    lines.push(`  id = "${insight.id}"`)
+    lines.push(`}`)
+    lines.push('')
     lines.push(`resource "posthog_insight" "${resourceName}" {`)
 
     if (insight.id) {
