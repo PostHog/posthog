@@ -1,6 +1,5 @@
 import ssl
 import json
-import typing
 import datetime as dt
 import dataclasses
 import collections.abc
@@ -14,6 +13,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
+from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -38,7 +38,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 NON_RETRYABLE_ERROR_TYPES: list[str] = []
 
 
-def workflows_default_fields() -> list[BatchExportField]:
+def workflows_default_fields(batch_export_id: str) -> list[BatchExportField]:
     return [
         BatchExportField(expression="toString(uuid)", alias="uuid"),
         BatchExportField(expression="event", alias="event"),
@@ -63,6 +63,7 @@ def workflows_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="group2_created_at", alias="group2_created_at"),
         BatchExportField(expression="group3_created_at", alias="group3_created_at"),
         BatchExportField(expression="group4_created_at", alias="group4_created_at"),
+        BatchExportField(expression=f"'{batch_export_id}'", alias="batch_export_id"),
     ]
 
 
@@ -79,7 +80,6 @@ class WorkflowsConsumer(Consumer):
     def __init__(
         self,
         topic: str,
-        key: bytes,
         hosts: collections.abc.Sequence[str],
         security_protocol: str = "PLAINTEXT",
         is_last_backfill_run: bool = False,
@@ -97,7 +97,6 @@ class WorkflowsConsumer(Consumer):
             compression_type="zstd",
             ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
         )
-        self.key = key
         self.topic = topic
         self._started = False
 
@@ -106,7 +105,7 @@ class WorkflowsConsumer(Consumer):
             await self.producer.start()
             self._started = True
 
-        await self.producer.send_and_wait(topic=self.topic, value=data, key=self.key)
+        await self.producer.send_and_wait(topic=self.topic, value=data)
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -118,7 +117,7 @@ class WorkflowsConsumer(Consumer):
             "backfillId": self.backfill_id,
         }
         final_message_value = json.dumps(final_message).encode("utf-8")
-        await self.producer.send_and_wait(topic=self.topic, value=final_message_value, key=self.key)
+        await self.producer.send_and_wait(topic=self.topic, value=final_message_value)
 
     async def finalize(self):
         await self.producer.flush()
@@ -134,8 +133,6 @@ class WorkflowsInsertInputs:
 
     batch_export: BatchExportInsertInputs
     topic: str
-    hosts: list[str]
-    security_protocol: typing.Literal["SSL", "PLAINTEXT"]
 
 
 @temporalio.activity.defn
@@ -185,10 +182,9 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
 
         transformer = JSONLStreamTransformer(max_workers=1)
         consumer = WorkflowsConsumer(
-            topic=inputs.topic,
-            key=str(inputs.batch_export.batch_export_id).encode("utf-8"),
-            hosts=inputs.hosts,
-            security_protocol=inputs.security_protocol,
+            topic=inputs.topic or KAFKA_CDP_BACKFILL_EVENTS,
+            hosts=settings.KAFKA_HOSTS,
+            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
             is_last_backfill_run=is_last_backfill_run,
             backfill_id=backfill_id,
         )
@@ -255,14 +251,12 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
-            destination_default_fields=workflows_default_fields(),
+            destination_default_fields=workflows_default_fields(inputs.batch_export_id),
         )
 
         insert_inputs = WorkflowsInsertInputs(
             batch_export=batch_export_inputs,
             topic=inputs.topic,
-            hosts=inputs.hosts,
-            security_protocol=inputs.security_protocol,
         )
 
         await execute_batch_export_using_internal_stage(

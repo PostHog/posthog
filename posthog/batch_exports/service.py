@@ -322,8 +322,6 @@ class WorkflowsBatchExportInputs(BaseBatchExportInputs):
     """
 
     topic: str
-    hosts: list[str]
-    security_protocol: typing.Literal["SSL", "PLAINTEXT"]
 
 
 @dataclass(kw_only=True)
