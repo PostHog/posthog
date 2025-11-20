@@ -1,6 +1,6 @@
 from typing import Literal, Optional, cast
 
-from django.db import connection, connections
+from django.db import connections
 
 import orjson as json
 
@@ -14,6 +14,10 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
 from posthog.models.person import Person, PersonDistinctId
+from posthog.person_db_router import PERSONS_DB_FOR_READ
+
+# Use centralized database routing constant
+READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class ActorStrategy:
@@ -60,7 +64,7 @@ class PersonStrategy(ActorStrategy):
         if order_by:
             persons_query += f" ORDER BY {order_by}"
 
-        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
+        conn = connections[READ_DB_FOR_PERSONS]
 
         with conn.cursor() as cursor:
             cursor.execute(

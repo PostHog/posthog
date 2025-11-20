@@ -2,7 +2,7 @@ from collections.abc import Generator
 from typing import Any, Union, cast
 
 from django.conf import settings
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -14,6 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache
 
 logger = structlog.get_logger(__name__)
@@ -303,15 +304,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-# For person-related models (GroupTypeMapping), use persons DB if configured
-# It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
-READ_ONLY_DATABASE_FOR_PERSONS = (
-    "persons_db_reader"
-    if "persons_db_reader" in connections
-    else "replica"
-    if "replica" in connections and "local_evaluation" in settings.READ_REPLICA_OPT_IN
-    else "default"
-)  # Fallback if persons DB not configured
+# Use centralized database routing constant
+READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 flags_hypercache = HyperCache(
     namespace="feature_flags",

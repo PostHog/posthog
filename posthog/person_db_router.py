@@ -1,5 +1,7 @@
 # posthog/person_db_router.py
 
+from django.conf import settings
+
 # Set of models (lowercase) that should live in the persons_db
 # Add other models from the plan here as needed.
 PERSONS_DB_MODELS = {
@@ -15,6 +17,13 @@ PERSONS_DB_MODELS = {
     "group",
     "grouptypemapping",
 }
+
+# Database connections for persons-related operations
+# In tests, use persons_db_writer for reads to ensure transaction visibility
+# (both aliases point to same DB but are separate connections with separate transactions)
+# In production, use persons_db_reader for read scaling
+PERSONS_DB_FOR_READ = "persons_db_writer" if settings.TEST or settings.DEBUG else "persons_db_reader"
+PERSONS_DB_FOR_WRITE = "persons_db_writer"
 
 
 class PersonDBRouter:
