@@ -267,9 +267,11 @@ def _run(
         pipeline = PipelineNonDLT(
             source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
         )
-        pipeline.run()
+        result = pipeline.run()
         logger.debug("Finished running pipeline")
         del pipeline
+
+        return result
     except Exception as e:
         source_cls = SourceRegistry.get_source(job_inputs.job_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -281,6 +283,7 @@ def _run(
             logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={error_msg}")
             raise NonRetryableException() from e
         else:
+            logger.exception(e)
             logger.debug(
                 "Error encountered during import_data_activity_sync - re-raising",
             )

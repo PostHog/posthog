@@ -22,3 +22,18 @@ class ExternalDataWorkflowInputs:
             "billable": self.billable,
             "reset_pipeline": self.reset_pipeline,
         }
+
+
+@dataclasses.dataclass
+class CDPProducerWorkflowInputs:
+    team_id: int
+    schema_id: str
+    job_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "job_id": self.job_id,
+        }
