@@ -64,7 +64,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         conversationHistory: [
             [] as ConversationDetail[],
             {
@@ -78,9 +78,23 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     const response = await api.conversations.list()
                     return response.results
                 },
+
+                loadConversation: async (conversationId: string) => {
+                    const response = await api.conversations.get(conversationId)
+                    const itemIndex = values.conversationHistory.findIndex((c) => c.id === conversationId)
+
+                    if (itemIndex !== -1) {
+                        return [
+                            ...values.conversationHistory.slice(0, itemIndex),
+                            response,
+                            ...values.conversationHistory.slice(itemIndex + 1),
+                        ]
+                    }
+                    return [response, ...values.conversationHistory]
+                },
             },
         ],
-    }),
+    })),
 
     reducers({
         conversationHistory: {
@@ -167,7 +181,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [
             (s) => [s.registeredToolMap],
-            (registeredToolMap) => !!registeredToolMap.create_and_query_insight,
+            (registeredToolMap) => !!registeredToolMap.create_and_query_insight || !!registeredToolMap.create_insight,
         ],
         toolSuggestions: [
             (s) => [s.tools],

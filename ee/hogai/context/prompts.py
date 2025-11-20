@@ -63,3 +63,7 @@ Contextual tools that are available to you on this page are:
 IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
 </system_reminder>
 """.strip()
+
+CONTEXT_MODE_PROMPT = """
+<system_reminder>Your initial mode is {{{mode}}}.</system_reminder>
+""".strip()
