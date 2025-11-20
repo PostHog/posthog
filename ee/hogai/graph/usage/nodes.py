@@ -64,7 +64,7 @@ class UsageNode(AssistantNode):
             )
 
             # Calculate credits for past 30 days (capped at GA launch)
-            past_month_credits = await sync_to_async(get_ai_credits_for_team)(
+            past_month_credits = await sync_to_async(get_ai_credits_for_team, thread_sensitive=False)(
                 team_id=self._team.id,
                 begin=past_month_start,
                 end=now,
