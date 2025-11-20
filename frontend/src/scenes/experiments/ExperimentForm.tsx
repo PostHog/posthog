@@ -131,17 +131,19 @@ const ExperimentFormFields = (): JSX.Element => {
                         placeholder="pricing-page-conversion"
                         data-attr="experiment-feature-flag-key"
                         disabled={isEvaluationTagsRequired}
-                        onFocus={() => {
-                            // Auto-generate feature flag key from experiment name when focusing on empty field
-                            if (!experiment.feature_flag_key && experiment.name) {
-                                setExperiment({
-                                    feature_flag_key: generateFeatureFlagKey(
-                                        experiment.name,
-                                        unavailableFeatureFlagKeys
-                                    ),
-                                })
-                            }
-                        }}
+                        {...(!isEvaluationTagsRequired && {
+                            onFocus: () => {
+                                // Auto-generate feature flag key from experiment name when focusing on empty field
+                                if (!experiment.feature_flag_key && experiment.name) {
+                                    setExperiment({
+                                        feature_flag_key: generateFeatureFlagKey(
+                                            experiment.name,
+                                            unavailableFeatureFlagKeys
+                                        ),
+                                    })
+                                }
+                            },
+                        })}
                     />
                 </LemonField>
             </SceneSection>
@@ -502,7 +504,7 @@ const SelectExistingFeatureFlagModal = ({
     const isEvaluationTagsRequired = currentTeam?.require_evaluation_environment_tags || false
 
     const hasEvaluationTags = (flag: FeatureFlagType): boolean => {
-        return (flag.evaluation_tags?.length || 0) > 0
+        return (flag.evaluation_tags?.length ?? 0) > 0
     }
 
     const handleClose = (): void => {
@@ -522,6 +524,9 @@ const SelectExistingFeatureFlagModal = ({
     )
 
     // Filter out flags without evaluation tags when requirement is enabled
+    // NOTE: This is client-side filtering which means pagination may show fewer results
+    // than expected (e.g., fetched 10 but filtered to 3). Consider server-side filtering
+    // in the future for better UX with large flag lists.
     const filteredFlags = isEvaluationTagsRequired
         ? featureFlagModalFeatureFlags.results.filter((flag) => hasEvaluationTags(flag))
         : featureFlagModalFeatureFlags.results
@@ -570,7 +575,6 @@ const SelectExistingFeatureFlagModal = ({
                                         <LemonButton
                                             size="xsmall"
                                             type="primary"
-                                            disabledReason={undefined}
                                             onClick={() => {
                                                 onSelect(flag)
                                                 handleClose()

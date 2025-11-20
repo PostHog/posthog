@@ -469,13 +469,14 @@ class FeatureFlagSerializer(
         if not self._is_evaluation_tags_feature_enabled():
             return attrs
 
-        # Get evaluation_tags from the request
-        evaluation_tags = self.initial_data.get("evaluation_tags") if hasattr(self, "initial_data") else None
+        # Get evaluation_tags from attrs (validated data)
+        # Note: for creation_context, we use initial_data since it's metadata not part of the model
+        evaluation_tags = attrs.get("evaluation_tags")
 
         # Validate evaluation tag requirements based on operation type
         if request.method == "POST":
             # Creating a new flag: require at least one evaluation tag
-            if not evaluation_tags or len(evaluation_tags) == 0:
+            if not evaluation_tags:
                 raise serializers.ValidationError(
                     "At least one evaluation environment tag is required to create a new feature flag."
                 )
@@ -485,11 +486,20 @@ class FeatureFlagSerializer(
             # but flags WITHOUT eval tags aren't required to add them on update (only on creation).
             # This is intentional: we enforce eval tags going forward (new flags) without breaking
             # existing workflows (updating old flags that were created before the requirement).
-            existing_eval_tag_count = self.instance.evaluation_tags.count()
+
+            # Check if evaluation tags are already loaded to avoid extra query
+            if (
+                hasattr(self.instance, "_prefetched_objects_cache")
+                and "evaluation_tags" in self.instance._prefetched_objects_cache
+            ):
+                existing_eval_tag_count = len(self.instance.evaluation_tags.all())
+            else:
+                existing_eval_tag_count = self.instance.evaluation_tags.count()
+
             if existing_eval_tag_count > 0:
                 # Flag currently has evaluation tags, so we need to enforce the requirement
                 # Only validate if evaluation_tags is explicitly provided in the request
-                if evaluation_tags is not None and len(evaluation_tags) == 0:
+                if evaluation_tags is not None and not evaluation_tags:
                     raise serializers.ValidationError(
                         "Cannot remove all evaluation environment tags. At least one tag is required because "
                         "this flag already has evaluation tags and the team requires them."
