@@ -40,7 +40,7 @@ export function StacktraceTab({
     timestamp,
     ...props
 }: StacktraceTabProps): JSX.Element {
-    const { loading } = useValues(exceptionCardLogic)
+    const { loading, issueId } = useValues(exceptionCardLogic)
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
@@ -77,7 +77,7 @@ export function StacktraceTab({
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
             />
-            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} />
+            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issueId} />
         </TabsPrimitiveContent>
     )
 }
