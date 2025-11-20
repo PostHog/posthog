@@ -489,6 +489,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
             (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
+                if (!availableSources) {
+                    return []
+                }
                 return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:
