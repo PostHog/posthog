@@ -13,6 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -246,6 +247,10 @@ class BaseStateWithMessages(BaseState):
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
+    """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
     """
 
 
