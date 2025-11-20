@@ -6,11 +6,13 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
+import { buildDashboardItemId } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { eventConfigModalLogic } from './eventConfigModalLogic'
 
@@ -18,8 +20,11 @@ export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
     const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
-    // Check if using pageview as default
-    const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
+    // Check if using pageview as default, with no properties filter
+    const isOnlyPageview =
+        isEventsNode(activityEvent) &&
+        activityEvent.event === '$pageview' &&
+        (!activityEvent.properties || activityEvent.properties.length === 0)
 
     return (
         <div className="space-y-2">
@@ -60,6 +65,11 @@ export function ActiveUsersInsights(): JSX.Element {
 
 function PowerUsersTable(): JSX.Element {
     const { dauSeries, tabId } = useValues(customerAnalyticsSceneLogic)
+    const uniqueKey = `power-users-${tabId}`
+    const insightProps: InsightLogicProps<InsightVizNode> = {
+        dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
+        dashboardItemId: buildDashboardItemId(uniqueKey),
+    }
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -95,13 +105,14 @@ function PowerUsersTable(): JSX.Element {
                 <LemonButton size="small" noPadding targetBlank to={urls.persons()} tooltip="Open people list" />
             </div>
             <Query
-                uniqueKey={`power-users-${tabId}`}
+                uniqueKey={uniqueKey}
                 attachTo={customerAnalyticsSceneLogic}
                 query={{ ...query, showTimings: false, showOpenEditorButton: false }}
                 context={{
                     columns: {
                         event_count: { title: 'Event count' },
                     },
+                    insightProps,
                 }}
             />
         </>

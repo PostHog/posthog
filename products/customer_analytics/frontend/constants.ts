@@ -8,3 +8,5 @@ export const SERIES_TO_EVENT_NAME_MAPPING: Record<string, string> = {
     subscriptionPageviewSeries: 'Subscription pageview event',
     paymentSeries: 'Payment event',
 }
+
+export const CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID = 'customer-analytics'
