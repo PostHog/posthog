@@ -1353,7 +1353,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         group_type_mapping.refresh_from_db()
-        self.assertIsNotNone(group_type_mapping.detail_dashboard)
+        self.assertIsNotNone(group_type_mapping.detail_dashboard_id)
 
     def test_create_detail_dashboard_duplicate(self):
         group_type = create_group_type_mapping_without_created_at(
@@ -1361,7 +1361,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        group_type.detail_dashboard = dashboard
+        group_type.detail_dashboard_id = dashboard.id
         group_type.save()
 
         response = self.client.put(

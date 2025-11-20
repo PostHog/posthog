@@ -429,10 +429,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard = None
+                group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
