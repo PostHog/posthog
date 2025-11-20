@@ -99,6 +99,15 @@ class PersonDBRouter:
             if isinstance(obj1, Dashboard) and isinstance(obj2, GroupTypeMapping):
                 return True
 
+            # Allow Cohort -> CohortPeople relation (for cohort.people.add())
+            from posthog.models import Person
+            from posthog.models.cohort import Cohort, CohortPeople
+
+            if isinstance(obj1, Cohort) and isinstance(obj2, Person | CohortPeople):
+                return True
+            if isinstance(obj1, Person | CohortPeople) and isinstance(obj2, Cohort):
+                return True
+
             # Disallow all other cross-database relations
             return False
 
