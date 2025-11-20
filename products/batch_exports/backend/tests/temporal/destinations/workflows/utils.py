@@ -3,6 +3,8 @@ import asyncio
 import datetime as dt
 import operator
 
+from django.conf import settings
+
 import aiokafka
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
@@ -18,10 +20,9 @@ async def assert_clickhouse_records_in_kafka(
     clickhouse_client: ClickHouseClient,
     team_id: int,
     topic: str,
-    hosts: list[str],
-    security_protocol: str,
     sort_key: str,
     batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_id: str,
     date_ranges: list[tuple[dt.datetime, dt.datetime]],
     backfill_details: BackfillDetails | None = None,
     expected_fields: list[str] | None = None,
@@ -34,8 +35,8 @@ async def assert_clickhouse_records_in_kafka(
     consumer = aiokafka.AIOKafkaConsumer(
         topic,
         group_id="test_batch_exports",
-        bootstrap_servers=hosts,
-        security_protocol=security_protocol,
+        bootstrap_servers=settings.KAFKA_HOSTS,
+        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
         auto_offset_reset="earliest",
     )
     produced_records = []
@@ -110,7 +111,7 @@ async def assert_clickhouse_records_in_kafka(
             exclude_events=exclude_events,
             include_events=include_events,
             is_workflows=True,
-            destination_default_fields=workflows_default_fields(),
+            destination_default_fields=workflows_default_fields(batch_export_id),
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
@@ -129,7 +130,9 @@ async def assert_clickhouse_records_in_kafka(
                 expected_record = {}
 
                 for k, v in record.items():
-                    if k in json_columns and v is not None:
+                    if k == "_inserted_at":
+                        continue
+                    elif k in json_columns and v is not None:
                         if v == "":
                             expected_record[k] = None
                         else:
@@ -147,8 +150,7 @@ async def assert_clickhouse_records_in_kafka(
     expected_column_names.sort()
 
     expected_records.sort(key=operator.itemgetter(sort_key))
-    for record in expected_records:
-        record.pop("_inserted_at")
+    produced_records.sort(key=operator.itemgetter(sort_key))
 
     # if it's the last run of the backfill, the workflows consumer expects a final message to be
     # produced to indicate this
