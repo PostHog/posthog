@@ -1839,6 +1839,7 @@
                 "create_message_template",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
+                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -11015,6 +11016,9 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "derived_from_insight": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -11322,6 +11326,19 @@
                 "population",
                 "status"
             ],
+            "type": "object"
+        },
+        "ErrorTrackingExplainIssueToolContext": {
+            "additionalProperties": false,
+            "properties": {
+                "issue_name": {
+                    "type": "string"
+                },
+                "stacktrace": {
+                    "type": "string"
+                }
+            },
+            "required": ["stacktrace", "issue_name"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {

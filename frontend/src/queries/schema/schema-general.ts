@@ -1638,6 +1638,7 @@ export interface EndpointRequest {
     is_materialized?: boolean
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
+    derived_from_insight?: string
 }
 
 export interface EndpointRunRequest {
@@ -2350,6 +2351,11 @@ export interface ErrorTrackingIssueFilteringToolOutput
 
 export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
+}
+
+export interface ErrorTrackingExplainIssueToolContext {
+    stacktrace: string
+    issue_name: string
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
