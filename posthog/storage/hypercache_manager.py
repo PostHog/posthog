@@ -35,6 +35,22 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+# Configuration constants for cache operations
+# These affect performance vs resource usage tradeoffs
+
+# Pipeline batch size for Redis operations
+# Balance between network round trips (smaller = more trips) and memory (larger = more memory)
+# 5000 chosen to match team processing batch size and minimize network overhead
+# With 200K teams, this means ~40 round trips
+REDIS_PIPELINE_BATCH_SIZE = 5000
+
+# Sample size for cache size analysis
+# Smaller = faster but less accurate, larger = slower but more representative
+# 1000 chosen for ~3% margin of error (vs ~10% with n=100) on 200K team population
+# Adds ~2-3 seconds vs 100, but provides much better accuracy for operational analysis
+CACHE_SIZE_SAMPLE_LIMIT = 1000
+
+
 # Consolidated HyperCache metrics with namespace labels
 # These replace cache-specific metrics in flags_cache.py and team_metadata_cache.py
 
@@ -383,10 +399,10 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         }
 
         sample_sizes: list[int] = []
-        sample_limit = 100
+        sample_limit = CACHE_SIZE_SAMPLE_LIMIT
 
         # Use pipelining to batch Redis operations and reduce network round trips
-        pipeline_batch_size = 1000
+        pipeline_batch_size = REDIS_PIPELINE_BATCH_SIZE
         pipeline = redis_client.pipeline(transaction=False)
         batch_keys: list[bytes] = []
 

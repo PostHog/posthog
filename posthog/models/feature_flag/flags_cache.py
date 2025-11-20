@@ -284,6 +284,10 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
         limit: Maximum number of teams to refresh per run (default 5000)
+               5000 chosen as starting point to balance:
+               - Memory efficiency: Doesn't load too many teams into memory at once
+               - Throughput: With ~200K teams total, hourly runs can process 120K/day (5000 * 24)
+               - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
         Tuple of (successful_refreshes, failed_refreshes)
