@@ -683,6 +683,59 @@ class PostHogTestCase(SimpleTestCase):
                     raise  # On last attempt, re-raise the assertion error
                 time.sleep(delay)  # Otherwise, wait before retrying
 
+    def assertNumQueries(self, num, func=None, *args, using="__all__", **kwargs):
+        """
+        Assert the number of queries executed across databases.
+
+        If using="__all__" (default), counts queries across all databases that the test uses.
+        Otherwise, delegates to Django's standard assertNumQueries for a single database.
+        """
+        if using != "__all__":
+            # Use Django's standard single-database assertion
+            return super().assertNumQueries(num, func, *args, using=using, **kwargs)
+
+        # Multi-database query counting
+        from django.test.utils import CaptureQueriesContext
+
+        contexts = {db: CaptureQueriesContext(connections[db]) for db in self.databases}
+
+        if func is None:
+            # Return a context manager
+            class MultiDBQueryContext:
+                def __init__(ctx_self, expected_count, contexts_dict):
+                    ctx_self.expected_count = expected_count
+                    ctx_self.contexts = contexts_dict
+
+                def __enter__(ctx_self):
+                    for ctx in ctx_self.contexts.values():
+                        ctx.__enter__()
+                    return ctx_self
+
+                def __exit__(ctx_self, exc_type, exc_value, traceback):
+                    for ctx in ctx_self.contexts.values():
+                        ctx.__exit__(exc_type, exc_value, traceback)
+
+                    if exc_type is not None:
+                        return
+
+                    total_queries = sum(len(ctx.captured_queries) for ctx in ctx_self.contexts.values())
+                    if not (total_queries == ctx_self.expected_count):
+                        msg = f"{total_queries} queries executed, {ctx_self.expected_count} expected\n"
+                        msg += "Captured queries per database:\n"
+                        for db, ctx in ctx_self.contexts.items():
+                            if ctx.captured_queries:
+                                msg += f"\n{db} ({len(ctx.captured_queries)} queries):\n"
+                                for query in ctx.captured_queries:
+                                    sql = query.get("sql", "")
+                                    msg += f"  {sql[:100]}...\n" if len(sql) > 100 else f"  {sql}\n"
+                        raise AssertionError(msg)
+
+            return MultiDBQueryContext(num, contexts)
+        else:
+            # Execute function and assert
+            with self.assertNumQueries(num, using=using):
+                func(*args, **kwargs)
+
 
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
