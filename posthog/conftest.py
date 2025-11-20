@@ -231,7 +231,8 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
     settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
 
-    # Drop FK constraints that reference posthog_person to allow dual-table migration
+    # Drop Person-related tables from default database and all FK constraints
+    # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -255,6 +256,23 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                         END LOOP;
                     END IF;
                 END $$;
+            """)
+
+            # Drop all persons-related tables from default database
+            # These will exist in the persons_db_writer database via sqlx migrations
+            # Drop in correct order: dependent tables first, then referenced tables
+            cursor.execute("""
+                DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+                DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_group CASCADE;
+                DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_person CASCADE;
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
