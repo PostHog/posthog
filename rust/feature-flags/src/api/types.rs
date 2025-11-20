@@ -199,13 +199,21 @@ pub struct ErrorTrackingConfig {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
+    /// Whether any errors occurred while evaluating feature flags.
+    /// If true, some flags may be missing or have fallback values.
     pub errors_while_computing_flags: bool,
+    /// Map of feature flag keys to their evaluation results and values
     pub flags: HashMap<String, FlagDetails>,
+    /// List of resource types that hit quota limits during evaluation (e.g., "database", "redis")
+    /// Only included in response if quotas were exceeded
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub quota_limited: Option<Vec<String>>,
+    /// Unique identifier for this flag evaluation request, useful for debugging and tracing
     pub request_id: Uuid,
-    pub evaluated_at: i64, //ISO 8601 timestamp
+    /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
+    pub evaluated_at: i64,
 
+    /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
@@ -219,7 +227,7 @@ pub struct LegacyFlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
-    pub evaluated_at: i64, //ISO 8601 timestamp
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -261,7 +269,7 @@ pub struct DecideV1Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
-    pub evaluated_at: i64, //ISO 8601 timestamp
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
@@ -295,7 +303,7 @@ pub struct DecideV2Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
-    pub evaluated_at: i64, //ISO 8601 timestamp
+    pub evaluated_at: i64,
 
     #[serde(flatten)]
     pub config: ConfigResponse,
