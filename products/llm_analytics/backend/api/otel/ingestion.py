@@ -35,7 +35,13 @@ from posthog.api.capture import capture_batch_internal
 from posthog.models import Team
 
 from .logs_parser import parse_otlp_logs_request
-from .logs_transformer import transform_log_to_ai_event
+from .logs_transformer import (
+    build_event_properties,
+    calculate_timestamp,
+    determine_event_type,
+    extract_distinct_id,
+    transform_log_to_ai_event,
+)
 from .parser import parse_baggage_header, parse_otlp_request
 from .transformer import transform_span_to_ai_event
 
@@ -688,6 +694,10 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     """
     Transform OTel log records to PostHog AI events.
 
+    CRITICAL: In v2 instrumentation, multiple log events (user message, assistant message, etc.)
+    arrive in the SAME HTTP request. We must accumulate ALL logs for the same span BEFORE
+    calling the event merger to avoid race conditions where the trace consumes partial logs.
+
     Note: Returns only events ready to send. Events that are first arrivals
     (cached, waiting for traces) are filtered out.
     """
@@ -695,10 +705,62 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     resource = parsed_request.get("resource", {})
     scope = parsed_request.get("scope", {})
 
-    events = []
+    # Group logs by (trace_id, span_id) to accumulate them before merging
+    from collections import defaultdict
+
+    logs_by_span = defaultdict(list)
+
     for log_record in logs:
-        event = transform_log_to_ai_event(log_record, resource, scope)
-        if event is not None:  # Filter out first arrivals (cached, waiting for trace)
-            events.append(event)
+        trace_id = log_record.get("trace_id", "")
+        span_id = log_record.get("span_id", "")
+        if trace_id and span_id:
+            logs_by_span[(trace_id, span_id)].append(log_record)
+        else:
+            # No trace/span ID - process individually
+            logs_by_span[(None, None)].append(log_record)
+
+    events = []
+
+    # Process each span's logs together
+    for (trace_id, span_id), span_logs in logs_by_span.items():
+        if trace_id and span_id:
+            # Accumulate properties from all logs for this span
+            accumulated_props = {}
+            for log_record in span_logs:
+                props = build_event_properties(log_record, log_record.get("attributes", {}), resource, scope)
+                # Merge properties (later logs override earlier ones)
+                accumulated_props = {**accumulated_props, **props}
+
+            # Now call event merger once with all accumulated properties
+            from .event_merger import cache_and_merge_properties
+
+            merged = cache_and_merge_properties(trace_id, span_id, accumulated_props, is_trace=False)
+
+            if merged is not None:
+                # Ready to send - create event
+                event_type = determine_event_type(span_logs[0], span_logs[0].get("attributes", {}))
+                timestamp = calculate_timestamp(span_logs[0])
+                distinct_id = extract_distinct_id(resource, span_logs[0].get("attributes", {}))
+
+                # Generate consistent UUID from trace_id + span_id
+                import uuid
+
+                namespace = uuid.UUID("00000000-0000-0000-0000-000000000000")
+                event_uuid = str(uuid.uuid5(namespace, f"{trace_id}:{span_id}"))
+
+                event = {
+                    "event": event_type,
+                    "distinct_id": distinct_id,
+                    "timestamp": timestamp,
+                    "properties": merged,
+                    "uuid": event_uuid,
+                }
+                events.append(event)
+        else:
+            # No trace/span ID - process logs individually (shouldn't happen in normal v2)
+            for log_record in span_logs:
+                event = transform_log_to_ai_event(log_record, resource, scope)
+                if event is not None:
+                    events.append(event)
 
     return events
