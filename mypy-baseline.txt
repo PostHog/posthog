@@ -407,7 +407,6 @@ posthog/api/cohort.py:0: error: Incompatible types in assignment (expression has
 posthog/api/dead_letter_queue.py:0: error: Incompatible return value type (got "str | Any", expected "int")  [return-value]
 posthog/api/documentation.py:0: error: Signature of "run_validation" incompatible with supertype "rest_framework.fields.Field"  [override]
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
-posthog/api/feature_flag.py:0: error: Argument 2 to "get_all_feature_flags" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/feature_flag.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/feature_flag.py:0: error: Item "None" of "Any | None" has no attribute "filters"  [union-attr]
 posthog/api/file_system/test/test_file_system.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]

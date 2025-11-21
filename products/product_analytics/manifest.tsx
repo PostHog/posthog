@@ -10,6 +10,7 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
@@ -159,6 +160,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Product analytics',
+            intents: [ProductKey.PRODUCT_ANALYTICS],
             category: 'Analytics',
             type: 'insight',
             href: urls.insights(),
