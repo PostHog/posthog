@@ -78,6 +78,8 @@ jobs:
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
                     --config "p/trailofbits" \
+                    --config "r/go.lang.security" \
+                    --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter \
                     --error \
                     --metrics=off \
                     --verbose \
@@ -107,6 +109,7 @@ jobs:
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
                     --config "p/trailofbits" \
+                    --config "r/rust.lang.security" \
                     --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
                     --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                     --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
