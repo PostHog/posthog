@@ -95,7 +95,7 @@ class HobbyTester:
                     up = True
                     print(action.status)
                 else:
-                    print("Droplet not booted yet - waiting a bit")
+                    print("Droplet not booted yet - waiting a bit", flush=True)
                     time.sleep(5)
 
     def get_public_ip(self):
@@ -180,8 +180,8 @@ class HobbyTester:
             return
         # timeout in minutes
         # return true if success or false if failure
-        print("Attempting to reach the instance")
-        print(f"We will time out after {timeout} minutes")
+        print("Attempting to reach the instance", flush=True)
+        print(f"We will time out after {timeout} minutes", flush=True)
 
         # Suppress SSL warnings for staging Let's Encrypt certificates
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -194,7 +194,10 @@ class HobbyTester:
         connection_error_count = 0
 
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
-            print(f"Trying to connect... (attempt {attempt})")
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
+            if attempt % 10 == 0:
+                print(f"⏱️  Still trying... (attempt {attempt}, elapsed {int(elapsed)}s)", flush=True)
+            print(f"Trying to connect... (attempt {attempt})", flush=True)
             try:
                 # verify is set False here because we are hitting the staging endpoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
@@ -203,50 +206,54 @@ class HobbyTester:
             except Exception as e:
                 last_error = type(e).__name__
                 connection_error_count += 1
-                print(f"Connection failed: {type(e).__name__}")
+                print(f"Connection failed: {type(e).__name__}", flush=True)
                 time.sleep(retry_interval)
                 attempt += 1
                 continue
             if r.status_code == 200:
-                print("Success - received heartbeat from the instance")
+                elapsed_total = (datetime.datetime.now() - start_time).total_seconds()
+                print(f"Success - received heartbeat from the instance after {int(elapsed_total)}s", flush=True)
                 return True
             if r.status_code == 502:
                 http_502_count += 1
-            print(f"Instance not ready (HTTP {r.status_code}) - sleeping")
+            print(f"Instance not ready (HTTP {r.status_code}) - sleeping", flush=True)
             time.sleep(retry_interval)
             attempt += 1
 
         # Health check failed - try to gather diagnostic info
-        print("\nFailure - we timed out before receiving a heartbeat")
-        print("\n📋 Attempting to gather diagnostic information...")
+        print("\nFailure - we timed out before receiving a heartbeat", flush=True)
+        print("\n📋 Attempting to gather diagnostic information...", flush=True)
 
         droplet_info = self.get_droplet_info()
         if droplet_info:
-            print(f"\n🖥️  Droplet Status:")
+            print(f"\n🖥️  Droplet Status:", flush=True)
             for key, value in droplet_info.items():
-                print(f"  {key}: {value}")
+                print(f"  {key}: {value}", flush=True)
 
         kernel_logs = self.get_droplet_kernel_logs()
         if kernel_logs:
-            print(f"\n📝 Kernel/Console Output (last 500 chars):")
-            print(kernel_logs[-500:] if len(kernel_logs) > 500 else kernel_logs)
+            print(f"\n📝 Kernel/Console Output (last 500 chars):", flush=True)
+            print(kernel_logs[-500:] if len(kernel_logs) > 500 else kernel_logs, flush=True)
 
         # Provide diagnostic summary
-        print(f"\n🔍 Failure Pattern Analysis:")
-        print(f"  - Connection errors: {connection_error_count}")
-        print(f"  - HTTP 502 (bad gateway): {http_502_count}")
-        print(f"  - Last error: {last_error}")
+        print(f"\n🔍 Failure Pattern Analysis:", flush=True)
+        print(f"  - Connection errors: {connection_error_count}", flush=True)
+        print(f"  - HTTP 502 (bad gateway): {http_502_count}", flush=True)
+        print(f"  - Last error: {last_error}", flush=True)
 
         if http_502_count > 0:
-            print("  💡 502 errors suggest nginx/caddy is up but the app isn't responding")
-            print("     Check cloud-init logs for deployment failures")
+            print("  💡 502 errors suggest nginx/caddy is up but the app isn't responding", flush=True)
+            print("     Check cloud-init logs for deployment failures", flush=True)
         if connection_error_count > 0 and http_502_count == 0:
-            print("  💡 Connection errors suggest the web service never started")
-            print("     Check if Docker containers are running")
+            print("  💡 Connection errors suggest the web service never started", flush=True)
+            print("     Check if Docker containers are running", flush=True)
 
-        print(f"\n📍 For manual debugging, SSH to: ssh root@{self.droplet.ip_address if self.droplet else '?'}")
-        print(f"    Then check: tail -f /var/log/cloud-init-output.log")
-        print(f"    And: docker-compose logs")
+        print(
+            f"\n📍 For manual debugging, SSH to: ssh root@{self.droplet.ip_address if self.droplet else '?'}",
+            flush=True,
+        )
+        print(f"    Then check: tail -f /var/log/cloud-init-output.log", flush=True)
+        print(f"    And: docker-compose logs", flush=True)
 
         return False
 
@@ -371,11 +378,11 @@ def main():
         sha = sys.argv[4]
         pr_number = sys.argv[5]
         name = f"do-ci-hobby-{run_id}"
-        print(f"Creating droplet on Digitalocean for testing Hobby Deployment")
-        print(f"  Branch: {branch}")
-        print(f"  SHA: {sha[:7]}")
-        print(f"  PR: #{pr_number if pr_number != 'unknown' else 'N/A'}")
-        print(f"  Droplet name: {name}")
+        print(f"Creating droplet on Digitalocean for testing Hobby Deployment", flush=True)
+        print(f"  Branch: {branch}", flush=True)
+        print(f"  SHA: {sha[:7]}", flush=True)
+        print(f"  PR: #{pr_number if pr_number != 'unknown' else 'N/A'}", flush=True)
+        print(f"  Droplet name: {name}", flush=True)
         ht = HobbyTester(
             branch=branch,
             name=name,
@@ -383,8 +390,8 @@ def main():
             pr_number=pr_number,
         )
         ht.ensure_droplet(ssh_enabled=True)
-        print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
-        print(f"https://{ht.hostname}")
+        print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):", flush=True)
+        print(f"https://{ht.hostname}", flush=True)
 
     if command == "destroy":
         print("Destroying droplet on Digitalocean for testing Hobby Deployment")
@@ -398,9 +405,9 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        print("Waiting for deployment to become healthy")
-        print(f"Record ID: {record_id}")
-        print(f"Droplet ID: {droplet_id}")
+        print("Waiting for deployment to become healthy", flush=True)
+        print(f"Record ID: {record_id}", flush=True)
+        print(f"Droplet ID: {droplet_id}", flush=True)
 
         ht = HobbyTester(
             name=name,
@@ -409,10 +416,10 @@ def main():
         )
         health_success = ht.test_deployment()
         if health_success:
-            print("We succeeded")
+            print("We succeeded", flush=True)
             exit()
         else:
-            print("We failed")
+            print("We failed", flush=True)
             exit(1)
 
 
