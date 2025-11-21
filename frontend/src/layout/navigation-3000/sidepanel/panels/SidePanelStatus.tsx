@@ -1,28 +1,22 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCloud } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE, STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
-    const { status, statusPage } = useValues(sidePanelStatusLogic)
-
-    /** Statuspage's hardcoded messages, e.g. "All Systems Operational". We convert this from title to sentence case. */
-    const title = statusPage?.status.description
-        ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
-        : null
+    const { status, statusDescription } = useValues(sidePanelStatusLogic)
 
     return (
-        <Tooltip title={title} placement="left">
+        <Tooltip title={statusDescription} placement="left">
             <span {...props}>
                 <IconWithBadge
                     content={status !== 'operational' ? '!' : '✓'}
@@ -43,7 +37,20 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
 
 export const SidePanelStatus = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelLogic)
+    const { useIncidentIo } = useValues(sidePanelStatusLogic)
     const [ready, setReady] = useState(false)
+
+    useEffect(() => {
+        if (useIncidentIo) {
+            // For incident.io, we just redirect to the external status page
+            window.open(INCIDENT_IO_STATUS_PAGE_BASE, '_blank')?.focus()
+            closeSidePanel()
+        }
+    }, [useIncidentIo, closeSidePanel])
+
+    if (useIncidentIo) {
+        return <></>
+    }
 
     return (
         <>

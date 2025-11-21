@@ -1,5 +1,7 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
@@ -7,6 +9,52 @@ import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
 export type SPIndicator = 'none' | 'minor' | 'major'
 
 export type SPComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
+
+// incident.io types
+export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
+export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
+export type IncidentIoIncidentStatus = 'investigating' | 'identified' | 'monitoring'
+export type IncidentIoMaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
+
+export interface IncidentIoAffectedComponent {
+    id: string
+    name: string
+    group_name?: string
+    current_status: IncidentIoComponentStatus
+}
+
+export interface IncidentIoIncident {
+    id: string
+    name: string
+    status: IncidentIoIncidentStatus
+    url: string
+    last_update_at: string
+    last_update_message: string
+    current_worst_impact: IncidentIoImpact
+    affected_components: IncidentIoAffectedComponent[]
+}
+
+export interface IncidentIoMaintenance {
+    id: string
+    name: string
+    status: IncidentIoMaintenanceStatus
+    last_update_at: string
+    last_update_message: string
+    url: string
+    affected_components: IncidentIoAffectedComponent[]
+    started_at?: string
+    scheduled_end_at?: string
+    starts_at?: string
+    ends_at?: string
+}
+
+export interface IncidentIoSummary {
+    page_title: string
+    page_url: string
+    ongoing_incidents: IncidentIoIncident[]
+    in_progress_maintenances: IncidentIoMaintenance[]
+    scheduled_maintenances: IncidentIoMaintenance[]
+}
 
 export interface SPSummary {
     // page: SPPage
@@ -81,6 +129,9 @@ export const STATUS_PAGE_BASE = 'https://status.posthog.com'
 // NOTE: Test account with some incidents - ask @benjackwhite for access
 // export const STATUS_PAGE_BASE = 'https://posthogtesting.statuspage.io'
 
+// incident.io status page
+export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
+
 // Map the hostname to relevant groups (found via the summary.json endpoint)
 const RELEVANT_GROUPS_MAP = {
     'us.posthog.com': ['41df083ftqt6', 'z0y6m9kyvy3j'],
@@ -90,10 +141,47 @@ const RELEVANT_GROUPS_MAP = {
 
 export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
+// Helper to determine worst status from incident.io data
+function getWorstIncidentIoStatus(summary: IncidentIoSummary): SPComponentStatus {
+    const hasOngoingIncidents = summary.ongoing_incidents.length > 0
+    const hasInProgressMaintenance = summary.in_progress_maintenances.length > 0
+
+    if (!hasOngoingIncidents && !hasInProgressMaintenance) {
+        return 'operational'
+    }
+
+    // Check for worst impact across all ongoing incidents
+    for (const incident of summary.ongoing_incidents) {
+        if (incident.current_worst_impact === 'full_outage') {
+            return 'major_outage'
+        }
+    }
+
+    for (const incident of summary.ongoing_incidents) {
+        if (incident.current_worst_impact === 'partial_outage') {
+            return 'partial_outage'
+        }
+    }
+
+    for (const incident of summary.ongoing_incidents) {
+        if (incident.current_worst_impact === 'degraded_performance') {
+            return 'degraded_performance'
+        }
+    }
+
+    // If only maintenance is in progress, show as degraded
+    if (hasInProgressMaintenance) {
+        return 'degraded_performance'
+    }
+
+    return 'operational'
+}
+
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
     connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
@@ -121,6 +209,10 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
                     return componentStatus || 'operational'
                 },
                 loadStatusPageFailure: () => 'operational',
+                loadIncidentIoStatusPageSuccess: (_, { incidentIoStatusPage }) => {
+                    return getWorstIncidentIoStatus(incidentIoStatusPage)
+                },
+                loadIncidentIoStatusPageFailure: () => 'operational',
             },
         ],
     })),
@@ -137,26 +229,85 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
                 },
             },
         ],
+        incidentIoStatusPage: [
+            null as IncidentIoSummary | null,
+            {
+                loadIncidentIoStatusPage: async () => {
+                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                    const data: IncidentIoSummary = await response.json()
+
+                    return data
+                },
+            },
+        ],
     })),
 
-    listeners(({ actions, cache }) => ({
+    selectors({
+        useIncidentIo: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags['incident-io-status-page'] || true],
+        statusDescription: [
+            (s) => [s.useIncidentIo, s.statusPage, s.incidentIoStatusPage, s.status],
+            (useIncidentIo, statusPage, incidentIoStatusPage, status): string | null => {
+                if (useIncidentIo) {
+                    if (!incidentIoStatusPage) {
+                        return null
+                    }
+                    if (status === 'operational') {
+                        return 'All systems operational'
+                    }
+                    const incidentCount = incidentIoStatusPage.ongoing_incidents.length
+                    const maintenanceCount = incidentIoStatusPage.in_progress_maintenances.length
+                    if (incidentCount > 0) {
+                        return `${incidentCount} ongoing incident${incidentCount > 1 ? 's' : ''}`
+                    }
+                    if (maintenanceCount > 0) {
+                        return `${maintenanceCount} maintenance${maintenanceCount > 1 ? 's' : ''} in progress`
+                    }
+                    return 'All systems operational'
+                }
+                return statusPage?.status.description
+                    ? statusPage.status.description.charAt(0).toUpperCase() +
+                          statusPage.status.description.slice(1).toLowerCase()
+                    : null
+            },
+        ],
+    }),
+
+    listeners(({ actions, cache, values }) => ({
         loadStatusPageSuccess: () => {
-            cache.disposables.add(() => {
-                const timerId = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'refreshTimeout')
+            if (!values.useIncidentIo) {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
+            }
+        },
+        loadIncidentIoStatusPageSuccess: () => {
+            if (values.useIncidentIo) {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => actions.loadIncidentIoStatusPage(), REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
+            }
         },
         setPageVisibility: ({ visible }) => {
             if (visible) {
-                actions.loadStatusPage()
+                if (values.useIncidentIo) {
+                    actions.loadIncidentIoStatusPage()
+                } else {
+                    actions.loadStatusPage()
+                }
             } else {
                 cache.disposables.dispose('refreshTimeout')
             }
         },
     })),
 
-    afterMount(({ actions, cache }) => {
-        actions.loadStatusPage()
+    afterMount(({ actions, cache, values }) => {
+        if (values.useIncidentIo) {
+            actions.loadIncidentIoStatusPage()
+        } else {
+            actions.loadStatusPage()
+        }
         cache.disposables.add(() => {
             const onVisibilityChange = (): void => {
                 actions.setPageVisibility(document.visibilityState === 'visible')

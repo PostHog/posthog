@@ -343,6 +343,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
     APP_SHORTCUTS: 'app-shortcuts', // owner: @adamleithp #team-platform-ux
+    INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
