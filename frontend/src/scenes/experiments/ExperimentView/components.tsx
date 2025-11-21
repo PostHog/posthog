@@ -438,8 +438,6 @@ export function PageHeaderCustom(): JSX.Element {
         hasMinimumExposureForResults &&
         (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
-    const shouldShowStopButton = !isExperimentDraft && isExperimentRunning
-
     return (
         <>
             <SceneTitleSection
@@ -479,17 +477,6 @@ export function PageHeaderCustom(): JSX.Element {
                         )}
                         {experiment && isExperimentRunning && (
                             <div className="flex flex-row gap-2">
-                                {!experiment.end_date && shouldShowStopButton && (
-                                    <LemonButton
-                                        type="secondary"
-                                        data-attr="stop-experiment"
-                                        status="danger"
-                                        onClick={() => openStopExperimentModal()}
-                                        size="small"
-                                    >
-                                        Stop
-                                    </LemonButton>
-                                )}
                                 {isExperimentStopped && (
                                     <LemonButton
                                         type="secondary"
