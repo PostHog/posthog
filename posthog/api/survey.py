@@ -490,6 +490,32 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
+        # Validate that question shuffling and branching are not used together
+        # Check both incoming data and existing survey data (existing_survey is None for POST)
+        appearance = data.get("appearance")
+        questions = data.get("questions")
+
+        effective_appearance = {}
+        if existing_survey and existing_survey.appearance:
+            effective_appearance = dict(existing_survey.appearance)
+        if appearance is not None:
+            effective_appearance.update(appearance)
+
+        effective_questions = (
+            questions if questions is not None else (existing_survey.questions if existing_survey else [])
+        )
+
+        shuffle_questions = effective_appearance.get("shuffleQuestions", False)
+
+        if shuffle_questions and effective_questions:
+            has_branching = any(question.get("branching") is not None for question in effective_questions)
+
+            if has_branching:
+                raise serializers.ValidationError(
+                    "Question shuffling and question branching cannot be used together. "
+                    "Please disable one of these features."
+                )
+
         # Validate external survey constraints
         if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
             errors = {}
