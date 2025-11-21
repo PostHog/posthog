@@ -14,21 +14,14 @@ export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueS
     ]),
 
     actions({
-        setIsSidebarOpen: (isOpen: boolean) => ({ isOpen }),
         setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
-        openSidebar: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
     }),
 
     defaults({
-        isSidebarOpen: true as boolean,
         category: 'exceptions' as ErrorTrackingIssueSceneCategory,
     }),
 
     reducers(() => ({
-        isSidebarOpen: {
-            setIsSidebarOpen: (_, { isOpen }) => isOpen,
-            openSidebar: () => true,
-        },
         category: {
             setCategory: (_, { category }) => category,
             openSidebar: (_, { category }) => category,
