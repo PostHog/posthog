@@ -11,7 +11,6 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
@@ -145,11 +144,6 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 organization_member=parent_membership,
                 access_level=item["level"],
             )
-
-            # Backfill products from user's other teams when they get access to a specific team
-            # and also sync products from team colleagues
-            UserProductList.backfill_from_other_teams(user, team)
-            UserProductList.sync_from_team_colleagues(user, team, count=3)
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
