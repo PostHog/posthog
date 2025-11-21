@@ -60,7 +60,7 @@ class HobbyTester:
         self.user_data = (
             f"#!/bin/bash \n"
             "set -e \n"
-            'LOG_PREFIX="[$(date \\"+%Y-%m-%d %H:%M:%S\\")]" \n'
+            'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]" \n'
             'echo "$LOG_PREFIX Cloud-init deployment starting" \n'
             "mkdir hobby \n"
             "cd hobby \n"
