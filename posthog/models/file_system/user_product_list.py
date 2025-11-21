@@ -229,6 +229,3 @@ def access_control_created(sender, instance, created, **kwargs):
             create_user_product_lists()
         else:
             transaction.on_commit(lambda: create_user_product_lists())
-
-        transaction.on_commit(lambda: UserProductList.backfill_from_other_teams(user, team))
-        transaction.on_commit(lambda: UserProductList.sync_from_team_colleagues(user, team, count=3))
