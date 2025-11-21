@@ -33,7 +33,7 @@ const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 const DEFAULT_LOG_LIMIT = 100
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
-const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 3000
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
