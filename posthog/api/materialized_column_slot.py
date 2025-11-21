@@ -173,7 +173,12 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             logger.exception("Failed to get auto-materialized columns", error=str(e))
             return response.Response({"error": str(e)}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _validate_property_for_materialization(self, property_definition: PropertyDefinition) -> str | None:
+    def _validate_property_for_materialization(
+        self,
+        property_definition: PropertyDefinition,
+        existing_slots: list[MaterializedColumnSlot],
+        auto_materialized_names: set[str],
+    ) -> str | None:
         """Returns error message if property cannot be materialized, None if valid."""
         if not property_definition.property_type:
             return "Property must have a type set to be materialized"
@@ -181,23 +186,19 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             return f"Property type '{property_definition.property_type}' cannot be materialized"
         if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):
             return "PostHog system properties cannot be materialized"
-        if property_definition.name in get_auto_materialized_property_names():
+        if property_definition.name in auto_materialized_names:
             return f"Property '{property_definition.name}' is already auto-materialized by PostHog"
-        if MaterializedColumnSlot.objects.filter(
-            team_id=self.team_id, property_definition=property_definition
-        ).exists():
+        if any(slot.property_definition_id == property_definition.id for slot in existing_slots):
             return "Property is already materialized"
         return None
 
-    def _find_available_slot_index(self, property_type: str) -> int | None:
+    def _find_available_slot_index(
+        self, property_type: str, existing_slots: list[MaterializedColumnSlot]
+    ) -> int | None:
         """Find the next available slot index for a property type."""
-        used_slots = set(
-            MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=property_type).values_list(
-                "slot_index", flat=True
-            )
-        )
+        used_indices = {slot.slot_index for slot in existing_slots if slot.property_type == property_type}
         for i in range(10):
-            if i not in used_slots:
+            if i not in used_indices:
                 return i
         return None
 
@@ -273,18 +274,24 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not property_definition_id:
             return response.Response({"error": "property_definition_id is required"}, status=400)
 
+        # Fetch auto-materialized names outside transaction (ClickHouse query)
+        auto_materialized_names = get_auto_materialized_property_names()
+
         try:
             with transaction.atomic():
-                # Lock the property definition to prevent property_type changes during slot creation
+                # Fetch all data we need upfront
                 property_definition = PropertyDefinition.objects.select_for_update().get(
                     id=property_definition_id, team_id=self.team_id
                 )
+                existing_slots = list(MaterializedColumnSlot.objects.filter(team_id=self.team_id))
 
-                validation_error = self._validate_property_for_materialization(property_definition)
+                validation_error = self._validate_property_for_materialization(
+                    property_definition, existing_slots, auto_materialized_names
+                )
                 if validation_error:
                     return response.Response({"error": validation_error}, status=400)
 
-                slot_index = self._find_available_slot_index(property_definition.property_type)
+                slot_index = self._find_available_slot_index(property_definition.property_type, existing_slots)
                 if slot_index is None:
                     return response.Response(
                         {"error": f"No available slots for property type {property_definition.property_type}"},
