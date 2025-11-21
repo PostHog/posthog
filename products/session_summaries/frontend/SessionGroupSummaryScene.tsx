@@ -96,21 +96,21 @@ function SessionExampleCard({
     )
 }
 
+export type IssueTypeFilter = 'blocking_error' | 'non_blocking_error' | 'abandonment' | 'confusion'
+
 function FilterBar({
-    sortBy,
-    onSortChange,
     searchValue,
     onSearchChange,
+    issueTypeFilters,
+    onIssueTypeFilterChange,
 }: {
-    sortBy: 'severity' | 'session_count'
-    onSortChange: (sortBy: 'severity' | 'session_count') => void
     searchValue: string
     onSearchChange: (value: string) => void
+    issueTypeFilters: Set<IssueTypeFilter>
+    onIssueTypeFilterChange: (filter: IssueTypeFilter) => void
 }): JSX.Element {
-    const sortLabel = sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'
-
     return (
-        <div className="flex flex-wrap justify-between gap-4 mb-4">
+        <div className="flex flex-wrap gap-4 mb-4">
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
@@ -121,24 +121,31 @@ function FilterBar({
                     fullWidth
                 />
             </div>
-            <LemonMenu
-                items={[
-                    {
-                        label: 'Sort by severity',
-                        icon: sortBy === 'severity' ? <IconCheck /> : undefined,
-                        onClick: () => onSortChange('severity'),
-                    },
-                    {
-                        label: 'Sort by session count',
-                        icon: sortBy === 'session_count' ? <IconCheck /> : undefined,
-                        onClick: () => onSortChange('session_count'),
-                    },
-                ]}
-            >
-                <LemonButton type="secondary" icon={<IconSort />}>
-                    {sortLabel}
-                </LemonButton>
-            </LemonMenu>
+            <div className="flex items-center gap-1">
+                {(
+                    [
+                        ['blocking_error', 'Blocking error'],
+                        ['non_blocking_error', 'Non-blocking error'],
+                        ['abandonment', 'Abandonment'],
+                        ['confusion', 'Confusion'],
+                    ] as const
+                ).map(([key, label]) => {
+                    const isActive = issueTypeFilters.has(key)
+                    return (
+                        <LemonButton
+                            key={key}
+                            size="small"
+                            type={isActive ? 'primary' : 'secondary'}
+                            onClick={() => onIssueTypeFilterChange(key)}
+                            center
+                            className={`w-40 relative ${!isActive ? 'opacity-50' : ''}`}
+                        >
+                            {isActive && <IconCheck className="absolute left-2" />}
+                            {label}
+                        </LemonButton>
+                    )
+                })}
+            </div>
         </div>
     )
 }
@@ -254,6 +261,19 @@ export function SessionGroupSummary(): JSX.Element {
     const [sortBy, setSortBy] = useState<'severity' | 'session_count'>('severity')
     const [searchValue, setSearchValue] = useState('')
     const [debouncedSearchValue, setDebouncedSearchValue] = useState('')
+    const [issueTypeFilters, setIssueTypeFilters] = useState<Set<IssueTypeFilter>>(() => new Set(['blocking_error']))
+
+    const handleIssueTypeFilterChange = (filter: IssueTypeFilter): void => {
+        setIssueTypeFilters((prev) => {
+            const next = new Set(prev)
+            if (next.has(filter)) {
+                next.delete(filter)
+            } else {
+                next.add(filter)
+            }
+            return next
+        })
+    }
     const summary = useMemo(() => {
         return JSON.parse(sessionGroupSummary?.summary || '{}') as EnrichedSessionGroupSummaryPatternsList
     }, [sessionGroupSummary?.summary])
@@ -264,21 +284,45 @@ export function SessionGroupSummary(): JSX.Element {
         debouncedSetSearch(searchValue)
     }, [searchValue, debouncedSetSearch])
 
+    const matchesIssueTypeFilter = (event: PatternAssignedEventSegmentContext): boolean => {
+        if (issueTypeFilters.size === 0) {
+            return true
+        }
+        const { target_event } = event
+        if (issueTypeFilters.has('blocking_error') && target_event.exception === 'blocking') {
+            return true
+        }
+        if (issueTypeFilters.has('non_blocking_error') && target_event.exception === 'non-blocking') {
+            return true
+        }
+        if (issueTypeFilters.has('abandonment') && target_event.abandonment) {
+            return true
+        }
+        if (issueTypeFilters.has('confusion') && target_event.confusion) {
+            return true
+        }
+        return false
+    }
+
     const filteredPatterns = useMemo(() => {
         if (!summary.patterns) {
             return []
         }
         const trimmedSearch = debouncedSearchValue.trim().toLowerCase()
-        if (!trimmedSearch) {
-            return summary.patterns
-        }
         return summary.patterns
             .map((pattern) => {
-                const filteredEvents = pattern.events.filter(
-                    (event) =>
-                        event.target_event.description.toLowerCase().includes(trimmedSearch) ||
-                        event.segment_outcome.toLowerCase().includes(trimmedSearch)
-                )
+                const filteredEvents = pattern.events.filter((event) => {
+                    if (!matchesIssueTypeFilter(event)) {
+                        return false
+                    }
+                    if (trimmedSearch) {
+                        return (
+                            event.target_event.description.toLowerCase().includes(trimmedSearch) ||
+                            event.segment_outcome.toLowerCase().includes(trimmedSearch)
+                        )
+                    }
+                    return true
+                })
                 if (filteredEvents.length === 0) {
                     return null
                 }
@@ -288,7 +332,7 @@ export function SessionGroupSummary(): JSX.Element {
                 }
             })
             .filter((pattern): pattern is EnrichedSessionGroupSummaryPattern => pattern !== null)
-    }, [summary.patterns, debouncedSearchValue])
+    }, [summary.patterns, debouncedSearchValue, issueTypeFilters])
 
     const sortedPatterns = useMemo(() => {
         const patterns = [...filteredPatterns]
@@ -359,17 +403,37 @@ export function SessionGroupSummary(): JSX.Element {
                     iconType: 'notebook',
                 }}
             />
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted mb-2">
-                <span>{totalSessions} sessions analyzed</span>
-                <span className="hidden sm:inline">·</span>
-                <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted mb-2">
+                <div className="flex items-center gap-3">
+                    <span>{totalSessions} sessions analyzed</span>
+                    <span className="hidden sm:inline">·</span>
+                    <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
+                </div>
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Sort by severity',
+                            icon: sortBy === 'severity' ? <IconCheck /> : undefined,
+                            onClick: () => setSortBy('severity'),
+                        },
+                        {
+                            label: 'Sort by session count',
+                            icon: sortBy === 'session_count' ? <IconCheck /> : undefined,
+                            onClick: () => setSortBy('session_count'),
+                        },
+                    ]}
+                >
+                    <LemonButton type="secondary" size="small" icon={<IconSort />}>
+                        {sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'}
+                    </LemonButton>
+                </LemonMenu>
             </div>
             <div className="space-y-4">
                 <FilterBar
-                    sortBy={sortBy}
-                    onSortChange={setSortBy}
                     searchValue={searchValue}
                     onSearchChange={setSearchValue}
+                    issueTypeFilters={issueTypeFilters}
+                    onIssueTypeFilterChange={handleIssueTypeFilterChange}
                 />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
