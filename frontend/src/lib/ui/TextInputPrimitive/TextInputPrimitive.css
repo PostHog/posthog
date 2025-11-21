@@ -5,22 +5,26 @@
 }
 
 .text-input-primitive--default {
-    border-color: var(--color-border-primary);
     background-color: var(--color-bg-surface-primary);
+    border-color: var(--color-border-primary);
+
     &:hover {
         border-color: var(--color-border-secondary);
     }
+
     &:focus-visible {
         border-color: var(--color-border-secondary);
     }
 }
 
 .text-input-primitive--invisible {
-    border-color: transparent;
     background-color: transparent;
+    border-color: transparent;
+
     &:hover {
         border-color: transparent;
     }
+
     &:focus-visible {
         border-color: transparent;
     }
