@@ -5,6 +5,8 @@ import os
 import sys
 import time
 import datetime
+import tempfile
+import subprocess
 
 import urllib3
 import requests
@@ -57,31 +59,81 @@ class HobbyTester:
         if record_id:
             self.record = digitalocean.Record(token=self.token, id=record_id)
 
-        self.user_data = (
-            f"#!/bin/bash \n"
-            "set -e \n"
-            'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]" \n'
-            'echo "$LOG_PREFIX Cloud-init deployment starting" \n'
-            "mkdir hobby \n"
-            "cd hobby \n"
-            'echo "$LOG_PREFIX Setting up needrestart config" \n'
-            "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
-            'echo "$LOG_PREFIX Cloning PostHog repository" \n'
-            "git clone https://github.com/PostHog/posthog.git \n"
-            "cd posthog \n"
-            f'echo "$LOG_PREFIX Using branch: {self.branch}" \n'
-            f"git checkout {self.branch} \n"
-            "CURRENT_COMMIT=$(git rev-parse HEAD) \n"
-            'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT" \n'
-            "cd .. \n"
-            f"chmod +x posthog/bin/deploy-hobby \n"
-            'echo "$LOG_PREFIX Starting deployment script" \n'
-            'echo "$LOG_PREFIX Using commit hash for feature branch deployment" \n'
-            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
-            "DEPLOY_EXIT=$? \n"
-            'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT" \n'
-            "exit $DEPLOY_EXIT \n"
-        )
+        # Generate ephemeral SSH keypair for CI log access
+        self.ssh_private_key = None
+        self.ssh_public_key = None
+        self._generate_ssh_key()
+
+        # Build user_data with SSH pubkey included
+        self.user_data = self._build_user_data()
+
+    def _generate_ssh_key(self):
+        """Generate ephemeral SSH keypair for droplet access"""
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as f:
+                key_path = f.name
+
+            subprocess.run(
+                ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""],
+                check=True,
+                capture_output=True,
+            )
+
+            with open(key_path) as f:
+                self.ssh_private_key = f.read()
+            with open(key_path + ".pub") as f:
+                self.ssh_public_key = f.read().strip()
+
+            # Cleanup
+            os.unlink(key_path)
+            os.unlink(key_path + ".pub")
+
+            print(f"✅ Generated ephemeral SSH key for droplet access", flush=True)
+        except Exception as e:
+            print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
+
+    def _build_user_data(self):
+        """Build cloud-init user_data script with SSH pubkey in cloud-config"""
+        cloud_config = f"""#cloud-config
+runcmd:
+  - set -e
+"""
+        # Add runcmd commands with logging
+        commands = [
+            'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]"',
+            'echo "$LOG_PREFIX Cloud-init deployment starting"',
+            "mkdir -p hobby",
+            "cd hobby",
+            'echo "$LOG_PREFIX Setting up needrestart config"',
+            "sed -i \"s/#\\$nrconf{{restart}} = 'i';/\\$nrconf{{restart}} = 'a';/g\" /etc/needrestart/needrestart.conf",
+            'echo "$LOG_PREFIX Cloning PostHog repository"',
+            "git clone https://github.com/PostHog/posthog.git",
+            "cd posthog",
+            f'echo "$LOG_PREFIX Using branch: {self.branch}"',
+            f"git checkout {self.branch}",
+            "CURRENT_COMMIT=$(git rev-parse HEAD)",
+            'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT"',
+            "cd ..",
+            "chmod +x posthog/bin/deploy-hobby",
+            'echo "$LOG_PREFIX Starting deployment script"',
+            'echo "$LOG_PREFIX Using commit hash for feature branch deployment"',
+            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1",
+            "DEPLOY_EXIT=$?",
+            'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT"',
+            "exit $DEPLOY_EXIT",
+        ]
+
+        for cmd in commands:
+            cloud_config += f"  - {cmd}\n"
+
+        # Add SSH pubkey if generated
+        if self.ssh_public_key:
+            cloud_config += f"""
+ssh_authorized_keys:
+  - {self.ssh_public_key}
+"""
+
+        return cloud_config
 
     def block_until_droplet_is_started(self):
         if not self.droplet:
@@ -193,6 +245,7 @@ class HobbyTester:
         http_502_count = 0
         connection_error_count = 0
 
+        last_log_fetch = 0
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
             elapsed = (datetime.datetime.now() - start_time).total_seconds()
             if attempt % 10 == 0:
@@ -207,6 +260,19 @@ class HobbyTester:
                 last_error = type(e).__name__
                 connection_error_count += 1
                 print(f"Connection failed: {type(e).__name__}", flush=True)
+
+                # Fetch logs periodically (every 60 seconds) to show progress
+                if int(elapsed) - last_log_fetch > 60:
+                    print("\n📋 Cloud-init progress:", flush=True)
+                    logs = self.fetch_cloud_init_logs()
+                    if logs:
+                        # Show last 10 lines of cloud-init log
+                        log_lines = logs.strip().split("\n")[-10:]
+                        for line in log_lines:
+                            print(f"  {line}", flush=True)
+                        last_log_fetch = int(elapsed)
+                    print()
+
                 time.sleep(retry_interval)
                 attempt += 1
                 continue
@@ -234,6 +300,23 @@ class HobbyTester:
         if kernel_logs:
             print(f"\n📝 Kernel/Console Output (last 500 chars):", flush=True)
             print(kernel_logs[-500:] if len(kernel_logs) > 500 else kernel_logs, flush=True)
+
+        # Fetch and show cloud-init logs via SSH
+        print(f"\n📄 Cloud-init deployment logs:", flush=True)
+        cloud_init_logs = self.fetch_cloud_init_logs()
+        if cloud_init_logs:
+            # Show last 50 lines
+            log_lines = cloud_init_logs.strip().split("\n")[-50:]
+            for line in log_lines:
+                print(f"  {line}", flush=True)
+
+            # Also write full logs to artifact for inspection
+            artifact_path = "/tmp/cloud-init-output.log"
+            with open(artifact_path, "w") as f:
+                f.write(cloud_init_logs)
+            print(f"  (Full logs saved to {artifact_path})", flush=True)
+        else:
+            print("  ❌ Could not fetch cloud-init logs via SSH", flush=True)
 
         # Provide diagnostic summary
         print(f"\n🔍 Failure Pattern Analysis:", flush=True)
@@ -340,6 +423,46 @@ class HobbyTester:
     def handle_sigint(self):
         self.destroy_self()
 
+    def fetch_cloud_init_logs(self):
+        """Fetch cloud-init logs via SSH"""
+        if not self.droplet or not self.ssh_private_key:
+            return None
+
+        try:
+            # Write SSH private key to temp file
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pem") as f:
+                f.write(self.ssh_private_key)
+                key_file = f.name
+
+            os.chmod(key_file, 0o600)
+
+            # SSH to fetch logs
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "ConnectTimeout=5",
+                    "-i",
+                    key_file,
+                    f"root@{self.droplet.ip_address}",
+                    "cat /var/log/cloud-init-output.log",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            os.unlink(key_file)
+
+            if result.returncode == 0:
+                return result.stdout
+            else:
+                return None
+        except Exception:
+            return None
+
     def export_droplet(self):
         if not self.droplet:
             print("Droplet not found. Exiting")
@@ -350,15 +473,24 @@ class HobbyTester:
         record_id = self.record["domain_record"]["id"]
         record_name = self.record["domain_record"]["name"]
         droplet_id = self.droplet.id
+        ip_address = self.droplet.ip_address
 
         print(f"Exporting the droplet ID: {self.droplet.id} and DNS record ID: {record_id} for name {self.name}")
         env_file_name = os.getenv("GITHUB_ENV")
         with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
+            env_file.write(f"HOBBY_DROPLET_IP={ip_address}\n")
         with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DNS_RECORD_ID={record_id}\n")
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
+
+        # Export SSH private key as multiline env var
+        if self.ssh_private_key:
+            with open(env_file_name, "a") as env_file:
+                env_file.write("HOBBY_SSH_PRIVATE_KEY<<EOFKEY\n")
+                env_file.write(self.ssh_private_key)
+                env_file.write("\nEOFKEY\n")
 
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
