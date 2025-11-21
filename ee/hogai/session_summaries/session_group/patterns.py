@@ -524,14 +524,21 @@ def get_persons_for_sessions_from_distinct_ids(
     if not distinct_ids:
         # No ids to search for persons - return empty mapping
         return {}
-    persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
-    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-    session_id_to_person_mapping: dict[str, Person | None] = {}
-    for person in persons.iterator(chunk_size=1000):
-        for distinct_id in person.distinct_ids:
-            person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)
-            if not person_session_ids:
-                continue
-            for person_session_id in person_session_ids:
-                session_id_to_person_mapping[person_session_id] = person
-    return session_id_to_person_mapping
+    try:
+        persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        session_id_to_person_mapping: dict[str, Person | None] = {}
+        for person in persons.iterator(chunk_size=1000):
+            for distinct_id in person.distinct_ids:
+                person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)
+                if not person_session_ids:
+                    continue
+                for person_session_id in person_session_ids:
+                    session_id_to_person_mapping[person_session_id] = person
+        return session_id_to_person_mapping
+    except Exception as err:
+        # As access to persons DB could fail, return empty mapping to avoid failing the activity
+        logger.exception(
+            f"Error getting persons for sessions from distinct ids ({distinct_ids}) for team {team_id} when summarizing sessions: {err}"
+        )
+        return {}
