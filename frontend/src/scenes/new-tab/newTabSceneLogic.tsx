@@ -853,8 +853,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders'),
         ],
         breadcrumbs: [
-            (s) => [(_, props: { tabId?: string }) => props.tabId, s.activeExplorerFolderPath],
-            (tabId, activeExplorerFolderPath): Breadcrumb[] => {
+            (s) => [s.activeExplorerFolderPath],
+            (activeExplorerFolderPath): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [
                     {
                         key: [Scene.NewTab, 'default'],
@@ -1718,7 +1718,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 return [
                     ...baseItems,
-                    ...additionalFolders.map((entry) => ({
+                    ...additionalFolders.map<NewTabTreeDataItem>((entry) => ({
                         id: `folder-${entry.id}`,
                         name: splitPath(entry.path).pop() || entry.path,
                         category: 'folders',
@@ -1768,7 +1768,18 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             })
         },
         setActiveExplorerFolderPath: ({ path }) => {
+            if (path === values.activeExplorerFolderPath) {
+                return
+            }
+
             const folderKey = path ?? ''
+
+            actions.clearExplorerSearchResults()
+
+            if (path === null && values.search.trim() !== '') {
+                actions.loadRecents()
+                actions.triggerSearchForIncludedItems()
+            }
 
             if (!values.explorerExpandedFoldersByFolder[folderKey]) {
                 actions.setExplorerExpandedFoldersForFolder(folderKey, {})
@@ -1889,18 +1900,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 } else if (item === 'groups') {
                     actions.loadGroupSearchResultsSuccess({})
                 }
-            }
-        },
-        setActiveExplorerFolderPath: ({ path }) => {
-            if (path === values.activeExplorerFolderPath) {
-                return
-            }
-
-            actions.clearExplorerSearchResults()
-
-            if (path === null && values.search.trim() !== '') {
-                actions.loadRecents()
-                actions.triggerSearchForIncludedItems()
             }
         },
         setNewTabSceneDataInclude: () => {

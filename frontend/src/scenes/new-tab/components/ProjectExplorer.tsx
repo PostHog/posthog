@@ -167,7 +167,7 @@ export function ProjectExplorer({
     const searchMatchesCurrentFolder =
         explorerSearchResults.folderPath === explorerFolderPath && explorerSearchResults.searchTerm !== ''
     const shouldUseSearchRows = isSearchActive && searchMatchesCurrentFolder
-    const searchRows = useMemo(() => {
+    const searchRows = useMemo<ExplorerRow[]>(() => {
         if (!shouldUseSearchRows) {
             return []
         }
@@ -198,7 +198,7 @@ export function ProjectExplorer({
             navigatesToSearch: isAtProjectRoot,
         }
     }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
-    const contentRows = shouldUseSearchRows ? searchRows : rows
+    const contentRows: ExplorerRow[] = shouldUseSearchRows ? searchRows : rows
     const allEntries = useMemo(() => {
         const uniqueEntries = new Map<string, FileSystemEntry>()
         for (const { entry } of contentRows) {
@@ -208,7 +208,7 @@ export function ProjectExplorer({
         }
         return Array.from(uniqueEntries.values())
     }, [contentRows])
-    const displayRows = useMemo(
+    const displayRows = useMemo<ExplorerRow[]>(
         () => (parentRow && !shouldUseSearchRows ? [parentRow, ...contentRows] : contentRows),
         [parentRow, contentRows, shouldUseSearchRows]
     )
