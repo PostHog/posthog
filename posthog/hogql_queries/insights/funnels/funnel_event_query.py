@@ -261,7 +261,10 @@ class FunnelEventQuery:
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
+            try:
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
+            except Action.DoesNotExist:
+                raise ValidationError(f"Action ID {entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             event_expr = ast.Constant(value=1)
