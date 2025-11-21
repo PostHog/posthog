@@ -116,7 +116,7 @@ class TaxonomyAgentToolkit:
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Generate the output format for properties. Can be overridden by subclasses.
-        Default implementation uses XML format.
+        Default implementation uses YAML-like format with bullet points.
         """
         property_type_to_props: dict[str, list[tuple[str, str | None]]] = {}
 
