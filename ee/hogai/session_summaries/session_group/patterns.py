@@ -244,16 +244,36 @@ def combine_event_ids_mappings_from_single_session_summaries(
 
 def combine_patterns_assignments_from_single_session_summaries(
     patterns_assignments_list_of_lists: list[RawSessionGroupPatternAssignmentsList],
+    event_id_to_session_id_mapping: dict[str, tuple[str, str]],
 ) -> dict[int, list[str]]:
-    """Merge pattern assignments from multiple sessions."""
+    """Merge pattern assignments from multiple sessions.
+
+    Deduplicates to keep only one event per session per pattern (first occurrence wins).
+    """
     combined_patterns_assignments: dict[int, list[str]] = {}
+    # Track which sessions have already contributed to each pattern
+    pattern_session_seen: dict[int, set[str]] = {}
     for assignments_list in patterns_assignments_list_of_lists:
         for pattern_assignment in assignments_list.patterns:
             pattern_id = pattern_assignment.pattern_id
-            event_ids = pattern_assignment.event_ids
             if pattern_id not in combined_patterns_assignments:
                 combined_patterns_assignments[pattern_id] = []
-            combined_patterns_assignments[pattern_id].extend(event_ids)
+                pattern_session_seen[pattern_id] = set()
+            for event_id in pattern_assignment.event_ids:
+                # Get session_id for this event
+                ids_tuple = event_id_to_session_id_mapping.get(event_id)
+                if not ids_tuple:
+                    # Skip events without mapping - they'll fail enrichment anyway
+                    continue
+                _, session_id = ids_tuple
+                # Only add if this session hasn't contributed to this pattern yet
+                if session_id in pattern_session_seen[pattern_id]:
+                    logger.warning(
+                        f"Event {event_id} from session {session_id} already contributed to pattern {pattern_id}, skipping"
+                    )
+                    continue
+                pattern_session_seen[pattern_id].add(session_id)
+                combined_patterns_assignments[pattern_id].append(event_id)
     return combined_patterns_assignments
 
 
