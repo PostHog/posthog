@@ -120,7 +120,7 @@ runcmd:
             "mkdir -p hobby",
             "cd hobby",
             'echo "$LOG_PREFIX Setting up needrestart config"',
-            "sed -i \"s/#\\$nrconf{{restart}} = 'i';/\\$nrconf{{restart}} = 'a';/g\" /etc/needrestart/needrestart.conf",
+            "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf",
             'echo "$LOG_PREFIX Cloning PostHog repository"',
             "git clone https://github.com/PostHog/posthog.git",
             "cd posthog",
