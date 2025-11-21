@@ -6,7 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { ActionsNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
     Breadcrumb,
@@ -26,12 +26,11 @@ export interface CustomerAnalyticsSceneLogicProps {
     tabId: string
 }
 
-export type SeriesType = EventsNode | ActionsNode | null
 export interface InsightDefinition {
     name: string
     description?: string
     query: InsightVizNode
-    requiredSeries?: Record<string, (EventsNode | ActionsNode)[]>
+    requiredSeries?: Record<string, AnyEntityNode | null>
     className?: string
 }
 
@@ -66,7 +65,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         dauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): SeriesType => {
+            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
@@ -78,7 +77,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         wauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): SeriesType => {
+            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
@@ -90,7 +89,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         mauSeries: [
             (s) => [s.activityEvent],
-            (activityEvent: EventsNode | ActionsNode | null): SeriesType => {
+            (activityEvent: EventsNode | ActionsNode | null): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
@@ -102,7 +101,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupSeries: [
             (s) => [s.signupEvent],
-            (signupEvent): SeriesType => {
+            (signupEvent): AnyEntityNode | null => {
                 if (Object.keys(signupEvent).length === 0) {
                     return null
                 }
@@ -114,7 +113,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupPageviewSeries: [
             (s) => [s.signupPageviewEvent],
-            (signupPageviewEvent): SeriesType => {
+            (signupPageviewEvent): AnyEntityNode | null => {
                 if (Object.keys(signupPageviewEvent).length === 0) {
                     return null
                 }
@@ -126,7 +125,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         subscriptionSeries: [
             (s) => [s.subscriptionEvent],
-            (subscriptionEvent): SeriesType => {
+            (subscriptionEvent): AnyEntityNode | null => {
                 if (Object.keys(subscriptionEvent).length === 0) {
                     return null
                 }
@@ -138,7 +137,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         paymentSeries: [
             (s) => [s.paymentEvent],
-            (paymentEvent): SeriesType => {
+            (paymentEvent): AnyEntityNode | null => {
                 if (Object.keys(paymentEvent).length === 0) {
                     return null
                 }
@@ -151,9 +150,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         activeUsersInsights: [
             (s) => [s.dauSeries, s.wauSeries, s.mauSeries],
             (
-                dauSeries: EventsNode | ActionsNode | null,
-                wauSeries: EventsNode | ActionsNode | null,
-                mauSeries: EventsNode | ActionsNode | null
+                dauSeries: AnyEntityNode | null,
+                wauSeries: AnyEntityNode | null,
+                mauSeries: AnyEntityNode | null
             ): InsightDefinition[] => {
                 // Backend guarantees activity event exists, but add safety check
                 if (!dauSeries || !wauSeries || !mauSeries) {
@@ -395,252 +394,254 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupInsights: [
             (s) => [s.signupSeries, s.paymentSeries, s.subscriptionSeries, s.signupPageviewSeries, s.dauSeries],
-            (signupSeries, paymentSeries, subscriptionSeries, signupPageviewSeries, dauSeries): InsightDefinition[] => [
-                {
-                    name: 'User Signups',
-                    requiredSeries: { signupSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [signupSeries],
-                            interval: 'day',
-                            dateRange: {
-                                date_to: null,
-                                date_from: '-30d',
-                                explicitDate: false,
+            (signupSeries, paymentSeries, subscriptionSeries, signupPageviewSeries, dauSeries): InsightDefinition[] => {
+                return [
+                    {
+                        name: 'User Signups',
+                        requiredSeries: { signupSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [signupSeries as AnyEntityNode],
+                                interval: 'day',
+                                dateRange: {
+                                    date_to: null,
+                                    date_from: '-30d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.BoldNumber,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    smoothingIntervals: 1,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            trendsFilter: {
-                                display: ChartDisplayType.BoldNumber,
-                                showLegend: false,
-                                yAxisScaleType: 'linear',
-                                showValuesOnSeries: false,
-                                smoothingIntervals: 1,
-                                showPercentStackView: false,
-                                aggregationAxisFormat: 'numeric',
-                                showAlertThresholdLines: false,
-                            },
-                            compareFilter: {
-                                compare: true,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'Total Paying Customers',
-                    requiredSeries: { paymentSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [paymentSeries],
-                            interval: 'day',
-                            dateRange: {
-                                date_to: null,
-                                date_from: '-30d',
-                                explicitDate: false,
+                    {
+                        name: 'Total Paying Customers',
+                        requiredSeries: { paymentSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [paymentSeries as AnyEntityNode],
+                                interval: 'day',
+                                dateRange: {
+                                    date_to: null,
+                                    date_from: '-30d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.BoldNumber,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            trendsFilter: {
-                                display: ChartDisplayType.BoldNumber,
-                                showLegend: false,
-                                yAxisScaleType: 'linear',
-                                showValuesOnSeries: false,
-                                showPercentStackView: false,
-                                aggregationAxisFormat: 'numeric',
-                                showAlertThresholdLines: false,
-                            },
-                            compareFilter: {
-                                compare: true,
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'User signups and subscriptions',
-                    requiredSeries: { signupSeries, subscriptionSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [signupSeries, subscriptionSeries],
-                            interval: 'day',
-                            dateRange: {
-                                date_from: '-90d',
-                                explicitDate: false,
+                    {
+                        name: 'User signups and subscriptions',
+                        requiredSeries: { signupSeries, subscriptionSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [signupSeries as AnyEntityNode, subscriptionSeries as AnyEntityNode],
+                                interval: 'day',
+                                dateRange: {
+                                    date_from: '-90d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.ActionsLineGraph,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showMultipleYAxes: false,
+                                    showValuesOnSeries: false,
+                                    smoothingIntervals: 7,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            trendsFilter: {
-                                display: ChartDisplayType.ActionsLineGraph,
-                                showLegend: false,
-                                yAxisScaleType: 'linear',
-                                showMultipleYAxes: false,
-                                showValuesOnSeries: false,
-                                smoothingIntervals: 7,
-                                showPercentStackView: false,
-                                aggregationAxisFormat: 'numeric',
-                                showAlertThresholdLines: false,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'New Signups (Weekly)',
-                    requiredSeries: { signupSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [signupSeries],
-                            interval: 'week',
-                            dateRange: {
-                                date_to: null,
-                                date_from: '-180d',
-                                explicitDate: false,
+                    {
+                        name: 'New Signups (Weekly)',
+                        requiredSeries: { signupSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [signupSeries as AnyEntityNode],
+                                interval: 'week',
+                                dateRange: {
+                                    date_to: null,
+                                    date_from: '-180d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.ActionsAreaGraph,
+                                    showLegend: false,
+                                    yAxisScaleType: 'linear',
+                                    showValuesOnSeries: false,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            trendsFilter: {
-                                display: ChartDisplayType.ActionsAreaGraph,
-                                showLegend: false,
-                                yAxisScaleType: 'linear',
-                                showValuesOnSeries: false,
-                                showPercentStackView: false,
-                                aggregationAxisFormat: 'numeric',
-                                showAlertThresholdLines: false,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'Cumulative Signups (Adoption)',
-                    requiredSeries: { signupSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [signupSeries],
-                            interval: 'day',
-                            dateRange: {
-                                date_from: '-90d',
-                                explicitDate: false,
+                    {
+                        name: 'Cumulative Signups (Adoption)',
+                        requiredSeries: { signupSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [signupSeries as AnyEntityNode],
+                                interval: 'day',
+                                dateRange: {
+                                    date_from: '-90d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                trendsFilter: {
+                                    display: ChartDisplayType.ActionsLineGraphCumulative,
+                                    showLegend: false,
+                                    showTrendLines: false,
+                                    yAxisScaleType: 'linear',
+                                    showMultipleYAxes: false,
+                                    showValuesOnSeries: false,
+                                    showPercentStackView: false,
+                                    aggregationAxisFormat: 'numeric',
+                                    showAlertThresholdLines: false,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            trendsFilter: {
-                                display: ChartDisplayType.ActionsLineGraphCumulative,
-                                showLegend: false,
-                                showTrendLines: false,
-                                yAxisScaleType: 'linear',
-                                showMultipleYAxes: false,
-                                showValuesOnSeries: false,
-                                showPercentStackView: false,
-                                aggregationAxisFormat: 'numeric',
-                                showAlertThresholdLines: false,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'Signup Conversion Rate',
-                    requiredSeries: { signupSeries, signupPageviewSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.FunnelsQuery,
-                            series: [signupPageviewSeries, signupSeries],
-                            interval: 'week',
-                            dateRange: {
-                                date_from: '-30d',
-                                explicitDate: false,
+                    {
+                        name: 'Signup Conversion Rate',
+                        requiredSeries: { signupSeries, signupPageviewSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.FunnelsQuery,
+                                series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
+                                interval: 'week',
+                                dateRange: {
+                                    date_from: '-30d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                funnelsFilter: {
+                                    layout: FunnelLayout.vertical,
+                                    exclusions: [],
+                                    funnelVizType: FunnelVizType.Trends,
+                                    funnelOrderType: StepOrderValue.ORDERED,
+                                    funnelStepReference: FunnelStepReference.total,
+                                    funnelWindowInterval: 14,
+                                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            funnelsFilter: {
-                                layout: FunnelLayout.vertical,
-                                exclusions: [],
-                                funnelVizType: FunnelVizType.Trends,
-                                funnelOrderType: StepOrderValue.ORDERED,
-                                funnelStepReference: FunnelStepReference.total,
-                                funnelWindowInterval: 14,
-                                breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-                {
-                    name: 'Which customers are highly engaged?',
-                    requiredSeries: { dauSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.LifecycleQuery,
-                            series: [dauSeries],
-                            interval: 'week',
-                            dateRange: {
-                                date_from: '-30d',
-                                explicitDate: false,
+                    {
+                        name: 'Which customers are highly engaged?',
+                        requiredSeries: { dauSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.LifecycleQuery,
+                                series: [dauSeries as AnyEntityNode],
+                                interval: 'week',
+                                dateRange: {
+                                    date_from: '-30d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                lifecycleFilter: {
+                                    showLegend: false,
+                                },
+                                filterTestAccounts: true,
+                                aggregation_group_type_index: 0,
                             },
-                            properties: [],
-                            lifecycleFilter: {
-                                showLegend: false,
-                            },
-                            filterTestAccounts: true,
-                            aggregation_group_type_index: 0,
                         },
                     },
-                },
-                {
-                    name: 'Free to Paid User Conversion',
-                    requiredSeries: { signupSeries, paymentSeries },
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.FunnelsQuery,
-                            series: [signupSeries, paymentSeries],
-                            dateRange: {
-                                date_from: '-90d',
-                                explicitDate: false,
+                    {
+                        name: 'Free to Paid User Conversion',
+                        requiredSeries: { signupSeries, paymentSeries },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.FunnelsQuery,
+                                series: [signupSeries as AnyEntityNode, paymentSeries as AnyEntityNode],
+                                dateRange: {
+                                    date_from: '-90d',
+                                    explicitDate: false,
+                                },
+                                properties: [],
+                                funnelsFilter: {
+                                    layout: FunnelLayout.horizontal,
+                                    exclusions: [],
+                                    funnelVizType: FunnelVizType.Steps,
+                                    funnelOrderType: StepOrderValue.ORDERED,
+                                    funnelStepReference: FunnelStepReference.total,
+                                    funnelWindowInterval: 6,
+                                    breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
+                                },
+                                breakdownFilter: {
+                                    breakdown_type: 'event',
+                                },
+                                filterTestAccounts: true,
                             },
-                            properties: [],
-                            funnelsFilter: {
-                                layout: FunnelLayout.horizontal,
-                                exclusions: [],
-                                funnelVizType: FunnelVizType.Steps,
-                                funnelOrderType: StepOrderValue.ORDERED,
-                                funnelStepReference: FunnelStepReference.total,
-                                funnelWindowInterval: 6,
-                                breakdownAttributionType: BreakdownAttributionType.FirstTouch,
-                                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
-                            },
-                            breakdownFilter: {
-                                breakdown_type: 'event',
-                            },
-                            filterTestAccounts: true,
                         },
                     },
-                },
-            ],
+                ]
+            },
         ],
     }),
 ])
