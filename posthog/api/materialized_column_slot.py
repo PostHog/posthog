@@ -15,9 +15,9 @@ from temporalio.common import RetryPolicy
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.property_definition import PropertyType
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
+from posthog.temporal.backfill_materialized_property.activities import MATERIALIZABLE_PROPERTY_TYPES
 from posthog.temporal.backfill_materialized_property.workflows import BackfillMaterializedPropertyInputs
 from posthog.temporal.common.client import async_connect
 
@@ -84,23 +84,8 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(methods=["GET"], detail=False)
     def slot_usage(self, request, **kwargs):
         """Get slot usage summary for a team."""
-        # Duration properties are PostHog system properties and should never be materialized
-        # This filters them out defensively - if any exist, they indicate a data integrity issue
-        allowed_types = [t for t in PropertyType.values if t != PropertyType.Duration]
-
-        # Check for any unexpected Duration slots and log an error
-        duration_count = MaterializedColumnSlot.objects.filter(
-            team_id=self.team_id, property_type=PropertyType.Duration
-        ).count()
-        if duration_count > 0:
-            logger.error(
-                "Found materialized Duration properties",
-                team_id=self.team_id,
-                count=duration_count,
-            )
-
         usage = {}
-        for prop_type in allowed_types:
+        for prop_type in MATERIALIZABLE_PROPERTY_TYPES:
             count = MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=prop_type).count()
             usage[prop_type] = {"used": count, "total": 10, "available": 10 - count}
 
@@ -117,25 +102,18 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         """Get properties that can be materialized for a team.
 
         Only returns custom properties and feature flag properties.
-        Excludes PostHog system properties, Duration type properties, and properties already auto-materialized.
+        Excludes PostHog system properties and properties already auto-materialized.
         """
-        # Get properties that are not already materialized and have a property_type set
         already_materialized = MaterializedColumnSlot.objects.filter(team_id=self.team_id).values_list(
             "property_definition_id", flat=True
         )
-
-        # Get auto-materialized property names to exclude them
         auto_materialized_property_names = get_auto_materialized_property_names()
 
-        # Duration properties are PostHog system properties and should never be materialized
-        allowed_types = [t for t in PropertyType.values if t != PropertyType.Duration]
-
-        # Only show event properties since materialized columns are for the events table
         available_properties = (
             PropertyDefinition.objects.filter(
                 team_id=self.team_id,
                 property_type__isnull=False,
-                property_type__in=allowed_types,
+                property_type__in=MATERIALIZABLE_PROPERTY_TYPES,
                 type=PropertyDefinition.Type.EVENT,
             )
             .exclude(id__in=already_materialized)
@@ -204,9 +182,11 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not property_definition.property_type:
             return response.Response({"error": "Property must have a type set to be materialized"}, status=400)
 
-        # Validate property type is not Duration
-        if property_definition.property_type == PropertyType.Duration:
-            return response.Response({"error": "Duration properties cannot be materialized"}, status=400)
+        if property_definition.property_type not in MATERIALIZABLE_PROPERTY_TYPES:
+            return response.Response(
+                {"error": f"Property type '{property_definition.property_type}' cannot be materialized"},
+                status=400,
+            )
 
         # Validate property is not a PostHog system property (except feature flags)
         if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):

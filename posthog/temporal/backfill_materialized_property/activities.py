@@ -14,12 +14,14 @@ from posthog.models.property_definition import PropertyType
 
 logger = structlog.get_logger(__name__)
 
-PROPERTY_TYPE_TO_COLUMN_NAME = {
-    "String": "string",
-    "Numeric": "numeric",
-    "Boolean": "bool",
-    "DateTime": "datetime",
+PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
+    PropertyType.String: "string",
+    PropertyType.Numeric: "numeric",
+    PropertyType.Boolean: "bool",
+    PropertyType.Datetime: "datetime",
 }
+
+MATERIALIZABLE_PROPERTY_TYPES: set[str] = set(PROPERTY_TYPE_TO_COLUMN_NAME.keys())
 
 
 @dataclasses.dataclass

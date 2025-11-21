@@ -275,7 +275,7 @@ projects_router.register(
     ["project_id"],
 )
 
-register_grandfathered_environment_nested_viewset(
+environments_router.register(
     r"materialized_column_slots",
     materialized_column_slot.MaterializedColumnSlotViewSet,
     "environment_materialized_column_slots",
