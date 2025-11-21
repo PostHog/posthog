@@ -352,7 +352,8 @@ class FunnelBase(ABC):
             cohort_queries.append(query)
 
         if isinstance(breakdown, list) and "all" in breakdown:
-            all_query = FunnelEventQuery(context=self.context).to_query()
+            # TODO: implement for data warehouse tables and mixed funnels
+            all_query = FunnelEventQuery(context=self.context).to_query(skip_step_filter=True)
             all_query.select = [
                 ast.Alias(alias="cohort_person_id", expr=ast.Field(chain=["person_id"])),
                 ast.Alias(alias="value", expr=ast.Constant(value=ALL_USERS_COHORT_ID)),
