@@ -1,6 +1,5 @@
 import { DropdownMenuContentProps } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import {
     IconCake,
@@ -46,7 +45,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlappyHog } from 'scenes/onboarding/FlappyHog'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
@@ -149,7 +147,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const [showFlappyHog, setShowFlappyHog] = useState(false)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
 
@@ -388,16 +385,10 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                             </Link>
                                         </DropdownMenuItem>
                                     ))}
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive menuItem onClick={() => setShowFlappyHog(true)}>
-                                            Flappy Hog
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
                                 </DropdownMenuGroup>
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>
                     )}
-                    <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
                     {user?.is_staff && (
                         <>
                             <DropdownMenuItem asChild>
