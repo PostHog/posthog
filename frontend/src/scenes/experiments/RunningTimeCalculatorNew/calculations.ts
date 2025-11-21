@@ -100,6 +100,9 @@ export function calculateRecommendedSampleSize(
         return null
     }
 
+    let d // Represents the absolute effect size (difference we want to detect)
+    let sampleSizeFormula
+
     if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
         /**
          * Continuous property metric:
