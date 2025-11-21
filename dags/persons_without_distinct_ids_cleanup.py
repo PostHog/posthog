@@ -14,6 +14,7 @@ from posthog.clickhouse.custom_metrics import MetricsClient
 from dags.common import JobOwners
 
 MAX_RETRY_ATTEMPTS = 5
+METRIC_PUBLISH_INTERVAL = 100
 
 
 class PersonsNoDistinctIdsCleanupConfig(dagster.Config):
@@ -172,6 +173,12 @@ def scan_delete_chunk_for_pwdc(
             cursor.execute("SET max_parallel_maintenance_workers = 2")
             cursor.execute("SET synchronous_commit = off")
 
+            # Initialize accumulator variables for metrics
+            accumulated_records_attempted = 0
+            accumulated_records_deleted = 0
+            accumulated_batches_scanned = 0
+            batch_counter = 0
+
             retry_attempt = 0
             while batch_start_id <= chunk_max:
                 try:
@@ -208,45 +215,55 @@ ORDER BY p.id DESC
                     # Commit the transaction
                     cursor.execute("COMMIT")
 
-                    try:
-                        metrics_client.increment(
-                            "persons_wo_distinct_ids_records_attempted_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_scanned),
-                        ).result()
-                    except Exception:
-                        pass  # Don't fail on metrics error
+                    # Accumulate metrics locally
+                    accumulated_records_attempted += records_scanned + 1
+                    accumulated_records_deleted += records_deleted
+                    accumulated_batches_scanned += 1
+                    batch_counter += 1
+                    total_records_deleted += records_deleted
 
+                    # this metric is inaccurate if we don't emit every batch or average it etc.
                     batch_duration_seconds = time.time() - batch_start_time
-
-                    try:
-                        metrics_client.increment(
-                            "persons_wo_distinct_ids_records_deleted_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_deleted),
-                        ).result()
-                    except Exception:
-                        pass  # Don't fail on metrics error
-
-                    try:
-                        metrics_client.increment(
-                            "persons_wo_distinct_ids_batches_scanned_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=1.0,
-                        ).result()
-                    except Exception:
-                        pass
-                    # Track batch duration metric (IV)
                     try:
                         metrics_client.increment(
                             "persons_wo_distinct_ids_batch_duration_seconds_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=batch_duration_seconds,
+                            value=float(batch_duration_seconds),
                         ).result()
                     except Exception:
                         pass
 
-                    total_records_deleted += records_deleted
+                    # Publish accumulated metrics every METRIC_PUBLISH_INTERVAL batches as totals
+                    if batch_counter >= METRIC_PUBLISH_INTERVAL:
+                        try:
+                            metrics_client.increment(
+                                "persons_wo_distinct_ids_records_attempted_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_records_attempted),
+                            ).result()
+                        except Exception:
+                            pass  # Don't fail on metrics error
+                        try:
+                            metrics_client.increment(
+                                "persons_wo_distinct_ids_batches_scanned_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_batches_scanned),
+                            ).result()
+                        except Exception:
+                            pass
+                        try:
+                            metrics_client.increment(
+                                "persons_wo_distinct_ids_records_deleted_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_records_deleted),
+                            ).result()
+                        except Exception:
+                            pass
+                        # Reset accumulators
+                        accumulated_records_attempted = 0
+                        accumulated_records_deleted = 0
+                        accumulated_batches_scanned = 0
+                        batch_counter = 0
 
                     context.log.info(
                         f"Deleted batch: {records_deleted} records "
@@ -337,6 +354,7 @@ ORDER BY p.id DESC
     except dagster.Failure:
         # Re-raise Dagster failures as-is (they already have metadata and metrics)
         raise
+
     except Exception as e:
         # Catch any other unexpected errors
         error_msg = f"Unexpected error scanning and deleteting from chunk {chunk_min}-{chunk_max}: {str(e)}"
