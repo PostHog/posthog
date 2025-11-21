@@ -9338,10 +9338,13 @@ class ExperimentBreakdownResult(BaseModel):
         extra="forbid",
     )
     baseline: ExperimentStatsBaseValidated = Field(..., description="Control variant stats for this breakdown")
-    breakdown_value: list[Optional[Union[int, str, float, list[Union[int, str, float]]]]] = Field(
+    breakdown_value: list[Union[str, float, int]] = Field(
         ...,
         description=(
             'The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)'
+            " Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The"
+            " way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the"
+            " types using it to define if it's and array or an optional value."
         ),
     )
     variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] = Field(

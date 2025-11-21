@@ -192,7 +192,7 @@ dev = [
     "dagster-dg-cli>=1.10.18",
     "datamodel-code-generator==0.28.5",
     "debugpy>=1.8.0",
-    "deepdiff>=8.5.0",
+    "deepdiff>=8.6.1",
     "django-linear-migrations~=2.17.0",
     "django-stubs~=5.2.0",
     "djangorestframework-stubs~=3.16.0",

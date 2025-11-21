@@ -1,15 +1,15 @@
-"""Tests for the delete persons from trigger log job."""
+"""Tests for the posthog_persons without distinct_ids in posthog_persondistinctid cleanup job."""
 
 from unittest.mock import MagicMock, patch
 
 import psycopg2
 from dagster import build_op_context
 
-from dags.delete_persons_from_trigger_log_job import (
-    DeletePersonsFromTriggerLogConfig,
-    create_chunks,
-    get_id_range,
-    scan_delete_chunk,
+from dags.persondistinctids_without_person_cleanup import (
+    PersonsDistinctIdsNoPersonCleanupConfig,
+    create_chunks_for_pdwp,
+    get_id_range_for_pdwp,
+    scan_delete_chunk_for_pdwp,
 )
 
 
@@ -32,16 +32,16 @@ def create_mock_psycopg2_error(message: str, pgcode: str) -> Exception:
     return MockPsycopg2Error(message, pgcode)
 
 
-class TestCreateChunks:
-    """Test the create_chunks function."""
+class TestCreateChunksForPdwp:
+    """Test the create_chunks_for_pdwp function."""
 
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         id_range = (1, 5000)  # min_id=1, max_id=5000
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -57,12 +57,12 @@ class TestCreateChunks:
 
     def test_create_chunks_covers_entire_id_space(self):
         """Test that chunks cover the entire ID space from min to max."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -80,12 +80,12 @@ class TestCreateChunks:
 
     def test_create_chunks_first_chunk_includes_max_id(self):
         """Test that the first chunk (in yielded order) includes the source table max_id."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         # First chunk in the list (yielded first, highest IDs)
         first_chunk_min, first_chunk_max = chunks[0].value
@@ -97,12 +97,12 @@ class TestCreateChunks:
 
     def test_create_chunks_final_chunk_includes_min_id(self):
         """Test that the final chunk (in yielded order) includes the source table min_id."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         # Last chunk in the list (yielded last, lowest IDs)
         final_chunk_min, final_chunk_max = chunks[-1].value
@@ -114,12 +114,12 @@ class TestCreateChunks:
 
     def test_create_chunks_reverse_order(self):
         """Test that chunks are yielded in reverse order (highest IDs first)."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         # Verify chunks are in descending order by max_id
         for i in range(len(chunks) - 1):
@@ -131,12 +131,12 @@ class TestCreateChunks:
 
     def test_create_chunks_exact_multiple(self):
         """Test chunk creation when ID range is an exact multiple of chunk_size."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 5000  # Exactly 5 chunks of 1000
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         assert len(chunks) == 5, f"Expected 5 chunks, got {len(chunks)}"
 
@@ -148,12 +148,12 @@ class TestCreateChunks:
 
     def test_create_chunks_non_exact_multiple(self):
         """Test chunk creation when ID range is not an exact multiple of chunk_size."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 1, 3750  # 3 full chunks + 1 partial chunk
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         assert len(chunks) == 4, f"Expected 4 chunks, got {len(chunks)}"
 
@@ -165,12 +165,12 @@ class TestCreateChunks:
 
     def test_create_chunks_single_chunk(self):
         """Test chunk creation when ID range fits in a single chunk."""
-        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000)
         min_id, max_id = 100, 500
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pdwp(context, config, id_range))
 
         assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
         assert chunks[0].value == (100, 500), f"Chunk should be (100, 500), got {chunks[0].value}"
@@ -239,45 +239,43 @@ def create_mock_cluster_resource():
     return MagicMock()
 
 
-class TestScanDeleteChunk:
-    """Test the scan_delete_chunk function."""
+class TestScanDeleteChunkForPdwp:
+    """Test the scan_delete_chunk_for_pdwp function."""
 
     def test_scan_delete_chunk_single_batch_success(self):
         """Test successful scan and delete of a single batch within a chunk."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)  # Single batch covers entire chunk
 
-        # Create 50 person records to delete - each has id and team_id
-        # The scan query returns records from posthog_person_deletes_log that don't exist in posthog_person_new
-        ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
+        # Create 50 IDs to delete (returned from DELETE...RETURNING)
+        ids_deleted = [{"id": i} for i in range(1, 51)]
 
-        # Mock: fetchall returns the IDs with team_id, DELETE returns rowcount of 1 per delete
+        # Mock: fetchall returns the deleted IDs from DELETE...RETURNING
         mock_db = create_mock_database_resource(
-            rowcount_values=1,  # Each DELETE deletes 1 person
-            fetchall_results=[ids_to_delete],
+            fetchall_results=[ids_deleted],
         )
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk(context, config, chunk)
+            result = scan_delete_chunk_for_pdwp(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
         assert result["chunk_max"] == 100
-        assert result["records_deleted"] == 50  # 50 deletes, each with rowcount=1
+        assert result["records_deleted"] == 50
 
         # Verify SET statements called once (session-level, before loop)
         set_statements = [
-            "SET application_name = 'delete_persons_from_trigger_log'",
+            "SET application_name = 'delete_personsdistinctids_with_no_person'",
             "SET lock_timeout = '5s'",
             "SET statement_timeout = '30min'",
             "SET maintenance_work_mem = '12GB'",
@@ -295,43 +293,37 @@ class TestScanDeleteChunk:
         for stmt in set_statements:
             assert any(stmt in call for call in execute_calls), f"SET statement not found: {stmt}"
 
-        # Verify BEGIN, SELECT scan, COMMIT called
-        # Should have: 1 BEGIN for scan, 1 COMMIT after scan, then 50 BEGIN/COMMIT pairs for deletes
-        assert execute_calls.count("BEGIN") >= 51  # 1 for scan + 50 for deletes
-        assert execute_calls.count("COMMIT") >= 51  # 1 for scan + 50 for deletes
+        # Verify BEGIN and COMMIT called (single transaction with DELETE...RETURNING)
+        assert execute_calls.count("BEGIN") >= 1
+        assert execute_calls.count("COMMIT") >= 1
 
-        # Verify SELECT scan query format
-        scan_calls = [call for call in execute_calls if "FROM posthog_person_deletes_log" in call]
-        assert len(scan_calls) == 1
-        scan_query = scan_calls[0]
-        assert "SELECT" in scan_query
-        assert "FROM posthog_person_deletes_log" in scan_query
-        assert "WHERE pdl.id >=" in scan_query
-        assert "AND pdl.id <=" in scan_query
-        assert "EXISTS" in scan_query
-
-        # Verify DELETE queries were called (one per person)
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_person_new" in call]
-        assert len(delete_calls) == 50  # One delete per person
+        # Verify DELETE...RETURNING query format
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) == 1
+        delete_query = delete_calls[0]
+        assert "DELETE FROM posthog_persondistinctid" in delete_query
+        assert "WHERE pd.id >=" in delete_query
+        assert "AND pd.id <=" in delete_query
+        assert "NOT EXISTS" in delete_query
+        assert "RETURNING pd.id" in delete_query
 
     def test_scan_delete_chunk_multiple_batches(self):
         """Test scan and delete with multiple batches in a chunk."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 250)  # 3 scan batches: (1,100), (101,200), (201,250)
+        chunk = (1, 250)  # 3 batches: (1,100), (101,200), (201,250)
 
-        # Create IDs to delete for each scan batch - each needs id and team_id
-        # Batch 1: 50 IDs (1-50), Batch 2: 75 IDs (101-175), Batch 3: 25 IDs (201-225)
+        # Create IDs deleted for each batch (returned from DELETE...RETURNING)
+        # Batch 1: 50 IDs, Batch 2: 75 IDs, Batch 3: 25 IDs
         fetchall_results = [
-            [{"id": i, "team_id": 1} for i in range(1, 51)],  # 50 IDs from first scan batch
-            [{"id": i, "team_id": 1} for i in range(101, 176)],  # 75 IDs from second scan batch
-            [{"id": i, "team_id": 1} for i in range(201, 226)],  # 25 IDs from third scan batch
+            [{"id": i} for i in range(1, 51)],  # 50 IDs from first batch
+            [{"id": i} for i in range(101, 176)],  # 75 IDs from second batch
+            [{"id": i} for i in range(201, 226)],  # 25 IDs from third batch
         ]
 
         mock_db = create_mock_database_resource(
-            rowcount_values=1,  # Each DELETE deletes 1 person
             fetchall_results=fetchall_results,
         )
         mock_cluster = create_mock_cluster_resource()
@@ -339,11 +331,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk(context, config, chunk)
+            result = scan_delete_chunk_for_pdwp(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
@@ -354,53 +346,41 @@ class TestScanDeleteChunk:
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Verify BEGIN/COMMIT called multiple times:
-        # 3 scan batches: 3 BEGIN + 3 COMMIT for scans
-        # 150 delete operations: 150 BEGIN + 150 COMMIT for deletes (one per person)
-        # Total: 153 BEGIN, 153 COMMIT
-        assert execute_calls.count("BEGIN") >= 153  # 3 scans + 150 deletes
-        assert execute_calls.count("COMMIT") >= 153  # 3 scans + 150 deletes
+        # Verify BEGIN/COMMIT called 3 times (one per batch with DELETE...RETURNING)
+        assert execute_calls.count("BEGIN") >= 3
+        assert execute_calls.count("COMMIT") >= 3
 
-        # Verify SELECT scan called 3 times (one per scan batch)
-        scan_calls = [call for call in execute_calls if "FROM posthog_person_deletes_log" in call]
-        assert len(scan_calls) == 3
-
-        # Verify DELETE called 150 times (one per person)
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_person_new" in call]
-        assert len(delete_calls) == 150
+        # Verify DELETE...RETURNING called 3 times (one per batch)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) == 3
 
     def test_scan_delete_chunk_serialization_failure_retry(self):
         """Test that serialization failure triggers retry."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)
 
-        # Create IDs to delete - each needs id and team_id
-        ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        # Create IDs to delete
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track scan query attempts
-        scan_attempts = [0]
+        # Track DELETE query attempts
+        delete_attempts = [0]
 
-        # First SELECT scan query raises SerializationFailure, second succeeds
+        # First DELETE query raises SerializationFailure, second succeeds
         def execute_side_effect(query, *args):
-            if "FROM posthog_person_deletes_log" in query:
-                scan_attempts[0] += 1
-                if scan_attempts[0] == 1:
-                    # First scan attempt raises error
-                    # Create a mock error with pgcode 40001 for serialization failure
+            if "DELETE FROM posthog_persondistinctid" in query:
+                delete_attempts[0] += 1
+                if delete_attempts[0] == 1:
+                    # First attempt raises error
                     error = create_mock_psycopg2_error("could not serialize access due to concurrent update", "40001")
                     raise error
-                # Subsequent calls succeed - fetchall will return the IDs
-            elif "DELETE FROM posthog_person_new" in query:
-                # DELETE succeeds
-                cursor.rowcount = 1
-            # MagicMock will automatically record the call via side_effect
+                # Second attempt succeeds - fetchall will return the IDs
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -412,51 +392,46 @@ class TestScanDeleteChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.delete_persons_from_trigger_log_job.time.sleep"),
+            patch("dags.persondistinctids_without_person_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pdwp(context, config, chunk)
 
         # Verify ROLLBACK was called on error
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
-        scan_calls = [call for call in execute_calls if "FROM posthog_person_deletes_log" in call]
-        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
+        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
 
     def test_scan_delete_chunk_deadlock_retry(self):
         """Test that deadlock triggers retry."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)
 
-        # Create IDs to delete - each needs id and team_id
-        ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        # Create IDs to delete
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track scan query attempts
-        scan_attempts = [0]
+        # Track DELETE query attempts
+        delete_attempts = [0]
 
-        # First SELECT scan query raises deadlock, second succeeds
+        # First DELETE query raises deadlock, second succeeds
         def execute_side_effect(query, *args):
-            if "FROM posthog_person_deletes_log" in query:
-                scan_attempts[0] += 1
-                if scan_attempts[0] == 1:
-                    # First scan attempt raises error
-                    # Create a mock error with pgcode 40P01 for deadlock
+            if "DELETE FROM posthog_persondistinctid" in query:
+                delete_attempts[0] += 1
+                if delete_attempts[0] == 1:
+                    # First attempt raises error
                     error = create_mock_psycopg2_error("deadlock detected", "40P01")
                     raise error
-                # Subsequent calls succeed - fetchall will return the IDs
-            elif "DELETE FROM posthog_person_new" in query:
-                # DELETE succeeds
-                cursor.rowcount = 1
-            # MagicMock will automatically record the call via side_effect
+                # Second attempt succeeds - fetchall will return the IDs
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -468,39 +443,38 @@ class TestScanDeleteChunk:
 
         mock_run = MagicMock(job_name="test_job")
         with (
-            patch("dags.delete_persons_from_trigger_log_job.time.sleep"),
+            patch("dags.persondistinctids_without_person_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pdwp(context, config, chunk)
 
         # Verify ROLLBACK was called on error
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
-        scan_calls = [call for call in execute_calls if "FROM posthog_person_deletes_log" in call]
-        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
+        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
 
     def test_scan_delete_chunk_error_handling_and_rollback(self):
         """Test error handling and rollback on non-retryable errors."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)
 
-        # Create IDs to delete - each needs id and team_id
-        ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        # Create IDs to delete
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Raise generic error on scan query (non-retryable error)
+        # Raise generic error on DELETE query (non-retryable error)
         def execute_side_effect(query, *args):
-            if "FROM posthog_person_deletes_log" in query:
+            if "DELETE FROM posthog_persondistinctid" in query:
                 raise Exception("Connection lost")
-            # MagicMock will automatically record the call via side_effect
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -516,7 +490,7 @@ class TestScanDeleteChunk:
             from dagster import Failure
 
             try:
-                scan_delete_chunk(context, config, chunk)
+                scan_delete_chunk_for_pdwp(context, config, chunk)
                 raise AssertionError("Expected Dagster.Failure to be raised")
             except Failure as e:
                 # Verify error metadata
@@ -528,72 +502,59 @@ class TestScanDeleteChunk:
                 assert "ROLLBACK" in execute_calls
 
     def test_scan_delete_chunk_query_format(self):
-        """Test that DELETE query has correct format."""
-        config = DeletePersonsFromTriggerLogConfig(
+        """Test that DELETE...RETURNING query has correct format."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)
 
-        # Create IDs to delete - each needs id and team_id
-        ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 11)]  # 10 IDs
+        # Create IDs deleted (returned from DELETE...RETURNING)
+        ids_deleted = [{"id": i} for i in range(1, 11)]  # 10 IDs
         mock_db = create_mock_database_resource(
-            rowcount_values=1,  # Each DELETE deletes 1 person
-            fetchall_results=[ids_to_delete],
+            fetchall_results=[ids_deleted],
         )
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pdwp(context, config, chunk)
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Find DELETE query (should be multiple, one per person)
-        delete_queries = [call for call in execute_calls if "DELETE FROM posthog_person_new" in call]
-        assert len(delete_queries) == 10  # One delete per person
+        # Find DELETE...RETURNING query
+        delete_query = next((call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call), None)
+        assert delete_query is not None
 
-        # Verify DELETE query components (check first one)
-        delete_query = delete_queries[0]
-        assert "DELETE FROM posthog_person_new" in delete_query
-        assert "WHERE team_id = %s AND id = %s" in delete_query
-
-        # Find SELECT query (scan query)
-        scan_query = next(
-            (call for call in execute_calls if "FROM posthog_person_deletes_log" in call),
-            None,
-        )
-        assert scan_query is not None
-
-        # Verify SELECT query components
-        assert "FROM posthog_person_deletes_log" in scan_query
-        assert "WHERE pdl.id >=" in scan_query
-        assert "AND pdl.id <=" in scan_query
-        assert "EXISTS" in scan_query
-        assert "SELECT" in scan_query
+        # Verify DELETE...RETURNING query components
+        assert "DELETE FROM posthog_persondistinctid pd" in delete_query
+        assert "WHERE pd.id >=" in delete_query
+        assert "AND pd.id <=" in delete_query
+        assert "NOT EXISTS" in delete_query
+        assert "RETURNING pd.id" in delete_query
 
     def test_scan_delete_chunk_session_settings_applied_once(self):
         """Test that SET statements are applied once at session level before batch loop."""
-        config = DeletePersonsFromTriggerLogConfig(
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=50,
         )
         chunk = (1, 150)  # 3 scan batches
 
-        # Create IDs to delete for each scan batch - each needs id and team_id
+        # Create IDs to delete for each scan batch
         fetchall_results = [
-            [{"id": i, "team_id": 1} for i in range(1, 26)],  # 25 IDs from first scan batch
-            [{"id": i, "team_id": 1} for i in range(51, 76)],  # 25 IDs from second scan batch
-            [{"id": i, "team_id": 1} for i in range(101, 126)],  # 25 IDs from third scan batch
+            [{"id": i} for i in range(1, 26)],  # 25 IDs from first scan batch
+            [{"id": i} for i in range(51, 76)],  # 25 IDs from second scan batch
+            [{"id": i} for i in range(101, 126)],  # 25 IDs from third scan batch
         ]
         mock_db = create_mock_database_resource(
-            rowcount_values=1,  # Each DELETE deletes 1 person
+            rowcount_values=25,
             fetchall_results=fetchall_results,
         )
         mock_cluster = create_mock_cluster_resource()
@@ -601,11 +562,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pdwp(context, config, chunk)
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
@@ -635,12 +596,12 @@ class TestScanDeleteChunk:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
 
 
-class TestGetIdRange:
-    """Test the get_id_range function."""
+class TestGetIdRangeForPdwp:
+    """Test the get_id_range_for_pdwp function."""
 
     def test_get_id_range_uses_min_id_override(self):
         """Test that min_id override is honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=100, max_id=None)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=100, max_id=None)
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
@@ -648,7 +609,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pdwp(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -658,22 +619,20 @@ class TestGetIdRange:
         min_queries = [call for call in execute_calls if "MIN(id)" in call]
         assert len(min_queries) == 0, "Should not query for min_id when override is provided"
 
-        # Verify max_id query WAS executed (queries posthog_person_deletes_log)
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
+        # Verify max_id query WAS executed (queries posthog_person)
+        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person" in call]
+        assert len(max_queries) == 1, "Should query for max_id from posthog_person when override is not provided"
 
     def test_get_id_range_uses_max_id_override(self):
         """Test that max_id override is honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=1, max_id=5000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=1, max_id=5000)
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pdwp(context, config)
 
         assert result == (1, 5000)
         assert result[1] == 5000  # max_id override used
@@ -685,14 +644,14 @@ class TestGetIdRange:
 
     def test_get_id_range_uses_both_overrides(self):
         """Test that both min_id and max_id overrides are honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=100, max_id=5000)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=100, max_id=5000)
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pdwp(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -705,56 +664,9 @@ class TestGetIdRange:
         assert len(min_queries) == 0, "Should not query for min_id when override is provided"
         assert len(max_queries) == 0, "Should not query for max_id when override is provided"
 
-    def test_get_id_range_queries_database_when_min_id_not_provided(self):
-        """Test that database is queried for min_id when override is not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=None, max_id=5000)
-        mock_db = create_mock_database_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = {"min_id": 1}
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range(context, config)
-
-        assert result == (1, 5000)
-
-        # Verify min_id query was executed (queries posthog_person_deletes_log)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(min_queries) == 1
-        ), "Should query for min_id from posthog_person_deletes_log when override is not provided"
-
-    def test_get_id_range_queries_database_when_both_not_provided(self):
-        """Test that database is queried for both min_id and max_id when overrides are not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=None, max_id=None)
-        mock_db = create_mock_database_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        # fetchone will be called twice - once for MIN, once for MAX
-        cursor.fetchone.side_effect = [{"min_id": 1}, {"max_id": 5000}]
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range(context, config)
-
-        assert result == (1, 5000)
-
-        # Verify both queries were executed (queries posthog_person_deletes_log)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call and "posthog_person_deletes_log" in call]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(min_queries) == 1
-        ), "Should query for min_id from posthog_person_deletes_log when override is not provided"
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
-
     def test_get_id_range_queries_database_when_max_id_not_provided(self):
         """Test that database is queried for max_id when override is not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=1, max_id=None)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=1, max_id=None)
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
@@ -762,20 +674,18 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pdwp(context, config)
 
         assert result == (1, 5000)
 
-        # Verify max_id query was executed (queries posthog_person_deletes_log)
+        # Verify max_id query was executed (queries posthog_person)
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
+        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person" in call]
+        assert len(max_queries) == 1, "Should query for max_id from posthog_person when override is not provided"
 
     def test_get_id_range_validates_max_id_greater_than_min_id(self):
         """Test that validation fails when max_id < min_id."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=5000, max_id=100)
+        config = PersonsDistinctIdsNoPersonCleanupConfig(min_id=5000, max_id=100)
         mock_db = create_mock_database_resource()
 
         context = build_op_context(resources={"database": mock_db})
@@ -783,7 +693,7 @@ class TestGetIdRange:
         from dagster import Failure
 
         try:
-            get_id_range(context, config)
+            get_id_range_for_pdwp(context, config)
             raise AssertionError("Expected Dagster.Failure to be raised")
         except Failure as e:
             assert e.description is not None

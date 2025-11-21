@@ -380,7 +380,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Test with contextual tools
             config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
+                configurable={
+                    "contextual_tools": {
+                        "search_session_recordings": {
+                            "current_filters": {"duration": ">"},
+                            "current_session_id": "00000000-0000-0000-0000-000000000001",
+                        }
+                    }
+                }
             )
             # Set config before calling arun
             node._config = config
@@ -1000,6 +1007,53 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Configuration error", result.messages[0].content)
         self.assertIn("INKEEP_API_KEY", result.messages[0].content)
         self.assertNotIn("retry", result.messages[0].content.lower())
+
+    @patch("ee.hogai.graph.agent_modes.nodes.posthoganalytics.capture")
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_fatal_error_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
+        """Test that MaxToolFatalError emits a PostHog analytics event."""
+        error_message = "Configuration error: INKEEP_API_KEY environment variable is not set"
+        read_taxonomy_mock.side_effect = MaxToolFatalError(error_message)
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that will fail",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        # Provide a config with distinct_id so the capture is triggered
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        await node.arun(state, config)
+
+        # Verify posthoganalytics.capture was called
+        capture_mock.assert_called_once()
+        call_args = capture_mock.call_args
+
+        # Verify event name
+        self.assertEqual(call_args.kwargs["event"], "max_tool_error")
+
+        # Verify distinct_id is set
+        self.assertEqual(call_args.kwargs["distinct_id"], "test-user-123")
+
+        # Verify properties
+        properties = call_args.kwargs["properties"]
+        self.assertEqual(properties["tool_name"], "read_taxonomy")
+        self.assertEqual(properties["error_type"], "MaxToolFatalError")
+        self.assertEqual(properties["retry_strategy"], "never")
+        self.assertEqual(properties["error_message"], error_message)
+
+        # Verify groups are set
+        groups = call_args.kwargs["groups"]
+        self.assertIn("organization", groups)
+        self.assertIn("project", groups)
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):

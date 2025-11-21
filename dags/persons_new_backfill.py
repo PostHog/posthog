@@ -27,7 +27,7 @@ class PersonsNewBackfillConfig(dagster.Config):
 
 
 @dagster.op
-def get_id_range(
+def get_id_range_for_pnb(
     context: dagster.OpExecutionContext,
     config: PersonsNewBackfillConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
@@ -95,7 +95,7 @@ def get_id_range(
 
 
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
-def create_chunks(
+def create_chunks_for_pnb(
     context: dagster.OpExecutionContext,
     config: PersonsNewBackfillConfig,
     id_range: tuple[int, int],
@@ -400,6 +400,6 @@ def persons_new_backfill_job():
     Backfill posthog_persons data from source to destination Postgres database.
     Divides the ID space into chunks and processes them in parallel.
     """
-    id_range = get_id_range()
-    chunks = create_chunks(id_range)
+    id_range = get_id_range_for_pnb()
+    chunks = create_chunks_for_pnb(id_range)
     chunks.map(copy_chunk)
