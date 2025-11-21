@@ -60,6 +60,7 @@ async def _run_activity(
     expect_duplicates: bool = False,
     primary_key=None,
     assert_clickhouse_records: bool = True,
+    uppercase_columns: list[str] | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
     insert_inputs = SnowflakeInsertInputs(
@@ -108,6 +109,7 @@ async def _run_activity(
             expected_fields=expected_fields,
             expect_duplicates=expect_duplicates,
             primary_key=primary_key,
+            uppercase_columns=uppercase_columns,
         )
     return result
 
@@ -621,3 +623,57 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
     assert isinstance(result, BatchExportResult)
     assert result.error is not None
     assert result.error.type == "SnowflakeIncompatibleSchemaError"
+
+
+async def test_insert_into_snowflake_activity_handles_uppercased_columns(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity_from_stage` can handle target
+    table columns being in UPPERCASE.
+
+    Due to the relatively simple way to resolve that a column name is UPPERCASED, this
+    should not cause a schema error.
+
+    This test first runs the batch export normally to create a target table, then
+    updates some columns to be UPPERCASE, and finally re-runs the batch export.
+    """
+    model = BatchExportModel(name="events", schema=None)
+    table_name = f"test_insert_activity_events_table_handle_uppercased_{ateam.pk}"
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+    )
+
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "event" TO "EVENT"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "timestamp" TO "TIMESTAMP"')
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+        uppercase_columns=["event", "timestamp"],
+    )
