@@ -13,6 +13,8 @@ pub struct EmbeddingRequest {
     pub timestamp: DateTime<Utc>,
     pub content: String,
     pub models: Vec<EmbeddingModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 // Records the embedding worker emits, for ingestion into clickhouse
@@ -28,6 +30,8 @@ pub struct EmbeddingRecord {
     pub embedding: Vec<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]

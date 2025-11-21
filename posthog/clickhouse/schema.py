@@ -169,11 +169,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 
-from products.error_tracking.backend.embedding import (
-    DOCUMENT_EMBEDDINGS_MV_SQL,
-    DOCUMENT_EMBEDDINGS_TABLE_SQL,
-    KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL,
-)
 from products.error_tracking.backend.sql import (
     ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_MV_SQL,
     ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
@@ -182,6 +177,11 @@ from products.error_tracking.backend.sql import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+)
+from products.signals.backend.embedding_table import (
+    DOCUMENT_EMBEDDINGS_MV_SQL,
+    DOCUMENT_EMBEDDINGS_TABLE_SQL,
+    KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL,
 )
 
 # Queries to create tables, you must pass function, otherwise the table is created before

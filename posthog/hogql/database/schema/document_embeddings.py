@@ -10,10 +10,11 @@ from posthog.hogql.database.models import (
     LazyTable,
     LazyTableToAdd,
     StringDatabaseField,
+    StringJSONDatabaseField,
     Table,
 )
 
-from products.error_tracking.backend.embedding import DOCUMENT_EMBEDDINGS
+from products.signals.backend.embedding_table import DOCUMENT_EMBEDDINGS
 
 DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -25,6 +26,7 @@ DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
     "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
     "content": StringDatabaseField(name="content", nullable=False),
+    "metadata": StringJSONDatabaseField(name="metadata", nullable=False),
     "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
 }
 

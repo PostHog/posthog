@@ -72,6 +72,12 @@ pub async fn handle_single(
 
     counter!(EMBEDDINGS_GENERATED, labels.render()).increment(1);
 
+    let metadata = request
+        .metadata
+        .as_ref()
+        .map(|value| serde_json::to_string(value))
+        .transpose()?;
+
     Ok(EmbeddingRecord {
         team_id: request.team_id,
         product: request.product.clone(),
@@ -82,6 +88,7 @@ pub async fn handle_single(
         timestamp: format_ch_datetime(request.timestamp),
         embedding,
         content: Some(request.content.clone()),
+        metadata,
     })
 }
 
