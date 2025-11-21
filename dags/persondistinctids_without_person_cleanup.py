@@ -30,7 +30,7 @@ class PersonsDistinctIdsNoPersonCleanupConfig(dagster.Config):
 
 
 @dagster.op
-def get_id_range(
+def get_id_range_for_pdwp(
     context: dagster.OpExecutionContext,
     config: PersonsDistinctIdsNoPersonCleanupConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
@@ -97,7 +97,7 @@ def get_id_range(
 
 
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
-def create_chunks(
+def create_chunks_for_pdwp(
     context: dagster.OpExecutionContext,
     config: PersonsDistinctIdsNoPersonCleanupConfig,
     id_range: tuple[int, int],
@@ -135,7 +135,7 @@ def create_chunks(
 
 
 @dagster.op
-def scan_delete_chunk(
+def scan_delete_chunk_for_pdwp(
     context: dagster.OpExecutionContext,
     config: PersonsDistinctIdsNoPersonCleanupConfig,
     chunk: tuple[int, int],
@@ -451,6 +451,6 @@ def persondistinctids_without_person_cleanup_job():
     and deletes the corresponding posthog_persondistinctid rows that carry the missing person_id.
     Divides the ID space into chunks and processes them in parallel.
     """
-    id_range = get_id_range()
-    chunks = create_chunks(id_range)
-    chunks.map(scan_delete_chunk)
+    id_range = get_id_range_for_pdwp()
+    chunks = create_chunks_for_pdwp(id_range)
+    chunks.map(scan_delete_chunk_for_pdwp)
