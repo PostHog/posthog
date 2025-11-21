@@ -266,7 +266,7 @@ export function calculateExperimentTimeEstimate(
     estimatedRemainingDays: number | null
 } {
     const baselineValue = calculateBaselineValue(result.baseline, metric)
-    if (!baselineValue) {
+    if (baselineValue === null) {
         return { currentExposures: null, recommendedSampleSize: null, exposureRate: null, estimatedRemainingDays: null }
     }
 
