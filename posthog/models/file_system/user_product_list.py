@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.db import models
 from django.db.models.expressions import F
@@ -73,13 +73,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
 
     @staticmethod
-    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "Optional[UserProductList]":
+    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
         if user.allow_sidebar_suggestions is False:
-            return None
+            return []
 
         products = Products.get_products_by_intent(product_intent.product_type)
         if not products:
-            return None
+            return []
 
         onboarding_contexts = [
             ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
@@ -89,8 +89,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         has_onboarding_context = any(context in (product_intent.contexts or {}) for context in onboarding_contexts)
         reason = UserProductList.Reason.ONBOARDING if has_onboarding_context else UserProductList.Reason.PRODUCT_INTENT
 
+        user_product_lists = []
         for product in products:
-            UserProductList.objects.get_or_create(
+            item, _ = UserProductList.objects.get_or_create(
                 user=user,
                 team=product_intent.team,
                 product_path=product.path,
@@ -99,3 +100,6 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
                     "reason": reason,
                 },
             )
+            user_product_lists.append(item)
+
+        return user_product_lists
