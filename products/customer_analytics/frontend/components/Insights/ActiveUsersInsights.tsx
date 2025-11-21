@@ -20,8 +20,11 @@ export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
     const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
-    // Check if using pageview as default
-    const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
+    // Check if using pageview as default, with no properties filter
+    const isOnlyPageview =
+        isEventsNode(activityEvent) &&
+        activityEvent.event === '$pageview' &&
+        (!activityEvent.properties || activityEvent.properties.length === 0)
 
     return (
         <div className="space-y-2">

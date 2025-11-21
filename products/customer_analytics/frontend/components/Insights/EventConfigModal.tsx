@@ -95,7 +95,7 @@ function EventSelector({ filters, setFilters, title, caption }: EventSelectorPro
                 <ActionFilter
                     hideRename
                     hideDuplicate
-                    hideFilter
+                    hideFilter={false}
                     propertyFiltersPopover
                     filters={filters}
                     setFilters={setFilters}
