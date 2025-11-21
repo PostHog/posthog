@@ -35,6 +35,12 @@ SDK_REPO_MAP = {
     "posthog-dotnet": ("PostHog/posthog-dotnet", "v{version}"),
 }
 
+# Fallback tag formats for SDKs with legacy versions
+# Old posthog-js versions used v-prefixed tags (e.g., "v1.187.2")
+FALLBACK_TAG_TEMPLATES = {
+    "web": "v{version}",  # Legacy format: v-prefixed (e.g., v1.187.2)
+}
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -117,6 +123,26 @@ def sdk_version_date(request: Request, sdk_type: str, version: str) -> JsonRespo
                 redis_client.set(cache_key, release_date)
                 logger.info(f"[SDK Doctor] Lazy-loaded date for {sdk_type}@{version}: {release_date}")
                 return JsonResponse({"releaseDate": release_date, "cached": False})
+
+        # Try fallback tag format if primary format failed and fallback exists
+        elif response.status_code == 404 and sdk_type in FALLBACK_TAG_TEMPLATES:
+            fallback_tag = FALLBACK_TAG_TEMPLATES[sdk_type].format(version=version)
+            fallback_url = f"https://api.github.com/repos/{repo}/releases/tags/{fallback_tag}"
+
+            logger.info(f"[SDK Doctor] Trying fallback tag format for {sdk_type}@{version}: {fallback_tag}")
+            fallback_response = requests.get(fallback_url, timeout=10)
+
+            if fallback_response.status_code == 200:
+                release_data = fallback_response.json()
+                release_date = release_data.get("published_at")
+
+                if release_date:
+                    # Permanent cache (immutable data)
+                    redis_client.set(cache_key, release_date)
+                    logger.info(
+                        f"[SDK Doctor] Lazy-loaded date for {sdk_type}@{version} using fallback tag: {release_date}"
+                    )
+                    return JsonResponse({"releaseDate": release_date, "cached": False})
 
         logger.warning(
             f"[SDK Doctor] Could not fetch release date for {sdk_type}@{version}", status=response.status_code
