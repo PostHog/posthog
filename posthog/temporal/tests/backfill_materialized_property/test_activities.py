@@ -18,29 +18,23 @@ class TestPropertyExtractionSQL:
     """Test SQL generation for extracting properties."""
 
     @pytest.mark.parametrize(
-        "property_name,property_type,expected_sql_fragment",
+        "property_name,property_type,expected_fragments",
         [
-            # String property - should use replaceRegexpAll for quote trimming
-            ("custom_prop", "String", "replaceRegexpAll(JSONExtractRaw(properties, 'custom_prop')"),
-            # Numeric property - should convert to Float64
-            ("revenue", "Numeric", "toFloat64OrNull("),
-            # Boolean property - should use transform expression
-            ("is_active", "Boolean", "transform(toString("),
-            ("is_active", "Boolean", "['true', 'false'], [1, 0], NULL)"),
-            # DateTime property - should use parseDateTimeBestEffortOrNull
-            ("last_login", "DateTime", "coalesce("),
-            ("last_login", "DateTime", "parseDateTimeBestEffortOrNull("),
+            ("custom_prop", "String", ["replaceRegexpAll(JSONExtractRaw(properties, 'custom_prop')"]),
+            ("revenue", "Numeric", ["toFloat64OrNull("]),
+            ("is_active", "Boolean", ["transform(toString(", "['true', 'false'], [1, 0], NULL)"]),
+            ("last_login", "DateTime", ["coalesce(", "parseDateTimeBestEffortOrNull("]),
         ],
     )
     def test_property_extraction_sql_generation(
         self,
         property_name,
         property_type,
-        expected_sql_fragment,
+        expected_fragments,
     ):
-        """Test that SQL extraction expressions are generated correctly."""
         sql = _generate_property_extraction_sql(property_name, property_type)
-        assert expected_sql_fragment in sql
+        for fragment in expected_fragments:
+            assert fragment in sql, f"Expected '{fragment}' in SQL: {sql}"
 
     def test_property_extraction_unsupported_type(self):
         """Test that unsupported property types raise error."""
