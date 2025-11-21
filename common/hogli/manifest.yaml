@@ -381,6 +381,8 @@ db:
                 exit 1
             fi
             gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -q -U posthog > /dev/null 2>&1
+            echo "🔐 Upgrading password to SCRAM-SHA-256..."
+            docker compose exec -T db psql -U posthog -c "ALTER USER posthog WITH PASSWORD 'posthog';" > /dev/null 2>&1
             echo "✅ Restored from: $BACKUP_FILE"
         description: Restore PostgreSQL databases from backup file (defaults to latest)
         services:
