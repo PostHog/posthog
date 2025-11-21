@@ -682,6 +682,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             context=serializer.validated_data["intent_context"],
             user=cast(User, user),
             metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=False,
         )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)

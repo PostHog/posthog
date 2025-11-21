@@ -10,7 +10,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
@@ -49,6 +48,7 @@ import {
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'

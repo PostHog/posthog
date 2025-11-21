@@ -18,7 +18,7 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
-from posthog.schema import ProductKey
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -405,14 +405,14 @@ class VercelIntegration:
             ProductIntent.register(
                 team=team,
                 product_type=ProductKey.FEATURE_FLAGS,
-                context="vercel integration",
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 
             ProductIntent.register(
                 team=team,
                 product_type=ProductKey.EXPERIMENTS,
-                context="vercel integration",
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 

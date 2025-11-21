@@ -6,7 +6,7 @@ from django.db import models
 from celery import shared_task
 from rest_framework import serializers
 
-from posthog.schema import ProductKey
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
@@ -56,9 +56,9 @@ class ProductIntentSerializer(serializers.Serializer):
     This is used when registering new product intents via the API.
     """
 
-    product_type = serializers.ChoiceField(required=True, choices=ProductKey)
     metadata = serializers.DictField(required=False, default=dict)
-    intent_context = serializers.CharField(required=False, default="unknown")
+    product_type = serializers.ChoiceField(required=True, choices=ProductKey)
+    intent_context = serializers.ChoiceField(required=True, choices=ProductIntentContext)
 
 
 class ProductIntent(UUIDTModel, RootTeamMixin):
@@ -219,7 +219,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
     def register(
         team: Team,
         product_type: ProductKey,
-        context: str,
+        context: ProductIntentContext,
         user: User,
         metadata: Optional[dict] = None,
         is_onboarding: bool = False,

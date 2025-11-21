@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Optional
 from django.db import models
 from django.db.models.expressions import F
 
+from posthog.schema import ProductIntentContext
+
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
@@ -27,6 +29,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
+        # User chose this product during onboarding
+        ONBOARDING = "onboarding", "Onboarding"
+
         # User showed intent for the product
         PRODUCT_INTENT = "product_intent", "Product Intent"
 
@@ -76,6 +81,14 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         if not products:
             return None
 
+        onboarding_contexts = [
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
+            ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+        ]
+        has_onboarding_context = any(context in (product_intent.contexts or {}) for context in onboarding_contexts)
+        reason = UserProductList.Reason.ONBOARDING if has_onboarding_context else UserProductList.Reason.PRODUCT_INTENT
+
         for product in products:
             UserProductList.objects.get_or_create(
                 user=user,
@@ -83,6 +96,6 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
                 product_path=product.path,
                 defaults={
                     "enabled": True,
-                    "reason": UserProductList.Reason.PRODUCT_INTENT,
+                    "reason": reason,
                 },
             )
