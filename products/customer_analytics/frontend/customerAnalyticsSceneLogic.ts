@@ -567,7 +567,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'New Signups (Weekly)',
+                    name: 'New Signups',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -631,7 +631,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Signup Conversion Rate',
+                    name: 'Signup Conversion',
                     requiredSeries: { signupSeries, signupPageviewSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -640,14 +640,15 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
-                                date_from: '-30d',
+                                date_from: dateRange.date_from,
+                                date_to: dateRange.date_to,
                                 explicitDate: false,
                             },
                             properties: [],
                             funnelsFilter: {
-                                layout: FunnelLayout.vertical,
+                                layout: FunnelLayout.horizontal,
                                 exclusions: [],
-                                funnelVizType: FunnelVizType.Trends,
+                                funnelVizType: FunnelVizType.Steps,
                                 funnelOrderType: StepOrderValue.ORDERED,
                                 funnelStepReference: FunnelStepReference.total,
                                 funnelWindowInterval: 14,
@@ -671,7 +672,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             series: [dauSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
-                                date_from: '-30d',
+                                date_from: dateRange.date_from,
+                                date_to: dateRange.date_to,
                                 explicitDate: false,
                             },
                             properties: [],
