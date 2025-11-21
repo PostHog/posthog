@@ -9,8 +9,8 @@ from posthoganalytics import capture_exception
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ee.hogai.graph.agent_modes.const import SLASH_COMMAND_USAGE
-from ee.hogai.graph.base import AssistantNode
+from ee.hogai.core.agent_modes.const import SLASH_COMMAND_USAGE
+from ee.hogai.graph.base.node import AssistantNode
 from ee.hogai.graph.memory.nodes import MemoryOnboardingNode
 from ee.hogai.graph.usage.queries import (
     POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE,

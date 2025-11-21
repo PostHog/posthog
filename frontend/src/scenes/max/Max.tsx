@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconExternal, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconChevronLeft, IconExpand45, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -198,7 +198,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                     {!isAIOnlyMode && (
                         <LemonButton
                             size="small"
-                            sideIcon={<IconExternal />}
+                            sideIcon={<IconExpand45 />}
                             to={urls.ai(conversationId ?? undefined)}
                             onClick={() => {
                                 closeSidePanel()

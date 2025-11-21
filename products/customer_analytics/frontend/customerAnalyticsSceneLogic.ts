@@ -10,7 +10,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { ActionsNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode } from '~/queries/utils'
-import { BaseMathType, Breadcrumb, ChartDisplayType, FilterType, InsightType } from '~/types'
+import { BaseMathType, Breadcrumb, ChartDisplayType, FilterType, InsightType, PropertyMathType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
@@ -220,6 +220,139 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 ]
             },
+        ],
+        sessionInsights: [
+            () => [],
+            () => [
+                {
+                    name: 'Unique sessions (last 1h)',
+                    description: 'Events without session IDs are excluded.',
+                    needsConfig: false,
+                    className: 'h-[284px]',
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    math: BaseMathType.UniqueSessions,
+                                    name: 'All events',
+                                    event: null,
+                                },
+                            ],
+                            interval: 'minute',
+                            dateRange: {
+                                date_to: '',
+                                date_from: '-1h',
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            trendsFilter: {
+                                display: ChartDisplayType.BoldNumber,
+                                showLegend: false,
+                                yAxisScaleType: 'linear',
+                                showValuesOnSeries: false,
+                                showPercentStackView: false,
+                                aggregationAxisFormat: 'numeric',
+                                showAlertThresholdLines: false,
+                            },
+                            compareFilter: {
+                                compare: true,
+                            },
+                            breakdownFilter: undefined,
+                            filterTestAccounts: true,
+                        },
+                    },
+                },
+                {
+                    name: 'Unique users (last 1h)',
+                    description: 'Number of unique users recently.',
+                    needsConfig: false,
+                    className: 'h-[284px]',
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    math: BaseMathType.UniqueUsers,
+                                    name: 'All events',
+                                    event: null,
+                                },
+                            ],
+                            interval: 'hour',
+                            dateRange: {
+                                date_to: '',
+                                date_from: '-1h',
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            trendsFilter: {
+                                display: ChartDisplayType.BoldNumber,
+                                showLegend: false,
+                                yAxisScaleType: 'linear',
+                                showValuesOnSeries: false,
+                                showPercentStackView: false,
+                                aggregationAxisFormat: 'numeric',
+                                showAlertThresholdLines: false,
+                            },
+                            compareFilter: {
+                                compare: true,
+                            },
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                            },
+                            filterTestAccounts: true,
+                        },
+                    },
+                },
+                {
+                    name: 'Average session duration (last 1h)',
+                    description: 'Average session duration for recent sessions.',
+                    needsConfig: false,
+                    className: 'h-[284px]',
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    math: PropertyMathType.Average,
+                                    name: '$pageview',
+                                    event: '$pageview',
+                                    math_property: '$session_duration',
+                                },
+                            ],
+                            interval: 'minute',
+                            dateRange: {
+                                date_to: '',
+                                date_from: '-1h',
+                                explicitDate: false,
+                            },
+                            properties: [],
+                            trendsFilter: {
+                                display: ChartDisplayType.BoldNumber,
+                                showLegend: false,
+                                yAxisScaleType: 'linear',
+                                showValuesOnSeries: false,
+                                showPercentStackView: false,
+                                aggregationAxisFormat: 'duration',
+                                showAlertThresholdLines: false,
+                            },
+                            compareFilter: {
+                                compare: true,
+                            },
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                            },
+                            filterTestAccounts: true,
+                        },
+                    },
+                },
+            ],
         ],
         activityEventFilters: [
             (s) => [s.activityEvent, s.activityEventSelection],

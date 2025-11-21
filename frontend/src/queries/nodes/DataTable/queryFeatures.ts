@@ -61,6 +61,8 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.sessionPropertyFilters)
+        features.add(QueryFeature.eventNameFilter)
+        features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)

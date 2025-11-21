@@ -54,6 +54,7 @@ jest.mock('scenes/sceneLogic', () => ({
         actions: {
             setTabs: jest.fn(),
         },
+        isMounted: jest.fn(() => true),
     },
 }))
 
