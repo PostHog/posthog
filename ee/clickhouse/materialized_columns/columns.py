@@ -18,7 +18,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
+    ColumnName,
+    TablesWithMaterializedColumns,
+)
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
@@ -83,7 +87,7 @@ class MaterializedColumn:
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
         refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
-        if table in TablesWithMaterializedColumns and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
+        if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key: str = f"materialized_columns:{table}"
 
             try:
@@ -108,7 +112,7 @@ class MaterializedColumn:
                 ch_user=ClickHouseUser.HOGQL,
             )
 
-        if table in TablesWithMaterializedColumns and MATERIALIZED_COLUMNS_USE_CACHE:
+        if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
             try:
                 cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
             except Exception:
@@ -119,7 +123,7 @@ class MaterializedColumn:
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
-        if table not in TablesWithMaterializedColumns:
+        if table not in MATERIALIZATION_VALID_TABLES:
             logger.error("HogQL trying to get materialized columns for table: %s", table)
             return
 
