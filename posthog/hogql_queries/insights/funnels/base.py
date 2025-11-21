@@ -179,38 +179,6 @@ class FunnelBase(ABC):
 
         return ids
 
-    def _get_breakdown_expr(self) -> ast.Expr:
-        breakdown, breakdownType, breakdownFilter = (
-            self.context.breakdown,
-            self.context.breakdownType,
-            self.context.breakdownFilter,
-        )
-
-        assert breakdown is not None
-
-        if breakdownType == "person":
-            properties_column = "person.properties"
-            return get_breakdown_expr(breakdown, properties_column)
-        elif breakdownType == "event":
-            properties_column = "properties"
-            normalize_url = breakdownFilter.breakdown_normalize_url
-            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
-        elif breakdownType == "cohort":
-            return ast.Field(chain=["value"])
-        elif breakdownType == "group":
-            properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
-            return get_breakdown_expr(breakdown, properties_column)
-        elif breakdownType == "hogql" or breakdownType == "event_metadata":
-            assert isinstance(breakdown, list)
-            return ast.Alias(
-                alias="value",
-                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
-            )
-        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
-            return ast.Field(chain=["person", *breakdown.split(".")])
-        else:
-            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
-
     def _format_results(
         self, results
     ) -> Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]:
@@ -502,27 +470,6 @@ class FunnelBase(ABC):
             order_by=self._order_by(),
             limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
-
-    def _get_steps_conditions(self, length: int) -> ast.Expr:
-        step_conditions: list[ast.Expr] = []
-
-        for index in range(length):
-            step_conditions.append(parse_expr(f"step_{index} = 1"))
-
-        for exclusion_id, entity in enumerate(self.context.funnelsFilter.exclusions or []):
-            step_conditions.append(parse_expr(f"exclusion_{exclusion_id}_step_{entity.funnelFromStep} = 1"))
-
-        return ast.Or(exprs=step_conditions)
-
-    def _get_steps_conditions_for_udf(self, exclusions, length: int) -> ast.Expr:
-        step_conditions: list[ast.Expr] = []
-
-        for index in range(length):
-            step_conditions.append(parse_expr(f"step_{index} = 1"))
-            if exclusions[index]:
-                step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
-
-        return ast.Or(exprs=step_conditions)
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         if self.context.includePrecedingTimestamp:

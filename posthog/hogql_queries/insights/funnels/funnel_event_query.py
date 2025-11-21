@@ -21,6 +21,7 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_expr
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
@@ -127,7 +128,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
+                steps_conditions = self._get_steps_conditions(all_exclusions, length=len(entities_to_use))
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
@@ -299,6 +300,52 @@ class FunnelEventQuery:
         elif len(filters) > 1:
             return ast.And(exprs=filters)
         return filters[0]
+
+    def _get_steps_conditions(self, exclusions, length: int) -> ast.Expr:
+        step_conditions: list[ast.Expr] = []
+
+        for index in range(length):
+            step_conditions.append(parse_expr(f"step_{index} = 1"))
+            if exclusions[index]:
+                step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
+
+        return ast.Or(exprs=step_conditions)
+
+    def _get_breakdown_expr(self) -> ast.Expr:
+        breakdown, breakdownType, breakdownFilter = (
+            self.context.breakdown,
+            self.context.breakdownType,
+            self.context.breakdownFilter,
+        )
+
+        assert breakdown is not None
+
+        if breakdownType == "person":
+            properties_column = "person.properties"
+            return get_breakdown_expr(breakdown, properties_column)
+        elif breakdownType == "event":
+            properties_column = "properties"
+            normalize_url = breakdownFilter.breakdown_normalize_url
+            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
+        elif breakdownType == "cohort":
+            return ast.Field(chain=["value"])
+        elif breakdownType == "group":
+            properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
+            return get_breakdown_expr(breakdown, properties_column)
+        elif breakdownType == "hogql" or breakdownType == "event_metadata":
+            assert isinstance(breakdown, list)
+            return ast.Alias(
+                alias="value",
+                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
+            )
+        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
+            return ast.Field(chain=["person", *breakdown.split(".")])
+        else:
+            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
+
+    def _query_has_array_breakdown(self) -> bool:
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_breakdown_select_prop(self, for_udf=False) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
