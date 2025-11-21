@@ -271,20 +271,15 @@ export const logsLogic = kea<logsLogicType>([
             [] as LogMessage[],
             { persist: true },
             {
-              pinLog: (state, { log }) => [...state, log],
-              unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+                pinLog: (state, { log }) => [...state, log],
+                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
         liveTailRunning: [
             false as boolean,
             {
                 setLiveTailRunning: (_, { enabled }) => enabled,
-                setDateRange: () => false,
-                setFilterGroup: () => false,
-                setSearchTerm: () => false,
-                setSeverityLevels: () => false,
-                setServiceNames: () => false,
-                setOrderBy: () => false,
+                runQuery: () => false,
             },
         ],
         liveTailPollInterval: [
