@@ -268,7 +268,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_custom_cache_client_isolation(self):
-        """Test that custom cache_client writes to dedicated cache, not default"""
+        """Test that custom cache_alias writes to dedicated cache, not default"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -277,12 +277,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -312,7 +312,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_custom_cache_client_reads_from_dedicated(self):
-        """Test that reads use the custom cache client"""
+        """Test that reads use the custom cache alias"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -321,12 +321,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return {"fallback": "data"}
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -354,7 +354,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         }
     )
     def test_clear_cache_uses_custom_client(self):
-        """Test that clear_cache targets the custom cache client"""
+        """Test that clear_cache targets the custom cache alias"""
         from django.core.cache import caches
 
         caches["default"].clear()
@@ -363,12 +363,12 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache with custom cache client
+        # Create HyperCache with custom cache alias
         hc = HyperCache(
             namespace="test",
             value="value",
             load_fn=load_fn,
-            cache_client=caches["flags_dedicated"],
+            cache_alias="flags_dedicated",
         )
 
         team_id = self.team.id
@@ -389,13 +389,13 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         default_value = caches["default"].get(cache_key)
         assert default_value == json.dumps(self.sample_data)
 
-    def test_default_cache_client_backward_compatibility(self):
-        """Test that HyperCache without cache_client uses default cache"""
+    def test_default_cache_alias_backward_compatibility(self):
+        """Test that HyperCache without cache_alias uses default cache"""
 
         def load_fn(team):
             return self.sample_data
 
-        # Create HyperCache without cache_client (should use default)
+        # Create HyperCache without cache_alias (should use default)
         hc = HyperCache(
             namespace="test",
             value="value",
