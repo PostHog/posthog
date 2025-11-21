@@ -336,7 +336,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
-    specific_session_ids_to_summarize: Optional[list[str]] = Field(default_factory=list)
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
     """
     List of specific session IDs (UUIDs) to summarize. Can be populated from:
     - Session IDs extracted from user's natural language query
