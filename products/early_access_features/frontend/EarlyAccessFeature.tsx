@@ -42,7 +42,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
@@ -50,7 +50,6 @@ import {
     EarlyAccessFeatureType,
     FilterLogicalOperator,
     PersonPropertyFilter,
-    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,

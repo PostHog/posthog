@@ -38,6 +38,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -522,6 +523,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined,
                                             }}
+                                            contextDescription={
+                                                dashboard
+                                                    ? {
+                                                          text: dashboard.name,
+                                                          icon: iconForType('dashboard'),
+                                                      }
+                                                    : undefined
+                                            }
                                             active={!!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
@@ -537,7 +546,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    Add insight
+                                                    <span className="pr-3">Add insight</span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>

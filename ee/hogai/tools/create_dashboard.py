@@ -30,7 +30,6 @@ class CreateDashboardToolArgs(BaseModel):
 class CreateDashboardTool(MaxTool):
     name: Literal["create_dashboard"] = "create_dashboard"
     description: str = CREATE_DASHBOARD_TOOL_PROMPT
-    thinking_message: str = "Creating a dashboard"
     context_prompt_template: str = "Creates a dashboard based on the user's request"
     args_schema: type[BaseModel] = CreateDashboardToolArgs
     show_tool_call_message: bool = False

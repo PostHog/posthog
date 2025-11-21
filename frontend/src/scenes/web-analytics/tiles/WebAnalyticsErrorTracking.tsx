@@ -14,9 +14,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
-import { ProductKey } from '~/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue

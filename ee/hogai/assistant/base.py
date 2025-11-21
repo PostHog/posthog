@@ -26,9 +26,12 @@ from posthog.schema import (
 )
 
 from posthog import event_usage
+from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
+from posthog.utils import get_instance_region
 
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_stream_update
@@ -60,7 +63,7 @@ class BaseAssistant(ABC):
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantMaxGraphState]
-    _callback_handler: Optional[BaseCallbackHandler]
+    _callback_handlers: list[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
@@ -98,23 +101,38 @@ class BaseAssistant(ABC):
         self._graph = graph
         self._state_type = state_type
         self._partial_state_type = partial_state_type
-        self._callback_handler = callback_handler or (
-            CallbackHandler(
-                posthoganalytics.default_client,
-                distinct_id=user.distinct_id if user else None,
-                properties={
+
+        self._callback_handlers = []
+        if callback_handler:
+            self._callback_handlers.append(callback_handler)
+        else:
+
+            def init_handler(client: posthoganalytics.Client):
+                callback_properties = {
                     "conversation_id": str(self._conversation.id),
                     "$ai_session_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
                     "$groups": event_usage.groups(team=team),
-                },
-                trace_id=trace_id,
-            )
-            if posthoganalytics.default_client
-            else None
-        )
+                }
+                return CallbackHandler(
+                    client,
+                    distinct_id=user.distinct_id if user else None,
+                    properties=callback_properties,
+                    trace_id=trace_id,
+                )
+
+            # Local deployment or hobby
+            if not is_cloud() and (local_client := posthoganalytics.default_client):
+                self._callback_handlers.append(init_handler(local_client))
+            elif region := get_instance_region():
+                # Add regional client first
+                self._callback_handlers.append(init_handler(get_client(region)))
+                # If we're in EU, add the US client as well, so we can see US and EU traces
+                if region == "EU":
+                    self._callback_handlers.append(init_handler(get_client("US")))
+
         self._trace_id = trace_id
         self._billing_context = billing_context
         self._mode = mode
@@ -238,10 +256,9 @@ class BaseAssistant(ABC):
                         yield AssistantEventType.MESSAGE, FailureMessage()
 
     def _get_config(self) -> RunnableConfig:
-        callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
             "recursion_limit": 48,
-            "callbacks": callbacks,
+            "callbacks": self._callback_handlers,
             "configurable": {
                 "thread_id": self._conversation.id,
                 "trace_id": self._trace_id,

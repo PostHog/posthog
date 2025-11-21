@@ -6,8 +6,7 @@ import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 
