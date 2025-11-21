@@ -2355,7 +2355,7 @@ export interface ErrorTrackingIssueImpactToolOutput {
 
 export interface ErrorTrackingExplainIssueToolContext {
     stacktrace: string
-    issue_name: string
+    issue_id: string
 }
 
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
