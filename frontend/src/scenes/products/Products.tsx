@@ -5,11 +5,14 @@ import { useState } from 'react'
 
 import * as Icons from '@posthog/icons'
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -119,7 +122,12 @@ export function Products(): JSX.Element {
         useValues(productsLogic)
     const { skipOnboarding } = useActions(onboardingLogic)
     const { hasIngestedEvent } = useValues(teamLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { updateOrganization } = useActions(organizationLogic)
     const [showAllProducts, setShowAllProducts] = useState(false)
+
+    const isNotAdmin = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const isAIConsentEnabled = !!currentOrganization?.is_ai_data_processing_approved
 
     // Get all non-recommended products
     const availablePreSelectedProducts = preSelectedProducts.filter(isAvailableOnboardingProductKey)
@@ -150,7 +158,7 @@ export function Products(): JSX.Element {
                         </p>
                     </div>
 
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 justify-center items-center w-full">
                         {isUseCaseOnboardingEnabled ? (
                             // NEW LAYOUT: Horizontal cards with recommendations (when use case onboarding is enabled)
                             <div className="max-w-[800px] w-full flex flex-col">
@@ -246,6 +254,31 @@ export function Products(): JSX.Element {
                         )}
 
                         <div className="flex flex-col items-center gap-4 w-full">
+                            <div className="flex flex-col items-center">
+                                <LemonCheckbox
+                                    checked={isAIConsentEnabled}
+                                    onChange={(checked) => {
+                                        updateOrganization({ is_ai_data_processing_approved: checked })
+                                    }}
+                                    disabled={!!isNotAdmin || currentOrganizationLoading}
+                                    label={
+                                        <span>
+                                            Enable PostHog AI features{' '}
+                                            <Tooltip title="PostHog AI uses external AI services for data analysis. Your data will not be used for training models.">
+                                                <Link to="https://posthog.com/docs/ai" target="_blank">
+                                                    Learn more
+                                                </Link>
+                                            </Tooltip>
+                                        </span>
+                                    }
+                                    data-attr="onboarding-ai-consent"
+                                />
+                                {isNotAdmin && (
+                                    <p className="text-muted text-xs mt-1 text-center">
+                                        Only organization admins can enable AI features.
+                                    </p>
+                                )}
+                            </div>
                             <div
                                 className={clsx(
                                     'flex flex-col-reverse sm:flex-row gap-4 items-center justify-center w-full',
