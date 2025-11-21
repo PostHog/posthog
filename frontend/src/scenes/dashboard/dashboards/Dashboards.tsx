@@ -68,7 +68,7 @@ export function Dashboards(): JSX.Element {
                         >
                             <AppShortcut
                                 name="NewDashboard"
-                                keybind={keyBinds.new}
+                                keybind={[keyBinds.new]}
                                 intent="New dashboard"
                                 interaction="click"
                                 asChild

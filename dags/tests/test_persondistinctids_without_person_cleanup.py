@@ -278,7 +278,6 @@ class TestScanDeleteChunkForPdwp:
             "SET application_name = 'delete_personsdistinctids_with_no_person'",
             "SET lock_timeout = '5s'",
             "SET statement_timeout = '30min'",
-            "SET maintenance_work_mem = '12GB'",
             "SET work_mem = '512MB'",
             "SET temp_buffers = '512MB'",
             "SET max_parallel_workers_per_gather = 2",
@@ -576,7 +575,6 @@ class TestScanDeleteChunkForPdwp:
             "SET application_name",
             "SET lock_timeout",
             "SET statement_timeout",
-            "SET maintenance_work_mem",
             "SET work_mem",
             "SET temp_buffers",
             "SET max_parallel_workers_per_gather",
@@ -700,3 +698,82 @@ class TestGetIdRangeForPdwp:
             description = e.description
             assert "max_id" in description.lower() or "invalid" in description.lower()
             assert "5000" in description or "100" in description
+
+
+class TestMetricsPublishing:
+    """Test metrics publishing batching behavior."""
+
+    def test_metrics_published_every_100_batches(self):
+        """Test that metrics are only published every 100 batches to reduce ClickHouse writes."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
+            chunk_size=50000,
+            batch_size=100,
+        )
+        # Create a chunk with 250 batches (25000 records)
+        chunk = (1, 25000)
+
+        # Create fetchall results for all 250 batches
+        # Each batch deletes 10 records
+        fetchall_results = [[{"id": i} for i in range(batch_num * 10, batch_num * 10 + 10)] for batch_num in range(250)]
+
+        mock_db = create_mock_database_resource(fetchall_results=fetchall_results)
+        mock_cluster = create_mock_cluster_resource()
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+
+        from unittest.mock import PropertyMock
+
+        mock_run = MagicMock(job_name="test_job", run_id="test_run_id")
+        with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
+            scan_delete_chunk_for_pdwp(context, config, chunk)
+
+        # Get the metrics client from the cluster
+        metrics_client = mock_cluster
+
+        # Count how many times increment was called for batch metrics
+        increment_calls = [
+            call for call in metrics_client.method_calls if call[0] == "increment" or "increment" in str(call)
+        ]
+
+        assert len(increment_calls) < 50, (
+            f"Expected metrics to be batched (~16 calls), " f"but got {len(increment_calls)} increment calls"
+        )
+
+    def test_metrics_flushed_at_chunk_end(self):
+        """Test that remaining accumulated metrics are flushed at the end of a chunk."""
+        config = PersonsDistinctIdsNoPersonCleanupConfig(
+            chunk_size=10000,
+            batch_size=100,
+        )
+        # Create a chunk with 50 batches (not a multiple of 100)
+        chunk = (1, 5000)
+
+        # Create fetchall results for all 50 batches
+        fetchall_results = [[{"id": i} for i in range(batch_num * 10, batch_num * 10 + 10)] for batch_num in range(50)]
+
+        mock_db = create_mock_database_resource(fetchall_results=fetchall_results)
+        mock_cluster = create_mock_cluster_resource()
+
+        context = build_op_context(
+            resources={"database": mock_db, "cluster": mock_cluster},
+        )
+
+        from unittest.mock import PropertyMock
+
+        mock_run = MagicMock(job_name="test_job", run_id="test_run_id")
+        with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
+            result = scan_delete_chunk_for_pdwp(context, config, chunk)
+
+        # Verify the chunk completed successfully
+        assert result["records_deleted"] == 500  # 50 batches × 10 records each
+
+        metrics_client = mock_cluster
+        increment_calls = [
+            call for call in metrics_client.method_calls if call[0] == "increment" or "increment" in str(call)
+        ]
+
+        # Should have final flush metrics
+        assert len(increment_calls) > 0, "Expected metrics to be flushed at chunk end"
+        assert len(increment_calls) < 20, f"Expected only final flush (~6 calls), got {len(increment_calls)}"

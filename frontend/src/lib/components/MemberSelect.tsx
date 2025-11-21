@@ -69,7 +69,7 @@ export function MemberSelect({
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+                <div className="max-w-100 deprecated-space-y-2">
                     <LemonInput
                         type="search"
                         placeholder="Search"

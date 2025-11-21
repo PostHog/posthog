@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconExternal, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconChevronLeft, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -203,7 +203,6 @@ export const MaxInstance = React.memo(function MaxInstance({
                     {!isAIOnlyMode && (
                         <LemonButton
                             size="small"
-                            sideIcon={<IconExternal />}
                             to={urls.max(conversationId ?? undefined)}
                             onClick={() => {
                                 closeSidePanel()

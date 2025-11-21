@@ -589,6 +589,59 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(summarized_messages), 2)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
+    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
+    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag")
+    async def test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled(
+        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
+    ):
+        """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
+        mock_calculate_tokens.return_value = 150_000
+        mock_summarize.return_value = "Summary of conversation"
+        mock_feature_flag.return_value = True
+
+        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+        mock_model.return_value = mock_model_instance
+
+        node = _create_agent_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="First response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,
+        )
+
+        result = await node.arun(state, {})
+
+        # Verify summary and mode reminder messages were inserted
+        self.assertIsInstance(result, PartialAssistantState)
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        self.assertGreaterEqual(len(context_messages), 2, "Should have at least summary and mode reminder")
+
+        # Find summary message
+        summary_msg = next(
+            (msg for msg in context_messages if "Summary of conversation" in msg.content),
+            None,
+        )
+        self.assertIsNotNone(summary_msg, "Summary message should be present")
+        assert summary_msg is not None  # Type narrowing
+
+        # Find mode reminder message
+        mode_reminder = next(
+            (msg for msg in context_messages if "product_analytics" in msg.content),
+            None,
+        )
+        self.assertIsNotNone(mode_reminder, "Mode reminder should be present")
+        assert mode_reminder is not None  # Type narrowing
+
+        # Verify mode reminder comes after summary
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_msg.id)
+        mode_idx = next(i for i, msg in enumerate(result.messages) if msg.id == mode_reminder.id)
+        self.assertEqual(mode_idx, summary_idx + 1, "Mode reminder should be right after summary")
+
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
         node = _create_agent_node(self.team, self.user)
@@ -789,7 +842,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
         )
-        self.assertIsNone(node._get_updated_agent_mode(message, None))
 
 
 class TestRootNodeTools(BaseTest):

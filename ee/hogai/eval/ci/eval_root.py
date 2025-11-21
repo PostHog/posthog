@@ -207,6 +207,17 @@ async def eval_root(call_root, pytestconfig):
                     id="call_dau_past_month",
                 ),
             ),
+            # Some models already know about PostHog's events, but they must not rely on this knowledge and use the read_taxonomy tool instead.
+            EvalCase(
+                input="create a pageview trends broken down by countries",
+                expected=AssistantToolCall(
+                    name="read_taxonomy",
+                    args={
+                        "query": {"kind": "events"},
+                    },
+                    id="call_read_events",
+                ),
+            ),
         ],
         pytestconfig=pytestconfig,
     )

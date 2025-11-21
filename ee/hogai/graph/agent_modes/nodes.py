@@ -272,7 +272,11 @@ class AgentExecutable(BaseAgentExecutable):
 
             # Insert the summary message before the last human message
             insertion_result = self._window_manager.update_window(
-                messages_to_replace or state.messages, summary_message, start_id=start_id
+                messages_to_replace or state.messages,
+                summary_message,
+                state.agent_mode_or_default,
+                start_id=start_id,
+                is_modes_feature_flag_enabled=has_agent_modes_feature_flag(self._team, self._user),
             )
             window_id = insertion_result.updated_window_start_id
             start_id = insertion_result.updated_start_id
@@ -312,7 +316,7 @@ class AgentExecutable(BaseAgentExecutable):
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(assistant_message, state.agent_mode),
+            agent_mode=self._get_updated_agent_mode(assistant_message, state.agent_mode_or_default),
         )
 
     def router(self, state: AssistantState):
@@ -482,11 +486,11 @@ class AgentExecutable(BaseAgentExecutable):
         """Process the output message."""
         return normalize_ai_message(message)
 
-    def _get_updated_agent_mode(
-        self, generated_message: AssistantMessage, current_mode: AgentMode | None
-    ) -> AgentMode | None:
+    def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
+        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
+
         for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == "switch_mode" and (new_mode := validate_mode(tool_call.args.get("new_mode"))):
+            if tool_call.name == SWITCH_MODE_TOOL_NAME and (new_mode := validate_mode(tool_call.args.get("new_mode"))):
                 return new_mode
         return current_mode
 

@@ -104,8 +104,12 @@ async def _get_default_tools_prompt(
     return ", ".join([tool.get_name() for tool in resolved_tools]) + ", switch_mode"
 
 
+SwitchModeToolType = Literal["switch_mode"]
+SWITCH_MODE_TOOL_NAME: SwitchModeToolType = "switch_mode"
+
+
 class SwitchModeTool(MaxTool):
-    name: Literal["switch_mode"] = "switch_mode"
+    name: SwitchModeToolType = SWITCH_MODE_TOOL_NAME
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:
         from ee.hogai.mode_registry import MODE_REGISTRY
