@@ -26,6 +26,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
@@ -110,6 +111,12 @@ const OnboardingWrapper = ({
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
+        }
+
+        // Add AI consent step at the end if AI is not already enabled
+        if (!currentOrganization?.is_ai_data_processing_approved) {
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+            steps = [...steps, aiConsentStep]
         }
 
         steps = steps.filter(Boolean)
