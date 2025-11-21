@@ -87,7 +87,7 @@ function StacktraceTabSubHeader(): JSX.Element {
     const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool()
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId)
     return (
         <SubHeader className="justify-between">
             <div className="flex items-center gap-1">
