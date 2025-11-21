@@ -6,7 +6,7 @@ import posthoganalytics
 from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import User
+from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from ee.models.license import License

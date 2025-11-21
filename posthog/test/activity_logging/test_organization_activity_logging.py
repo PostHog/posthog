@@ -1,8 +1,8 @@
-from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.user import User
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 

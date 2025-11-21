@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, ScheduledChange
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.scheduled_change import ScheduledChange
 
 
 class TestScheduledChange(APIBaseTest):

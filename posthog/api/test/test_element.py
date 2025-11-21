@@ -16,7 +16,9 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Element, ElementGroup, Organization
+from posthog.models.element import Element
+from posthog.models.element_group import ElementGroup
+from posthog.models.organization import Organization
 
 expected_autocapture_data_response_results: list[dict] = [
     {

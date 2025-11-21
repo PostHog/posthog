@@ -15,9 +15,8 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
 from posthog.models.action.action import Action
-from posthog.models.team import WeekStartDay
+from posthog.models.team import Team, WeekStartDay
 from posthog.utils import get_safe_cache
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60

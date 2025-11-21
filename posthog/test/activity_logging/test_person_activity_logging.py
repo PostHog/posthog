@@ -2,8 +2,10 @@ import unittest
 
 from dateutil import parser
 
-from posthog.models import Person, Team, User
 from posthog.models.activity_logging.activity_log import changes_between
+from posthog.models.person import Person
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 

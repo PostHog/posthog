@@ -5,11 +5,11 @@ from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType, PropertyOperatorType
-from posthog.models import Person
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery

@@ -4,7 +4,8 @@ CLI interface to the existing environments_rollback_migration function.
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
+from posthog.models.user import User
 from posthog.tasks.environments_rollback import environments_rollback_migration
 
 

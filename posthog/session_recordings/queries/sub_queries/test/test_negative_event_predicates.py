@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.sub_queries.events_subquery import negative_event_predicates
 
 

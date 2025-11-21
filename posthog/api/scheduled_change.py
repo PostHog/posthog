@@ -5,7 +5,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ScheduledChange
+from posthog.models.scheduled_change import ScheduledChange
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):

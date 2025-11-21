@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, create_model
 
 from posthog.schema import AgentMode
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool import MaxTool

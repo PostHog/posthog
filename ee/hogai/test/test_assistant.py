@@ -55,7 +55,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Action
+from posthog.models.action import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

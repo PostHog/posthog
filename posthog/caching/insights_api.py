@@ -8,8 +8,9 @@ from rest_framework import request
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.insight_caching_state import InsightCachingState
-from posthog.models import DashboardTile, Insight
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.filters.utils import get_filter
+from posthog.models.insight import Insight
 from posthog.utils import refresh_requested_by_client
 
 """

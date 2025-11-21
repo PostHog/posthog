@@ -14,8 +14,9 @@ from rest_framework import status
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
-from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 INSERT_SINGLE_HEATMAP_EVENT = """
 INSERT INTO sharded_heatmaps (

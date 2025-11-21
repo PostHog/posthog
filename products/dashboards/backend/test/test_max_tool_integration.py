@@ -4,7 +4,11 @@ from unittest.mock import patch
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Dashboard, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.insight import Insight
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 

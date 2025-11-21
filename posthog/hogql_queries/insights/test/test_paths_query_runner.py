@@ -16,7 +16,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import CachedPathsQueryResponse
 
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 # This test file uses a batched method of event creation

@@ -6,7 +6,8 @@ from django.test import override_settings
 
 from rest_framework import status
 
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 
 @override_settings(DEMO=True)

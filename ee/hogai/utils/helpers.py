@@ -35,7 +35,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion

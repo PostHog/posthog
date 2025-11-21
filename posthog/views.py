@@ -25,7 +25,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
-from posthog.models import Organization, User
 from posthog.models.integration import SlackIntegration
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import (
@@ -33,7 +32,9 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.user import User
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
 from posthog.utils import (

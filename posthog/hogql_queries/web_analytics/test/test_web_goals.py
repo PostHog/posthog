@@ -23,7 +23,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
-from posthog.models import Action, Cohort, Element, Person
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.element import Element
+from posthog.models.person import Person
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.utils import uuid7
 

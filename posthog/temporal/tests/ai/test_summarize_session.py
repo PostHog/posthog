@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import WORKFLOWS

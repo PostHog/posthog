@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from posthog.schema import AssistantToolCallMessage
 
-from posthog.models import Dashboard
+from posthog.models.dashboard import Dashboard
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 

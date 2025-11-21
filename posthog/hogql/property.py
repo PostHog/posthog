@@ -41,12 +41,14 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.event import Selector
-from posthog.models.property import PropertyGroup, ValueT
+from posthog.models.property import Property, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.team import Team
 from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin

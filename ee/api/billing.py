@@ -20,8 +20,8 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager, build_billing_token

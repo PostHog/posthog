@@ -14,7 +14,7 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import ProxyRecord
+from posthog.models.proxy_record import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger

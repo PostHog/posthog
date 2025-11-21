@@ -16,8 +16,7 @@ from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Cohort
-from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,

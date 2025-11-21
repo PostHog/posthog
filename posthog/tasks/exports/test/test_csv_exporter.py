@@ -19,7 +19,8 @@ from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
-from posthog.models import Action, ExportedAsset
+from posthog.models.action import Action
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,

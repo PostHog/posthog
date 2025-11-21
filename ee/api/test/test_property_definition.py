@@ -10,8 +10,10 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, EventProperty, Tag
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event_property import EventProperty
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.tag import Tag
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition

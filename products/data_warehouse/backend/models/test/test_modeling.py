@@ -3,9 +3,12 @@ from posthog.test.base import BaseTest
 
 from django.db.utils import ProgrammingError
 
-from posthog.models import DataWarehouseTable
-
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
+from products.data_warehouse.backend.models import (
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    ExternalDataSourceType,
+)
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.modeling import (
     DataWarehouseModelPath,

@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.models import Insight
+from posthog.models.insight import Insight
 
 
 def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = False) -> None:

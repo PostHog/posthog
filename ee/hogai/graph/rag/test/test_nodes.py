@@ -10,7 +10,7 @@ from azure.core.credentials import AzureKeyCredential
 from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
 
 from ee.hogai.graph.rag.nodes import InsightRagContextNode

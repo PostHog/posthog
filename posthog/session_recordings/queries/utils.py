@@ -19,7 +19,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr
 
-from posthog.models import Action, Team
+from posthog.models.action import Action
+from posthog.models.team import Team
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)

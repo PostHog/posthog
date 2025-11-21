@@ -12,7 +12,9 @@ import dns.resolver
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.team import Team
 
 
 class FakeAnswer:

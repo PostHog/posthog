@@ -12,8 +12,8 @@ from temporalio.common import MetricCounter, MetricMeter
 
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
 from posthog.models.subscription import Subscription
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.tasks.utils import CeleryQueue
 

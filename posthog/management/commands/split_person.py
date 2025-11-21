@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.kafka_client.client import KafkaProducer
-from posthog.models import Person
+from posthog.models.person import Person
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

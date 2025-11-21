@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from posthog.models import Plugin
+from posthog.models.plugin import Plugin
 
 
 class PluginAdmin(admin.ModelAdmin):

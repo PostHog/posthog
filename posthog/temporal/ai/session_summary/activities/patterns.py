@@ -10,7 +10,7 @@ from redis import asyncio as aioredis
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
 
-from posthog.models import User
+from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (

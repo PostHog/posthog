@@ -13,7 +13,7 @@ from posthog.schema import (
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
 

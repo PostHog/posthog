@@ -3,7 +3,9 @@ from posthog.test.base import BaseTest
 
 from django import db
 
-from posthog.models import Dashboard, User, UserScenePersonalisation
+from posthog.models.dashboard import Dashboard
+from posthog.models.user import User
+from posthog.models.user_scene_personalisation import UserScenePersonalisation
 
 
 class TestUserScenePersonalisation(BaseTest):

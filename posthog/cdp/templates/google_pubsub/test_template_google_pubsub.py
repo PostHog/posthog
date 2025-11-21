@@ -6,7 +6,8 @@ from unittest.mock import patch
 from inline_snapshot import snapshot
 
 from posthog.cdp.templates.google_pubsub.template_google_pubsub import TemplateGooglePubSubMigrator
-from posthog.models import Integration, Plugin, PluginAttachment, PluginConfig
+from posthog.models.integration import Integration
+from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
 
 
 class TestTemplateMigration(BaseTest):

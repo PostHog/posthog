@@ -30,7 +30,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.models import Action, Cohort, Element
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.utils import uuid7
 
 nan_value = float("nan")

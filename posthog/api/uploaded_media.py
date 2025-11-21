@@ -14,8 +14,7 @@ from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import UploadedMedia
-from posthog.models.uploaded_media import ObjectStorageUnavailable
+from posthog.models.uploaded_media import ObjectStorageUnavailable, UploadedMedia
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024

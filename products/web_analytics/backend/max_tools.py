@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from posthog.schema import WebAnalyticsAssistantFilters
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.queries.property_values import get_person_property_values_for_key, get_property_values_for_key
 from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP

@@ -22,9 +22,14 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from rest_framework import status
 
-from posthog.models import Action, Element, Organization, Person, PropertyDefinition, User
+from posthog.models.action import Action
 from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.event.query_event_list import insight_query_with_columns
+from posthog.models.organization import Organization
+from posthog.models.person import Person
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 

@@ -2,7 +2,8 @@ import random
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 
 
 class Command(BaseCommand):

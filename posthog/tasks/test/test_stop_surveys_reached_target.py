@@ -9,7 +9,11 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
+from posthog.models.surveys.survey import Survey
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
 

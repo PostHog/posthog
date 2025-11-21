@@ -3,7 +3,7 @@ import pytest
 from braintrust import EvalCase
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Dashboard
+from posthog.models.dashboard import Dashboard
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 

@@ -31,7 +31,7 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import InternalCHQueryError
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7

@@ -11,17 +11,13 @@ from django.db import IntegrityError, transaction
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
-from posthog.models import (
-    Cohort,
-    Group,
-    GroupTypeMapping,
-    Organization,
-    OrganizationMembership,
-    Person,
-    PersonDistinctId,
-    Team,
-    User,
-)
+from posthog.models.cohort import Cohort
+from posthog.models.group import Group
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from .matrix import Matrix

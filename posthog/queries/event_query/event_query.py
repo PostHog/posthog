@@ -6,15 +6,15 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.models import Cohort, Filter, Property
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import is_precalculated_query
-from posthog.models.filters import AnyFilter
+from posthog.models.filters import AnyFilter, Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyGroup, PropertyName
+from posthog.models.property import Property, PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer

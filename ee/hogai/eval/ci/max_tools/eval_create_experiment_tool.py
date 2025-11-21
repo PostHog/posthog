@@ -8,7 +8,8 @@ from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase, Score
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool
 

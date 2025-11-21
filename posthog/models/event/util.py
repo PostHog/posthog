@@ -12,9 +12,9 @@ from rest_framework import serializers
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
+from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST

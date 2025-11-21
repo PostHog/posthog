@@ -12,7 +12,8 @@ from posthog.schema import (
     ErrorTrackingIssueImpactToolOutput,
 )
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent

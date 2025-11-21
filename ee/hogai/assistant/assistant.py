@@ -3,7 +3,8 @@ from uuid import UUID
 
 from posthog.schema import HumanMessage, MaxBillingContext
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.assistant.deep_research_assistant import DeepResearchAssistant

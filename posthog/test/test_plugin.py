@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_que
 
 from django.core import exceptions
 
-from posthog.models import Plugin, PluginSourceFile
+from posthog.models.plugin import Plugin, PluginSourceFile
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,

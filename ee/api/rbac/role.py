@@ -8,7 +8,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission
 

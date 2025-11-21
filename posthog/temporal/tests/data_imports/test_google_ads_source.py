@@ -7,8 +7,8 @@ from django.test import override_settings
 
 import pyarrow as pa
 
-from posthog.models import Team
 from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,

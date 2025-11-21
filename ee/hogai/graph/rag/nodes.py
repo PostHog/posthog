@@ -15,7 +15,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
     VectorSearchQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
+from posthog.models.action import Action
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client

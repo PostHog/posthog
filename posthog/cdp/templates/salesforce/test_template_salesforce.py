@@ -8,7 +8,7 @@ from posthog.cdp.templates.salesforce.template_salesforce import (
     template_create as template_salesforce_create,
     template_update as template_salesforce_update,
 )
-from posthog.models import PluginConfig
+from posthog.models.plugin import PluginConfig
 
 
 class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):

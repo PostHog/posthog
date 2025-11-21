@@ -15,7 +15,8 @@ from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect

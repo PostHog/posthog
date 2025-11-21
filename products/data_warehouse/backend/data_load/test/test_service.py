@@ -10,7 +10,8 @@ from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import Client as TemporalClient
 from temporalio.service import RPCError
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.service import _jitter_timedelta, get_sync_schedule

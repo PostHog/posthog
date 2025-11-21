@@ -6,7 +6,7 @@ from braintrust_core.score import Scorer
 
 from posthog.schema import SurveyCreationSchema
 
-from posthog.models import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 
 from products.surveys.backend.max_tools import FeatureFlagLookupGraph
 

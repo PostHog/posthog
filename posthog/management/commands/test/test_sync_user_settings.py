@@ -9,8 +9,8 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 
 

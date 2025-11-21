@@ -15,9 +15,10 @@ from posthog.hogql.database.schema.sessions_v1 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import ALLOWED_TEAM_IDS
+from posthog.models.team import Team
 from posthog.models.utils import uuid7
 
 

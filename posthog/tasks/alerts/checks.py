@@ -17,8 +17,8 @@ from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration, User
-from posthog.models.alert import AlertCheck
+from posthog.models.alert import AlertCheck, AlertConfiguration
+from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import check_trends_alert

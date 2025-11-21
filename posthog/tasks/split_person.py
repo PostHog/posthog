@@ -2,7 +2,7 @@ from typing import Optional, Union
 
 from celery import shared_task
 
-from posthog.models import Person
+from posthog.models.person import Person
 
 
 @shared_task(ignore_result=True, max_retries=1)

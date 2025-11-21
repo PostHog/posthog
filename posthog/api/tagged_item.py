@@ -8,11 +8,12 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.models.tag import tagify
+from posthog.models.tag import Tag, tagify
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.user import User
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):

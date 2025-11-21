@@ -10,7 +10,8 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, DeepResearchNotebook, DeepResearchType, HumanMessage
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState

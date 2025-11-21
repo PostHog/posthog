@@ -27,9 +27,12 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import uuid7
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 

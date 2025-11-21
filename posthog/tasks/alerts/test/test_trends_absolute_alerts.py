@@ -24,8 +24,7 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
+from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.checks import check_alert
 

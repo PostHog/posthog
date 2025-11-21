@@ -25,8 +25,10 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Person, Team
+from posthog.models.element import Element
 from posthog.models.organization import Organization
+from posthog.models.person import Person
+from posthog.models.team import Team
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):

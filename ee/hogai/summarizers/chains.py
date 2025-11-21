@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from posthoganalytics.ai.langchain import CallbackHandler
 
-from posthog.models import Action
+from posthog.models.action import Action
 
 from .actions import ActionSummarizer
 from .prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT

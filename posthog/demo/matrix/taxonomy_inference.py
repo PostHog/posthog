@@ -2,10 +2,11 @@ import json
 import datetime
 from typing import Optional
 
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition
+from posthog.models.event_definition import EventDefinition
+from posthog.models.event_property import EventProperty
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
-from posthog.models.property_definition import PropertyType
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:

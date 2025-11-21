@@ -2,7 +2,8 @@ from typing import cast
 
 from django.http import HttpRequest
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.utils import render_template
 
 from .app_data_generator import AppDataGenerator

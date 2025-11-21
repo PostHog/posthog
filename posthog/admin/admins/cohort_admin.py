@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 
 
 class CohortAdmin(admin.ModelAdmin):

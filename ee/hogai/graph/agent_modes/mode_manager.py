@@ -4,7 +4,8 @@ from pydantic import BaseModel, ValidationError
 
 from posthog.schema import AgentMode
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.types.base import NodePath

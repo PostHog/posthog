@@ -12,8 +12,9 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Group, Team
+from posthog.models.group import Group
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 
 
 class ActorStrategy:

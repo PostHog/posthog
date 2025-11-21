@@ -23,8 +23,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.models import PersonalAPIKey, User
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 
 

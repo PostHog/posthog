@@ -7,9 +7,9 @@ from typing import Literal, Optional
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.models import Filter
 from posthog.models.action import Action
 from posthog.models.action.action import ActionStepJSON
+from posthog.models.filters import Filter
 from posthog.models.property import Property, PropertyIdentifier
 from posthog.models.property.property import OperatorType
 from posthog.queries.util import PersonPropertiesMode

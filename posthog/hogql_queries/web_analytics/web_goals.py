@@ -9,7 +9,7 @@ from posthog.hogql.property import action_to_expr, get_property_type, property_t
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
-from posthog.models import Action
+from posthog.models.action import Action
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:

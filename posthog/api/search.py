@@ -11,7 +11,14 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.event_definition import EventDefinition
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
+from posthog.models.surveys.survey import Survey
 
 from products.notebooks.backend.models import Notebook
 

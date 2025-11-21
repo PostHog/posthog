@@ -11,7 +11,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.models import PropertyDefinition
+from posthog.models.property_definition import PropertyDefinition
 
 
 def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:

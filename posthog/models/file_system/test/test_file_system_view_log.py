@@ -5,8 +5,17 @@ from freezegun import freeze_time
 
 from django.test import TestCase
 
-from posthog.models import Dashboard, FileSystem, FileSystemViewLog, Insight, Organization, Team, User
-from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, log_file_system_view
+from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_view_log import (
+    FileSystemViewLog,
+    get_recent_file_system_items,
+    log_file_system_view,
+)
+from posthog.models.insight import Insight
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class FileSystemWithLastViewed(Protocol):

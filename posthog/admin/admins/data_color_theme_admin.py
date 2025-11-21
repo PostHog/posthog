@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import DataColorTheme
+from posthog.models.data_color_theme import DataColorTheme
 
 
 class DataColorThemeAdmin(admin.ModelAdmin):

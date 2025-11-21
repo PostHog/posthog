@@ -11,7 +11,8 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST

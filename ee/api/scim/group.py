@@ -6,8 +6,9 @@ from django_scim import constants
 from django_scim.adapters import SCIMGroup
 from scim2_filter_parser.attr_paths import AttrPath
 
-from posthog.models import OrganizationMembership, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User
 
 from ee.models.rbac.role import Role, RoleMembership
 

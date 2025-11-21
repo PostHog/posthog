@@ -5,7 +5,11 @@ from posthog.test.base import ClickhouseTestMixin
 from django.test import TestCase
 from django.utils.timezone import now
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
+from posthog.models.surveys.survey import Survey
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 

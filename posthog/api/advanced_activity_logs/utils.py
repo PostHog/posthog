@@ -4,7 +4,7 @@ from typing import Optional
 from django.utils import timezone
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization
+from posthog.models.organization import Organization
 
 from .constants import ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT, ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT
 

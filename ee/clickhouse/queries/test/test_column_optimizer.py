@@ -1,6 +1,6 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.filters import Filter, RetentionFilter
 
 from ee.clickhouse.materialized_columns.columns import materialize

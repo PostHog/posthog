@@ -8,8 +8,11 @@ from botocore.client import Config
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, ExportedAsset, Insight, InsightVariable
+from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.exported_asset import ExportedAsset
+from posthog.models.insight import Insight
+from posthog.models.insight_variable import InsightVariable
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,

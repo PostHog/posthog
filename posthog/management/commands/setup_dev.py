@@ -2,10 +2,13 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
-from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
 from posthog.models.event_definition import EventDefinition
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.event_property import EventProperty
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class Command(BaseCommand):

@@ -7,7 +7,12 @@ from unittest.mock import ANY, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.event_definition import EventDefinition
+from posthog.models.event_property import EventProperty
+from posthog.models.organization import Organization
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
 
 

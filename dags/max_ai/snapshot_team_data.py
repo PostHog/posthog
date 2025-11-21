@@ -25,8 +25,9 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import GroupTypeMapping, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 
 from dags.common import JobOwners
 from dags.max_ai.utils import check_dump_exists, compose_clickhouse_dump_path, compose_postgres_dump_path, dump_model

@@ -19,7 +19,7 @@ from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, Funnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team

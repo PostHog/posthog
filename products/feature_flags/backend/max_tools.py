@@ -7,8 +7,13 @@ from pydantic import BaseModel, Field
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, GroupTypeMapping, Tag, TaggedItem, Team, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent

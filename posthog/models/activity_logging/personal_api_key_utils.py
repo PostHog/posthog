@@ -5,13 +5,13 @@ from typing import Optional
 
 from django.db.models import Count
 
-from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     Detail,
     LogActivityEntry,
     bulk_log_activity,
 )
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
 

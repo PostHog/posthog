@@ -12,8 +12,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.event_usage import groups
-from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
+from posthog.models.proxy_record import ProxyRecord
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 

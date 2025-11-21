@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph

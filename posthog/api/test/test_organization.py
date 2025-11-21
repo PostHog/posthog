@@ -13,9 +13,11 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.test.test_oauth import generate_rsa_key
-from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.user_permissions import UserPermissions
 

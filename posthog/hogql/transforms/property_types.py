@@ -17,8 +17,8 @@ from posthog.clickhouse.materialized_columns import (
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
-from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.team import Team
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:

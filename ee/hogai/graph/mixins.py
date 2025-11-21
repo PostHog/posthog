@@ -10,8 +10,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import CurrencyCode, HumanMessage
 
 from posthog.event_usage import groups
-from posthog.models import Team
 from posthog.models.action.action import Action
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config

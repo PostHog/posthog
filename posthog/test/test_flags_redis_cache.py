@@ -14,8 +14,7 @@ from django.core.cache import cache
 from django.test import override_settings
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS, write_flags_to_cache
-from posthog.models import FeatureFlag
-from posthog.models.feature_flag import set_feature_flags_for_team_in_cache
+from posthog.models.feature_flag import FeatureFlag, set_feature_flags_for_team_in_cache
 
 
 class TestFlagsRedisCache(BaseTest):

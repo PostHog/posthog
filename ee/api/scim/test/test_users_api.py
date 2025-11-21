@@ -1,8 +1,9 @@
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest

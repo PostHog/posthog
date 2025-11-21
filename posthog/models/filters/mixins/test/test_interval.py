@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.models import Filter
+from posthog.models.filters import Filter
 
 
 @pytest.mark.parametrize(

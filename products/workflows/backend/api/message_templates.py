@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import MessageTemplate
+from posthog.models.message_template import MessageTemplate
 
 
 class EmailTemplateSerializer(serializers.Serializer):

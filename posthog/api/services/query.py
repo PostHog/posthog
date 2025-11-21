@@ -30,7 +30,8 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_warehouse.backend.models import DataWarehouseJoin

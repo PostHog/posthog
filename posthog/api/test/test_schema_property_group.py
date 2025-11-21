@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from posthog.models.event_definition import EventDefinition
+from posthog.models.project import Project
+from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
 class TestSchemaPropertyGroupAPI(APIBaseTest):

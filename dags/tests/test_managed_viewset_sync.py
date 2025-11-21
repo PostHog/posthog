@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from dagster import build_op_context
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind

@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.models import User
+from posthog.models.user import User
 from posthog.utils import capture_exception
 
 logger = structlog.get_logger(__name__)

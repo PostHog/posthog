@@ -7,7 +7,7 @@ from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Survey
+from posthog.models.surveys.survey import Survey
 
 from products.surveys.backend.max_tools import SurveyAnalysisTool
 

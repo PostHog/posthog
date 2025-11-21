@@ -9,8 +9,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationInvite, Plugin
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.plugin import Plugin
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 

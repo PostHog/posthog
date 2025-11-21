@@ -8,8 +8,10 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 

@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 from products.llm_analytics.backend.models.evaluations import Evaluation
 

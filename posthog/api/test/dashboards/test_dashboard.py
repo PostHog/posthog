@@ -17,14 +17,19 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
+from posthog.models.filters import Filter
+from posthog.models.insight import Insight
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.models.rbac.access_control import AccessControl

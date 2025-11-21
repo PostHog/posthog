@@ -4,8 +4,8 @@ from posthog.test.base import APIBaseTest
 
 from dateutil import parser
 
-from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Change, changes_between
+from posthog.models.feature_flag import FeatureFlag
 
 
 class TestChangesBetweenFeatureFlags(APIBaseTest):

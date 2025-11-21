@@ -1,6 +1,13 @@
 from django.test import TestCase
 
-from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Organization, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.insight import Insight
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.notebooks.backend.models import Notebook
 

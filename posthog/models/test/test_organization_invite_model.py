@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from posthog.models import OrganizationInvite
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.models.user import User
 

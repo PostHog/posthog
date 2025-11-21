@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
+from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.checks import check_alert
 from posthog.tasks.alerts.utils import send_notifications_for_breaches

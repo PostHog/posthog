@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool
 

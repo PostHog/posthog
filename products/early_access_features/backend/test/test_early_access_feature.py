@@ -8,7 +8,8 @@ from django.test.client import Client
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Person
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.person import Person
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.early_access_features.backend.models import EarlyAccessFeature

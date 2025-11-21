@@ -22,7 +22,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
 from posthog.temporal.ai.sync_vectors import (
     BatchEmbedAndSyncActionsInputs,

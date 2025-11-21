@@ -24,8 +24,8 @@ from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrend
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team import Team
 
 
 class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):

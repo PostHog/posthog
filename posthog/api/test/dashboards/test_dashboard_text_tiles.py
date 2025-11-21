@@ -10,7 +10,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import User
+from posthog.models.user import User
 
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):

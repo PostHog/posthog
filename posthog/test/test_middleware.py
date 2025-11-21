@@ -12,7 +12,11 @@ from rest_framework import status
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User

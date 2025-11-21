@@ -15,7 +15,8 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Cohort, Filter
+from posthog.models.cohort import Cohort
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter

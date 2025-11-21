@@ -4,7 +4,8 @@ from typing import Literal, Self
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool

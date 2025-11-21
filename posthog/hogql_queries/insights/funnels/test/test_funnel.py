@@ -59,10 +59,12 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element, Team
+from posthog.models.action import Action
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

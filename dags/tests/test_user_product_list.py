@@ -6,8 +6,10 @@ from unittest.mock import patch
 import dagster
 from dagster import build_op_context
 
-from posthog.models import Organization, Team, User
 from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from dags.user_product_list import populate_user_product_list, populate_user_product_list_job
 

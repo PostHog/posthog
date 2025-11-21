@@ -13,7 +13,7 @@ from posthog.admin.inlines.organization_member_inline import OrganizationMemberI
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
-from posthog.models import User
+from posthog.models.user import User
 
 
 class UserChangeForm(DjangoUserChangeForm):

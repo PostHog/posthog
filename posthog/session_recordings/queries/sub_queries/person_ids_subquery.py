@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
 from posthog.hogql.parser import parse_select
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import poe_is_active
 

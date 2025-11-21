@@ -5,9 +5,11 @@ from unittest.mock import Mock, patch
 
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.api.vercel.types import VercelUserClaims
 

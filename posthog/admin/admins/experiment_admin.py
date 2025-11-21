@@ -7,14 +7,9 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import (
-    Cohort,
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-    FeatureFlag,
-)
+from posthog.models.cohort import Cohort
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.utils import convert_legacy_metrics
 
 

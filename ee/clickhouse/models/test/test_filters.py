@@ -5,8 +5,8 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
@@ -15,7 +15,10 @@ from posthog.models.filters.test.test_filter import (
     TestFilter as PGTestFilters,
     property_to_Q_test_factory,
 )
+from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.team import Team
 from posthog.queries.util import PersonPropertiesMode
 from posthog.test.test_journeys import journeys_for
 

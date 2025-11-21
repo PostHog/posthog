@@ -9,8 +9,10 @@ from django.test import override_settings
 from asgiref.sync import sync_to_async
 from flaky import flaky
 
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.batch_exports.service import disable_and_delete_export, sync_batch_export
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,

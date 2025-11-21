@@ -19,7 +19,6 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -39,6 +38,7 @@ from posthog.models.product_intent.product_intent import (
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,

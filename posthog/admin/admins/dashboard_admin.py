@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import Dashboard, DashboardTile
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 
 
 class DashboardTileInline(admin.TabularInline):

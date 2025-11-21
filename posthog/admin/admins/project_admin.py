@@ -3,7 +3,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.inlines.team_inline import TeamInline
-from posthog.models import Project
+from posthog.models.project import Project
 
 
 class ProjectAdmin(admin.ModelAdmin):

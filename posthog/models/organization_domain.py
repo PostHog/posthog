@@ -8,7 +8,7 @@ import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization
+from posthog.models.organization import Organization
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 

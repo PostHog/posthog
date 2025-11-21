@@ -34,11 +34,13 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
+from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.insight import Insight
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem

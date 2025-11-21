@@ -8,7 +8,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import DataColorTheme
+from posthog.models.data_color_theme import DataColorTheme
 
 
 class GlobalThemePermission(BasePermission):

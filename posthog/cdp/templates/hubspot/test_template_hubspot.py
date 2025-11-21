@@ -9,7 +9,7 @@ from posthog.cdp.templates.hubspot.template_hubspot import (
     template as template_hubspot,
     template_event as template_hubspot_event,
 )
-from posthog.models import PluginConfig
+from posthog.models.plugin import PluginConfig
 
 from common.hogvm.python.utils import UncaughtHogVMException
 

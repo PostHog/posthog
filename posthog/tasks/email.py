@@ -19,19 +19,15 @@ from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.models import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-    PersonalAPIKey,
-    Plugin,
-    PluginConfig,
-    Team,
-    User,
-)
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.plugin import Plugin, PluginConfig
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions

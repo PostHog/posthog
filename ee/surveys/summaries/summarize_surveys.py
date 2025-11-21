@@ -10,7 +10,8 @@ from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)

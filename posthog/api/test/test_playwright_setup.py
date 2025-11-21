@@ -4,7 +4,10 @@ from django.test import override_settings
 
 from rest_framework import status
 
-from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class TestPlaywrightSetup(APIBaseTest):

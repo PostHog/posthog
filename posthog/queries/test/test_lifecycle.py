@@ -10,7 +10,8 @@ from posthog.test.base import (
 )
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, Filter
+from posthog.models.action import Action
+from posthog.models.filters import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.trends.trends import Trends

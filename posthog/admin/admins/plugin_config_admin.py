@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
-from posthog.models import PluginConfig
+from posthog.models.plugin import PluginConfig
 
 
 class PluginConfigAdmin(admin.ModelAdmin):

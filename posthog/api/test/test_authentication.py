@@ -28,13 +28,13 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"

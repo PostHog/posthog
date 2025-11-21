@@ -7,7 +7,7 @@ from django.db import connection
 from structlog import get_logger
 from temporalio import activity
 
-from posthog.models import Insight
+from posthog.models.insight import Insight
 from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.schema_migrations.upgrade import upgrade
 

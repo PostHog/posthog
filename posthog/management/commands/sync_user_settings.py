@@ -7,8 +7,9 @@ from django.core.management.base import BaseCommand, CommandError
 
 import requests
 
-from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 
 

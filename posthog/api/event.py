@@ -27,11 +27,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition
+from posthog.models.element import Element
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
+from posthog.models.filters import Filter
+from posthog.models.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle

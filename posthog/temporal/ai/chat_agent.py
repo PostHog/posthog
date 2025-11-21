@@ -11,7 +11,8 @@ from temporalio.common import RetryPolicy
 
 from posthog.schema import HumanMessage, MaxBillingContext
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
 from ee.hogai.agent.redis_stream import ConversationRedisStream, get_conversation_stream_key

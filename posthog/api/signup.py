@@ -25,7 +25,11 @@ from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url

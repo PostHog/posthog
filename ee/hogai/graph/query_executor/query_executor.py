@@ -39,7 +39,7 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 

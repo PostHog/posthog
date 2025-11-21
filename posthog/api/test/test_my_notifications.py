@@ -7,7 +7,8 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
 from rest_framework import status
 
-from posthog.models import NotificationViewed, User
+from posthog.models.activity_logging.notification_viewed import NotificationViewed
+from posthog.models.user import User
 
 
 def _feature_flag_json_payload(key: str) -> dict:

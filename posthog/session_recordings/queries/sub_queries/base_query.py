@@ -6,7 +6,7 @@ from posthog.hogql import ast
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.utils import relative_date_parse
 

@@ -1,4 +1,4 @@
-from posthog.models import Experiment
+from posthog.models.experiment import Experiment
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 

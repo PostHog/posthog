@@ -8,7 +8,9 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.models import Integration, Organization, Team
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 

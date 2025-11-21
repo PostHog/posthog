@@ -26,7 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 

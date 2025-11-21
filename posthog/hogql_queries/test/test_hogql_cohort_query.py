@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):

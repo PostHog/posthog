@@ -4,7 +4,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from posthog.models import Team
+from posthog.models.team import Team
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 

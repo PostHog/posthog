@@ -13,8 +13,9 @@ from rest_framework import status
 
 from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, ExportedAsset
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.dashboard import Dashboard
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.share_password import SharePassword

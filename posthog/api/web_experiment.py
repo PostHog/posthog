@@ -15,7 +15,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
-from posthog.models import Team, WebExperiment
+from posthog.models.team import Team
+from posthog.models.web_experiment import WebExperiment
 from posthog.utils_cors import cors_response
 
 

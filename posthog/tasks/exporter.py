@@ -10,7 +10,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
-from posthog.models import ExportedAsset
+from posthog.models.exported_asset import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 

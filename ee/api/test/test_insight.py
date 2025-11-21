@@ -10,7 +10,11 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 from posthog.test.db_context_capturing import capture_db_queries
 
 from ee.api.test.base import APILicensedTest

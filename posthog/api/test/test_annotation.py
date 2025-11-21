@@ -10,7 +10,10 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Annotation, Organization, Team, User
+from posthog.models.annotation import Annotation
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):

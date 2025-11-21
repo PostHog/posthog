@@ -20,12 +20,12 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
-from posthog.models import Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 

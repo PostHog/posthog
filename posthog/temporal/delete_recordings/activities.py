@@ -13,7 +13,7 @@ from temporalio import activity
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (

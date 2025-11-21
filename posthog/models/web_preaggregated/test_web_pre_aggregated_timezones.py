@@ -8,7 +8,8 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models import Person, Team
+from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_DAILY_SQL,

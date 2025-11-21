@@ -6,7 +6,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.models import Team, User, UserHomeSettings
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.user_home_settings import UserHomeSettings
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 

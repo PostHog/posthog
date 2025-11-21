@@ -11,7 +11,7 @@ from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessa
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval

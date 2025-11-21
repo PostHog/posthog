@@ -11,8 +11,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
-from posthog.models import Dashboard, DashboardTile, Insight, Team, User
-from posthog.models.insight import generate_insight_filters_hash
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight, generate_insight_filters_hash
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 if TYPE_CHECKING:

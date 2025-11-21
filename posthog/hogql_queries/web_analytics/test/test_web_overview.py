@@ -35,7 +35,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.models import Action, Cohort, Element
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 

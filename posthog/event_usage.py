@@ -6,8 +6,9 @@ from typing import Optional
 
 import posthoganalytics
 
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
 

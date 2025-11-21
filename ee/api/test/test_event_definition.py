@@ -13,8 +13,11 @@ from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, Tag, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_definition import EventDefinition
+from posthog.models.tag import Tag
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import AvailableFeature, License, LicenseManager

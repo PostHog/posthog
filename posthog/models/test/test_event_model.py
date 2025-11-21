@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.models import Action, Element, Organization
+from posthog.models.action import Action
+from posthog.models.element import Element
 from posthog.models.event import Selector
+from posthog.models.organization import Organization
 
 
 def _create_action(team, steps):

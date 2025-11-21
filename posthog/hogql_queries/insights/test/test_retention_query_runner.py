@@ -32,7 +32,8 @@ from posthog.constants import (
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Action, Cohort
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID

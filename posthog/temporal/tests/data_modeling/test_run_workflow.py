@@ -23,8 +23,8 @@ from asgiref.sync import sync_to_async
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,

@@ -4,7 +4,7 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.constants import TRENDS_TABLE
-from posthog.models import Filter
+from posthog.models.filters import Filter
 from posthog.queries.trends.breakdown import (
     BREAKDOWN_NULL_NUMERIC_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,

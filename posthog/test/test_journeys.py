@@ -11,8 +11,10 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Group, Person, PersonDistinctId, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.group import Group
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 
 
 def journeys_for(

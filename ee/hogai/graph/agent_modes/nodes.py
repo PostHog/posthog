@@ -28,7 +28,8 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import groups
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.graph.agent_modes.mode_manager import validate_mode

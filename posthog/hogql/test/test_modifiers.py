@@ -10,7 +10,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgM
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 
 
 class TestModifiers(BaseTest):

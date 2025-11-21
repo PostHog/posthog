@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Tag
-from posthog.models.feature_flag import TeamDefaultEvaluationTag
+from posthog.models.feature_flag import FeatureFlag, TeamDefaultEvaluationTag
+from posthog.models.tag import Tag
 
 from ee.models.license import License, LicenseManager
 

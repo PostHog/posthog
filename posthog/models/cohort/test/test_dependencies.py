@@ -7,7 +7,7 @@ from django.core.cache import cache
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import Cohort
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.dependencies import (
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,

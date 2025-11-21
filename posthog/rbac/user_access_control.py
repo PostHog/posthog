@@ -10,7 +10,9 @@ from django.db.models.functions import Cast
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 
 if TYPE_CHECKING:

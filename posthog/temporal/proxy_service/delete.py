@@ -12,7 +12,7 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
-from posthog.models import ProxyRecord
+from posthog.models.proxy_record import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.common import (

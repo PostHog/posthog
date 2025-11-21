@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import dagster
 
-from posthog.models import Organization, Team, User
 from posthog.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from dags.experiment_saved_metrics_timeseries import experiment_saved_metrics_timeseries_refresh_schedule
 from dags.experiments import _parse_partition_key

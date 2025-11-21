@@ -5,7 +5,10 @@ import pytest
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import SandboxSnapshot, Task

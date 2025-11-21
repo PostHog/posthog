@@ -11,7 +11,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal import sql

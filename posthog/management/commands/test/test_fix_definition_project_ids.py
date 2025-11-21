@@ -5,7 +5,11 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.test import TestCase
 
-from posthog.models import EventDefinition, GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.models.event_definition import EventDefinition
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import Organization
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

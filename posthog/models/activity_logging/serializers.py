@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
-from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.user import User
 
 
 class UserMinimalSerializer(serializers.ModelSerializer):

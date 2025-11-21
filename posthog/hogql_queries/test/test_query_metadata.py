@@ -33,7 +33,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_metadata import QueryEventsExtractor
-from posthog.models import Action
+from posthog.models.action import Action
 
 
 class TestQueryEventsExtractor(TestCase):

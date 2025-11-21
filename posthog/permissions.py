@@ -23,7 +23,9 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org

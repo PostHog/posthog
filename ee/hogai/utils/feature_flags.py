@@ -1,6 +1,7 @@
 import posthoganalytics
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 def has_agent_modes_feature_flag(team: Team, user: User) -> bool:

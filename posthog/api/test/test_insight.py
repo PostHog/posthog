@@ -51,23 +51,19 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Filter,
-    Insight,
-    InsightViewed,
-    OrganizationMembership,
-    Person,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models.filters import Filter
+from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.organization import OrganizationMembership
+from posthog.models.person import Person
 from posthog.models.project import Project
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.test.db_context_capturing import capture_db_queries
 
 from ee.models.rbac.access_control import AccessControl

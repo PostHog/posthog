@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.admin.admins.project_admin import ProjectAdmin
-from posthog.models import Project
+from posthog.models.project import Project
 
 
 class ProjectInline(TabularInlinePaginated):

@@ -6,7 +6,8 @@ from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager

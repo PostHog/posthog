@@ -13,7 +13,8 @@ import pytest_asyncio
 from rest_framework import status
 
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
-from posthog.models import BatchExportDestination, Integration
+from posthog.batch_exports.models import BatchExportDestination
+from posthog.models.integration import Integration
 
 from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
 from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep

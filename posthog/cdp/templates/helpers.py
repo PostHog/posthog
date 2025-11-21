@@ -11,7 +11,7 @@ import STPyV8
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
-from posthog.models import HogFunction
+from posthog.models.hog_functions import HogFunction
 from posthog.models.utils import uuid7
 
 from common.hogvm.python.execute import execute_bytecode

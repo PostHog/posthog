@@ -9,8 +9,7 @@ from rest_framework import status
 
 from posthog.schema import AlertState, InsightThresholdType
 
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
+from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.models.team import Team
 
 

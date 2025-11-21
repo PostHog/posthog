@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
-from posthog.models import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
 

@@ -15,18 +15,14 @@ from posthog.caching.insight_caching_state import (
     sync_insight_cache_states,
     upsert,
 )
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    InsightCachingState,
-    InsightViewed,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile, Text
+from posthog.models.insight import Insight, InsightViewed
+from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team import Team
+from posthog.models.user import User
 
 filter_dict = {
     "events": [{"id": "$pageview"}],

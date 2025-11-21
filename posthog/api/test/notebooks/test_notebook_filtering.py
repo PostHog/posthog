@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models.user import User
 
 from products.notebooks.backend.models import Notebook
 

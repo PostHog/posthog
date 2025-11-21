@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.models import Organization
+from posthog.models.organization import Organization
 from posthog.models.plugin import Plugin
 
 logger = structlog.get_logger(__name__)

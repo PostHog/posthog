@@ -21,7 +21,6 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -30,12 +29,15 @@ from posthog.models.event_ingestion_restriction_config import EventIngestionRest
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.product_intent import ProductIntent
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.tag import Tag
+from posthog.models.team import Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,

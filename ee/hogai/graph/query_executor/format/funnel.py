@@ -15,7 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
+from posthog.models.team import Team
 
 from .utils import format_duration, format_matrix, format_number, format_percentage, strip_datetime_seconds
 

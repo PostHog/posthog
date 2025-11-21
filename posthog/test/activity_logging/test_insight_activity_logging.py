@@ -5,8 +5,11 @@ from posthog.test.base import BaseTest
 
 from dateutil import parser
 
-from posthog.models import Dashboard, DashboardTile, Insight, Tag
 from posthog.models.activity_logging.activity_log import Change, changes_between
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.tag import Tag
 
 
 class TestChangesBetweenInsights(BaseTest):

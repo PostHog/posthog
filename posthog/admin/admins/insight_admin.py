@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import Insight
+from posthog.models.insight import Insight
 
 
 class InsightAdmin(admin.ModelAdmin):

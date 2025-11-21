@@ -4,7 +4,11 @@ from posthog.test.base import BaseTest
 
 from django.utils.timezone import now
 
-from posthog.models import Dashboard, DashboardTile, Insight, InsightCachingState, SharingConfiguration
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 
 filters = {

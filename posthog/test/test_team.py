@@ -5,10 +5,13 @@ from django.test import TestCase
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.models import Dashboard, DashboardTile, Organization, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.organization import Organization
 from posthog.models.project import Project
-from posthog.models.team import get_team_in_cache, util
+from posthog.models.team import Team, get_team_in_cache, util
+from posthog.models.user import User
 
 from .base import BaseTest
 

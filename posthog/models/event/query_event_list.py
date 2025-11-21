@@ -11,14 +11,17 @@ from posthog.hogql.context import HogQLContext
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.models import Action, Filter, Person, Team
+from posthog.models.action import Action
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
+from posthog.models.filters import Filter
+from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.team import Team
 from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
 

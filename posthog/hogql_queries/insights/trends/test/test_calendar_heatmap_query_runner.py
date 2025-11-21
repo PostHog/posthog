@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 from posthog.schema import ActionConversionGoal, CalendarHeatmapQuery, CustomEventConversionGoal, DateRange, EventsNode
 
 from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.utils import uuid7
 
 

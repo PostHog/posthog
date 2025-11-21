@@ -26,7 +26,8 @@ from posthog.helpers.two_factor_session import (
     is_two_factor_verified_in_session,
     set_two_factor_verified_in_session,
 )
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 
 class TestTwoFactorSessionUtils(TestCase):

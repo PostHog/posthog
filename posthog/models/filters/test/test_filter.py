@@ -16,8 +16,11 @@ from posthog.test.base import (
 from django.db.models import CharField, F, Func, Q
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Cohort, Filter, Person, Team
+from posthog.models.cohort import Cohort
+from posthog.models.filters import Filter
+from posthog.models.person import Person
 from posthog.models.property import Property
+from posthog.models.team import Team
 from posthog.queries.base import properties_to_Q, property_group_to_Q
 
 

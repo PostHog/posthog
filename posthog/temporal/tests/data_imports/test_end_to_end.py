@@ -42,7 +42,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -72,7 +71,12 @@ from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithA
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
 from products.data_warehouse.backend.models.external_table_definitions import external_tables
 from products.data_warehouse.backend.models.join import DataWarehouseJoin

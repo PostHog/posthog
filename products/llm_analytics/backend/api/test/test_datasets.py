@@ -4,7 +4,10 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Organization, Project, Team, User
+from posthog.models.organization import Organization
+from posthog.models.project import Project
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.llm_analytics.backend.models.datasets import Dataset, DatasetItem
 

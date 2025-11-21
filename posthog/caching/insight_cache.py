@@ -14,7 +14,9 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, Insight, InsightCachingState
+from posthog.models.dashboard import Dashboard
+from posthog.models.insight import Insight
+from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task

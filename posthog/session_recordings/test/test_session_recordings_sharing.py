@@ -10,8 +10,9 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person, SessionRecording
+from posthog.models.person import Person
 from posthog.models.utils import uuid7
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 

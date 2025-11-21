@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.schema import PropertyOperator
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Comment
+from posthog.models.comment import Comment
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 

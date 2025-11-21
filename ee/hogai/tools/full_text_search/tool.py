@@ -6,7 +6,13 @@ import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
+from posthog.models.surveys.survey import Survey
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 

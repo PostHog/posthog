@@ -2,8 +2,10 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, Tag, Team
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
+from posthog.models.organization import OrganizationMembership
+from posthog.models.tag import Tag
+from posthog.models.team import Team
 
 
 class TestTeamDefaultEvaluationTags(APIBaseTest):

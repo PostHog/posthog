@@ -13,7 +13,8 @@ from django.core.management.base import BaseCommand
 import posthoganalytics
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 

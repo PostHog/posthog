@@ -12,7 +12,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Action
+from posthog.models.action import Action
 
 from ee.hogai.graph.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

@@ -28,11 +28,14 @@ from rest_framework import status
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models.action import Action
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
+from posthog.models.team import Team
 
 
 class TestSurvey(APIBaseTest):

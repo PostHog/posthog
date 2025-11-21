@@ -7,24 +7,21 @@ from django.db import IntegrityError, transaction
 from posthoganalytics import Posthog
 
 from posthog.event_usage import groups
-from posthog.models import (
-    Action,
-    Annotation,
-    Cohort,
-    Dashboard,
-    EventDefinition,
-    Experiment,
-    FeatureFlag,
-    GroupTypeMapping,
-    Insight,
-    Organization,
-    Project,
-    PropertyDefinition,
-    Survey,
-    Team,
-    User,
-)
-from posthog.models.organization import OrganizationMembership
+from posthog.models.action import Action
+from posthog.models.annotation import Annotation
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.event_definition import EventDefinition
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.insight import Insight
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project import Project
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.surveys.survey import Survey
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.ph_client import get_client
 
 from products.early_access_features.backend.models import EarlyAccessFeature

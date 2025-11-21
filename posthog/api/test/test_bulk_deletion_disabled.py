@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
+from posthog.models.team import Team
 
 
 class TestBulkDeletionDisabled(APIBaseTest):

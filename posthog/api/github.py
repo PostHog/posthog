@@ -17,8 +17,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.models import Team
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.tasks.email import send_personal_api_key_exposed
 

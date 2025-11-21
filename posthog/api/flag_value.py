@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 
 
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

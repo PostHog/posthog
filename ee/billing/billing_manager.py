@@ -14,8 +14,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import Organization, OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
 from ee.billing.billing_types import BillingStatus

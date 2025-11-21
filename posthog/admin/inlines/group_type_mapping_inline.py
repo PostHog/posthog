@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from posthog.models import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping
 
 
 class GroupTypeMappingInline(admin.TabularInline):

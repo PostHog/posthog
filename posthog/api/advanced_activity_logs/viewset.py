@@ -15,8 +15,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import NotificationViewed
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.notification_viewed import NotificationViewed
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 

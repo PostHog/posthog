@@ -16,8 +16,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
-from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight

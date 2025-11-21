@@ -21,7 +21,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.settings.base_variables import DEBUG
 
 from dags.common import JobOwners, dagster_tags

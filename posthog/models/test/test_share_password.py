@@ -1,7 +1,11 @@
 from django.contrib.auth.hashers import check_password
 from django.test import TestCase
 
-from posthog.models import Organization, SharePassword, SharingConfiguration, Team, User
+from posthog.models.organization import Organization
+from posthog.models.share_password import SharePassword
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class TestSharePassword(TestCase):

@@ -6,7 +6,7 @@ from braintrust_core.score import Scorer
 
 from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from posthog.models import Team
+from posthog.models.team import Team
 
 from ee.hogai.eval.scorers.sql import evaluate_sql_query
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA

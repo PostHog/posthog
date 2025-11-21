@@ -4,7 +4,7 @@ from typing import Any
 
 from rest_framework import exceptions
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer

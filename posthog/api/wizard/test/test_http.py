@@ -11,7 +11,8 @@ from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 
 class SetupWizardTests(APIBaseTest):

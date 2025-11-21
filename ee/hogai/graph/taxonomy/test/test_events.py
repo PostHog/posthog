@@ -1,6 +1,6 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

@@ -1,7 +1,7 @@
 import posthoganalytics
 from celery import shared_task
 
-from posthog.models import User
+from posthog.models.user import User
 
 
 @shared_task(ignore_result=True)

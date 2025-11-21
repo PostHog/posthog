@@ -17,7 +17,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
     ExternalDataJobWorkflow,

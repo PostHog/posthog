@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 

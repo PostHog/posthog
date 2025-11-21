@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from posthog.models import HogFunction
+from posthog.models.hog_functions import HogFunction
 
 
 class Command(BaseCommand):

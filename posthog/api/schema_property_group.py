@@ -7,7 +7,7 @@ from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import SchemaPropertyGroup, SchemaPropertyGroupProperty
+from posthog.models.schema import SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 PROPERTY_NAME_REGEX = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 

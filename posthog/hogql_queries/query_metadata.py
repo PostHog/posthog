@@ -35,7 +35,8 @@ from posthog.schema import (
 )
 
 from posthog.cache_utils import cache_for
-from posthog.models import Action, Team
+from posthog.models.action import Action
+from posthog.models.team import Team
 from posthog.utils import get_from_dict_or_attr
 
 T = TypeVar("T", bound=BaseModel)

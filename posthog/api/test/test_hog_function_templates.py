@@ -7,8 +7,8 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models import HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions import HogFunction
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()

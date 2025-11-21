@@ -24,7 +24,8 @@ from posthog.schema import (
     TaskExecutionStatus,
 )
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
 from ee.hogai.graph.deep_research.types import (

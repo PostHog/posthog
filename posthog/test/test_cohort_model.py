@@ -6,9 +6,11 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Person, Team
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.person import Person
 from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.team import Team
 
 
 class TestCohort(BaseTest):

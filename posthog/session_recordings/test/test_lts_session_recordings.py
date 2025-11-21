@@ -3,7 +3,7 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, call, patch
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.test import setup_stream_from
 

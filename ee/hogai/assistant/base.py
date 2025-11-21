@@ -28,7 +28,8 @@ from posthog.schema import (
 from posthog import event_usage
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region

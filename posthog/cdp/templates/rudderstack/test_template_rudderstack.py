@@ -7,7 +7,7 @@ from posthog.cdp.templates.rudderstack.template_rudderstack import (
     TemplateRudderstackMigrator,
     template as template_rudderstack,
 )
-from posthog.models import PluginConfig
+from posthog.models.plugin import PluginConfig
 
 
 class TestTemplateRudderstack(BaseHogFunctionTemplateTest):

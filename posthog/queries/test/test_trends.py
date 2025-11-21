@@ -36,9 +36,14 @@ from posthog.constants import (
     TRENDS_LINEAR,
     TRENDS_TABLE,
 )
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.utils import uuid7
 from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL

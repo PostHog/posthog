@@ -28,7 +28,8 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.models import Action, Cohort
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay

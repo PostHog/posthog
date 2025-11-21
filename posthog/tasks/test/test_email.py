@@ -9,13 +9,14 @@ from django.utils import timezone
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.plugin import Plugin, PluginConfig
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_async_migration_complete_email,

@@ -6,9 +6,9 @@ from typing import Any, Optional
 
 from django.db import transaction
 
-from posthog.models import MessageCategory, MessageRecipientPreference, Team
-from posthog.models.message_category import MessageCategoryType
-from posthog.models.message_preferences import PreferenceStatus
+from posthog.models.message_category import MessageCategory, MessageCategoryType
+from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from posthog.models.team import Team
 
 from .customerio_client import CustomerIOClient
 

@@ -7,8 +7,9 @@ from unittest.mock import ANY, call, patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 from ee.api.test.base import APILicensedTest

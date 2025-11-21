@@ -15,8 +15,9 @@ from pydantic import ValidationError
 
 from posthog.schema import MaxEventContext
 
-from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 from ee.hogai.llm import MaxChatOpenAI

@@ -10,7 +10,9 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models.action import Action
+from posthog.models.tag import Tag
+from posthog.models.user import User
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

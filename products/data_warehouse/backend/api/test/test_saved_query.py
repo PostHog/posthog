@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import patch
 
-from posthog.models import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_warehouse.backend.models import (
     DataModelingJob,

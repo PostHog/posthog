@@ -19,7 +19,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 def get_hogql_metadata(

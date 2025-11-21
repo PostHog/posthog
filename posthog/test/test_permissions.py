@@ -12,9 +12,10 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.user_access_control import UserAccessControl
 

@@ -27,8 +27,8 @@ from posthog.hogql_queries.insights.retention_query_runner import RetentionQuery
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
-from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team import Team
 from posthog.types import InsightActorsQueryNode
 
 

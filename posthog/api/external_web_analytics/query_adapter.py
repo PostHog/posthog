@@ -25,7 +25,7 @@ from posthog.api.external_web_analytics.serializers import (
 )
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 @dataclass

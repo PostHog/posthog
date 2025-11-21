@@ -5,7 +5,9 @@ from django.core.management.base import BaseCommand
 
 import requests
 
-from posthog.models import FeatureFlag, Project, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.project import Project
+from posthog.models.user import User
 from posthog.ph_client import PH_US_API_KEY
 
 

@@ -11,8 +11,8 @@ from django.test import override_settings
 import psycopg
 from rest_framework import status
 
-from posthog.models import Team
 from posthog.models.project import Project
+from posthog.models.team import Team
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
