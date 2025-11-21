@@ -2,6 +2,7 @@ import re
 import json
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Literal, Optional, cast
 
 import dagster
@@ -76,7 +77,8 @@ def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
 def fetch_sdk_data_from_releases(repo: str, tag_prefix: str = "") -> Optional[dict[str, Any]]:
     """Helper function to fetch SDK data from GitHub releases API."""
     try:
-        response = requests.get(f"https://api.github.com/repos/{repo}/releases", timeout=10)
+        # Fetch 100 releases (GitHub API max) to handle monorepos with many packages
+        response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", timeout=10)
         if not response.ok:
             logger.error(f"[SDK Doctor] Failed to fetch releases for {repo}", status_code=response.status_code)
             return None
@@ -376,6 +378,9 @@ def cache_github_sdk_versions_op(
     cached_count = 0
     skipped_count = 0
 
+    # Cache creation timestamp for staleness checks
+    cached_at = datetime.now(UTC).isoformat()
+
     for lib_name, github_data in sdk_data.items():
         if github_data is None:
             skipped_count += 1
@@ -383,7 +388,9 @@ def cache_github_sdk_versions_op(
 
         cache_key = f"github:sdk_versions:{lib_name}"
         try:
-            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(github_data))
+            # Add cachedAt timestamp to the data
+            github_data_with_timestamp = {**github_data, "cachedAt": cached_at}
+            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(github_data_with_timestamp))
             cached_count += 1
             context.log.info(f"Successfully cached {lib_name} SDK data")
         except Exception as e:

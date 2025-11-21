@@ -30,6 +30,7 @@ export type SdkVersion = `${string}.${string}.${string}`
 export type SdkVersionInfo = {
     latestVersion: SdkVersion
     releaseDates: Record<SdkVersion, string>
+    cachedAt?: string // ISO timestamp calculated from Redis TTL
 }
 
 // For a team we have a map of SDK types to all of the versions we say in recent times
@@ -67,6 +68,7 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     isOutdated: boolean
     isOld: boolean
     needsUpdating: boolean
+    cachedAt: string | undefined
 }
 
 /**
@@ -81,8 +83,8 @@ export type SdkHealthStatus = 'danger' | 'warning' | 'success'
  * Provides smart version outdatedness detection.
  *
  * Architecture:
- * - Backend detection: Team SDK detections cached server-side (72h Redis, refreshed every 12 hours)
- * - Version checking: Per-SDK GitHub API queries cached server-side (72h Redis, refreshed every 6 hours)
+ * - Backend detection: Team SDK detections cached server-side (7-day Redis, refreshed daily at midnight UTC)
+ * - Version checking: GitHub SDK versions cached server-side (7-day Redis, refreshed daily at midnight UTC)
  * - Smart semver: Contextual thresholds
  */
 
@@ -121,6 +123,21 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 unsnooze: () => null,
             },
         ],
+        lazyLoadedDates: [
+            {} as Record<string, string>,
+            {
+                loadVersionDateSuccess: (state, { lazyLoadedVersionDate }) => {
+                    if (!lazyLoadedVersionDate) {
+                        return state
+                    }
+                    const key = `${lazyLoadedVersionDate.sdkType}:${lazyLoadedVersionDate.version}`
+                    return {
+                        ...state,
+                        [key]: lazyLoadedVersionDate.releaseDate,
+                    }
+                },
+            },
+        ],
     })),
 
     loaders(() => ({
@@ -140,19 +157,49 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
         teamSdkVersions: [
-            null as TeamSdkVersionsInfo | null,
+            null as (TeamSdkVersionsInfo & { cached?: boolean; cachedAt?: string }) | null,
             {
-                loadTeamSdkVersions: async ({
-                    forceRefresh,
-                }: { forceRefresh?: boolean } = {}): Promise<TeamSdkVersionsInfo | null> => {
+                loadTeamSdkVersions: async ({ forceRefresh }: { forceRefresh?: boolean } = {}): Promise<
+                    (TeamSdkVersionsInfo & { cached?: boolean; cachedAt?: string }) | null
+                > => {
                     const endpoint =
                         forceRefresh === true ? 'api/team_sdk_versions/?force_refresh=true' : 'api/team_sdk_versions/'
 
                     try {
-                        const response = await api.get<{ sdk_versions: TeamSdkVersionsInfo; cached: boolean }>(endpoint)
-                        return response.sdk_versions
+                        const response = await api.get<{
+                            sdk_versions: TeamSdkVersionsInfo
+                            cached: boolean
+                            cachedAt?: string
+                        }>(endpoint)
+                        return {
+                            ...response.sdk_versions,
+                            cached: response.cached,
+                            cachedAt: response.cachedAt,
+                        }
                     } catch (error) {
                         console.error('Error loading team SDK versions:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+        lazyLoadedVersionDate: [
+            null as { sdkType: SdkType; version: SdkVersion; releaseDate: string } | null,
+            {
+                loadVersionDate: async ({
+                    sdkType,
+                    version,
+                }: {
+                    sdkType: SdkType
+                    version: SdkVersion
+                }): Promise<{ sdkType: SdkType; version: SdkVersion; releaseDate: string } | null> => {
+                    try {
+                        const response = await api.get<{ releaseDate: string }>(
+                            `api/sdk_version_date/${sdkType}/${version}/`
+                        )
+                        return { sdkType, version, releaseDate: response.releaseDate }
+                    } catch (error) {
+                        console.warn(`[SDK Doctor] Failed to load version date for ${sdkType}@${version}:`, error)
                         return null
                     }
                 },
@@ -162,20 +209,42 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
     selectors({
         sdkVersionsMap: [
-            (s) => [s.sdkVersions, s.teamSdkVersions],
+            (s) => [s.sdkVersions, s.teamSdkVersions, s.lazyLoadedDates],
             (
                 sdkVersions: Record<SdkType, SdkVersionInfo>,
-                teamSdkVersions: TeamSdkVersionsInfo
+                teamSdkVersions: (TeamSdkVersionsInfo & { cached?: boolean; cachedAt?: string }) | null,
+                lazyLoadedDates: Record<string, string>
             ): AugmentedTeamSdkVersionsInfo => {
                 if (!sdkVersions || !teamSdkVersions) {
                     return {}
                 }
 
+                // Filter out metadata fields
+                const sdkData = Object.entries(teamSdkVersions).filter(([, value]) => Array.isArray(value)) as [
+                    SdkType,
+                    TeamSdkVersionInfo[],
+                ][]
+
                 return Object.fromEntries(
-                    Object.entries(teamSdkVersions).map(([sdkType, teamSdkVersion]) => {
+                    sdkData.map(([sdkType, teamSdkVersion]) => {
                         const sdkVersion = sdkVersions[sdkType as SdkType]
+
+                        // Merge lazy-loaded dates
+                        const mergedReleaseDates = { ...sdkVersion.releaseDates }
+                        Object.keys(lazyLoadedDates).forEach((key) => {
+                            const [loadedSdkType, version] = key.split(':')
+                            if (loadedSdkType === sdkType) {
+                                mergedReleaseDates[version as SdkVersion] = lazyLoadedDates[key]
+                            }
+                        })
+
+                        const mergedSdkVersion = {
+                            ...sdkVersion,
+                            releaseDates: mergedReleaseDates,
+                        }
+
                         const releasesInfo = teamSdkVersion.map((version) =>
-                            computeAugmentedInfoRelease(sdkType as SdkType, version, sdkVersion)
+                            computeAugmentedInfoRelease(sdkType as SdkType, version, mergedSdkVersion)
                         )
 
                         return [
@@ -268,11 +337,69 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         ],
     }),
 
-    listeners({
+    listeners(({ actions, values }) => ({
         snoozeSdkDoctor: () => {
             lemonToast.success('SDK Doctor snoozed for 30 days')
         },
-    }),
+        loadTeamSdkVersionsSuccess: async ({ teamSdkVersions }, breakpoint) => {
+            // Trigger background refresh if cache is stale (>26 hours)
+            await breakpoint(100)
+
+            try {
+                const teamData = teamSdkVersions as TeamSdkVersionsInfo & { cachedAt?: string; cached?: boolean }
+                if (teamSdkVersions && teamData.cachedAt) {
+                    // Check if cache is stale (>26h = daily job + 2h buffer)
+                    const cachedAtTime = new Date(teamData.cachedAt).getTime()
+                    const now = new Date().getTime()
+                    const hoursOld = (now - cachedAtTime) / (1000 * 60 * 60)
+                    const STALE_CACHE_HOURS = 26
+
+                    if (hoursOld > STALE_CACHE_HOURS) {
+                        // Cache is stale, trigger background refresh
+                        // Fire-and-forget: don't block the UI, don't show loading states
+                        actions.loadTeamSdkVersions({ forceRefresh: true })
+                    }
+                }
+            } catch (error) {
+                // Background optimization - silent failure acceptable
+                console.warn('[SDK Doctor] Cache staleness check failed:', error)
+            }
+
+            // Fire-and-forget: lazy-load missing release dates
+            const { sdkVersions } = values
+
+            if (!sdkVersions || !teamSdkVersions) {
+                return
+            }
+
+            // Find versions with missing release dates
+            Object.entries(teamSdkVersions).forEach(([sdkType, teamVersions]) => {
+                const sdkVersion = sdkVersions[sdkType as SdkType]
+                if (!sdkVersion) {
+                    return
+                }
+
+                teamVersions.forEach((versionInfo) => {
+                    if (typeof versionInfo !== 'object' || !('lib_version' in versionInfo)) {
+                        return
+                    }
+                    const version = versionInfo.lib_version
+                    // Avoid duplicate API calls for already-loaded dates
+                    const hasReleaseDate =
+                        sdkVersion.releaseDates[version] !== undefined ||
+                        values.lazyLoadedDates[`${sdkType}:${version}`] !== undefined
+
+                    if (!hasReleaseDate) {
+                        // Background load updates state when ready
+                        actions.loadVersionDate({ sdkType: sdkType as SdkType, version })
+                    }
+                })
+            })
+        },
+        loadSdkVersionsSuccess: () => {
+            // Team SDK versions lazy-loaded in loadTeamSdkVersionsSuccess listener
+        },
+    })),
 
     afterMount(({ actions, values }) => {
         actions.loadTeamSdkVersions()
@@ -327,6 +454,28 @@ function computeAugmentedInfoRelease(
         // Check if versions differ
         const diff = diffVersions(latestVersionParsed, currentVersionParsed)
 
+        // Team version newer than cached latest (multiple daily releases)
+        // Treat as current until cache refreshes at midnight UTC
+        // diffVersions(a,b) = a.version - b.version, so diff.diff < 0 means b > a
+        const teamVersionIsNewer = diff && diff.diff < 0
+
+        if (teamVersionIsNewer) {
+            // Show as "Current" if newer than cached version from GitHub
+            return {
+                type,
+                version: version.lib_version,
+                maxTimestamp: version.max_timestamp,
+                count: version.count,
+                isOutdated: false,
+                isOld: false,
+                needsUpdating: false,
+                releaseDate: undefined,
+                daysSinceRelease: undefined,
+                latestVersion: version.lib_version,
+                cachedAt: sdkVersion.cachedAt,
+            }
+        }
+
         // Count number of versions behind by estimating based on semantic version difference
         let releasesBehind = 0
         if (diff) {
@@ -360,7 +509,7 @@ function computeAugmentedInfoRelease(
             isOld = releasesBehind > 0 && weeksOld > ageThreshold
         }
 
-        // Grace period: Don't flag versions released <7 days ago (even if major version behind)
+        // Grace period: Don't flag versions released <=7 days ago (even if major version behind)
         // This gives our team time to fix any issues with recent releases before we nag them about new releases
         //
         // NOTE: If daysSinceRelease is undefined (e.g., failed releases not in GitHub),
@@ -369,7 +518,7 @@ function computeAugmentedInfoRelease(
         const GRACE_PERIOD_DAYS = 7
 
         if (daysSinceRelease !== undefined) {
-            isRecentRelease = daysSinceRelease < GRACE_PERIOD_DAYS
+            isRecentRelease = daysSinceRelease <= GRACE_PERIOD_DAYS
         }
 
         // Smart version detection based on semver difference
@@ -385,9 +534,9 @@ function computeAugmentedInfoRelease(
                     isOutdated = true
                     break
                 case 'minor':
-                    // Minor version behind (e.g. 1.2.x -> 1.5.x): Flag if 3+ minors behind OR >6 months old
+                    // Minor: Flag if threshold+ behind (9+ for Web SDK, 3+ for others) OR >6mo old
                     const sixMonthsInDays = 180
-                    const isMinorOutdatedByCount = diff.diff >= 3
+                    const isMinorOutdatedByCount = diff.diff >= getMinorVersionThreshold(type)
                     const isMinorOutdatedByAge = daysSinceRelease !== undefined && daysSinceRelease > sixMonthsInDays
                     isOutdated = isMinorOutdatedByCount || isMinorOutdatedByAge
                     break
@@ -409,6 +558,7 @@ function computeAugmentedInfoRelease(
             releaseDate,
             daysSinceRelease,
             latestVersion: sdkVersion.latestVersion,
+            cachedAt: sdkVersion.cachedAt,
         }
     } catch {
         // If we can't parse the versions, return error state
@@ -423,6 +573,7 @@ function computeAugmentedInfoRelease(
             releaseDate: undefined,
             daysSinceRelease: undefined,
             latestVersion: sdkVersion.latestVersion,
+            cachedAt: sdkVersion.cachedAt,
         }
     }
 }
@@ -454,4 +605,16 @@ function determineDeviceContext(sdkType: SdkType): 'mobile' | 'desktop' | 'mixed
     }
 
     return 'mixed'
+}
+
+/**
+ * Minor version threshold for outdatedness detection.
+ * Web SDK: 9+ (ships frequently), Others: 3+
+ * @returns Minor versions behind before flagging as outdated
+ */
+function getMinorVersionThreshold(sdkType: SdkType): number {
+    if (sdkType === 'web') {
+        return 9
+    }
+    return 3
 }

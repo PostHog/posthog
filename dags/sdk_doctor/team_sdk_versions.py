@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, Optional
 
 import dagster
@@ -100,9 +101,14 @@ def get_and_cache_team_sdk_versions(
     try:
         sdk_versions = get_sdk_versions_for_team(team_id, logger=logger)
         if sdk_versions is not None:
-            payload = json.dumps(sdk_versions)
+            # Store actual timestamp when caching (instead of calculating from TTL later)
+            cached_at = datetime.now(UTC).isoformat()
+            cache_payload = {
+                "sdk_versions": sdk_versions,
+                "cachedAt": cached_at,
+            }
             cache_key = f"sdk_versions:team:{team_id}"
-            redis_client.setex(cache_key, CACHE_EXPIRY, payload)
+            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(cache_payload))
             logger.info(f"[SDK Doctor] Team {team_id} SDK versions cached successfully")
 
             return sdk_versions

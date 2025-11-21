@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 @permission_classes([IsAuthenticated])
 def team_sdk_versions(request: Request) -> JsonResponse:
     """
-    Serve team SDK versions. Data is cached by Dagster job (runs every 6 hours).
+    Serve team SDK versions. Data is cached by Dagster job (runs daily at midnight UTC).
     Supports force_refresh=true for on-demand detection.
     Protected by sdk-doctor-beta feature flag.
     """
@@ -52,11 +52,23 @@ def team_sdk_versions(request: Request) -> JsonResponse:
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:
-                sdk_versions = json.loads(
+                cache_payload = json.loads(
                     cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
                 )
+                # Handle both old format (just sdk_versions) and new format (with cachedAt)
+                if isinstance(cache_payload, dict) and "sdk_versions" in cache_payload:
+                    sdk_versions = cache_payload["sdk_versions"]
+                    cached_at = cache_payload.get("cachedAt")
+                else:
+                    # Old cache format - just the sdk_versions dict
+                    sdk_versions = cache_payload
+                    cached_at = None
+
                 logger.info(f"[SDK Doctor] Team {team_id} SDK versions successfully read from cache")
-                return JsonResponse({"sdk_versions": sdk_versions, "cached": True}, safe=False)
+                response = {"sdk_versions": sdk_versions, "cached": True}
+                if cached_at:
+                    response["cachedAt"] = cached_at
+                return JsonResponse(response, safe=False)
             except (json.JSONDecodeError, AttributeError) as e:
                 logger.warning(f"[SDK Doctor] Cache corrupted for team {team_id}", error=str(e))
                 capture_exception(e)
@@ -67,7 +79,22 @@ def team_sdk_versions(request: Request) -> JsonResponse:
     try:
         sdk_versions = get_and_cache_team_sdk_versions(team_id, redis_client)
         if sdk_versions is not None:
-            return JsonResponse({"sdk_versions": sdk_versions, "cached": False}, safe=False)
+            # After force refresh, re-read the cache to get the cachedAt timestamp
+            cached_data = redis_client.get(cache_key)
+            cached_at = None
+            if cached_data:
+                try:
+                    cache_payload = json.loads(
+                        cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
+                    )
+                    cached_at = cache_payload.get("cachedAt")
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+            response = {"sdk_versions": sdk_versions, "cached": False}
+            if cached_at:
+                response["cachedAt"] = cached_at
+            return JsonResponse(response, safe=False)
         else:
             logger.error(f"[SDK Doctor] No data received from ClickHouse for team {team_id}")
             return JsonResponse({"error": "Failed to get SDK versions. Please try again later."}, status=500)
