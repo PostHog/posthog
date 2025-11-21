@@ -44,7 +44,7 @@ export function calculateBaselineValue(
             return null
         }
         // For experiments, conversion rate is: (completed final step) / (total exposed)
-        return stepCounts[stepCounts.length - 1] / baseline.number_of_samples
+        return baseline.number_of_samples > 0 ? stepCounts[stepCounts.length - 1] / baseline.number_of_samples : null
     }
 
     lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
