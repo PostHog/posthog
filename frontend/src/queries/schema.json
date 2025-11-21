@@ -11337,14 +11337,14 @@
         "ErrorTrackingExplainIssueToolContext": {
             "additionalProperties": false,
             "properties": {
-                "issue_name": {
+                "issue_id": {
                     "type": "string"
                 },
                 "stacktrace": {
                     "type": "string"
                 }
             },
-            "required": ["stacktrace", "issue_name"],
+            "required": ["stacktrace", "issue_id"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {
