@@ -234,8 +234,8 @@ class MaxToolTaxonomyOutput(BaseModel):
 
 ```python
 from pydantic import BaseModel, Field
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
 from posthog.models import Team
 
 
@@ -276,9 +276,9 @@ class YourToolkit(TaxonomyAgentToolkit):
 ```python
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 
 class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):

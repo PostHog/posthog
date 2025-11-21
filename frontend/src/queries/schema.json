@@ -343,6 +343,16 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DocumentArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                }
+            ]
+        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -10731,6 +10741,32 @@
             ],
             "type": "string"
         },
+        "DocumentArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "blocks": {
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocks"],
+            "type": "object"
+        },
+        "DocumentBlock": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/MarkdownBlock"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationBlock"
+                },
+                {
+                    "$ref": "#/definitions/SessionReplayBlock"
+                }
+            ]
+        },
         "DocumentSimilarityQuery": {
             "additionalProperties": false,
             "properties": {
@@ -17490,6 +17526,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarkdownBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "markdown",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19388,6 +19438,60 @@
                 "personal_api_key"
             ],
             "type": "object"
+        },
+        "ProductIntentContext": {
+            "enum": [
+                "onboarding product selected - primary",
+                "onboarding product selected - secondary",
+                "quick start product selected",
+                "selected connector",
+                "sql editor empty state",
+                "data warehouse sources table",
+                "experiment created",
+                "experiment analyzed",
+                "feature flag created",
+                "session_replay_set_filters",
+                "error_tracking_exception_autocapture_enabled",
+                "error_tracking_issue_sorting",
+                "error_tracking_docs_viewed",
+                "error_tracking_issue_explained",
+                "llm_analytics_viewed",
+                "llm_analytics_docs_viewed",
+                "taxonomic filter empty state",
+                "create_experiment_from_funnel_button",
+                "web_analytics_insight",
+                "web_vitals_insight",
+                "web_analytics_recordings",
+                "web_analytics_error_tracking",
+                "web_analytics_errors",
+                "web_analytics_frustrating_pages",
+                "action_view_recordings",
+                "person_view_recordings",
+                "feature_flag_create_insight",
+                "feature_flag_view_recordings",
+                "early_access_feature_view_recordings",
+                "data_warehouse_stripe_source_created",
+                "surveys_viewed",
+                "survey_created",
+                "survey_launched",
+                "survey_viewed",
+                "survey_completed",
+                "survey_resumed",
+                "survey_archived",
+                "survey_unarchived",
+                "survey_deleted",
+                "survey_duplicated",
+                "survey_bulk_duplicated",
+                "survey_edited",
+                "survey_analyzed",
+                "revenue_analytics_viewed",
+                "revenue_analytics_onboarding_completed",
+                "revenue_analytics_event_created",
+                "revenue_analytics_data_source_connected",
+                "nav_panel_advertisement_clicked",
+                "vercel_integration"
+            ],
+            "type": "string"
         },
         "ProductItem": {
             "additionalProperties": false,
@@ -26211,6 +26315,26 @@
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
+        "SessionReplayBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp_ms": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "session_replay",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "session_id", "timestamp_ms"],
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -28757,6 +28881,49 @@
                 }
             },
             "required": ["id", "distance"],
+            "type": "object"
+        },
+        "VisualizationArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "VisualizationBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "visualization",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
             "type": "object"
         },
         "VisualizationItem": {

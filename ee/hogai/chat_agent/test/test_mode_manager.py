@@ -221,7 +221,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         with (
             patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
             patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
-            patch("ee.hogai.graph.mixins.AssistantContextMixin._aget_core_memory_text") as mock_core_memory,
+            patch("ee.hogai.core.mixins.AssistantContextMixin._aget_core_memory_text") as mock_core_memory,
         ):
             mock_core_memory.return_value = "User prefers concise responses and technical details"
             mock_generate.return_value = ChatResult(

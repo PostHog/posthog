@@ -14,7 +14,7 @@ from posthog.hogql.database.database import Database
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.eval.base import MaxPrivateEval
 from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
 from ee.hogai.eval.schema import DatasetInput

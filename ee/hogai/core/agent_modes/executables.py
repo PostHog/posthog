@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar, cast
+from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
 import structlog
@@ -37,9 +37,9 @@ from ee.hogai.core.agent_modes.prompts import (
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
-from ee.hogai.graph.base.executable import BaseAgentExecutable
+from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.llm import MaxChatAnthropic
-from ee.hogai.tool import ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
@@ -54,10 +54,6 @@ from ee.hogai.utils.types import (
 from ee.hogai.utils.types.base import NodePath
 
 from .compaction_manager import AnthropicConversationCompactionManager
-
-if TYPE_CHECKING:
-    from ee.hogai.tool import MaxTool
-
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)

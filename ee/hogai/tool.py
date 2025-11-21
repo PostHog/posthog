@@ -13,8 +13,8 @@ from posthog.schema import AssistantTool
 from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.base.context import get_node_path, set_node_path
-from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.core.context import get_node_path, set_node_path
+from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 

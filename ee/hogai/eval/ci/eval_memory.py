@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
-from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation

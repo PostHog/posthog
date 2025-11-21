@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.conf import settings
 
-from posthog.schema import ProductItem, ProductsData
+from posthog.schema import ProductItem, ProductKey, ProductsData
 
 
 class Products:
@@ -75,15 +75,6 @@ class Products:
         return [product.path for product in Products.products()]
 
     @staticmethod
-    def get_product_by_path(path: str) -> Optional[ProductItem]:
-        """Get a product by its path."""
-        for product in Products.products():
-            if product.path == path:
-                return product
-        return None
-
-    @staticmethod
-    def get_all_paths() -> list[str]:
-        """Get all paths from products, games, and metadata."""
-        all_items = Products.products() + Products.games() + Products.metadata()
-        return [item.path for item in all_items]
+    def get_products_by_intent(intent: ProductKey) -> list[ProductItem]:
+        """Get all products that the intent is associated with."""
+        return [product for product in Products.products() if intent in product.intents]

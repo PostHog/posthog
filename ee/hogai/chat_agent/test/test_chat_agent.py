@@ -57,16 +57,16 @@ from posthog.schema import (
 
 from posthog.models import Action
 
+from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
+from ee.hogai.chat_agent.memory import prompts as memory_prompts
+from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.chat_agent.runner import ChatAgentRunner
+from ee.hogai.chat_agent.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.node import AssistantNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.memory import prompts as memory_prompts
-from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.insights_assistant import InsightsAssistant
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
@@ -80,12 +80,12 @@ from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 title_generator_mock = patch(
-    "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
+    "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
     return_value=FakeChatOpenAI(responses=[messages.AIMessage(content="Title")]),
 )
 
 query_executor_mock = patch(
-    "ee.hogai.graph.query_executor.nodes.execute_and_format_query", new=AsyncMock(return_value="Result")
+    "ee.hogai.chat_agent.query_executor.nodes.execute_and_format_query", new=AsyncMock(return_value="Result")
 )
 
 
@@ -105,7 +105,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Azure embeddings mocks
         self.azure_client_mock = patch(
-            "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
+            "ee.hogai.chat_agent.rag.nodes.get_azure_embeddings_client",
             return_value=EmbeddingsClient(
                 endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
             ),
@@ -120,7 +120,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.graph.base.graph.global_checkpointer", new=DjangoCheckpointer())
+        self.checkpointer_patch = patch("ee.hogai.core.base.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
 
     def tearDown(self):
@@ -251,7 +251,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with (
             patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
-            patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as planner_mock,
+            patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model") as planner_mock,
         ):
             config: RunnableConfig = {
                 "configurable": {
@@ -350,7 +350,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._test_human_in_the_loop("retention")
 
     async def test_ai_messages_appended_after_interrupt(self):
-        with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
+        with patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model") as mock:
             graph = InsightsGraph(self.team, self.user).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
@@ -414,7 +414,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # Now resume - it should route to tools first to execute the pending tool call
-        with patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model") as model_mock:
+        with patch("ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model") as model_mock:
             # After tool execution, the model should return [Done]
             model_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content="[Done]"))
 
@@ -535,10 +535,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @query_executor_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch(
+        "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
+    )
     async def test_full_trends_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -628,10 +630,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @query_executor_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch(
+        "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
+    )
     async def test_full_funnel_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -726,10 +730,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @query_executor_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch(
+        "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
+    )
     async def test_full_retention_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -826,10 +832,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @query_executor_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch(
+        "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
+    )
     async def test_full_sql_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -902,8 +910,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
         )  # viz message must have this id
 
-    @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
     async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock):
         await self._set_up_onboarding_tests()
 
@@ -972,8 +980,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
-    @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
     async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock):
         await self._set_up_onboarding_tests()
 
@@ -1033,7 +1041,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         core_memory = await CoreMemory.objects.aget(team=self.team)
         self.assertEqual(core_memory.initial_text, "Question: What is your target market?\nAnswer:")
 
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model")
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model")
     async def test_memory_collector_flow(self, model_mock):
         # Create a graph with just memory collection
         graph = (
@@ -1080,10 +1088,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("The product uses a subscription model.", self.core_memory.text)
 
     @title_generator_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    @patch(
+        "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
+    )
     async def test_exits_infinite_loop_after_fourth_attempt(
         self, memory_collector_mock, get_model_mock, planner_mock, generator_mock, title_node_mock
     ):
@@ -1210,8 +1220,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @title_generator_mock
     @query_executor_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     async def test_insights_tool_mode_flow(self, planner_mock, generator_mock, title_generator_mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
@@ -1257,7 +1267,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         self.assertConversationEqual(output, expected_output)
 
-    @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
+    @patch("ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model")
     async def test_conversation_metadata_updated(self, title_generator_model_mock):
         """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""
         # Create a test graph with only the title generator node
@@ -1455,10 +1465,10 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         second_message = human_messages[1]
         self.assertEqual(second_message.ui_context, ui_context_2)
 
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
+    @patch("ee.hogai.chat_agent.query_executor.nodes.QueryExecutorNode.arun")
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
+    @patch("ee.hogai.chat_agent.rag.nodes.InsightRagContextNode.run")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_create_and_query_insight_contextual_tool(
         self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock

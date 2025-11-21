@@ -78,7 +78,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         related_name="surveys_linked_insight",
         related_query_name="survey_linked_insight",
-        db_index=False,
+        db_index=True,
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
