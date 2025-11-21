@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.14
+
+- Fix authentication issue on sourcemap upload
+
 # 0.5.13
 
 - Add `--include` option on sourcemap commands to match specific files inside directory
