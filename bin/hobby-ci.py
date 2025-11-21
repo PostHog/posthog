@@ -4,8 +4,6 @@
 import os
 import sys
 import time
-import random
-import string
 import datetime
 
 import urllib3
@@ -36,10 +34,6 @@ class HobbyTester:
         self.token = token
         self.branch = branch
 
-        if not name:
-            random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
-            branch_part = self.branch[:7] if self.branch is not None else "none"
-            name = f"do-ci-hobby-deploy-{branch_part}-{random_bit}"
         self.name = name
 
         if not hostname:
@@ -274,6 +268,11 @@ class HobbyTester:
                 droplet_destroyed = True
                 print("✅ Droplet destroyed successfully")
                 break
+            except digitalocean.NotFoundError:
+                # Droplet doesn't exist - cleanup already done
+                droplet_destroyed = True
+                print("✅ Droplet not found (already cleaned up or never created)")
+                break
             except Exception as e:
                 print(f"⚠️  Attempt {attempts}/{retries + 1} - Could not destroy droplet: {type(e).__name__}")
                 if attempts <= retries:
@@ -291,6 +290,11 @@ class HobbyTester:
                 domain.delete_domain_record(id=record_id)
                 dns_destroyed = True
                 print("✅ DNS record destroyed successfully")
+                break
+            except digitalocean.NotFoundError:
+                # DNS record doesn't exist - cleanup already done
+                dns_destroyed = True
+                print("✅ DNS record not found (already cleaned up or never created)")
                 break
             except Exception as e:
                 print(f"⚠️  Attempt {attempts}/{retries + 1} - Could not destroy DNS record: {type(e).__name__}")
@@ -343,13 +347,17 @@ class HobbyTester:
 def main():
     command = sys.argv[1]
     if command == "create":
-        if len(sys.argv) < 3:
-            print("Please provide the branch name to test")
+        if len(sys.argv) < 4:
+            print("Please provide the branch name and run identifier")
             exit(1)
         branch = sys.argv[2]
+        run_id = sys.argv[3]
+        name = f"do-ci-hobby-{run_id}"
         print(f"Creating droplet on Digitalocean for testing Hobby Deployment, on branch {branch}")
+        print(f"Droplet name: {name}")
         ht = HobbyTester(
             branch=branch,
+            name=name,
         )
         ht.ensure_droplet(ssh_enabled=True)
         print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
