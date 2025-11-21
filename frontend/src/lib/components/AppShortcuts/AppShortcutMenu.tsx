@@ -188,7 +188,7 @@ export function AppShortcutMenu(): JSX.Element | null {
     }
 
     const paletteContent = (
-        <div className="fixed inset-0 z-[var(--z-command-palette)] flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
+        <div className="fixed inset-0 z-[var(--z-shortcut-menu)] flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
                 className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
                 id="app-shortcut-menu"
