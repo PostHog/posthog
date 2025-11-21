@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -26,6 +27,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
 
     const isNotAdmin = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const [aiEnabled, setAiEnabled] = useState(currentOrganization?.is_ai_data_processing_approved ?? false)
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 50, duration: 2000 })
 
     const handleContinue = (): void => {
         if (!isNotAdmin && aiEnabled !== currentOrganization?.is_ai_data_processing_approved) {
@@ -35,6 +37,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
 
     return (
         <OnboardingStep stepKey={stepKey} title="Try PostHog AI" onContinue={handleContinue}>
+            <HogfettiComponent />
             <div className="mt-6">
                 <div className="flex items-start gap-6 mb-8">
                     <div className="hidden sm:block flex-shrink-0 w-32">
@@ -81,7 +84,12 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                         </div>
                         <LemonSwitch
                             checked={aiEnabled}
-                            onChange={(checked) => setAiEnabled(checked)}
+                            onChange={(checked) => {
+                                setAiEnabled(checked)
+                                if (checked) {
+                                    triggerHogfetti()
+                                }
+                            }}
                             disabled={!!isNotAdmin || currentOrganizationLoading}
                             data-attr="onboarding-ai-consent-toggle"
                         />
