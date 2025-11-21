@@ -2718,6 +2718,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKey?: string
     /** List of all scenes exported by the app */
     sceneKeys?: string[]
+    /** Product key(s) that generate interest in this item when intent is triggered */
+    intents?: ProductKey[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -3054,8 +3056,13 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
  * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
  */
 export interface ExperimentBreakdownResult {
-    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
-    breakdown_value: BreakdownKeyType[]
+    /**
+     * The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)
+     * Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value.
+     * The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow
+     * for the types using it to define if it's and array or an optional value.
+     */
+    breakdown_value: (integer | string | number)[]
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidated
     /** Test variant results with statistical comparisons for this breakdown */
@@ -4499,6 +4506,7 @@ export interface ProductItem {
     category: string | null
     iconType: string | null
     type: string | null
+    intents: ProductKey[]
 }
 
 /**
@@ -4510,4 +4518,46 @@ export interface ProductsData {
     products: ProductItem[]
     games: ProductItem[]
     metadata: ProductItem[]
+}
+
+// Keep this in alphabetical order if you wanna maintain Rafa's sanity
+export enum ProductKey {
+    ACTIONS = 'actions',
+    ALERTS = 'alerts',
+    ANNOTATIONS = 'annotations',
+    COHORTS = 'cohorts',
+    COMMENTS = 'comments',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
+    ENDPOINTS = 'endpoints',
+    ERROR_TRACKING = 'error_tracking',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    GROUP_ANALYTICS = 'group_analytics',
+    HEATMAPS = 'heatmaps',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    INTEGRATIONS = 'integrations',
+    LINKS = 'links',
+    LIVE_DEBUGGER = 'live_debugger',
+    LLM_ANALYTICS = 'llm_analytics',
+    LOGS = 'logs',
+    MARKETING_ANALYTICS = 'marketing_analytics',
+    MAX = 'max',
+    MOBILE_REPLAY = 'mobile_replay',
+    PERSONS = 'persons',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PLATFORM_AND_SUPPORT = 'platform_and_support',
+    PRODUCT_ANALYTICS = 'product_analytics',
+    REVENUE_ANALYTICS = 'revenue_analytics',
+    SESSION_REPLAY = 'session_replay',
+    SITE_APPS = 'site_apps',
+    SURVEYS = 'surveys',
+    USER_INTERVIEWS = 'user_interviews',
+    TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
+    WORKFLOWS = 'workflows',
 }

@@ -12,6 +12,41 @@ from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
+def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
+    """Check if operation should be skipped due to managed=False.
+
+    Skip if:
+    1. Operation explicitly declares managed=False (e.g., AlterModelOptions, CreateModel)
+    2. Model is currently managed=False in app registry (Django won't execute DDL)
+
+    Otherwise analyze normally.
+
+    Args:
+        op: Migration operation
+        migration: Current migration object
+        unapplied_migrations: Unused, kept for signature compatibility
+    """
+    # Case 1: Operation explicitly declares managed=False
+    if hasattr(op, "options") and op.options.get("managed") is False:
+        return True
+
+    # Case 2: Check if model is currently managed=False
+    model_name = getattr(op, "model_name", None) or getattr(op, "name", None)
+    if model_name and migration:
+        try:
+            from django.apps import apps
+
+            model = apps.get_model(migration.app_label, model_name)
+            if model._meta.managed is False:
+                return True
+        except LookupError:
+            # Model not found in app registry - likely a third-party app or model no longer exists
+            # Skip the check and let the operation be analyzed normally
+            pass
+
+    return False
+
+
 class OperationAnalyzer:
     """Base class for operation-specific analyzers"""
 

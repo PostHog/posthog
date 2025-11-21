@@ -176,7 +176,8 @@ async def test_snowflake_export_workflow_exports_events(
 
     assert execute_async_calls[5].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
     assert execute_async_calls[6].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
-    assert execute_async_calls[7].startswith(f'COPY INTO "{table_name}"')
+    assert execute_async_calls[7].startswith(f'SELECT * FROM "{table_name}" LIMIT 0')
+    assert execute_async_calls[8].startswith(f'COPY INTO "{table_name}"')
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

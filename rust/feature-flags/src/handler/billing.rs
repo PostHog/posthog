@@ -1,8 +1,5 @@
 use crate::{
-    api::{
-        errors::FlagError,
-        types::{ConfigResponse, FlagsResponse},
-    },
+    api::{errors::FlagError, types::FlagsResponse},
     flags::{
         flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
         flag_models::FeatureFlagList,
@@ -26,13 +23,12 @@ pub async fn check_limits(
         .await;
 
     if billing_limited {
-        return Ok(Some(FlagsResponse {
-            errors_while_computing_flags: false,
-            flags: HashMap::new(),
-            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
-            request_id: context.request_id,
-            config: ConfigResponse::default(),
-        }));
+        return Ok(Some(FlagsResponse::new(
+            false,
+            HashMap::new(),
+            Some(vec![ServiceName::FeatureFlags.as_string()]),
+            context.request_id,
+        )));
     }
     Ok(None)
 }

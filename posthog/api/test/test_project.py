@@ -2,9 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
@@ -188,3 +190,38 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.patch(f"/api/projects/{self.project.id}/", {"name": "Updated Name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
+
+    @patch("posthog.api.project.delete_batch_exports")
+    def test_project_deletion_deletes_persons_manually(self, mock_batch_exports):
+        """Verify that project deletion deletes Persons via manual delete, not CASCADE."""
+        # Create a Person
+        person = Person.objects.create(team=self.team)
+
+        # Delete project via API (which calls delete_bulky_postgres_data)
+        viewset = ProjectViewSet()
+        request = MagicMock()
+        request.user = self.user
+        viewset.request = request
+
+        viewset.perform_destroy(self.project)
+
+        # Verify Person was deleted (by manual delete, not CASCADE)
+        self.assertFalse(Person.objects.filter(id=person.id).exists())
+
+        # Verify project was deleted
+        self.assertFalse(Project.objects.filter(id=self.project.id).exists())
+
+    def test_team_deletion_does_not_cascade_to_persons(self):
+        """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
+        # Create a Person
+        person = Person.objects.create(team=self.team)
+        person_id = person.id
+
+        # Delete the team directly (not via API, bypassing manual delete)
+        self.team.delete()
+
+        # Person should still exist (not CASCADE deleted)
+        self.assertTrue(Person.objects.filter(id=person_id).exists())
+
+        # Clean up orphaned person using raw delete to bypass signals
+        Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
