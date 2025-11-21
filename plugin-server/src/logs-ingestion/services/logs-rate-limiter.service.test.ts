@@ -209,4 +209,145 @@ describe('LogsRateLimiterService', () => {
             expect(res2[0][1].tokensAfter).toBe(50)
         })
     })
+
+    describe('filterMessages', () => {
+        let hub: Hub
+        let rateLimiter: LogsRateLimiterService
+        let redis: RedisV2
+
+        const createMessage = (teamId: number, bytesUncompressed: number): any => ({
+            teamId,
+            bytesUncompressed,
+            bytesCompressed: Math.floor(bytesUncompressed / 2),
+            recordCount: 1,
+            token: `token-${teamId}`,
+            message: { value: Buffer.from('test') },
+        })
+
+        beforeEach(async () => {
+            hub = await createHub()
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 10
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+            hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
+
+            redis = createRedisV2Pool(hub, 'logs')
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+
+            rateLimiter = new LogsRateLimiterService(hub, redis)
+        })
+
+        afterEach(async () => {
+            await closeHub(hub)
+        })
+
+        it('should allow messages within bucket size', async () => {
+            const messages = [createMessage(1, 5120), createMessage(1, 3072)] // 5KB + 3KB = 8KB < 10KB
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(2)
+            expect(result.dropped).toHaveLength(0)
+        })
+
+        it('should drop messages exceeding bucket size', async () => {
+            const messages = [createMessage(1, 15360)] // 15KB > 10KB
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(0)
+            expect(result.dropped).toHaveLength(1)
+        })
+
+        it('should allow partial batch through', async () => {
+            const messages = [
+                createMessage(1, 5120), // 5KB - allowed
+                createMessage(1, 6144), // 6KB - dropped (5+6=11 > 10)
+            ]
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.allowed[0].bytesUncompressed).toBe(5120)
+            expect(result.dropped).toHaveLength(1)
+            expect(result.dropped[0].bytesUncompressed).toBe(6144)
+        })
+
+        it('should rate limit teams independently', async () => {
+            const messages = [
+                createMessage(1, 15360), // Team 1: 15KB - dropped
+                createMessage(2, 5120), // Team 2: 5KB - allowed
+            ]
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.allowed[0].teamId).toBe(2)
+            expect(result.dropped).toHaveLength(1)
+            expect(result.dropped[0].teamId).toBe(1)
+        })
+
+        it('should skip rate limiting for teams not in LOGS_LIMITER_ENABLED_TEAMS', async () => {
+            hub.LOGS_LIMITER_ENABLED_TEAMS = '2' // Only team 2
+
+            const messages = [
+                createMessage(1, 15360), // Team 1: 15KB - allowed (not rate limited)
+                createMessage(2, 15360), // Team 2: 15KB - dropped (rate limited)
+            ]
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.allowed[0].teamId).toBe(1)
+            expect(result.dropped).toHaveLength(1)
+            expect(result.dropped[0].teamId).toBe(2)
+        })
+
+        it('should skip rate limiting when LOGS_LIMITER_ENABLED_TEAMS is empty', async () => {
+            hub.LOGS_LIMITER_ENABLED_TEAMS = ''
+
+            const messages = [createMessage(1, 15360)] // Would exceed bucket
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.dropped).toHaveLength(0)
+        })
+
+        it('should rate limit all teams when LOGS_LIMITER_ENABLED_TEAMS is *', async () => {
+            hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
+
+            const messages = [createMessage(1, 15360)] // Exceeds bucket
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(0)
+            expect(result.dropped).toHaveLength(1)
+        })
+
+        it('should handle multiple teams in LOGS_LIMITER_ENABLED_TEAMS', async () => {
+            hub.LOGS_LIMITER_ENABLED_TEAMS = '1, 3' // Teams 1 and 3
+
+            const messages = [
+                createMessage(1, 15360), // Team 1: dropped (rate limited)
+                createMessage(2, 15360), // Team 2: allowed (not in list)
+                createMessage(3, 15360), // Team 3: dropped (rate limited)
+            ]
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.allowed[0].teamId).toBe(2)
+            expect(result.dropped).toHaveLength(2)
+        })
+
+        it('should handle zero byte messages', async () => {
+            const messages = [createMessage(1, 0)]
+
+            const result = await rateLimiter.filterMessages(messages)
+
+            expect(result.allowed).toHaveLength(1)
+            expect(result.dropped).toHaveLength(0)
+        })
+    })
 })

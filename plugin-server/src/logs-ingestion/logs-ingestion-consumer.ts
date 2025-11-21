@@ -10,6 +10,7 @@ import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerServic
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import { LogsIngestionMessage } from './types'
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -46,15 +47,6 @@ export const logsRecordsDroppedCounter = new Counter({
     name: 'logs_ingestion_records_dropped_total',
     help: 'Total log records dropped due to rate limiting',
 })
-
-export type LogsIngestionMessage = {
-    token: string
-    teamId: number
-    message: Message
-    bytesUncompressed: number
-    bytesCompressed: number
-    recordCount: number
-}
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
@@ -126,67 +118,31 @@ export class LogsIngestionConsumer {
         logsBytesReceivedCounter.inc(totalBytesReceived)
         logsRecordsReceivedCounter.inc(totalRecordsReceived)
 
-        // Group messages by team to calculate total cost per team
-        const teamCosts = new Map<number, number>()
-        for (const message of messages) {
-            const currentCost = teamCosts.get(message.teamId) ?? 0
-            // Cost is in KB (uncompressed bytes / 1024)
-            const costKb = Math.ceil(message.bytesUncompressed / 1024)
-            teamCosts.set(message.teamId, currentCost + costKb)
-        }
+        // Filter messages using rate limiter service
+        const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
 
-        // Check rate limits for all teams
-        const rateLimitResults = await this.rateLimiter.rateLimitMany(
-            Array.from(teamCosts.entries()).map(([teamId, cost]) => [teamId.toString(), cost])
-        )
-
-        // Build a map of team rate limit results
-        const teamLimits = new Map<number, { tokensBefore: number; tokensAfter: number; isRateLimited: boolean }>()
-        for (const [teamIdStr, result] of rateLimitResults) {
-            teamLimits.set(parseInt(teamIdStr, 10), result)
-        }
-
-        // Filter messages based on rate limits, allowing partial batches through
-        const filteredMessages: LogsIngestionMessage[] = []
-        const teamKbUsed = new Map<number, number>()
+        // Track allowed metrics
         let bytesAllowed = 0
-        let bytesDropped = 0
         let recordsAllowed = 0
-        let recordsDropped = 0
-
-        for (const message of messages) {
-            const limit = teamLimits.get(message.teamId)
-            if (!limit) {
-                filteredMessages.push(message)
-                bytesAllowed += message.bytesUncompressed
-                recordsAllowed += message.recordCount
-                continue
-            }
-
-            const kbUsed = teamKbUsed.get(message.teamId) ?? 0
-            const availableKb = limit.tokensBefore
-            const messageKb = Math.ceil(message.bytesUncompressed / 1024)
-
-            // Allow message if we haven't exceeded the available tokens
-            if (kbUsed + messageKb <= availableKb) {
-                filteredMessages.push(message)
-                teamKbUsed.set(message.teamId, kbUsed + messageKb)
-                bytesAllowed += message.bytesUncompressed
-                recordsAllowed += message.recordCount
-            } else {
-                logMessageDroppedCounter.inc({ reason: 'rate_limited' })
-                bytesDropped += message.bytesUncompressed
-                recordsDropped += message.recordCount
-            }
+        for (const message of allowed) {
+            bytesAllowed += message.bytesUncompressed
+            recordsAllowed += message.recordCount
         }
-
-        // Track allowed and dropped metrics
         logsBytesAllowedCounter.inc(bytesAllowed)
-        logsBytesDroppedCounter.inc(bytesDropped)
         logsRecordsAllowedCounter.inc(recordsAllowed)
+
+        // Track dropped metrics
+        let bytesDropped = 0
+        let recordsDropped = 0
+        for (const message of dropped) {
+            logMessageDroppedCounter.inc({ reason: 'rate_limited' })
+            bytesDropped += message.bytesUncompressed
+            recordsDropped += message.recordCount
+        }
+        logsBytesDroppedCounter.inc(bytesDropped)
         logsRecordsDroppedCounter.inc(recordsDropped)
 
-        return filteredMessages
+        return allowed
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
