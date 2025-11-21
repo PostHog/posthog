@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0017_alter_task_repository"),
+        ("tasks", "0016_taskrun_environment_alter_taskrun_status"),
     ]
 
     operations = [

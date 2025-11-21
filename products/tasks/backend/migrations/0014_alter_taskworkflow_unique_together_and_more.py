@@ -9,61 +9,75 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterUniqueTogether(
-            name="taskworkflow",
-            unique_together=None,
-        ),
-        migrations.RemoveField(
-            model_name="taskworkflow",
-            name="team",
-        ),
-        migrations.AlterUniqueTogether(
-            name="workflowstage",
-            unique_together=None,
-        ),
-        migrations.RemoveField(
-            model_name="workflowstage",
-            name="fallback_stage",
-        ),
-        migrations.RemoveField(
-            model_name="workflowstage",
-            name="workflow",
-        ),
-        migrations.AlterModelOptions(
-            name="task",
-            options={"managed": True},
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="current_stage",
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="github_branch",
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="github_pr_url",
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="position",
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="repository_config",
-        ),
-        migrations.RemoveField(
-            model_name="task",
-            name="workflow",
-        ),
-        migrations.RemoveField(
-            model_name="taskrun",
-            name="current_stage",
-        ),
-        migrations.RemoveField(
-            model_name="taskrun",
-            name="log",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name="taskworkflow",
+                    unique_together=None,
+                ),
+                migrations.RemoveField(
+                    model_name="taskworkflow",
+                    name="team",
+                ),
+                migrations.AlterUniqueTogether(
+                    name="workflowstage",
+                    unique_together=None,
+                ),
+                migrations.RemoveField(
+                    model_name="workflowstage",
+                    name="fallback_stage",
+                ),
+                migrations.RemoveField(
+                    model_name="workflowstage",
+                    name="workflow",
+                ),
+                migrations.AlterModelOptions(
+                    name="task",
+                    options={"managed": True},
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="current_stage",
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="github_branch",
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="github_pr_url",
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="position",
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="repository_config",
+                ),
+                migrations.RemoveField(
+                    model_name="task",
+                    name="workflow",
+                ),
+                migrations.RemoveField(
+                    model_name="taskrun",
+                    name="current_stage",
+                ),
+                migrations.RemoveField(
+                    model_name="taskrun",
+                    name="log",
+                ),
+                migrations.DeleteModel(
+                    name="TaskProgress",
+                ),
+                migrations.DeleteModel(
+                    name="TaskWorkflow",
+                ),
+                migrations.DeleteModel(
+                    name="WorkflowStage",
+                ),
+            ],
+            database_operations=[],
         ),
         migrations.AddField(
             model_name="task",
@@ -78,8 +92,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="task",
             name="repository",
-            field=models.CharField(default="", max_length=255),
-            preserve_default=False,
+            field=models.CharField(blank=True, max_length=255, null=True),
         ),
         migrations.AlterField(
             model_name="taskrun",
@@ -90,14 +103,5 @@ class Migration(migrations.Migration):
                 max_length=100,
                 null=True,
             ),
-        ),
-        migrations.DeleteModel(
-            name="TaskProgress",
-        ),
-        migrations.DeleteModel(
-            name="TaskWorkflow",
-        ),
-        migrations.DeleteModel(
-            name="WorkflowStage",
         ),
     ]
