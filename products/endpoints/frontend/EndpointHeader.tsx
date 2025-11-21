@@ -84,7 +84,6 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading}
-                renameDebounceMs={200}
                 actions={
                     <>
                         {!isNewEndpoint && (

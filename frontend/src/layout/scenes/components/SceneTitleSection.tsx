@@ -97,15 +97,15 @@ type SceneMainTitleProps = {
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
-     * @default 100
+     * @default 0
      */
     renameDebounceMs?: number
     /**
      * If true, saves only on blur (when leaving the field)
-     * If false, saves on every change (debounced) - original behavior.
+     * If false, saves on every change (debounced).
      *
-     * Note: It's probably a good idea to set renameDebounceMs to 0 if this is true
-     * @default false
+     * Note: It's probably a good idea to set renameDebounceMs > 1000 if this is false
+     * @default true
      */
     saveOnBlur?: boolean
     /**
@@ -130,8 +130,8 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
     actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -263,11 +263,12 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const [isNameMultiline, setIsNameMultiline] = useState(false)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -319,14 +320,16 @@ function SceneName({
                     className={cn(
                         buttonPrimitiveVariants({
                             inert: true,
-                            className: `${textClasses} w-full hover:bg-fill-input py-0`,
+                            className: `${textClasses} w-full hover:bg-fill-input py-0 [&_.LemonIcon]:size-4`,
                             autoHeight: true,
                         }),
                         {
+                            // When the textarea is force edit (new item) and multi line to be inline (not absolute)
+                            // so the name doesn't overlap over description
                             '@2xl/main-content:absolute @2xl/main-content:inset-0 min-h-[var(--button-height-base)]':
-                                isEditing,
-                        },
-                        '[&_.LemonIcon]:size-4'
+                                (forceEdit && !isNameMultiline) || (isEditing && !forceEdit),
+                            shadow: isEditing && !forceEdit && isNameMultiline,
+                        }
                     )}
                     placeholder="Enter name"
                     onBlur={() => {
@@ -346,6 +349,14 @@ function SceneName({
                         }
                     }}
                     readOnly={!onChange && !canEdit}
+                    onHeightChange={(height) => {
+                        // TRICKY: 27 is the height of the textarea when it is a single line, but it's based on 0% zoom
+                        if (height > 27) {
+                            setIsNameMultiline(true)
+                        } else {
+                            setIsNameMultiline(false)
+                        }
+                    }}
                 />
             ) : (
                 <Tooltip
@@ -380,9 +391,8 @@ function SceneName({
 
     return (
         <div
-            className={cn('scene-name flex-1', {
+            className={cn('scene-name flex-1 min-h-[var(--button-height-base)]', {
                 truncate: !isEditing,
-                // 'overflow-auto': isEditing,
             })}
         >
             {Element}
@@ -408,8 +418,8 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)

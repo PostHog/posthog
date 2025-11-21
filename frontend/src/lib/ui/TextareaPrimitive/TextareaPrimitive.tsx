@@ -1,5 +1,5 @@
 import { forwardRef } from 'react'
-import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
+import TextareaAutosize, { TextareaAutosizeProps, TextareaHeightChangeMeta } from 'react-textarea-autosize'
 
 import { IconMarkdownFilled } from '@posthog/icons'
 
@@ -14,10 +14,14 @@ type TextareaPrimitiveProps = TextareaAutosizeProps &
         markdown?: boolean
         wrapperClassName?: string
         readOnly?: boolean
+        onHeightChange?: (height: number, meta?: TextareaHeightChangeMeta) => void
     }
 
 export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
-    ({ className, variant, error, markdown = false, wrapperClassName, readOnly, ...rest }, ref): JSX.Element => {
+    (
+        { className, variant, error, markdown = false, wrapperClassName, readOnly, onHeightChange, ...rest },
+        ref
+    ): JSX.Element => {
         // Ensure cursor is at the end of the textarea when it is focused
         function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
             e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
@@ -36,6 +40,7 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
                         className
                     )}
                     readOnly={readOnly}
+                    onHeightChange={(height, meta) => onHeightChange?.(height, meta)}
                 />
                 {markdown && (
                     <ButtonPrimitive

@@ -66,8 +66,12 @@ export function Editable(): JSX.Element {
                     type: 'cohort',
                 }}
                 canEdit={true}
-                onNameChange={(value) => {}}
-                onDescriptionChange={(value) => {}}
+                onNameChange={(value) => {
+                    console.info('name changed', value)
+                }}
+                onDescriptionChange={(value) => {
+                    console.info('description changed', value)
+                }}
             />
         </Wrapper>
     )
@@ -77,15 +81,19 @@ export function ForceEdit(): JSX.Element {
     return (
         <Wrapper>
             <SceneTitleSection
-                name={LONG_NAME}
+                name="In force edit mode and multiline, the textarea should be relative"
                 description="Editable description"
                 resourceType={{
                     type: 'cohort',
                 }}
                 forceEdit={true}
                 canEdit={true}
-                onNameChange={(value) => {}}
-                onDescriptionChange={(value) => {}}
+                onNameChange={(value) => {
+                    console.info('name changed', value)
+                }}
+                onDescriptionChange={(value) => {
+                    console.info('description changed', value)
+                }}
             />
         </Wrapper>
     )
@@ -94,12 +102,7 @@ export function ForceEdit(): JSX.Element {
 export function EditableNoDescription(): JSX.Element {
     return (
         <Wrapper>
-            <SceneTitleSection
-                name="Editable name but very long name that shows truncation, and does not wrap!"
-                description={null}
-                resourceType={{ type: 'cohort' }}
-                canEdit={true}
-            />
+            <SceneTitleSection name={LONG_NAME} description={null} resourceType={{ type: 'cohort' }} canEdit={true} />
         </Wrapper>
     )
 }
@@ -108,7 +111,7 @@ export function Actions(): JSX.Element {
     return (
         <Wrapper>
             <SceneTitleSection
-                name="Editable name but very long name that shows truncation, and does not wrap!"
+                name={LONG_NAME}
                 description={null}
                 resourceType={{ type: 'cohort' }}
                 canEdit={true}
@@ -126,7 +129,7 @@ export function ForceBackTo(): JSX.Element {
     return (
         <Wrapper>
             <SceneTitleSection
-                name="Editable name but very long name that shows truncation, and does not wrap!"
+                name="Show a back button to the left"
                 description={null}
                 resourceType={{ type: 'cohort' }}
                 canEdit={true}
