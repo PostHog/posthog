@@ -97,15 +97,15 @@ type SceneMainTitleProps = {
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
-     * @default 100
+     * @default 0
      */
     renameDebounceMs?: number
     /**
      * If true, saves only on blur (when leaving the field)
-     * If false, saves on every change (debounced) - original behavior.
+     * If false, saves on every change (debounced).
      *
-     * Note: It's probably a good idea to set renameDebounceMs to 0 if this is true
-     * @default false
+     * Note: It's probably a good idea to set renameDebounceMs > 1000 if this is false
+     * @default true
      */
     saveOnBlur?: boolean
     /**
@@ -130,8 +130,8 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
     actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -170,17 +170,21 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
+                <div
+                    data-sticky-sentinel
+                    className="scene-title-section-wrapper-sticky-sentinel h-px w-px pointer-events-none absolute top-[-55px]"
+                    aria-hidden
+                />
             )}
 
             <div
                 className={cn(
-                    '@2xl/main-content:h-[var(--scene-title-section-height)] bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
+                    'scene-title-section-wrapper bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
-                    className="scene-title-section @2xl/main-content:h-[var(--scene-title-section-height)] flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-2 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
                     data-editable={canEdit}
                 >
                     <div
@@ -216,7 +220,7 @@ export function SceneTitleSection({
                         )}
                     </div>
                     {actions && (
-                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start @max-2xl:order-first">
                             {actions}
                             <SceneTitlePanelButton />
                         </div>
@@ -259,14 +263,17 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const [isNameMultiline, setIsNameMultiline] = useState(false)
+
+    const readOnly = !canEdit || !onChange
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
+        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4]'
 
     useEffect(() => {
         if (!isLoading) {
@@ -296,83 +303,112 @@ function SceneName({
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
-    const Element =
-        onChange && canEdit ? (
-            <>
-                {isEditing ? (
-                    <TextareaPrimitive
-                        variant="default"
-                        name="name"
-                        value={name || ''}
-                        onChange={(e) => {
+    const Element = (
+        <>
+            {isEditing ? (
+                <TextareaPrimitive
+                    variant="default"
+                    name="name"
+                    value={name || ''}
+                    onChange={(e) => {
+                        if (canEdit) {
                             setName(e.target.value)
                             if (!saveOnBlur) {
                                 debouncedOnChange(e.target.value)
                             }
-                        }}
-                        data-attr="scene-title-textarea"
+                        }
+                    }}
+                    data-attr="scene-title-textarea"
+                    className={cn(
+                        buttonPrimitiveVariants({
+                            inert: true,
+                            className: `${textClasses} w-full hover:bg-fill-input py-0 pt-px [&_.LemonIcon]:size-4 min-h-[var(--button-height-base)]`,
+                            autoHeight: true,
+                        }),
+                        {
+                            // When the textarea is force edit (new item) and multi line to be inline (not absolute)
+                            // so the name doesn't overlap over description
+                            '@2xl/main-content:absolute @2xl/main-content:inset-0':
+                                (forceEdit && !isNameMultiline) || (isEditing && !forceEdit),
+                            shadow: isEditing && !forceEdit && isNameMultiline,
+                        }
+                    )}
+                    placeholder="Enter name"
+                    onBlur={() => {
+                        // Save changes when leaving the field (only if saveOnBlur is true)
+                        if (saveOnBlur && name !== initialName) {
+                            debouncedOnBlurSave(name || '')
+                        }
+                        // Exit edit mode if not forced
+                        if (!forceEdit) {
+                            setIsEditing(false)
+                        }
+                    }}
+                    autoFocus={!forceEdit}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault()
+                        }
+                    }}
+                    readOnly={readOnly}
+                    onHeightChange={(height) => {
+                        // TRICKY: 27 is the height of the textarea when it is a single line, but it's based on 0% zoom
+                        if (height > 28) {
+                            setIsNameMultiline(true)
+                        } else {
+                            setIsNameMultiline(false)
+                        }
+                    }}
+                />
+            ) : (
+                <Tooltip
+                    title={readOnly ? undefined : canEdit && !forceEdit ? 'Click to edit name' : 'Click to view name'}
+                    placement="top-start"
+                    arrowOffset={10}
+                >
+                    <ButtonPrimitive
                         className={cn(
-                            buttonPrimitiveVariants({
-                                inert: true,
-                                className: `${textClasses} w-full hover:bg-fill-input py-0`,
-                                autoHeight: true,
-                            }),
-                            '[&_.LemonIcon]:size-4'
+                            buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
+                            'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50',
+                            {
+                                'select-text': readOnly,
+                            }
                         )}
-                        placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoFocus={!forceEdit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                            }
-                        }}
-                    />
-                ) : (
-                    <Tooltip
-                        title={canEdit && !forceEdit ? 'Edit name' : undefined}
-                        placement="top-start"
-                        arrowOffset={10}
+                        onClick={() => !readOnly && setIsEditing(true)}
+                        fullWidth
+                        truncate
+                        inert={readOnly}
+                        role="heading"
+                        aria-level={1}
                     >
-                        <ButtonPrimitive
-                            className={cn(
-                                buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)]'
-                            )}
-                            onClick={() => setIsEditing(true)}
-                            fullWidth
-                            truncate
-                        >
-                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
-                            {canEdit && !forceEdit && <IconPencil />}
-                        </ButtonPrimitive>
-                    </Tooltip>
-                )}
-            </>
-        ) : (
-            <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
-            </h1>
-        )
+                        <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                        {canEdit && !forceEdit && <IconPencil />}
+                    </ButtonPrimitive>
+                </Tooltip>
+            )}
+        </>
+    )
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1">
+            <div className="w-full flex-1 focus-within:z-50">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
     }
 
-    return <div className={cn('scene-name flex-1', onChange && canEdit && 'truncate')}>{Element}</div>
+    return (
+        <div
+            className={cn(
+                'scene-name flex-1 min-h-[var(--button-height-base)] -ml-[var(--button-padding-x-sm)] @2xl/main-content:ml-0',
+                {
+                    truncate: !isEditing,
+                }
+            )}
+        >
+            {Element}
+        </div>
+    )
 }
 
 type SceneDescriptionProps = {
@@ -384,6 +420,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    readOnly?: boolean
 }
 
 function SceneDescription({
@@ -393,8 +430,9 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
+    readOnly = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -432,7 +470,7 @@ function SceneDescription({
     const Element =
         onChange && canEdit ? (
             <>
-                {isEditing ? (
+                {isEditing && !readOnly ? (
                     <TextareaPrimitive
                         variant="default"
                         name="description"
@@ -474,8 +512,8 @@ function SceneDescription({
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
-                            onClick={() => setIsEditing(true)}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4"
+                            onClick={() => !readOnly && setIsEditing(true)}
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
                             fullWidth
                             size="base"
@@ -524,7 +562,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-4">
+        <div className="scene-description -mt-4 relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )

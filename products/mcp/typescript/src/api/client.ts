@@ -6,6 +6,8 @@ import { getSearchParamsFromRecord } from '@/lib/utils/helper-functions'
 import {
     type ApiEventDefinition,
     ApiEventDefinitionSchema,
+    type ApiOAuthIntrospection,
+    ApiOAuthIntrospectionSchema,
     type ApiPropertyDefinition,
     ApiPropertyDefinitionSchema,
     type ApiRedactedPersonalApiKey,
@@ -87,8 +89,8 @@ export interface ApiConfig {
 type Endpoint = Record<string, any>
 
 export class ApiClient {
-    private config: ApiConfig
-    private baseUrl: string
+    public config: ApiConfig
+    public baseUrl: string
     // NOTE: The OpenAPI schema for the generated client is not always accurate
     public generated: ReturnType<typeof createApiClient>
 
@@ -208,6 +210,23 @@ export class ApiClient {
                     `${this.baseUrl}/api/personal_api_keys/@current`,
                     ApiRedactedPersonalApiKeySchema
                 )
+            },
+        }
+    }
+
+    oauth(): Endpoint {
+        return {
+            introspect: async (): Promise<Result<ApiOAuthIntrospection>> => {
+                return this.fetchWithSchema(`${this.baseUrl}/oauth/introspect`, ApiOAuthIntrospectionSchema, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        token: this.config.apiToken,
+                    }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${this.config.apiToken}`,
+                    },
+                })
             },
         }
     }

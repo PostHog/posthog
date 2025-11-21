@@ -340,6 +340,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {
                                         format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        context: exportContext,
                                         dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
                                     {
@@ -511,9 +512,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
-                renameDebounceMs={0}
-                // Use onBlur-only saves to prevent autosave while typing
-                saveOnBlur
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (

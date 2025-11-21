@@ -9,8 +9,8 @@ export const textInputVariants = cva({
     base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-secondary focus-visible:border-secondary',
-            invisible: 'border-transparent bg-transparent hover:border-transparent',
+            default: 'text-input-primitive--default',
+            invisible: 'text-input-primitive--invisible',
         },
         size: {
             sm: '',
@@ -26,11 +26,16 @@ export const textInputVariants = cva({
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
             false: '',
         },
+        showFocusPulse: {
+            true: 'animate-input-focus-pulse',
+            false: 'shadow-none',
+        },
     },
     defaultVariants: {
         variant: 'default',
         size: 'default',
         error: false,
+        showFocusPulse: true,
     },
     compoundVariants: [
         // Paddings
@@ -79,6 +84,7 @@ export type TextInputBaseProps = {
     dataAttr?: string
     className?: string
     suffix?: React.ReactNode
+    showFocusPulse?: boolean
 } & VariantProps<typeof textInputVariants>
 
 export interface TextInputPrimitiveProps
@@ -86,7 +92,16 @@ export interface TextInputPrimitiveProps
         Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
 
 export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
-    const { autoFocus, variant, size = 'default', type = 'text', className, suffix, ...rest } = props
+    const {
+        autoFocus,
+        variant,
+        size = 'default',
+        type = 'text',
+        className,
+        suffix,
+        showFocusPulse = true,
+        ...rest
+    } = props
 
     const internalRef = useRef<HTMLInputElement>(null)
 
@@ -121,14 +136,22 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                     variant,
                     size,
                 }),
-                className
+                className,
+                {
+                    'animate-input-focus-pulse': autoFocus && showFocusPulse,
+                }
             )}
         >
             <input
                 ref={mergedRef}
                 type={type}
                 className={cn(
-                    textInputVariants({ size, variant: 'invisible', hasSuffix: suffix ? true : false }),
+                    textInputVariants({
+                        size,
+                        variant: 'invisible',
+                        hasSuffix: suffix ? true : false,
+                        showFocusPulse: false,
+                    }),
                     'flex-1'
                 )}
                 {...rest}
