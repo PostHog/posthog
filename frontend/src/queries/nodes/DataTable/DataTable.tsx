@@ -216,6 +216,7 @@ export function DataTable({
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showSourceQueryOptions,
     } = queryWithDefaults
 
     const isReadOnly = !!readOnly
@@ -633,8 +634,11 @@ export function DataTable({
     )
 
     const firstRowLeft = [
-        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
-        backToSourceQuery && isActorsQuery(query.source) && isInsightActorsQuery(query.source.source) ? (
+        showSourceQueryOptions && backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
+        showSourceQueryOptions &&
+        backToSourceQuery &&
+        isActorsQuery(query.source) &&
+        isInsightActorsQuery(query.source.source) ? (
             <InsightActorsQueryOptions
                 query={query.source.source}
                 setQuery={(q) =>

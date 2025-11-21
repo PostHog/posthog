@@ -882,10 +882,16 @@
         "AssistantFormOption": {
             "additionalProperties": false,
             "properties": {
+                "href": {
+                    "description": "When href is set, the button opens the link rather than sending an AI message.",
+                    "type": "string"
+                },
                 "value": {
+                    "description": "Button label, which is also the message that gets sent on click.",
                     "type": "string"
                 },
                 "variant": {
+                    "description": "'primary', 'secondary', or 'tertiary' - default 'secondary'",
                     "type": "string"
                 }
             },
@@ -1839,6 +1845,7 @@
                 "create_message_template",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
+                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -8182,6 +8189,69 @@
             "required": ["customEventName"],
             "type": "object"
         },
+        "CustomerAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "activity_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "payment_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_pageview_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "subscription_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "activity_event",
+                "signup_pageview_event",
+                "signup_event",
+                "subscription_event",
+                "payment_event"
+            ],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -9745,6 +9815,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
+                    "type": "boolean"
+                },
                 "showTestAccountFilters": {
                     "description": "Show filter to exclude test accounts",
                     "type": "boolean"
@@ -10948,6 +11022,9 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "derived_from_insight": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -11255,6 +11332,19 @@
                 "population",
                 "status"
             ],
+            "type": "object"
+        },
+        "ErrorTrackingExplainIssueToolContext": {
+            "additionalProperties": false,
+            "properties": {
+                "issue_name": {
+                    "type": "string"
+                },
+                "stacktrace": {
+                    "type": "string"
+                }
+            },
+            "required": ["stacktrace", "issue_name"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {
@@ -12506,9 +12596,19 @@
                     "description": "Control variant stats for this breakdown"
                 },
                 "breakdown_value": {
-                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single)",
+                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value.",
                     "items": {
-                        "$ref": "#/definitions/BreakdownKeyType"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/integer"
+                            },
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -14207,6 +14307,13 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "intents": {
+                    "description": "Product key(s) that generate interest in this item when intent is triggered",
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
                 },
                 "last_viewed_at": {
                     "description": "Timestamp when the file system entry was last viewed",
@@ -19283,6 +19390,101 @@
                 "user_email",
                 "personal_api_key"
             ],
+            "type": "object"
+        },
+        "ProductItem": {
+            "additionalProperties": false,
+            "description": "Product item structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.",
+            "properties": {
+                "category": {
+                    "type": ["string", "null"]
+                },
+                "iconType": {
+                    "type": ["string", "null"]
+                },
+                "intents": {
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["path", "category", "iconType", "type", "intents"],
+            "type": "object"
+        },
+        "ProductKey": {
+            "enum": [
+                "actions",
+                "alerts",
+                "annotations",
+                "cohorts",
+                "comments",
+                "customer_analytics",
+                "data_warehouse",
+                "data_warehouse_saved_queries",
+                "early_access_features",
+                "endpoints",
+                "error_tracking",
+                "experiments",
+                "feature_flags",
+                "group_analytics",
+                "heatmaps",
+                "history",
+                "ingestion_warnings",
+                "integrations",
+                "links",
+                "live_debugger",
+                "llm_analytics",
+                "logs",
+                "marketing_analytics",
+                "max",
+                "mobile_replay",
+                "persons",
+                "pipeline_transformations",
+                "pipeline_destinations",
+                "platform_and_support",
+                "product_analytics",
+                "revenue_analytics",
+                "session_replay",
+                "site_apps",
+                "surveys",
+                "user_interviews",
+                "teams",
+                "web_analytics",
+                "workflows"
+            ],
+            "type": "string"
+        },
+        "ProductsData": {
+            "additionalProperties": false,
+            "description": "Products data structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.",
+            "properties": {
+                "games": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                },
+                "metadata": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                },
+                "products": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["products", "games", "metadata"],
             "type": "object"
         },
         "PropertyFilterBaseValue": {
@@ -25508,6 +25710,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
                 "showTable": {

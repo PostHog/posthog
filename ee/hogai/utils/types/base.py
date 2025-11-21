@@ -336,6 +336,13 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
+    """
+    List of specific session IDs (UUIDs) to summarize. Can be populated from:
+    - Session IDs extracted from user's natural language query
+    - Current session ID from context when user refers to "this session"
+    - Multiple session IDs when user specifies several sessions
+    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
@@ -393,6 +400,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    USAGE_COMMAND_HANDLER = "usage_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"
