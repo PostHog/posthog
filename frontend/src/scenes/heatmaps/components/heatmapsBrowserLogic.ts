@@ -325,6 +325,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         sendToolbarMessage: ({ type, payload }) => {
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
                     type,
@@ -440,6 +442,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
+        },
+        '/heatmaps/new': (_, searchParams) => {
+            if (searchParams.pageURL && searchParams.pageURL !== values.displayUrl) {
+                actions.setDisplayUrl(searchParams.pageURL)
+            }
+            if (searchParams.dataUrl && searchParams.dataUrl !== values.dataUrl) {
+                actions.setDataUrl(searchParams.dataUrl)
             }
         },
         '/heatmaps/recording': (_, searchParams) => {

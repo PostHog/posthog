@@ -1,10 +1,10 @@
 from collections.abc import Callable
-from typing import cast
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base import BaseAssistantGraph
+from ee.hogai.graph.agent_executor import AgentExecutorGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.graph.usage import UsageNode
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -16,17 +16,12 @@ from .memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from .root.nodes import RootNode, RootNodeTools
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+class AssistantGraph(AgentExecutorGraph):
     @property
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.ASSISTANT
-
-    @property
-    def state_type(self) -> type[AssistantState]:
-        return AssistantState
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True
@@ -37,27 +32,19 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
-    def add_root(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
-        root_node = RootNode(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
-        )
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS,
-            root_node_tools.router,
-            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
-        )
-        return self
+    def add_root(
+        self,
+        router: Callable[[AssistantState], AssistantNodeName] | None = None,
+        tools_router: Callable[[AssistantState], AssistantNodeName] | None = None,
+    ):
+        # Merge the agent graph into the main graph.
+        # Subgraphs incorrectly merge messages, so please don't use them here.
+        return self.add_agent_node(router=router).add_agent_tools_node(router=tools_router)
 
     def add_memory_onboarding(
         self,
         next_node: AssistantNodeName = AssistantNodeName.ROOT,
     ):
-        self._has_start_node = True
-
         memory_onboarding = MemoryOnboardingNode(self._team, self._user)
         memory_initializer = MemoryInitializerNode(self._team, self._user)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team, self._user)
@@ -72,14 +59,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, memory_onboarding_enquiry_interrupt)
         self.add_node(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, memory_onboarding_finalize)
 
-        self._graph.add_conditional_edges(
-            AssistantNodeName.START,
-            memory_onboarding.should_run_onboarding_at_start,
-            {
-                "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
-                "continue": next_node,
-            },
-        )
         self._graph.add_edge(AssistantNodeName.MEMORY_ONBOARDING, AssistantNodeName.MEMORY_INITIALIZER)
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
@@ -111,10 +90,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         next_node: AssistantNodeName = AssistantNodeName.END,
         tools_node: AssistantNodeName = AssistantNodeName.MEMORY_COLLECTOR_TOOLS,
     ):
-        self._has_start_node = True
-
         memory_collector = MemoryCollectorNode(self._team, self._user)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         self.add_node(AssistantNodeName.MEMORY_COLLECTOR, memory_collector)
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_COLLECTOR,
@@ -129,9 +105,24 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
+    def add_usage_handler(
+        self,
+    ):
+        self._has_start_node = True
+
+        usage_node = UsageNode(self._team, self._user)
+        self.add_node(AssistantNodeName.USAGE_COMMAND_HANDLER, usage_node)
+        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.USAGE_COMMAND_HANDLER)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.USAGE_COMMAND_HANDLER,
+            usage_node.router,  # type: ignore[arg-type]
+        )
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
+            .add_usage_handler()
             .add_memory_onboarding()
             .add_memory_collector()
             .add_memory_collector_tools()

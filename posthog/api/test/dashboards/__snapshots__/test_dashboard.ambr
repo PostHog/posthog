@@ -25,6 +25,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -924,6 +925,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1311,6 +1313,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
@@ -1500,6 +1503,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -1527,6 +1531,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -2047,6 +2052,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -2074,6 +2080,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -2318,6 +2325,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_alertconfiguration"
@@ -2595,6 +2603,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3485,6 +3494,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3821,7 +3831,8 @@
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboard"."deleted"))
+         AND NOT ("posthog_dashboard"."deleted")
+         AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.34
@@ -3872,6 +3883,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
@@ -3882,7 +3894,8 @@
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboard"."deleted"))
+         AND NOT ("posthog_dashboard"."deleted")
+         AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   ORDER BY "posthog_dashboard"."pinned" DESC,
            "posthog_dashboard"."name" ASC
   LIMIT 300
@@ -4329,6 +4342,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -4458,6 +4472,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -5802,6 +5817,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -7235,6 +7251,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -7579,6 +7596,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
@@ -7747,6 +7765,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -7774,6 +7793,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -7975,6 +7995,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -8002,6 +8023,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -8484,6 +8506,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -8511,6 +8534,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -8729,6 +8753,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_alertconfiguration"
@@ -8832,6 +8857,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -9695,6 +9721,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -9722,6 +9749,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -9783,6 +9811,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -11596,6 +11625,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -13023,6 +13053,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
@@ -13212,6 +13243,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -13239,6 +13271,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -13596,6 +13629,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -13623,6 +13657,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -13682,6 +13717,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -14004,6 +14040,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -14371,6 +14408,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -14398,6 +14436,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -14459,6 +14498,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -15322,6 +15362,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T6."id",
@@ -15349,6 +15390,7 @@
          T6."anonymize_data",
          T6."toolbar_mode",
          T6."hedgehog_config",
+         T6."allow_sidebar_suggestions",
          T6."events_column_config",
          T6."email_opt_in",
          "posthog_text"."id",
@@ -15410,6 +15452,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -15762,7 +15805,8 @@
                                                                                AND recent_dashboard_views."type" = 'dashboard'
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboard"."deleted"))
+         AND NOT ("posthog_dashboard"."deleted")
+         AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.47
@@ -15813,6 +15857,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
@@ -15823,7 +15868,8 @@
                                                                                AND recent_dashboard_views."ref" = ("posthog_dashboard"."id")::varchar)))
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboard"."deleted"))
+         AND NOT ("posthog_dashboard"."deleted")
+         AND NOT ("posthog_dashboard"."creation_mode" = 'unlisted'))
   ORDER BY "posthog_dashboard"."pinned" DESC,
            "posthog_dashboard"."name" ASC
   LIMIT 100

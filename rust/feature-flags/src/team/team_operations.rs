@@ -277,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_corrupted_data_in_redis_is_handled() {
-        let id = rand::thread_rng().gen_range(1..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let team = Team {
             id,
@@ -439,7 +439,7 @@ mod tests {
     async fn test_fetch_team_from_redis_with_fallback_writes_on_not_found() {
         use common_redis::{CustomRedisError, MockRedisClient};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
@@ -488,7 +488,7 @@ mod tests {
     async fn test_fetch_team_from_redis_with_fallback_skips_write_on_timeout() {
         use common_redis::{CustomRedisError, MockRedisClient};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
@@ -533,9 +533,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_redis_with_fallback_skips_write_on_redis_unavailable() {
-        use common_redis::{CustomRedisError, MockRedisClient};
+        use common_redis::{CustomRedisError, MockRedisClient, RedisErrorKind};
 
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
@@ -546,11 +546,14 @@ mod tests {
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return Other (unavailable)
+        // Set up mock redis_reader to return Redis error (unavailable)
         let mut mock_reader = MockRedisClient::new();
         mock_reader.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
-            Err(CustomRedisError::Other("Connection refused".to_string())),
+            Err(CustomRedisError::from_redis_kind(
+                RedisErrorKind::IoError,
+                "Connection refused",
+            )),
         );
 
         // Set up mock redis_writer to track SET calls

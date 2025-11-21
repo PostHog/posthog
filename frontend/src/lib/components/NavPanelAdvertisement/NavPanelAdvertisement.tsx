@@ -13,7 +13,8 @@ import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { FlaggedFeature } from '../FlaggedFeature'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'

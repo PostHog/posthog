@@ -34,6 +34,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
     { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
+    { key: 'logs', objectPlural: 'logs' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
     {
@@ -99,6 +100,11 @@ export const API_KEY_SCOPE_PRESETS: {
 }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
+        value: 'source_map_upload',
+        label: 'Source map upload',
+        scopes: ['organization:read', 'error_tracking:write'],
+    },
+    {
         value: 'zapier',
         label: 'Zapier integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
@@ -129,7 +135,7 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
-export const getScopeDescription = (scope: string): string => {
+export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {
         return 'Read and write access to all PostHog data'
     }
@@ -144,6 +150,10 @@ export const getScopeDescription = (scope: string): string => {
 
     if (scope === 'profile') {
         return 'View basic user account information'
+    }
+
+    if (scope === 'introspection') {
+        return undefined
     }
 
     const [object, action] = scope.split(':')

@@ -14,6 +14,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -78,6 +79,7 @@ export enum NodeKind {
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
+    SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
@@ -171,6 +173,7 @@ export type AnyDataNode =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -223,6 +226,7 @@ export type QuerySchema =
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -328,6 +332,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
 
@@ -455,6 +460,8 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
 export interface RecordingsQueryResponse {
     results: SessionRecordingType[]
     has_next: boolean
+    /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
+    next_cursor?: string
 }
 
 export const VALID_RECORDING_ORDERS = [
@@ -498,6 +505,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
+    session_recording_id?: string
     person_uuid?: string
     distinct_ids?: string[]
     /**
@@ -518,6 +527,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
+    /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
+    after?: string
     user_modified_filters?: Record<string, any>
 }
 
@@ -620,6 +631,7 @@ export enum HogLanguage {
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
     hogTemplate = 'hogTemplate',
+    liquid = 'liquid',
 }
 
 export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
@@ -781,6 +793,48 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedSessionsQueryResponse = CachedQueryResponse<SessionsQueryResponse>
+
+export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
+    kind: NodeKind.SessionsQuery
+    /** Return a limited set of data. Required. */
+    select: HogQLExpression[]
+    /** HogQL filters to apply on returned data */
+    where?: HogQLExpression[]
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyFilterLike[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /**
+     * Number of rows to return
+     */
+    limit?: integer
+    /**
+     * Number of rows to skip before returning rows
+     */
+    offset?: integer
+    /** Show sessions for a given person */
+    personId?: string
+    /** Only fetch sessions that started before this timestamp */
+    before?: string
+    /** Only fetch sessions that started after this timestamp */
+    after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 /**
  * @deprecated Use `ActorsQuery` instead.
  */
@@ -818,6 +872,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | SessionsQuery
                     | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsMRRQuery
@@ -852,6 +907,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | SessionsQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -882,6 +938,7 @@ export interface GoalLine {
     borderColor?: string
     displayLabel?: boolean
     displayIfCrossed?: boolean
+    position?: 'start' | 'end'
 }
 
 export interface ChartAxis {
@@ -988,6 +1045,8 @@ interface DataTableNodeViewProps {
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show a recording column for events with session recordings */
+    showRecordingColumn?: boolean
     /** Show date range selector */
     showDateRange?: boolean
     /** Show the export button */
@@ -1016,6 +1075,8 @@ interface DataTableNodeViewProps {
     showOpenEditorButton?: boolean
     /** Show a results table */
     showResultsTable?: boolean
+    /** Show actors query options and back to source */
+    showSourceQueryOptions?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
@@ -1375,6 +1436,8 @@ export type RetentionFilter = {
     cumulative?: RetentionFilterLegacy['cumulative']
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+    /** @description Custom brackets for retention calculations */
+    retentionCustomBrackets?: number[]
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1382,6 +1445,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
+    selectedInterval?: integer | null
 }
 
 export interface RetentionValue {
@@ -1446,7 +1511,7 @@ export type PathsFilter = {
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
-
+    showFullUrls?: boolean
     /** Relevant only within actors query */
     pathStartKey?: string
     /** Relevant only within actors query */
@@ -1569,6 +1634,11 @@ export interface EndpointRequest {
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
     cache_age_seconds?: number
+    /** Whether this endpoint's query results are materialized to S3 */
+    is_materialized?: boolean
+    /** How frequently should the underlying materialized view be updated */
+    sync_frequency?: DataWarehouseSyncInterval
+    derived_from_insight?: string
 }
 
 export interface EndpointRunRequest {
@@ -2283,6 +2353,11 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
+export interface ErrorTrackingExplainIssueToolContext {
+    stacktrace: string
+    issue_name: string
+}
+
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {
@@ -2330,11 +2405,13 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     function?: string
     first_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
     last_event?: {
         uuid: string
+        distinct_id: string
         timestamp: string
         properties: string
     }
@@ -2373,6 +2450,7 @@ export type SimilarIssue = {
     library: string | null
     status: string
     first_seen: string
+    distance: number
 }
 
 export type BreakdownValue = {
@@ -2536,6 +2614,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
@@ -2618,6 +2698,7 @@ export type FileSystemIconType =
     | 'apps'
     | 'live'
     | 'chat'
+    | 'search'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2637,6 +2718,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKey?: string
     /** List of all scenes exported by the app */
     sceneKeys?: string[]
+    /** Product key(s) that generate interest in this item when intent is triggered */
+    intents?: ProductKey[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -2714,8 +2797,10 @@ export interface MaxExperimentSummaryContext {
     experiment_id: ExperimentIdType
     experiment_name: string
     description: string | null
+    exposures: Record<string, number> | null
     variants: string[]
-    metrics_results: MaxExperimentMetricResult[]
+    primary_metrics_results: MaxExperimentMetricResult[]
+    secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
 }
 
@@ -2809,6 +2894,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
     sharedMetricId?: number
+    breakdownFilter?: BreakdownFilter
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2901,6 +2987,10 @@ export interface ExperimentQueryResponse {
     // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+
+    // Breakdown fields
+    /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -2960,9 +3050,24 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
     credible_interval?: [number, number]
 }
 
+/**
+ * Represents experiment results for a single breakdown combination.
+ * Each breakdown is treated as an independent A/B test with its own baseline and variants.
+ * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+ */
+export interface ExperimentBreakdownResult {
+    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
+    breakdown_value: BreakdownKeyType[]
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidated
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+}
+
 export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+    breakdown_results?: ExperimentBreakdownResult[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -4253,6 +4358,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4266,6 +4376,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [
@@ -4298,6 +4414,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'BingAds',
     'Shopify',
 ] as const
 
@@ -4364,4 +4481,78 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_type_index?: integer
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
+}
+
+export interface CustomerAnalyticsConfig {
+    activity_event: EventsNode | ActionsNode
+    signup_pageview_event: EventsNode | ActionsNode
+    signup_event: EventsNode | ActionsNode
+    subscription_event: EventsNode | ActionsNode
+    payment_event: EventsNode | ActionsNode
+}
+
+/**
+ * Product item structure matching products.json.
+ * NOTE: These types must match the structure generated by build-products.mjs.
+ * Any changes to these types should be reflected in the build script.
+ */
+export interface ProductItem {
+    path: string
+    category: string | null
+    iconType: string | null
+    type: string | null
+    intents: ProductKey[]
+}
+
+/**
+ * Products data structure matching products.json.
+ * NOTE: These types must match the structure generated by build-products.mjs.
+ * Any changes to these types should be reflected in the build script.
+ */
+export interface ProductsData {
+    products: ProductItem[]
+    games: ProductItem[]
+    metadata: ProductItem[]
+}
+
+// Keep this in alphabetical order if you wanna maintain Rafa's sanity
+export enum ProductKey {
+    ACTIONS = 'actions',
+    ALERTS = 'alerts',
+    ANNOTATIONS = 'annotations',
+    COHORTS = 'cohorts',
+    COMMENTS = 'comments',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
+    ENDPOINTS = 'endpoints',
+    ERROR_TRACKING = 'error_tracking',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    GROUP_ANALYTICS = 'group_analytics',
+    HEATMAPS = 'heatmaps',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    INTEGRATIONS = 'integrations',
+    LINKS = 'links',
+    LIVE_DEBUGGER = 'live_debugger',
+    LLM_ANALYTICS = 'llm_analytics',
+    LOGS = 'logs',
+    MARKETING_ANALYTICS = 'marketing_analytics',
+    MAX = 'max',
+    MOBILE_REPLAY = 'mobile_replay',
+    PERSONS = 'persons',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PLATFORM_AND_SUPPORT = 'platform_and_support',
+    PRODUCT_ANALYTICS = 'product_analytics',
+    REVENUE_ANALYTICS = 'revenue_analytics',
+    SESSION_REPLAY = 'session_replay',
+    SITE_APPS = 'site_apps',
+    SURVEYS = 'surveys',
+    USER_INTERVIEWS = 'user_interviews',
+    TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
+    WORKFLOWS = 'workflows',
 }

@@ -45,6 +45,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CurrencyCode,
+    CustomerAnalyticsConfig,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
@@ -63,6 +64,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductKey,
     QuerySchema,
     QueryStatus,
     RecordingOrder,
@@ -209,45 +211,6 @@ export enum AvailableFeature {
 
 type AvailableFeatureUnion = `${AvailableFeature}`
 
-export enum ProductKey {
-    COHORTS = 'cohorts',
-    ACTIONS = 'actions',
-    ALERTS = 'alerts',
-    EXPERIMENTS = 'experiments',
-    FEATURE_FLAGS = 'feature_flags',
-    ANNOTATIONS = 'annotations',
-    COMMENTS = 'comments',
-    HISTORY = 'history',
-    HEATMAPS = 'heatmaps',
-    INGESTION_WARNINGS = 'ingestion_warnings',
-    PERSONS = 'persons',
-    SURVEYS = 'surveys',
-    SESSION_REPLAY = 'session_replay',
-    MOBILE_REPLAY = 'mobile_replay',
-    DATA_WAREHOUSE = 'data_warehouse',
-    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    EARLY_ACCESS_FEATURES = 'early_access_features',
-    USER_INTERVIEWS = 'user_interviews',
-    PRODUCT_ANALYTICS = 'product_analytics',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
-    PIPELINE_DESTINATIONS = 'pipeline_destinations',
-    SITE_APPS = 'site_apps',
-    GROUP_ANALYTICS = 'group_analytics',
-    INTEGRATIONS = 'integrations',
-    PLATFORM_AND_SUPPORT = 'platform_and_support',
-    TEAMS = 'teams',
-    WEB_ANALYTICS = 'web_analytics',
-    ERROR_TRACKING = 'error_tracking',
-    REVENUE_ANALYTICS = 'revenue_analytics',
-    MARKETING_ANALYTICS = 'marketing_analytics',
-    LLM_ANALYTICS = 'llm_analytics',
-    MAX = 'max',
-    LINKS = 'links',
-    ENDPOINTS = 'endpoints',
-}
-
-type ProductKeyUnion = `${ProductKey}`
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -282,11 +245,13 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type LoginMethod = SSOProvider | 'password' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -312,6 +277,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Experiment = 'experiment',
     WebAnalytics = 'web_analytics',
+    ActivityLog = 'activity_log',
 }
 
 interface UserBaseType {
@@ -373,6 +339,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    allow_sidebar_suggestions?: boolean
     role_at_organization?: string
 }
 
@@ -695,6 +662,7 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
+    customer_analytics_config: CustomerAnalyticsConfig
 }
 
 export interface ProductIntentType {
@@ -858,6 +826,7 @@ export enum ExperimentsTabs {
 
 export enum ActivityTab {
     ExploreEvents = 'explore',
+    ExploreSessions = 'sessions',
     LiveEvents = 'live',
 }
 
@@ -1587,6 +1556,10 @@ export interface RecordingEventType
     distinct_id?: EventType['distinct_id']
 }
 
+export interface SessionEventType extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp'> {
+    fullyLoaded: boolean
+    distinct_id?: EventType['distinct_id']
+}
 export interface PlaylistCollectionCount {
     count: number
     watched_count: number
@@ -1640,7 +1613,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
+    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2025,7 +1998,7 @@ export interface BillingPlanType {
     note: string | null
     unit: string | null
     flat_rate: boolean
-    product_key: ProductKeyUnion
+    product_key: `${ProductKey}`
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
@@ -2144,10 +2117,20 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface EndpointVersion {
+    id: string
+    version: number
+    query: HogQLQuery | InsightQueryNode
+    created_at: string
+    created_by: UserBasicType | null
+    change_summary: string
+}
+
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
+    derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
@@ -2156,10 +2139,23 @@ export interface EndpointType extends WithAccessControl {
     updated_at: string
     created_by: UserBasicType | null
     cache_age_seconds: number
+    is_materialized: boolean
+    current_version: number
+    versions_count: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
+    materialization?: EndpointMaterializationType
+}
+
+export interface EndpointMaterializationType {
+    can_materialize: boolean
+    reason?: string
+    status?: string
+    error?: string
+    last_materialized_at?: string
+    sync_frequency?: DataWarehouseSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2173,7 +2169,7 @@ export interface DashboardBasicType extends WithAccessControl {
     last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
-    creation_mode: 'default' | 'template' | 'duplicate'
+    creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -3275,6 +3271,13 @@ export enum SurveyPosition {
     NextToTrigger = 'next_to_trigger',
 }
 
+export enum SurveyTabPosition {
+    Top = 'top',
+    Left = 'left',
+    Right = 'right',
+    Bottom = 'bottom',
+}
+
 export enum SurveyWidgetType {
     Button = 'button',
     Tab = 'tab',
@@ -3301,6 +3304,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
@@ -3680,6 +3684,7 @@ export enum DashboardPlacement {
     Export = 'export', // When the dashboard is being exported (alike to being printed)
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
+    Builtin = 'builtin', // Dashboard built into product UI with external controls provided by parent context
 }
 
 // Default mode is null
@@ -3927,6 +3932,14 @@ export interface Experiment {
     user_access_level: AccessControlLevel
 }
 
+export interface ExperimentVelocityStats {
+    launched_last_30d: number
+    launched_previous_30d: number
+    percent_change: number
+    active_experiments: number
+    completed_last_30d: number
+}
+
 export interface FunnelExperimentVariant {
     key: string
     success_count: number
@@ -4095,6 +4108,19 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol: React.ReactElement
     path?: never
+}
+
+export interface FileSystemDeletionSummary {
+    type: string
+    ref: string | null
+    mode: 'soft' | 'hard'
+    undo: string
+    path: string
+    can_undo: boolean
+}
+
+export interface FileSystemDeleteResponse {
+    deleted: FileSystemDeletionSummary[]
 }
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
@@ -4374,6 +4400,7 @@ export const INTEGRATION_KINDS = [
     'reddit-ads',
     'databricks',
     'tiktok-ads',
+    'bing-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4565,6 +4592,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4687,6 +4715,7 @@ export enum ActivityScope {
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
     HOG_FUNCTION = 'HogFunction',
+    HOG_FLOW = 'HogFlow',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
@@ -4714,6 +4743,7 @@ export enum ActivityScope {
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_TRACE = 'LLMTrace',
 }
 
 export type CommentType = {
@@ -4750,6 +4780,18 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+
+export interface DataWarehouseSavedQueryRunHistory {
+    status: DataModelingJobStatus
+    timestamp?: string
+}
+
+export interface DataWarehouseSavedQueryDependencies {
+    upstream_count: number
+    downstream_count: number
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -4763,6 +4805,10 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    upstream_dependency_count?: number
+    downstream_dependency_count?: number
+    created_at?: string
+    run_history?: DataWarehouseSavedQueryRunHistory[]
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5278,7 +5324,7 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
-    RECOMMENDED = 'Recommended',
+    POPULAR = 'Most popular',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
@@ -5367,6 +5413,7 @@ export type AvailableOnboardingProducts = Record<
 export type OnboardingProduct = {
     name: string
     breadcrumbsName?: string
+    description: string
     icon: string
     iconColor: string
     url: string

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
@@ -30,6 +30,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
@@ -42,7 +43,7 @@ from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
-    class TestTeamAPI(APIBaseTest):
+    class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
 
         def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
@@ -309,6 +310,51 @@ def team_api_test_factory():
             self.assertEqual(response_data["receive_org_level_activity_logs"], False)
 
         def test_update_receive_org_level_activity_logs(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+
+        def test_update_receive_org_level_activity_logs_requires_admin(self):
+            member_user = User.objects.create_user(email="member@posthog.com", password="password", first_name="Member")
+            OrganizationMembership.objects.create(
+                user=member_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+            self.client.force_login(member_user)
+
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "authentication_error",
+                    "code": "permission_denied",
+                    "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
+                    "attr": None,
+                },
+            )
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, False)
+
+        def test_update_receive_org_level_activity_logs_allows_admin(self):
+            admin_user = User.objects.create_user(email="admin@posthog.com", password="password", first_name="Admin")
+            OrganizationMembership.objects.create(
+                user=admin_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.ADMIN,
+            )
+            self.client.force_login(admin_user)
+
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -548,7 +594,10 @@ def team_api_test_factory():
             )
 
             # if something is missing then teardown fails
-            response = self.client.delete(f"/api/environments/{team.id}")
+            with snapshot_postgres_queries_context(
+                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
+            ):
+                response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
 
         def test_delete_batch_exports(self):

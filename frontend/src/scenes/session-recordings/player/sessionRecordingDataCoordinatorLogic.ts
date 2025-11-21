@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -5,7 +6,6 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
 
 import {
     RecordingSegment,
@@ -179,6 +179,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     viewportForTimestamp,
                     sessionRecordingId
                 )
+
                 return snapshots || []
             },
         ],
@@ -311,7 +312,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 }, {})
             },
             {
-                resultEqualityCheck: objectsEqual,
+                resultEqualityCheck: equal,
             },
         ],
 

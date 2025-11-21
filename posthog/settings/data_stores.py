@@ -19,6 +19,13 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
+# Person table configuration
+# Controls which PostgreSQL table the Person model uses.
+# Default: "posthog_person" (legacy non-partitioned table)
+# For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
+# Note: posthog_person_new must exist (created by Rust sqlx migrations)
+PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
+
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -394,13 +401,22 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
-
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
 if not EMBEDDING_API_URL:
     EMBEDDING_API_URL = "http://localhost:3305" if DEBUG else "http://embedding-api.posthog.svc.cluster.local"
 
+# Dedicated Redis for feature flags
+# This allows feature-flags service to have dedicated Redis for better resource isolation
+FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
+
+# Rust feature flags service URL
+# This is used to proxy flag evaluation requests to the Rust feature flags service
+FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
+FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 
 CACHES = {
     "default": {
@@ -419,5 +435,24 @@ CACHES = {
     }
 }
 
+# Dedicated cache for the feature flags service (if configured)
+# Django only writes to this cache (never reads), so no reader URL needed
+if FLAGS_REDIS_URL:
+    from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+
+    CACHES[FLAGS_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": FLAGS_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+
+# Cache timeout for materialized columns metadata (in seconds)
+MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)

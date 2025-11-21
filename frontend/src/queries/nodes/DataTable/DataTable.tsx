@@ -7,6 +7,7 @@ import { useCallback, useState } from 'react'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -50,6 +51,7 @@ import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -62,6 +64,7 @@ import {
     NodeKind,
     PersonsNode,
     SessionAttributionExplorerQuery,
+    SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -83,6 +86,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { DataTableViewReplays } from './DataTableViewReplays'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -192,6 +196,7 @@ export function DataTable({
 
     const {
         showActions,
+        showRecordingColumn,
         showDateRange,
         showTestAccountFilters,
         showSearch,
@@ -210,12 +215,15 @@ export function DataTable({
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showSourceQueryOptions,
     } = queryWithDefaults
 
     const isReadOnly = !!readOnly
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+    const recordingColumnShown =
+        showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
@@ -558,6 +566,35 @@ export function DataTable({
                     </>
                 ) : undefined,
         })),
+        ...(recordingColumnShown
+            ? [
+                  {
+                      dataIndex: '__recording' as any,
+                      title: '',
+                      render: function RenderRecording(_: any, { label, result }: DataTableRow) {
+                          if (label) {
+                              return { props: { colSpan: 0 } }
+                          }
+                          if (result && columnsInResponse?.includes('*')) {
+                              const event = result[columnsInResponse.indexOf('*')]
+                              return (
+                                  <ViewRecordingButton
+                                      sessionId={event?.properties?.$session_id}
+                                      recordingStatus={event?.properties?.$recording_status}
+                                      timestamp={event?.timestamp}
+                                      inModal
+                                      size="xsmall"
+                                      type="secondary"
+                                  />
+                              )
+                          }
+                          return null
+                      },
+                      width: 100,
+                      align: 'center' as const,
+                  },
+              ]
+            : []),
         ...(eventActionsColumnShown
             ? [
                   {
@@ -588,6 +625,7 @@ export function DataTable({
                 | GroupsQuery
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
+                | SessionsQuery
                 | TracesQuery
                 | MarketingAnalyticsTableQuery
         ) => setQuery?.({ ...query, source }),
@@ -595,8 +633,11 @@ export function DataTable({
     )
 
     const firstRowLeft = [
-        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
-        backToSourceQuery && isActorsQuery(query.source) && isInsightActorsQuery(query.source.source) ? (
+        showSourceQueryOptions && backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
+        showSourceQueryOptions &&
+        backToSourceQuery &&
+        isActorsQuery(query.source) &&
+        isInsightActorsQuery(query.source.source) ? (
             <InsightActorsQueryOptions
                 query={query.source.source}
                 setQuery={(q) =>
@@ -611,7 +652,14 @@ export function DataTable({
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
+                query={
+                    query.source as
+                        | HogQLQuery
+                        | EventsQuery
+                        | SessionAttributionExplorerQuery
+                        | SessionsQuery
+                        | TracesQuery
+                }
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -649,6 +697,13 @@ export function DataTable({
             <PersonPropertyFilters
                 key="person-property"
                 query={query.source as PersonsNode}
+                setQuery={setQuerySource}
+            />
+        ) : null,
+        showPropertyFilter && sourceFeatures.has(QueryFeature.sessionPropertyFilters) ? (
+            <SessionPropertyFilters
+                key="session-property"
+                query={query.source as SessionsQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -695,6 +750,7 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
+        <DataTableViewReplays key="data-table-view-replays" />,
         showExport ? (
             <DataTableExport
                 key="data-table-export"

@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 from typing import Optional
 
@@ -7,12 +8,15 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
-from asgiref.sync import async_to_sync
+import structlog
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDModel
+from posthog.storage import object_storage
+
+logger = structlog.get_logger(__name__)
 
 
 class Task(models.Model):
@@ -58,7 +62,6 @@ class Task(models.Model):
     )
 
     # DEPRECATED FIELDS - these have been moved to TaskRun
-    # These fields are kept for backwards compatibility but should not be used
     # editable=False prevents them from appearing in forms/admin
     current_stage = models.ForeignKey(
         "WorkflowStage",
@@ -251,7 +254,12 @@ class TaskRun(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
 
     # Claude Code output
-    log = models.JSONField(blank=True, default=list, help_text="Live output from Claude Code execution")
+    log = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="DEPRECATED: Logs now stored in S3. This field only contains legacy logs.",
+    )
+    log_storage_path = models.CharField(max_length=500, blank=True, null=True, help_text="S3 path to log file")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
@@ -259,6 +267,13 @@ class TaskRun(models.Model):
         blank=True,
         null=True,
         help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
+    )
+
+    # Artifact manifest describing files uploaded to S3 for this run.
+    artifacts = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="List of artifacts uploaded to S3 for this run.",
     )
 
     # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
@@ -279,12 +294,64 @@ class TaskRun(models.Model):
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
 
+    @property
+    def has_s3_logs(self) -> bool:
+        """Check if logs are stored in S3"""
+        return bool(self.log_storage_path)
+
+    def get_log_s3_path(self) -> str:
+        """Generate S3 path for this run's logs"""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
+
+    def get_artifact_s3_prefix(self) -> str:
+        """Base prefix for storing artifacts in S3"""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
+
     def append_log(self, entries: list[dict]):
-        """Append log entries to the log array and save."""
-        if not self.log:
-            self.log = []
-        self.log.extend(entries)
-        self.save(update_fields=["log"])
+        """Append log entries to S3 storage."""
+
+        if not self.log_storage_path:
+            self.log_storage_path = self.get_log_s3_path()
+            self.save(update_fields=["log_storage_path"])
+
+        existing_content = ""
+        is_new_file = False
+        try:
+            existing_content = object_storage.read(self.log_storage_path) or ""
+        except Exception as e:
+            # File doesn't exist yet, that's fine for first write so we just ignore the error
+            is_new_file = True
+            logger.debug(
+                "task_run.no_existing_logs",
+                task_run_id=str(self.id),
+                log_storage_path=self.log_storage_path,
+                error=str(e),
+            )
+
+        new_lines = "\n".join(json.dumps(entry) for entry in entries)
+        content = existing_content + ("\n" if existing_content else "") + new_lines
+
+        object_storage.write(self.log_storage_path, content)
+
+        # Tag new files with 30-day TTL for S3 lifecycle management
+        if is_new_file:
+            try:
+                object_storage.tag(
+                    self.log_storage_path,
+                    {
+                        "ttl_days": "30",
+                        "team_id": str(self.team_id),
+                    },
+                )
+            except Exception as e:
+                logger.warning(
+                    "task_run.failed_to_tag_logs",
+                    task_run_id=str(self.id),
+                    log_storage_path=self.log_storage_path,
+                    error=str(e),
+                )
 
     def mark_completed(self):
         """Mark the progress as completed."""
@@ -395,11 +462,11 @@ class SandboxSnapshot(UUIDModel):
 
     def delete(self, *args, **kwargs):
         if self.external_id:
-            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+            from products.tasks.backend.services.sandbox import Sandbox
 
-            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+            if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
-                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                    Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:
                     raise Exception(
                         f"Failed to delete external snapshot {self.external_id}: {str(e)}. "

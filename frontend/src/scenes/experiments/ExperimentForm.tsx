@@ -430,7 +430,7 @@ export const HoldoutSelector = (): JSX.Element => {
 export function ExperimentForm(): JSX.Element {
     const { props, featureFlags } = useValues(experimentLogic)
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test') {
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test') {
         return <CreateExperiment />
     }
 

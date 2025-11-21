@@ -17,11 +17,11 @@ pub struct ReleaseRecord {
     pub metadata: Option<Value>,
 }
 
-// The info, as written to clickhouse at the exception level. Doesn't include the
-// project, as that's used as a key in the hashmap of releases on the exception
+// The info, as written to clickhouse at the exception level.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReleaseInfo {
     version: String,
+    project: String,
     timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
@@ -80,21 +80,21 @@ impl ReleaseRecord {
 
     pub fn collect_to_map<'a, I>(iter: I) -> HashMap<String, ReleaseInfo>
     where
-        I: IntoIterator<Item = &'a Self>,
+        I: Iterator<Item = &'a Self>,
     {
-        let mut res = HashMap::new();
-        for record in iter {
-            if !res.contains_key(&record.hash_id) {
-                res.insert(
+        iter.fold(HashMap::new(), |mut map, record| {
+            if !map.contains_key(&record.hash_id) {
+                map.insert(
                     record.hash_id.clone(),
                     ReleaseInfo {
+                        project: record.project.clone(),
                         version: record.version.clone(),
                         timestamp: record.created_at,
                         metadata: record.metadata.clone(),
                     },
                 );
             }
-        }
-        res
+            map
+        })
     }
 }

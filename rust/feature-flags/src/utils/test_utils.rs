@@ -12,11 +12,12 @@ use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, ProjectId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub fn random_string(prefix: &str, length: usize) -> String {
@@ -31,7 +32,7 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
@@ -98,9 +99,19 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    let client = RedisClient::new(redis_url)
-        .await
-        .expect("Failed to create redis client");
+    // Use reasonable test timeout defaults
+    const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
+    const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout
+
+    let client = RedisClient::with_config(
+        redis_url,
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(TEST_RESPONSE_TIMEOUT_MS)),
+        Some(Duration::from_millis(TEST_CONNECTION_TIMEOUT_MS)),
+    )
+    .await
+    .expect("Failed to create redis client");
     Arc::new(client)
 }
 
@@ -313,7 +324,7 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(0..10_000_000),
+        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
     };
     let token = random_string("phc_", 12);
     let team = Team {
@@ -362,7 +373,7 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
     let payload_flag = match flag {
         Some(mut value) => {
@@ -557,22 +568,10 @@ pub async fn get_person_id_by_distinct_id(
     distinct_id: &str,
 ) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (PersonId,) = sqlx::query_as(
-        r#"SELECT id FROM posthog_person
-           WHERE team_id = $1 AND id = (
-               SELECT person_id FROM posthog_persondistinctid
-               WHERE team_id = $1 AND distinct_id = $2
-               LIMIT 1
-           )
-           LIMIT 1"#,
-    )
-    .bind(team_id)
-    .bind(distinct_id)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|_| anyhow::anyhow!("Person not found"))?;
-
-    Ok(row.0)
+    Person::from_distinct_id(&mut conn, team_id, distinct_id)
+        .await?
+        .map(|p| p.id)
+        .ok_or_else(|| anyhow::anyhow!("Person not found"))
 }
 
 pub async fn add_person_to_cohort(
@@ -1117,7 +1116,7 @@ impl TestContext {
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
         // Create team model
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
             project_id: Some(id as i64),

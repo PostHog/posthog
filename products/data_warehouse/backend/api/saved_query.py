@@ -41,13 +41,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
-    delete_saved_query_schedule,
     pause_saved_query_schedule,
-    recreate_model_paths,
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
     trigger_saved_query_schedule,
-    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -195,7 +190,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         with transaction.atomic():
             view.save()
             try:
-                DataWarehouseModelPath.objects.create_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
                 # Later, after bugs and errors have been ironed out, we may tie these two
@@ -305,7 +300,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.save()
 
             try:
-                DataWarehouseModelPath.objects.update_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
@@ -336,13 +331,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 self.context["activity_log"] = latest_activity_log
 
             if sync_frequency and sync_frequency != "never":
-                recreate_model_paths(view)
+                view.setup_model_paths()
 
         if was_sync_frequency_updated:
-            schedule_exists = saved_query_workflow_exists(str(instance.id))
-            if schedule_exists and before_update and before_update.sync_frequency_interval is None:
-                unpause_saved_query_schedule(str(instance.id))
-            sync_saved_query_workflow(view, create=not schedule_exists)
+            view.schedule_materialization(
+                unpause=before_update is not None and before_update.sync_frequency_interval is None
+            )
 
         return view
 
@@ -496,16 +490,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
 
-        delete_saved_query_schedule(str(instance.id))
-
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
         ).exclude(deleted=True):
             join.soft_delete()
 
-        if instance.table is not None:
-            instance.table.soft_delete()
-
+        instance.revert_materialization()
         instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -667,6 +657,57 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(methods=["GET"], detail=True)
+    def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the count of immediate upstream and downstream dependencies for this saved query."""
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+
+        # Count immediate upstream (parents) - get unique parents from all paths to this node
+        upstream_paths = DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*.{saved_query_id}"
+        )
+        upstream_ids: set[str] = set()
+        for path in upstream_paths:
+            if len(path.path) >= 2:
+                # Get the immediate parent (second to last in path)
+                parent_id = path.path[-2]
+                upstream_ids.add(parent_id)
+
+        # Count immediate downstream (children) - get unique children that reference this node
+        downstream_paths = DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
+        )
+        downstream_ids: set[str] = set()
+        for path in downstream_paths:
+            # Find position of current view in path
+            try:
+                idx = path.path.index(saved_query_id)
+                if idx + 1 < len(path.path):
+                    # Get immediate child (next node after current)
+                    child_id = path.path[idx + 1]
+                    downstream_ids.add(child_id)
+            except ValueError:
+                continue
+
+        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
+
+    @action(methods=["GET"], detail=True)
+    def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the recent run history (up to 5 most recent) for this materialized view."""
+        saved_query = self.get_object()
+
+        # Get the 5 most recent runs
+        jobs = (
+            DataModelingJob.objects.filter(saved_query=saved_query)
+            .order_by("-last_run_at")[:5]
+            .values("status", "last_run_at")
+        )
+
+        run_history = [{"status": job["status"], "timestamp": job["last_run_at"]} for job in jobs]
+
+        return response.Response({"run_history": run_history})
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

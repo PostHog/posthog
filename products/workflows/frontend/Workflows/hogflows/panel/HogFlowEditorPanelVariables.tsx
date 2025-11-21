@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCode, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
@@ -24,7 +24,9 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
 
     const editVariableKey = (idx: number, key: string): void => {
         const updatedVariables = [...(workflow?.variables || [])]
-        updatedVariables[idx].key = key
+        const sanitizedKey = key.replace(/\s+/g, '_')
+        updatedVariables[idx].key = sanitizedKey
+        updatedVariables[idx].label = sanitizedKey
         setWorkflowInfo({
             variables: updatedVariables,
         })
@@ -96,14 +98,23 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                     </LemonField.Pure>
                     <LemonField.Pure label="Usage syntax">
                         <Tooltip title={`{{ variables.${variable.key} }}`}>
-                            <code
-                                className="w-36 py-2 bg-primary-alt-highlight-light rounded-sm text-center text-xs truncate cursor-pointer"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    void navigator.clipboard.writeText(`{{ variables.${variable.key} }}`)
-                                    lemonToast.success('Copied to clipboard')
-                                }}
-                            >{`{{ variables.${variable.key} }}`}</code>
+                            <span className="group relative">
+                                <code className="w-36 py-2 bg-primary-alt-highlight-light rounded-sm text-center text-xs truncate block">
+                                    {`{{ variables.${variable.key} }}`}
+                                </code>
+                                <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconCopy />}
+                                        className="bg-white/80"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            void navigator.clipboard.writeText(`{{ variables.${variable.key} }}`)
+                                            lemonToast.success('Copied to clipboard')
+                                        }}
+                                    />
+                                </span>
+                            </span>
                         </Tooltip>
                     </LemonField.Pure>
                     <LemonButton
