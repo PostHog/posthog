@@ -7,22 +7,20 @@ from posthog.models.event.sql import (
 )
 
 DETACH_KAFKA = """
-    DETACH TABLE kafka_events_json;
+    DETACH TABLE IF EXISTS kafka_events_json;
 """
 
 ATTACH_KAFKA = """
-    ATTACH TABLE kafka_events_json;
+    ATTACH TABLE IF EXISTS kafka_events_json;
 """
 
 DROP_EVENTS_JSON_MV = """
-    ATTACH TABLE events_json_mv;
+    DROP TABLE IF EXISTS events_json_mv SYNC;
 """
 
 # See when these were added to the sharded / distributed tables in 0179
 
 operations = [
-    # pause ingestion from the kafka tables
-    run_sql_with_exceptions(DETACH_KAFKA, node_roles=[NodeRole.INGESTION_EVENTS]),
     # writeable table
     run_sql_with_exceptions(
         ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table=WRITABLE_EVENTS_DATA_TABLE()),
@@ -34,8 +32,12 @@ operations = [
     run_sql_with_exceptions(
         ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table="kafka_events_json"),
         node_roles=[NodeRole.INGESTION_EVENTS],
-        sharded=True,
-        is_alter_on_replicated_table=True,
+        sharded=False,
+        is_alter_on_replicated_table=False,
+    ),
+    # pause ingestion from the kafka tables
+    run_sql_with_exceptions(
+        DETACH_KAFKA, node_roles=[NodeRole.INGESTION_EVENTS], sharded=False, is_alter_on_replicated_table=False
     ),
     # drop MV
     run_sql_with_exceptions(
