@@ -4,6 +4,7 @@
 import os
 import sys
 import time
+import shlex
 import datetime
 import tempfile
 import subprocess
@@ -98,6 +99,10 @@ class HobbyTester:
 runcmd:
   - set -e
 """
+        # Sanitize inputs to prevent command injection
+        safe_branch = shlex.quote(self.branch)
+        safe_hostname = shlex.quote(self.hostname)
+
         # Add runcmd commands with logging
         commands = [
             'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]"',
@@ -109,15 +114,15 @@ runcmd:
             'echo "$LOG_PREFIX Cloning PostHog repository"',
             "git clone https://github.com/PostHog/posthog.git",
             "cd posthog",
-            f'echo "$LOG_PREFIX Using branch: {self.branch}"',
-            f"git checkout {self.branch}",
+            f'echo "$LOG_PREFIX Using branch: {safe_branch}"',
+            f"git checkout {safe_branch}",
             "CURRENT_COMMIT=$(git rev-parse HEAD)",
             'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT"',
             "cd ..",
             "chmod +x posthog/bin/deploy-hobby",
             'echo "$LOG_PREFIX Starting deployment script"',
             'echo "$LOG_PREFIX Using commit hash for feature branch deployment"',
-            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1",
+            f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
             "DEPLOY_EXIT=$?",
             'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
@@ -485,8 +490,11 @@ ssh_authorized_keys:
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
 
-        # Export SSH private key as multiline env var
+        # Export SSH private key as multiline env var with masking to prevent accidental exposure in logs
         if self.ssh_private_key:
+            # Mask the private key in GitHub Actions logs
+            print(f"::add-mask::{self.ssh_private_key}", flush=True)
+
             with open(env_file_name, "a") as env_file:
                 env_file.write("HOBBY_SSH_PRIVATE_KEY<<EOFKEY\n")
                 env_file.write(self.ssh_private_key)
