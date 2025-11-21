@@ -4,7 +4,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS),
+        featureFlags: STORYBOOK_FEATURE_FLAGS,
     },
     decorators: [
         mswDecorator({

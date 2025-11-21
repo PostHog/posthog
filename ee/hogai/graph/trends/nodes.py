@@ -20,7 +20,8 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     OUTPUT_SCHEMA = TRENDS_SCHEMA
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        self.dispatcher.update("Creating trends query")
+        if not self._has_agent_modes_feature_flag():
+            self.dispatcher.update("Creating trends query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", TRENDS_SYSTEM_PROMPT),

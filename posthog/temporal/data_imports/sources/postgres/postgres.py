@@ -790,7 +790,7 @@ def postgres_source(
 
                             successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
-                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                        if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
                         # This error happens when the read replica is out of sync with the primary

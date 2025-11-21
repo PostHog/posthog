@@ -16,6 +16,7 @@ class SessionSummaryMetadata:
     keypress_count: int | None = None
     mouse_activity_count: int | None = None
     start_url: str | None = None
+    distinct_id: str | None = None
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -56,7 +57,7 @@ class SessionSummaryPromptData:
         simplified_events_mapping: dict[str, list[Any]] = {}
         event_ids_mapping: dict[str, str] = {}
         # Pick indexes as we iterate over arrays
-        event_id_index, event_index_index = 0, 1
+        event_id_index, event_index_index = self.columns.index("event_id"), self.columns.index("event_index")
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
@@ -122,6 +123,7 @@ class SessionSummaryPromptData:
             "keypress_count",
             "mouse_activity_count",
             "start_url",
+            "distinct_id",
         )
         session_metadata = {k: v for k, v in session_metadata.items() if k in allowed_fields}
         # Start time, duration and console error count should be always present
@@ -143,6 +145,7 @@ class SessionSummaryPromptData:
             keypress_count=session_metadata.get("keypress_count"),
             mouse_activity_count=session_metadata.get("mouse_activity_count"),
             start_url=session_metadata.get("start_url"),
+            distinct_id=session_metadata.get("distinct_id"),
         )
 
     def _simplify_window_id(self, window_id: str | None) -> str | None:

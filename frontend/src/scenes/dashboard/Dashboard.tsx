@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -72,6 +73,7 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -88,7 +90,7 @@ function DashboardScene(): JSX.Element {
     })
 
     useKeyboardHotkeys(
-        placement == DashboardPlacement.Dashboard
+        placement == DashboardPlacement.Dashboard && !useAppShortcuts
             ? {
                   e: {
                       action: () =>

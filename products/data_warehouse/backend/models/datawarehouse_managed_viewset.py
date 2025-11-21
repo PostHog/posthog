@@ -106,7 +106,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.sync_frequency_interval = timedelta(hours=12)
 
                 saved_query.save()
-                saved_query.enable_materialization()
+                saved_query.schedule_materialization()
 
                 if created:
                     views_created += 1

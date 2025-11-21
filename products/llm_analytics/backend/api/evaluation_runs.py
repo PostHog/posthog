@@ -1,5 +1,6 @@
 import time
 import asyncio
+from typing import cast
 
 from django.conf import settings
 
@@ -12,6 +13,8 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
@@ -127,6 +130,20 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 evaluation_id=evaluation_id,
                 target_event_id=target_event_id,
                 team_id=self.team_id,
+            )
+
+            # Track evaluation run triggered
+            report_user_action(
+                cast(User, request.user),
+                "llma evaluation run triggered",
+                {
+                    "evaluation_id": evaluation_id,
+                    "evaluation_name": evaluation.name,
+                    "target_event_id": target_event_id,
+                    "workflow_id": workflow_id,
+                    "trigger_type": "manual",
+                },
+                self.team,
             )
 
             return Response(
