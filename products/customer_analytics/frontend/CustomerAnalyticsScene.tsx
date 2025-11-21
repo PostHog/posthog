@@ -1,4 +1,7 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -13,6 +16,7 @@ import { SessionInsights } from 'products/customer_analytics/frontend/components
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { eventConfigModalLogic } from './components/Insights/eventConfigModalLogic'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
@@ -22,6 +26,8 @@ export const scene: SceneExport = {
 }
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const { toggleModalOpen } = useActions(eventConfigModalLogic)
+
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
     }
@@ -35,6 +41,16 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                     resourceType={{
                         type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                     }}
+                    actions={
+                        <LemonButton
+                            icon={<IconGear />}
+                            size="small"
+                            type="secondary"
+                            onClick={() => toggleModalOpen()}
+                            tooltip="Configure customer analytics"
+                            children="Configure"
+                        />
+                    }
                 />
                 <CustomerAnalyticsFilters />
                 <div className="space-y-2">

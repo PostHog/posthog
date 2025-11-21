@@ -217,7 +217,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 }
                 return [
                     {
-                        name: 'Active Users (DAU/WAU/MAU)',
+                        name: 'Active users (DAU/WAU/MAU)',
                         className: 'row-span-2 h-[576px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -249,7 +249,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         },
                     },
                     {
-                        name: 'Weekly Active Users',
+                        name: 'Weekly active users',
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -283,7 +283,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         },
                     },
                     {
-                        name: 'Monthly Active Users',
+                        name: 'Monthly active users',
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -324,7 +324,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             () => [],
             () => [
                 {
-                    name: 'Unique sessions (last 1h)',
+                    name: 'Unique sessions',
                     description: 'Events without session IDs are excluded.',
                     className: 'h-[284px]',
                     query: {
@@ -364,8 +364,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Unique users (last 1h)',
-                    description: 'Number of unique users recently.',
+                    name: 'Unique users',
                     className: 'h-[284px]',
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -406,8 +405,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Average session duration (last 1h)',
-                    description: 'Average session duration for recent sessions.',
+                    name: 'Average session duration',
                     className: 'h-[284px]',
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -468,7 +466,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 dateRange
             ): InsightDefinition[] => [
                 {
-                    name: 'User Signups',
+                    name: 'User signups',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -503,7 +501,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Total Paying Customers',
+                    name: 'Total paying customers',
                     requiredSeries: { paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -567,7 +565,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'New Signups',
+                    name: 'New signups',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -598,7 +596,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Cumulative Signups (Adoption)',
+                    name: 'Cumulative signups (adoption)',
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -631,7 +629,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Signup Conversion',
+                    name: 'Signup conversion',
                     requiredSeries: { signupSeries, signupPageviewSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -686,7 +684,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Free to Paid User Conversion',
+                    name: 'Free to paid user conversion',
                     requiredSeries: { signupSeries, paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,

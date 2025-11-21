@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -39,18 +38,7 @@ export function ActiveUsersInsights(): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
-            <div className="flex items-center gap-2 ml-1">
-                <h2 className="m-0">Active Users</h2>
-                {!isOnlyPageview && (
-                    <LemonButton
-                        icon={<IconGear />}
-                        size="small"
-                        noPadding
-                        onClick={() => toggleModalOpen()}
-                        tooltip="Configure dashboard"
-                    />
-                )}
-            </div>
+            <h2 className="ml-1">Active users</h2>
             <div className="grid grid-cols-[3fr_1fr] gap-2">
                 {activeUsersInsights.map((insight, index) => {
                     return (
@@ -101,7 +89,7 @@ function PowerUsersTable(): JSX.Element {
     return (
         <>
             <div className="flex items-center gap-2 -mb-2">
-                <h2 className="mb-0 ml-1">Power Users</h2>
+                <h2 className="mb-0 ml-1">Power users</h2>
                 <LemonButton size="small" noPadding targetBlank to={urls.persons()} tooltip="Open people list" />
             </div>
             <Query
