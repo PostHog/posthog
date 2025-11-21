@@ -298,7 +298,7 @@ function drawGame(
     }
 }
 
-export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
+export function FlappyHogGame({ isActive = true }: { isActive?: boolean }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const gameLoopRef = useRef<number | null>(null)
     const gameStateRef = useRef<GameState>(createInitialState())
@@ -342,7 +342,7 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     }, [resetGame])
 
     useEffect(() => {
-        if (!isOpen) {
+        if (!isActive) {
             resetGame()
             if (gameLoopRef.current) {
                 cancelAnimationFrame(gameLoopRef.current)
@@ -391,36 +391,46 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                 cancelAnimationFrame(gameLoopRef.current)
             }
         }
-    }, [isOpen, resetGame])
+    }, [isActive, resetGame])
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (isOpen && (e.code === 'Space' || e.code === 'ArrowUp')) {
+            if (isActive && (e.code === 'Space' || e.code === 'ArrowUp')) {
                 e.preventDefault()
                 flap()
             }
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isOpen, flap])
+    }, [isActive, flap])
 
+    return (
+        <div className="flex flex-col items-center">
+            <canvas
+                ref={canvasRef}
+                width={GAME_WIDTH}
+                height={GAME_HEIGHT}
+                onClick={flap}
+                className="cursor-pointer rounded border border-border"
+            />
+            {highScore > 0 && (
+                <div className="mt-4">
+                    <LemonButton type="tertiary" size="small" onClick={handleClearHighScore}>
+                        Clear high score
+                    </LemonButton>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Flappy Hog" simple>
             <div className="flex flex-col items-center p-4">
-                <canvas
-                    ref={canvasRef}
-                    width={GAME_WIDTH}
-                    height={GAME_HEIGHT}
-                    onClick={flap}
-                    className="cursor-pointer rounded border border-border"
-                />
-                <div className="flex gap-2 mt-4">
+                <FlappyHogGame isActive={isOpen} />
+                <div className="mt-4">
                     <LemonButton onClick={onClose}>Close</LemonButton>
-                    {highScore > 0 && (
-                        <LemonButton type="tertiary" size="small" onClick={handleClearHighScore}>
-                            Clear high score
-                        </LemonButton>
-                    )}
                 </div>
             </div>
         </LemonModal>
