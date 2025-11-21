@@ -66,8 +66,12 @@ export interface HumanMessage extends BaseAssistantMessage {
 }
 
 export interface AssistantFormOption {
+    /** Button label, which is also the message that gets sent on click. */
     value: string
+    /** 'primary', 'secondary', or 'tertiary' - default 'secondary' */
     variant?: string
+    /** When href is set, the button opens the link rather than sending an AI message. */
+    href?: string
 }
 
 export interface AssistantForm {

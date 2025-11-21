@@ -1737,6 +1737,28 @@
         }
     },
     {
+        "model": "google/gemini-3-pro-image-preview",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "image": 0.067
+            },
+            "google-ai-studio": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "image": 0.067,
+                "image_output": 0.000134
+            },
+            "google-vertex": {
+                "prompt_token": 0.000002,
+                "completion_token": 0.000012,
+                "image": 0.067,
+                "image_output": 0.000134
+            }
+        }
+    },
+    {
         "model": "google/gemini-3-pro-preview",
         "cost": {
             "default": {
@@ -5414,6 +5436,11 @@
                 "prompt_token": 8e-8,
                 "completion_token": 5.5e-7
             },
+            "crusoe-bf16": {
+                "prompt_token": 2.2e-7,
+                "completion_token": 8e-7,
+                "cache_read_token": 1.1e-7
+            },
             "deepinfra-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 5.7e-7
@@ -6560,6 +6587,19 @@
     },
     {
         "model": "x-ai/grok-4.1-fast",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "xai": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "x-ai/grok-4.1-fast:free",
         "cost": {
             "default": {
                 "prompt_token": 0,

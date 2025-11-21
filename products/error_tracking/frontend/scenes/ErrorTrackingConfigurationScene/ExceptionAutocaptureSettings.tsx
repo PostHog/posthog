@@ -10,7 +10,7 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import Rules from './rules/Rules'
 import { ErrorTrackingRuleType } from './rules/types'

@@ -6,6 +6,7 @@ from django.http import StreamingHttpResponse
 
 import pydantic
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -37,6 +38,27 @@ from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+
+def is_team_exempt_from_rate_limits(team_id: int) -> bool:
+    """
+    Check if a team is exempt from AI rate limits using feature flag configuration.
+    Expected payload format: {"EU": [x, y, z], "US": [a, b, c]}
+    """
+    region = get_instance_region()
+    if not region:
+        return False
+
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+        "posthog-ai-rate-limit-exemptions", "posthog-ai-rate-limits"
+    )
+
+    if not isinstance(payload, dict):
+        # Hardcoded fallback
+        return region == "US" and team_id in (2, 87921, 41124, 103224)
+
+    region_config = payload.get(region, [])
+    return isinstance(region_config, list) and team_id in region_config
 
 
 class MessageSerializer(serializers.Serializer):
@@ -89,15 +111,17 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
-        if self.action != "retrieve":
-            queryset = queryset.filter(user=self.request.user)
-        # For listing or single retrieval, conversations must be from the assistant and have a title
-        if self.action in ("list", "retrieve"):
-            queryset = queryset.filter(
-                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-            ).order_by("-updated_at")
-        return queryset
+        # Only allow access to conversations created by the current user
+        qs = queryset.filter(user=self.request.user)
+
+        # Allow sending messages to any conversation
+        if self.action == "create":
+            return qs
+
+        # But retrieval must only return conversations from the assistant and with a title.
+        return qs.filter(
+            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+        ).order_by("-updated_at")
 
     def get_throttles(self):
         if (
@@ -105,8 +129,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             not settings.DEBUG
             # Only for streaming
             and self.action == "create"
-            # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            and not (get_instance_region() == "US" and self.team_id in (2, 87921, 41124, 103224))
+            # Strict limits are skipped for exempt teams
+            and not is_team_exempt_from_rate_limits(self.team_id)
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 

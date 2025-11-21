@@ -22,7 +22,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
