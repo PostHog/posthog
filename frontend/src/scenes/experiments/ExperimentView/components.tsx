@@ -459,6 +459,8 @@ export function PageHeaderCustom(): JSX.Element {
                     AccessControlLevel.Editor,
                     experiment.user_access_level
                 )}
+                renameDebounceMs={0}
+                saveOnBlur
                 actions={
                     <>
                         {experiment && !isExperimentRunning && (

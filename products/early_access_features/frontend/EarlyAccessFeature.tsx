@@ -149,6 +149,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         type: 'early_access_feature',
                     }}
                     canEdit
+                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
                     onNameChange={(name) => {
                         if (isNewEarlyAccessFeature) {
                             setEarlyAccessFeatureValue('name', name)
