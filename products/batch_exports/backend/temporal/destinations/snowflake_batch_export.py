@@ -743,7 +743,7 @@ class SnowflakeClient:
             for col_name, alias in aliases.items()
         )
         query = f"""
-        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in final_table_column_names)})
+        COPY INTO "{table_name}" ({", ".join(f'"{aliases[col_name]}"' for col_name in col_names)})
         FROM (
             SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
@@ -761,7 +761,7 @@ class SnowflakeClient:
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
             is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and e.errno == 608,
+            and (e.errno == 608 or e.errno == 90073),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
