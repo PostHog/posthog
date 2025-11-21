@@ -58,9 +58,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
 import { SidePanelTab, UserTheme } from '~/types'
 
-import { AppShortcut } from '../AppShortcuts/AppShortcut'
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
-import { keyBinds } from '../AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
@@ -314,30 +312,22 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <ThemeMenu />
 
-                    <AppShortcut
-                        name="ToggleShortcutMenu"
-                        keybind={[keyBinds.toggleShortcutMenu]}
-                        intent="Toggle shortcut menu"
-                        interaction="click"
-                        asChild
-                    >
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                tooltip="Open shortcut menu"
-                                tooltipPlacement="right"
-                                onClick={() => setAppShortcutMenuOpen(true)}
-                                menuItem
-                            >
-                                <span className="size-4 flex items-center justify-center">⌘</span>
-                                Shortcuts
-                                <div className="flex gap-1 ml-auto items-center">
-                                    <KeyboardShortcut command option k />
-                                    <span className="text-xs opacity-75">or</span>
-                                    <KeyboardShortcut command shift k />
-                                </div>
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    </AppShortcut>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Open shortcut menu"
+                            tooltipPlacement="right"
+                            onClick={() => setAppShortcutMenuOpen(true)}
+                            menuItem
+                        >
+                            <span className="size-4 flex items-center justify-center">⌘</span>
+                            Shortcuts
+                            <div className="flex gap-1 ml-auto items-center">
+                                <KeyboardShortcut command option k />
+                                <span className="text-xs opacity-75">or</span>
+                                <KeyboardShortcut command shift k />
+                            </div>
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <Link
