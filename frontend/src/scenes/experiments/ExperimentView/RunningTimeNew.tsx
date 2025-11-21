@@ -107,7 +107,7 @@ export const RunningTimeNew = ({
                                 {Math.ceil(estimatedRemainingDays) !== 1 ? 's' : ''}
                             </span>
                             <LemonProgressCircle
-                                progress={exposures ? Math.min(exposures / (recommendedSampleSize ?? 0), 1) : 0}
+                                progress={exposures && recommendedSampleSize ? Math.min(exposures / recommendedSampleSize, 1) : 0}
                                 size={22}
                             />
                         </>
