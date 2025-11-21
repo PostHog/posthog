@@ -12,7 +12,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { OVERALL_MEAN_KEY } from './retentionLogic'
+import { OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { NO_BREAKDOWN_VALUE } from './types'
@@ -36,8 +36,9 @@ export function RetentionTable({
         tableHeaders,
         retentionFilter,
     } = useValues(retentionTableLogic(insightProps))
-    const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
+    const { toggleBreakdown, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
+    const { updateInsightFilter } = useActions(retentionLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -68,8 +69,36 @@ export function RetentionTable({
                 <tr>
                     <th className="bg whitespace-nowrap">Cohort</th>
                     {!hideSizeColumn && <th className="bg">Size</th>}
-                    {tableHeaders.map((header) => (
-                        <th key={header}>{header}</th>
+                    {tableHeaders.map((header, columnIndex) => (
+                        <th
+                            key={header}
+                            className={clsx({
+                                'RetentionTable__SelectedColumn--header': columnIndex === selectedInterval,
+                                'RetentionTable__HoveredColumn--header': columnIndex === hoveredColumn,
+                            })}
+                            onClick={() => {
+                                if (allowSelectingColumns) {
+                                    updateInsightFilter({
+                                        selectedInterval: columnIndex === selectedInterval ? null : columnIndex,
+                                    })
+                                }
+                            }}
+                            onMouseEnter={() => {
+                                if (allowSelectingColumns) {
+                                    setHoveredColumn(columnIndex)
+                                }
+                            }}
+                            onMouseLeave={() => {
+                                if (allowSelectingColumns) {
+                                    setHoveredColumn(null)
+                                }
+                            }}
+                            style={{
+                                cursor: allowSelectingColumns ? 'pointer' : 'default',
+                            }}
+                        >
+                            {header}
+                        </th>
                     ))}
                 </tr>
 
@@ -116,7 +145,14 @@ export function RetentionTable({
                                 )}
 
                                 {tableHeaders.map((_, interval) => (
-                                    <td key={interval}>
+                                    <td
+                                        key={interval}
+                                        className={clsx({
+                                            'RetentionTable__SelectedColumn--cell': interval === selectedInterval,
+                                            'RetentionTable__HoveredColumn--cell':
+                                                interval === hoveredColumn && interval !== selectedInterval,
+                                        })}
+                                    >
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
                                             clickable={false}

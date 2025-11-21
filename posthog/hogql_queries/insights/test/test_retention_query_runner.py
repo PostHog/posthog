@@ -3732,6 +3732,52 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             firefox_cohorts,
         )
 
+    def test_retention_cumulative_with_breakdown_event_properties(self):
+        """Test cumulative retention with breakdown by event properties - reproduces issue #41496"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(2), {"browser": "Safari"}),  # Day 2
+                # Firefox cohort
+                ("person3", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person3", _date(2), {"browser": "Firefox"}),  # Day 2
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "cumulative": True,  # This triggers the 'on or after' mode
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            }
+        )
+
+        # Verify the query runs without error and returns breakdown results
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+
+        # Verify Chrome cohort results (cumulative mode means if they return on day 3, they count for days 1, 2, 3)
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+        # Day 0 cohort: 1 person, returns on day 1 and day 3
+        # In cumulative mode: day 1 = 1, day 2 = 1 (from day 1), day 3 = 1 (from day 1 and day 3)
+        self.assertEqual(chrome_cohorts[0][:4], [1, 1, 1, 1])
+
     def test_retention_actor_query_with_event_property_breakdown(self):
         """Test actor query with event property breakdown filter"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])

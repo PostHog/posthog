@@ -8,6 +8,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonDialog,
+    LemonDivider,
     LemonLabel,
     LemonModal,
     LemonSelect,
@@ -28,7 +29,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -36,6 +37,7 @@ import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
@@ -47,6 +49,8 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -57,7 +61,6 @@ import {
     Experiment,
     ExperimentConclusion,
     InsightShortId,
-    ProductKey,
     ProgressStatus,
     UserType,
 } from '~/types'
@@ -79,6 +82,10 @@ export function createMaxToolExperimentSurveyConfig(
     initialMaxPrompt: string
     suggestions: string[]
     context: Record<string, any>
+    contextDescription: {
+        text: string
+        icon: JSX.Element
+    }
     callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
 } {
     const variants = experiment.parameters?.feature_flag_variants || []
@@ -111,7 +118,6 @@ export function createMaxToolExperimentSurveyConfig(
                     `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
                 ],
         context: {
-            user_id: user?.uuid,
             experiment_name: experiment.name,
             experiment_description: experiment.description,
             feature_flag_key: experiment.feature_flag?.key,
@@ -126,6 +132,10 @@ export function createMaxToolExperimentSurveyConfig(
                 rollout_percentage: v.rollout_percentage,
             })),
             variant_count: variants?.length || 0,
+        },
+        contextDescription: {
+            text: experiment.name,
+            icon: iconForType('experiment'),
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
             addProductIntent({
@@ -596,10 +606,13 @@ export function PageHeaderCustom(): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
+                        <LemonDivider />
+
                         <ResetButton />
 
                         {!experiment.end_date && (
                             <ButtonPrimitive
+                                variant="danger"
                                 menuItem
                                 data-attr="stop-experiment"
                                 onClick={() => openStopExperimentModal()}
@@ -753,9 +766,15 @@ export function StopExperimentModal(): JSX.Element {
                 </div>
             }
         >
-            <div>
-                <div className="mb-2">
-                    Stopping the experiment will end data collection. You can restart it later if needed.
+            <div className="space-y-4">
+                <div>
+                    Stopping the experiment will mark when to stop counting events in the results. Your feature flag
+                    will continue working normally and events will still be tracked. You can restart the experiment
+                    later if needed.
+                </div>
+                <div>
+                    To roll out a specific variant to all users, use the 'Ship a variant' button or adjust the feature
+                    flag settings.
                 </div>
                 <ConclusionForm />
             </div>
@@ -901,7 +920,7 @@ export const ResetButton = (): JSX.Element => {
     }
 
     return (
-        <ButtonPrimitive menuItem onClick={onClickReset} data-attr="reset-experiment">
+        <ButtonPrimitive variant="danger" menuItem onClick={onClickReset} data-attr="reset-experiment">
             <IconRefresh /> Reset experiment
         </ButtonPrimitive>
     )

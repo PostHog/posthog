@@ -193,7 +193,9 @@ impl ReadThroughCache {
                 );
                 self.handle_corrupted_cache(key, cache_key, loader).await
             }
-            CustomRedisError::Timeout | CustomRedisError::Redis(_) => {
+            CustomRedisError::Timeout
+            | CustomRedisError::Redis(_)
+            | CustomRedisError::InvalidConfiguration(_) => {
                 // Redis infrastructure issues - use loader without caching
                 tracing::warn!(
                     "Redis infrastructure issue for key {}: {:?}. Operating without cache.",

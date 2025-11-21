@@ -5,7 +5,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
 
@@ -17,9 +20,16 @@ export interface EndpointModalProps {
     closeModal: () => void
     tabId: string
     insightQuery: HogQLQuery | InsightQueryNode
+    insightShortId?: string
 }
 
-export function EndpointModal({ isOpen, closeModal, tabId, insightQuery }: EndpointModalProps): JSX.Element {
+export function EndpointModal({
+    isOpen,
+    closeModal,
+    tabId,
+    insightQuery,
+    insightShortId,
+}: EndpointModalProps): JSX.Element {
     const {
         createEndpoint,
         updateEndpoint,
@@ -32,6 +42,11 @@ export function EndpointModal({ isOpen, closeModal, tabId, insightQuery }: Endpo
         endpointLogic({ tabId })
     )
     const { endpoints } = useValues(endpointsLogic({ tabId }))
+
+    // Filter endpoints that were created from this insight
+    const endpointsFromThisInsight = insightShortId
+        ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)
+        : []
 
     const handleSubmit = (): void => {
         if (isUpdateMode) {
@@ -50,6 +65,7 @@ export function EndpointModal({ isOpen, closeModal, tabId, insightQuery }: Endpo
                 name: endpointName.trim(),
                 description: endpointDescription?.trim() || undefined,
                 query: insightQuery,
+                derived_from_insight: insightShortId,
             })
         }
 
@@ -91,6 +107,34 @@ export function EndpointModal({ isOpen, closeModal, tabId, insightQuery }: Endpo
                             />
                         </LemonField.Pure>
                     </div>
+
+                    {!isUpdateMode && endpointsFromThisInsight.length > 0 && (
+                        <div>
+                            <div className="text-muted mb-2">Endpoints already created from this insight:</div>
+                            <LemonTable
+                                dataSource={endpointsFromThisInsight}
+                                columns={[
+                                    {
+                                        title: 'Name',
+                                        key: 'name',
+                                        dataIndex: 'name',
+                                        render: (_, record) => (
+                                            <Link to={urls.endpoint(record.name)}>{record.name}</Link>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Description',
+                                        key: 'description',
+                                        dataIndex: 'description',
+                                        render: (_, record) =>
+                                            record.description || <span className="text-muted">—</span>,
+                                    },
+                                ]}
+                                size="small"
+                                embedded
+                            />
+                        </div>
+                    )}
 
                     {isUpdateMode ? (
                         <div>

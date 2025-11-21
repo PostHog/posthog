@@ -6,8 +6,9 @@ from django.http import StreamingHttpResponse
 
 import pydantic
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from rest_framework import serializers, status
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
@@ -21,17 +22,43 @@ from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
+from posthog.temporal.ai.chat_agent import (
+    CHAT_AGENT_STREAM_MAX_LENGTH,
+    CHAT_AGENT_WORKFLOW_TIMEOUT,
+    AssistantConversationRunnerWorkflow,
+    AssistantConversationRunnerWorkflowInputs,
+)
 from posthog.utils import get_instance_region
 
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.stream.conversation_stream import ConversationStreamManager
+from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+
+def is_team_exempt_from_rate_limits(team_id: int) -> bool:
+    """
+    Check if a team is exempt from AI rate limits using feature flag configuration.
+    Expected payload format: {"EU": [x, y, z], "US": [a, b, c]}
+    """
+    region = get_instance_region()
+    if not region:
+        return False
+
+    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+        "posthog-ai-rate-limit-exemptions", "posthog-ai-rate-limits"
+    )
+
+    if not isinstance(payload, dict):
+        # Hardcoded fallback
+        return region == "US" and team_id in (2, 87921, 41124, 103224)
+
+    region_config = payload.get(region, [])
+    return isinstance(region_config, list) and team_id in region_config
 
 
 class MessageSerializer(serializers.Serializer):
@@ -102,8 +129,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             not settings.DEBUG
             # Only for streaming
             and self.action == "create"
-            # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            and not (get_instance_region() == "US" and self.team_id in (2, 87921, 41124, 103224))
+            # Strict limits are skipped for exempt teams
+            and not is_team_exempt_from_rate_limits(self.team_id)
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 
@@ -133,7 +160,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         has_message = serializer.validated_data.get("content") is not None
         is_deep_research = serializer.validated_data.get("deep_research_mode", False)
-        mode = AssistantMode.DEEP_RESEARCH if is_deep_research else AssistantMode.ASSISTANT
+        if is_deep_research:
+            raise NotImplementedError("Deep research is not supported yet")
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -163,6 +191,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
+        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
+        if not has_message and conversation.status == Conversation.Status.IDLE:
+            raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,
@@ -174,15 +205,18 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
-            mode=mode,
+            mode=AssistantMode.ASSISTANT,
         )
+        workflow_class = AssistantConversationRunnerWorkflow
 
         async def async_stream(
             workflow_inputs: AssistantConversationRunnerWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            stream_manager = ConversationStreamManager(conversation)
-            async for chunk in stream_manager.astream(workflow_inputs):
+            stream_manager = AgentExecutor(
+                conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
+            )
+            async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
                 yield serializer.dumps(chunk).encode("utf-8")
 
         return StreamingHttpResponse(
@@ -200,8 +234,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():
-            conversation_manager = ConversationStreamManager(conversation)
-            await conversation_manager.cancel_conversation()
+            agent_executor = AgentExecutor(conversation)
+            await agent_executor.cancel_workflow()
 
         try:
             asgi_async_to_sync(cancel_workflow)()

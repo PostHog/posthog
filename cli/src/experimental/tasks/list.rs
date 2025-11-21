@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use reqwest::Url;
 use std::collections::VecDeque;
 
 use crate::{
@@ -30,7 +31,7 @@ impl TaskIterator {
         }
 
         let response = client
-            .send_get("tasks", |req| req.query(&params))
+            .send_get(client.project_url("tasks")?, |req| req.query(&params))
             .context("Failed to get tasks")?;
 
         let task_response: TaskListResponse = response
@@ -56,7 +57,7 @@ impl TaskIterator {
 
         let response = self
             .client
-            .get(&url)?
+            .get(Url::parse(&url)?)
             .send()
             .context("Failed to send request")?;
 

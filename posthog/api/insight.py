@@ -464,7 +464,7 @@ class InsightSerializer(InsightBasicSerializer):
         session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
-            # since it is possible to be undeleting a soft deleted insight
+            # since it is possible to be restoring a soft deleted insight
             # the state captured before the update has to include soft deleted insights
             # or we can't capture undeletes to the activity log
             before_update = Insight.objects_including_soft_deleted.prefetch_related(
@@ -527,8 +527,16 @@ class InsightSerializer(InsightBasicSerializer):
         properties["$current_url"] = current_url
         properties["$session_id"] = session_id
 
+        activity = "updated"
+        deleted_change = next((change for change in changes if change.field == "deleted"), None)
+        if deleted_change:
+            if bool(deleted_change.after):
+                activity = "deleted"
+            elif bool(deleted_change.before):
+                activity = "restored"
+
         log_and_report_insight_activity(
-            activity="updated",
+            activity=activity,
             insight=updated_insight,
             insight_id=updated_insight.id,
             insight_short_id=updated_insight.short_id,
@@ -832,7 +840,7 @@ class InsightSerializer(InsightBasicSerializer):
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
 - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -905,7 +913,7 @@ class InsightViewSet(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
-            # an insight can be un-deleted by patching {"deleted": False}
+            # an insight can be restored by patching {"deleted": False}
             include_deleted = True
 
         if not include_deleted:

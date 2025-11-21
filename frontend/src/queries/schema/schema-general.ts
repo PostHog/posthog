@@ -833,6 +833,14 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Filter sessions by event name - sessions that contain this event */
+    event?: string | null
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     */
+    actionId?: integer
+    /** Event property filters - only applies when event or actionId is set */
+    eventProperties?: AnyPropertyFilter[]
 }
 
 /**
@@ -1045,6 +1053,8 @@ interface DataTableNodeViewProps {
     showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show a recording column for events with session recordings */
+    showRecordingColumn?: boolean
     /** Show date range selector */
     showDateRange?: boolean
     /** Show the export button */
@@ -1073,6 +1083,8 @@ interface DataTableNodeViewProps {
     showOpenEditorButton?: boolean
     /** Show a results table */
     showResultsTable?: boolean
+    /** Show actors query options and back to source */
+    showSourceQueryOptions?: boolean
     /** Uses the embedded version of LemonTable */
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
@@ -1634,28 +1646,39 @@ export interface EndpointRequest {
     is_materialized?: boolean
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
+    derived_from_insight?: string
 }
 
 export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
-    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
      * Whether results should be calculated sync or async, and how much to rely on the cache:
      * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
      * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
-     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-     * Background calculation can be tracked using the `query_status` response field.
      * @default 'blocking'
      */
     refresh?: RefreshType
+    /**
+     * A map for overriding insight query filters.
+     *
+     * Tip: Use to get data for a specific customer or user.
+     */
     filters_override?: DashboardFilter
-    variables_override?: Record<string, Record<string, any>>
-    variables_values?: Record<string, any>
+    /**
+     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
+     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
+     * For example: {"from_date": "1970-01-01"}
+     */
+    variables?: Record<string, any>
+    /**
+     * Map of Insight query keys to be overridden at execution time.
+     * For example:
+     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
+     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
+     *   The query executed will return the count of $identify events, instead of $pageview's
+     */
     query_override?: Record<string, any>
 }
 
@@ -2348,6 +2371,11 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
+export interface ErrorTrackingExplainIssueToolContext {
+    stacktrace: string
+    issue_name: string
+}
+
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {
@@ -2604,6 +2632,8 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface FileSystemCount {
     count: number
+    entries: FileSystemEntry[]
+    has_more: boolean
 }
 
 export interface FileSystemEntry {
@@ -2706,6 +2736,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKey?: string
     /** List of all scenes exported by the app */
     sceneKeys?: string[]
+    /** Product key(s) that generate interest in this item when intent is triggered */
+    intents?: ProductKey[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -2783,8 +2815,10 @@ export interface MaxExperimentSummaryContext {
     experiment_id: ExperimentIdType
     experiment_name: string
     description: string | null
+    exposures: Record<string, number> | null
     variants: string[]
-    metrics_results: MaxExperimentMetricResult[]
+    primary_metrics_results: MaxExperimentMetricResult[]
+    secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
 }
 
@@ -3040,8 +3074,13 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
  * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
  */
 export interface ExperimentBreakdownResult {
-    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
-    breakdown_value: BreakdownKeyType[]
+    /**
+     * The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)
+     * Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value.
+     * The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow
+     * for the types using it to define if it's and array or an optional value.
+     */
+    breakdown_value: (integer | string | number)[]
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidated
     /** Test variant results with statistical comparisons for this breakdown */
@@ -4342,6 +4381,11 @@ export type SourceFieldConfig =
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 
+export interface SuggestedTable {
+    table: string
+    tooltip?: string | null
+}
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -4355,6 +4399,12 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+
+    /**
+     * Tables to suggest enabling, with optional tooltip explaining why
+     * @default []
+     */
+    suggestedTables?: SuggestedTable[]
 }
 
 export const externalDataSources = [
@@ -4387,6 +4437,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'BingAds',
     'Shopify',
 ] as const
 
@@ -4453,4 +4504,165 @@ export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
     group_type_index?: integer
     /** Group key. Required with group_type_index for group queries. */
     group_key?: string
+}
+
+export interface CustomerAnalyticsConfig {
+    activity_event: EventsNode | ActionsNode
+    signup_pageview_event: EventsNode | ActionsNode
+    signup_event: EventsNode | ActionsNode
+    subscription_event: EventsNode | ActionsNode
+    payment_event: EventsNode | ActionsNode
+}
+
+/**
+ * Product item structure matching products.json.
+ * NOTE: These types must match the structure generated by build-products.mjs.
+ * Any changes to these types should be reflected in the build script.
+ */
+export interface ProductItem {
+    path: string
+    category: string | null
+    iconType: string | null
+    type: string | null
+    intents: ProductKey[]
+}
+
+/**
+ * Products data structure matching products.json.
+ * NOTE: These types must match the structure generated by build-products.mjs.
+ * Any changes to these types should be reflected in the build script.
+ */
+export interface ProductsData {
+    products: ProductItem[]
+    games: ProductItem[]
+    metadata: ProductItem[]
+}
+
+// Keep this in alphabetical order if you wanna maintain Rafa's sanity
+export enum ProductKey {
+    ACTIONS = 'actions',
+    ALERTS = 'alerts',
+    ANNOTATIONS = 'annotations',
+    COHORTS = 'cohorts',
+    COMMENTS = 'comments',
+    CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
+    ENDPOINTS = 'endpoints',
+    ERROR_TRACKING = 'error_tracking',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    GROUP_ANALYTICS = 'group_analytics',
+    HEATMAPS = 'heatmaps',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    INTEGRATIONS = 'integrations',
+    LINKS = 'links',
+    LIVE_DEBUGGER = 'live_debugger',
+    LLM_ANALYTICS = 'llm_analytics',
+    LOGS = 'logs',
+    MARKETING_ANALYTICS = 'marketing_analytics',
+    MAX = 'max',
+    MOBILE_REPLAY = 'mobile_replay',
+    PERSONS = 'persons',
+    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    PLATFORM_AND_SUPPORT = 'platform_and_support',
+    PRODUCT_ANALYTICS = 'product_analytics',
+    REVENUE_ANALYTICS = 'revenue_analytics',
+    SESSION_REPLAY = 'session_replay',
+    SITE_APPS = 'site_apps',
+    SURVEYS = 'surveys',
+    USER_INTERVIEWS = 'user_interviews',
+    TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
+    WORKFLOWS = 'workflows',
+}
+
+export enum ProductIntentContext {
+    // Onboarding
+    ONBOARDING_PRODUCT_SELECTED_PRIMARY = 'onboarding product selected - primary',
+    ONBOARDING_PRODUCT_SELECTED_SECONDARY = 'onboarding product selected - secondary',
+    QUICK_START_PRODUCT_SELECTED = 'quick start product selected',
+
+    // Data Warehouse
+    SELECTED_CONNECTOR = 'selected connector',
+    SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
+    DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
+
+    // Experiments
+    EXPERIMENT_CREATED = 'experiment created',
+    EXPERIMENT_ANALYZED = 'experiment analyzed',
+
+    // Feature Flags
+    FEATURE_FLAG_CREATED = 'feature flag created',
+
+    // Session Replay
+    SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+
+    // Error Tracking
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
+    ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
+    ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+
+    // LLM Analytics
+    LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+
+    // Product Analytics
+    TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
+
+    // Web Analytics
+    WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
+    WEB_VITALS_INSIGHT = 'web_vitals_insight',
+    WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
+    WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
+    WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
+    WEB_ANALYTICS_FRUSTRATING_PAGES = 'web_analytics_frustrating_pages',
+
+    // Actions
+    ACTION_VIEW_RECORDINGS = 'action_view_recordings',
+
+    // Persons
+    PERSON_VIEW_RECORDINGS = 'person_view_recordings',
+
+    // Feature Flags
+    FEATURE_FLAG_CREATE_INSIGHT = 'feature_flag_create_insight',
+    FEATURE_FLAG_VIEW_RECORDINGS = 'feature_flag_view_recordings',
+
+    // Early Access Features
+    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
+
+    // Data Warehouse -> Revenue Analytics Cross-sell
+    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
+
+    // Surveys
+    SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
+    SURVEY_CREATED = 'survey_created',
+    SURVEY_LAUNCHED = 'survey_launched',
+    SURVEY_VIEWED = 'survey_viewed',
+    SURVEY_COMPLETED = 'survey_completed', // stop survey
+    SURVEY_RESUMED = 'survey_resumed',
+    SURVEY_ARCHIVED = 'survey_archived',
+    SURVEY_UNARCHIVED = 'survey_unarchived',
+    SURVEY_DELETED = 'survey_deleted',
+    SURVEY_DUPLICATED = 'survey_duplicated',
+    SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
+    SURVEY_EDITED = 'survey_edited',
+    SURVEY_ANALYZED = 'survey_analyzed',
+
+    // Revenue Analytics
+    REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',
+    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = 'revenue_analytics_onboarding_completed',
+    REVENUE_ANALYTICS_EVENT_CREATED = 'revenue_analytics_event_created',
+    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = 'revenue_analytics_data_source_connected',
+
+    // Nav Panel Advertisement
+    NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
+
+    // Used by the backend but defined here for type safety
+    VERCEL_INTEGRATION = 'vercel_integration',
 }
