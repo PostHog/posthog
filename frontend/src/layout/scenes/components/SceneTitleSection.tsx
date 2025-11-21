@@ -270,6 +270,8 @@ function SceneName({
     const [isEditing, setIsEditing] = useState(forceEdit)
     const [isNameMultiline, setIsNameMultiline] = useState(false)
 
+    const readOnly = !canEdit || !onChange
+
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
@@ -309,7 +311,7 @@ function SceneName({
                     name="name"
                     value={name || ''}
                     onChange={(e) => {
-                        if (onChange && canEdit) {
+                        if (canEdit) {
                             setName(e.target.value)
                             if (!saveOnBlur) {
                                 debouncedOnChange(e.target.value)
@@ -320,13 +322,13 @@ function SceneName({
                     className={cn(
                         buttonPrimitiveVariants({
                             inert: true,
-                            className: `${textClasses} w-full hover:bg-fill-input py-0 [&_.LemonIcon]:size-4`,
+                            className: `${textClasses} w-full hover:bg-fill-input py-0 pt-px [&_.LemonIcon]:size-4 min-h-[var(--button-height-base)]`,
                             autoHeight: true,
                         }),
                         {
                             // When the textarea is force edit (new item) and multi line to be inline (not absolute)
                             // so the name doesn't overlap over description
-                            '@2xl/main-content:absolute @2xl/main-content:inset-0 min-h-[var(--button-height-base)]':
+                            '@2xl/main-content:absolute @2xl/main-content:inset-0':
                                 (forceEdit && !isNameMultiline) || (isEditing && !forceEdit),
                             shadow: isEditing && !forceEdit && isNameMultiline,
                         }
@@ -348,10 +350,10 @@ function SceneName({
                             e.preventDefault()
                         }
                     }}
-                    readOnly={!onChange && !canEdit}
+                    readOnly={readOnly}
                     onHeightChange={(height) => {
                         // TRICKY: 27 is the height of the textarea when it is a single line, but it's based on 0% zoom
-                        if (height > 27) {
+                        if (height > 28) {
                             setIsNameMultiline(true)
                         } else {
                             setIsNameMultiline(false)
@@ -360,7 +362,7 @@ function SceneName({
                 />
             ) : (
                 <Tooltip
-                    title={canEdit && !forceEdit ? 'Click to edit name' : 'Click to view name'}
+                    title={readOnly ? undefined : canEdit && !forceEdit ? 'Click to edit name' : 'Click to view name'}
                     placement="top-start"
                     arrowOffset={10}
                 >
@@ -369,9 +371,10 @@ function SceneName({
                             buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
                             'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50'
                         )}
-                        onClick={() => setIsEditing(true)}
+                        onClick={() => !readOnly && setIsEditing(true)}
                         fullWidth
                         truncate
+                        inert={readOnly}
                     >
                         <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
                         {canEdit && !forceEdit && <IconPencil />}
@@ -409,6 +412,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    readOnly?: boolean
 }
 
 function SceneDescription({
@@ -420,6 +424,7 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 0,
     saveOnBlur = true,
+    readOnly = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -457,7 +462,7 @@ function SceneDescription({
     const Element =
         onChange && canEdit ? (
             <>
-                {isEditing ? (
+                {isEditing && !readOnly ? (
                     <TextareaPrimitive
                         variant="default"
                         name="description"
@@ -499,7 +504,7 @@ function SceneDescription({
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
-                            onClick={() => setIsEditing(true)}
+                            onClick={() => !readOnly && setIsEditing(true)}
                             className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
                             fullWidth

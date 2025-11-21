@@ -41,7 +41,7 @@ function Wrapper({ children }: { children: React.ReactNode }): JSX.Element {
         </main>
     )
 }
-export function Default(): JSX.Element {
+export function ReadOnly(): JSX.Element {
     return (
         <Wrapper>
             <SceneTitleSection
@@ -102,7 +102,15 @@ export function ForceEdit(): JSX.Element {
 export function EditableNoDescription(): JSX.Element {
     return (
         <Wrapper>
-            <SceneTitleSection name={LONG_NAME} description={null} resourceType={{ type: 'cohort' }} canEdit={true} />
+            <SceneTitleSection
+                name={LONG_NAME}
+                description={null}
+                resourceType={{ type: 'cohort' }}
+                canEdit={true}
+                onNameChange={(value) => {
+                    console.info('name changed', value)
+                }}
+            />
         </Wrapper>
     )
 }
@@ -114,7 +122,6 @@ export function Actions(): JSX.Element {
                 name={LONG_NAME}
                 description={null}
                 resourceType={{ type: 'cohort' }}
-                canEdit={true}
                 actions={
                     <LemonButton icon={<IconPlus />} size="small" type="secondary">
                         Add action
@@ -132,7 +139,6 @@ export function ForceBackTo(): JSX.Element {
                 name="Show a back button to the left"
                 description={null}
                 resourceType={{ type: 'cohort' }}
-                canEdit={true}
                 forceBackTo={{
                     name: 'Cohorts',
                     path: '/cohorts',

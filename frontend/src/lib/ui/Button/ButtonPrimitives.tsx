@@ -179,7 +179,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:opacity-50',
+            true: 'opacity-50',
             false: '',
         },
         inert: {
@@ -304,7 +304,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
             ref,
             disabled: effectiveDisabled,
             ...rest,
-            'aria-disabled': effectiveDisabled,
+            'aria-disabled': effectiveDisabled || !inert,
             'data-active': active,
             style: {
                 '--button-height': `var(--button-icon-size-${effectiveSize})`,
