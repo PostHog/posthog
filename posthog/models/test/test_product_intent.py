@@ -566,7 +566,7 @@ class TestProductIntent(BaseTest):
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
 
-        upl = user_product_lists.first()
+        upl = user_product_lists.get()
         assert upl.product_path == "Session replay"
         assert upl.enabled is True
         assert upl.reason == UserProductList.Reason.PRODUCT_INTENT
@@ -645,7 +645,7 @@ class TestProductIntent(BaseTest):
 
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
-        assert user_product_lists.first().product_path == "Surveys"
+        assert user_product_lists.get().product_path == "Surveys"
 
     def test_register_allows_creation_when_allow_sidebar_suggestions_is_true(self):
         self.user.allow_sidebar_suggestions = True
@@ -657,7 +657,7 @@ class TestProductIntent(BaseTest):
 
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
-        assert user_product_lists.first().product_path == "Surveys"
+        assert user_product_lists.get().product_path == "Surveys"
 
     def test_register_rejects_creation_when_allow_sidebar_suggestions_is_false(self):
         self.user.allow_sidebar_suggestions = False
@@ -682,7 +682,7 @@ class TestProductIntent(BaseTest):
 
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
-        assert user_product_lists.first().reason == UserProductList.Reason.ONBOARDING
+        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
 
     def test_register_with_quick_start_context_creates_user_product_list_with_onboarding_reason(self):
         self.user.allow_sidebar_suggestions = True
@@ -698,7 +698,7 @@ class TestProductIntent(BaseTest):
 
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
-        assert user_product_lists.first().reason == UserProductList.Reason.ONBOARDING
+        assert user_product_lists.get().reason == UserProductList.Reason.ONBOARDING
 
     def test_register_without_onboarding_context_creates_user_product_list_with_product_intent_reason(self):
         self.user.allow_sidebar_suggestions = True
@@ -714,4 +714,4 @@ class TestProductIntent(BaseTest):
 
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
-        assert user_product_lists.first().reason == UserProductList.Reason.PRODUCT_INTENT
+        assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT
