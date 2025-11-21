@@ -28,11 +28,15 @@ class HobbyTester:
         droplet=None,
         record_id=None,
         record=None,
+        sha=None,
+        pr_number=None,
     ):
         if not token:
             token = os.getenv("DIGITALOCEAN_TOKEN")
         self.token = token
         self.branch = branch
+        self.sha = sha
+        self.pr_number = pr_number
 
         self.name = name
 
@@ -110,6 +114,18 @@ class HobbyTester:
         if ssh_enabled:
             manager = digitalocean.Manager(token=self.token)
             keys = manager.get_all_sshkeys()
+
+        # Build tags with branch, SHA, and PR info
+        tags = ["ci", "ci-hobby"]
+        if self.branch:
+            # Sanitize branch name for tags (alphanumeric, hyphens, underscores only)
+            safe_branch = self.branch.replace("/", "-").replace("_", "-")[:63]
+            tags.append(f"branch:{safe_branch}")
+        if self.sha:
+            tags.append(f"sha:{self.sha[:7]}")
+        if self.pr_number and self.pr_number != "unknown":
+            tags.append(f"pr:{self.pr_number}")
+
         self.droplet = digitalocean.Droplet(
             token=self.token,
             name=self.name,
@@ -118,7 +134,7 @@ class HobbyTester:
             size_slug=self.size,
             user_data=self.user_data,
             ssh_keys=keys,
-            tags=["ci"],
+            tags=tags,
         )
         self.droplet.create()
         return self.droplet
@@ -347,17 +363,24 @@ class HobbyTester:
 def main():
     command = sys.argv[1]
     if command == "create":
-        if len(sys.argv) < 4:
-            print("Please provide the branch name and run identifier")
+        if len(sys.argv) < 6:
+            print("Please provide: branch, run_id, sha, pr_number")
             exit(1)
         branch = sys.argv[2]
         run_id = sys.argv[3]
+        sha = sys.argv[4]
+        pr_number = sys.argv[5]
         name = f"do-ci-hobby-{run_id}"
-        print(f"Creating droplet on Digitalocean for testing Hobby Deployment, on branch {branch}")
-        print(f"Droplet name: {name}")
+        print(f"Creating droplet on Digitalocean for testing Hobby Deployment")
+        print(f"  Branch: {branch}")
+        print(f"  SHA: {sha[:7]}")
+        print(f"  PR: #{pr_number if pr_number != 'unknown' else 'N/A'}")
+        print(f"  Droplet name: {name}")
         ht = HobbyTester(
             branch=branch,
             name=name,
+            sha=sha,
+            pr_number=pr_number,
         )
         ht.ensure_droplet(ssh_enabled=True)
         print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
