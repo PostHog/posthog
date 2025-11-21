@@ -77,6 +77,7 @@ async def _run_activity(
     expected_fields=None,
     expect_duplicates: bool = False,
     extra_fields=None,
+    assert_records: bool = True,
 ):
     """Helper function to run Redshift main COPY activity and assert records exported.
 
@@ -144,6 +145,9 @@ async def _run_activity(
         ),
     )
     result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
+
+    if not assert_records:
+        return result
 
     await assert_clickhouse_records_in_redshift(
         redshift_connection=redshift_connection,
@@ -660,3 +664,68 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
         sort_key=sort_key,
         extra_fields=["test"],
     )
+
+
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
+@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+async def test_copy_into_redshift_activity_handles_data_over_string_limit(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    bucket_name,
+    bucket_region,
+    exclude_events,
+    model: BatchExportModel,
+    data_interval_start,
+    data_interval_end,
+    properties_data_type,
+    aws_credentials,
+    key_prefix,
+    ateam,
+):
+    """Test that the copy_into_redshift_activity raises a non-retryable error on varchar limit exceeded."""
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        event_name="test-funny-props-{i}",
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count_outside_range=0,
+        count_other_team=0,
+        count=1,
+        properties={
+            "$that_is_a_long_property": "wow" * 64 * 1024,
+        },
+    )
+
+    batch_export_model = model
+    table_name = f"test_copy_activity_table_handles_string_limit__{ateam.pk}"
+
+    sort_key = "event"
+
+    result = await _run_activity(
+        activity_environment,
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
+        properties_data_type=properties_data_type,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=batch_export_model,
+        redshift_config=redshift_config,
+        sort_key=sort_key,
+        assert_records=False,
+    )
+
+    assert result.error is not None
+    assert result.error.type == "StringLimitExceededError"
+    assert "Consider switching this column to 'SUPER' type" in result.error.message

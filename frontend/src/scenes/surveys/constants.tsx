@@ -1,4 +1,6 @@
-import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/icons'
+
+import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
@@ -10,6 +12,7 @@ import {
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyTabPosition,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -60,6 +63,7 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: SurveyPosition.Right,
+    tabPosition: SurveyTabPosition.Right,
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',

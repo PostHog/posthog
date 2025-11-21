@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
+use crate::api::client::PHClient;
 use crate::invocation_context::context;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -130,15 +131,14 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         language.display_name()
     );
 
-    // Load credentials
-    let token = context().token.clone();
-    let host = token.get_host();
+    // Get PH client
+    let client = &context().client;
 
     // Determine output path
     let output_path = determine_output_path(language, output_override)?;
 
     // Fetch definitions from the server
-    let response = fetch_definitions(&host, &token.env_id, &token.token, language)?;
+    let response = fetch_definitions(client, language)?;
 
     info!(
         "✓ Fetched {} definitions for {} events",
@@ -194,10 +194,10 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     println!("\nNext steps:");
     println!("  1. Import PostHog from your generated module:");
     println!("     import posthog from './{output_path}'");
-    println!("  2. Use typed events with autocomplete and type safety:");
-    println!("     posthog.captureTyped('event_name', {{ property: 'value' }})");
-    println!("  3. Or use regular capture() for flexibility:");
-    println!("     posthog.capture('dynamic_event', {{ any: 'data' }})");
+    println!("  2. Use typed events with autocomplete and type safety on known events:");
+    println!("     posthog.capture('event_name', {{ property: 'value' }})");
+    println!("  3. Use captureRaw() when you need to bypass type checking:");
+    println!("     posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})");
     println!();
 
     Ok(())
@@ -263,14 +263,14 @@ pub fn status() -> Result<()> {
     println!("\nPostHog Schema Sync Status\n");
 
     println!("Authentication:");
-    let token = context().token.clone();
+    let config = context().config.clone();
     println!("  ✓ Authenticated");
-    println!("  Host: {}", token.get_host());
-    println!("  Project ID: {}", token.env_id);
+    println!("  Host: {}", config.host);
+    println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
-        &token.token[..4],
-        &token.token[token.token.len() - 4..]
+        &config.api_key[..4],
+        &config.api_key[config.api_key.len() - 4..]
     );
     println!("  Token: {masked_token}");
 
@@ -311,24 +311,16 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_definitions(
-    host: &str,
-    env_id: &str,
-    token: &str,
-    language: Language,
-) -> Result<DefinitionsResponse> {
-    let url = format!(
-        "{}/api/projects/{}/event_definitions/{}/",
-        host,
-        env_id,
-        language.as_str()
-    );
+fn fetch_definitions(client: &PHClient, language: Language) -> Result<DefinitionsResponse> {
+    let url = format!("event_definitions/{}/", language.as_str());
 
-    let client = &context().client;
-    let response = client.get(&url).bearer_auth(token).send().context(format!(
-        "Failed to fetch {} definitions",
-        language.display_name()
-    ))?;
+    let response = client
+        .get(client.project_url(&url)?)
+        .send()
+        .context(format!(
+            "Failed to fetch {} definitions",
+            language.display_name()
+        ))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(

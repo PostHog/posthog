@@ -47,6 +47,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
@@ -286,6 +287,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionsQuery":
+        from .sessions_query_runner import SessionsQueryRunner
+
+        return SessionsQueryRunner(
+            query=cast(SessionsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -590,6 +601,19 @@ def get_query_runner(
         )
 
         return ErrorTrackingSimilarIssuesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ErrorTrackingBreakdownsQuery":
+        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+            ErrorTrackingBreakdownsQueryRunner,
+        )
+
+        return ErrorTrackingBreakdownsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1257,6 +1281,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "products_modifiers": {
                 "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
                 "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
+                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
             },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,

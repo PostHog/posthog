@@ -513,7 +513,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(25):
+        with self.assertNumQueries(26):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -1212,6 +1212,7 @@ class TestExternalDataSource(APIBaseTest):
                             "universe_domain": "dummy_universe_domain",
                         },
                         "dataset_id": "dummy_dataset_id",
+                        "use_custom_region": {"enabled": False, "region": ""},
                         "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
                         "dataset_project": {"enabled": False, "dataset_project_id": ""},
                         "schemas": [
@@ -1245,6 +1246,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is False
         assert bq_config.temporary_dataset.temporary_dataset_id == ""
@@ -1257,6 +1260,7 @@ class TestExternalDataSource(APIBaseTest):
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "dataset_id": "dummy_dataset_id",
                     "project_id": "dummy_project_id",
+                    "region": "",
                     "client_email": "dummy_client_email",
                     "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
                     "dataset_project": {"enabled": False, "dataset_project_id": ""},
@@ -1290,6 +1294,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is True
         assert bq_config.temporary_dataset.temporary_dataset_id == "dummy_temporary_dataset_id"
@@ -1302,6 +1308,7 @@ class TestExternalDataSource(APIBaseTest):
                     "token_uri": "https://oauth2.googleapis.com/token",
                     "dataset_id": "dummy_dataset_id",
                     "project_id": "dummy_project_id",
+                    "region": "",
                     "client_email": "dummy_client_email",
                     "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
                     "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
@@ -1335,6 +1342,8 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.key_file.private_key_id == "dummy_private_key_id"
         assert bq_config.key_file.client_email == "dummy_client_email"
         assert bq_config.key_file.token_uri == "dummy_token_uri"
+        assert bq_config.use_custom_region is not None
+        assert bq_config.use_custom_region.enabled is False
         assert bq_config.temporary_dataset is not None
         assert bq_config.temporary_dataset.enabled is False
         assert bq_config.dataset_project is not None
@@ -1440,3 +1449,82 @@ class TestExternalDataSource(APIBaseTest):
             for source in sources:
                 # This should not trigger additional queries due to select_related
                 _ = source.revenue_analytics_config.enabled
+
+    def test_create_external_data_source_rejects_invalid_prefix(self):
+        """Test that invalid characters in prefix are rejected."""
+        invalid_prefixes = [
+            ("email@domain.com", "@"),
+            ("test-prefix", "hyphen"),
+            ("123_start", "number"),
+            ("test prefix", "space"),
+            ("test.prefix", "dot"),
+            ("test/prefix", "slash"),
+            ("___", "underscores only"),
+        ]
+
+        for prefix, reason in invalid_prefixes:
+            with self.subTest(prefix=prefix, reason=reason):
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/",
+                    data={
+                        "source_type": "Stripe",
+                        "prefix": prefix,
+                        "payload": {
+                            "stripe_secret_key": "sk_test_123",
+                            "schemas": [
+                                {
+                                    "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                                    "should_sync": True,
+                                    "sync_type": "full_refresh",
+                                },
+                            ],
+                        },
+                    },
+                )
+                self.assertEqual(
+                    response.status_code,
+                    400,
+                    f"Expected rejection for prefix '{prefix}' ({reason})",
+                )
+                response_text = str(response.json()).lower()
+                # Different invalid prefixes return different error messages
+                self.assertTrue(
+                    "prefix" in response_text and ("letters" in response_text or "underscores" in response_text),
+                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}",
+                )
+
+    def test_create_external_data_source_accepts_valid_prefix(self):
+        """Test that valid prefixes are accepted."""
+        valid_prefixes = [
+            "valid_prefix",
+            "_starts_with_underscore",
+            "CamelCase",
+            "with123numbers",
+            "a",
+            "a_b",
+        ]
+
+        for prefix in valid_prefixes:
+            with self.subTest(prefix=prefix):
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/",
+                    data={
+                        "source_type": "Stripe",
+                        "prefix": prefix,
+                        "payload": {
+                            "stripe_secret_key": "sk_test_123",
+                            "schemas": [
+                                {
+                                    "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                                    "should_sync": True,
+                                    "sync_type": "full_refresh",
+                                },
+                            ],
+                        },
+                    },
+                )
+                self.assertIn(
+                    response.status_code,
+                    [200, 201],
+                    f"Expected acceptance for valid prefix '{prefix}'",
+                )

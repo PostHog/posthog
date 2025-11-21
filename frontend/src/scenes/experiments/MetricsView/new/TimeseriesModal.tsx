@@ -32,7 +32,7 @@ export function TimeseriesModal({
     variantResult,
     experiment,
 }: TimeseriesModalProps): JSX.Element {
-    const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
+    const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
     const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
         useValues(logic)
     const { recalculateTimeseries, loadTimeseries } = useActions(logic)
@@ -84,7 +84,7 @@ export function TimeseriesModal({
                     </div>
                     <LemonDivider vertical className="h-4 self-stretch" />
                     <div className="flex items-center">
-                        <VariantTag experimentId={experiment.id} variantKey={variantResult.key} />
+                        <VariantTag variantKey={variantResult.key} />
                     </div>
                 </div>
             }

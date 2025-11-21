@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -15,9 +15,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -34,7 +34,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
@@ -140,7 +141,7 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={asDisplay(person)}
+                name={asDisplay(person, undefined, true)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}
@@ -151,15 +152,15 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 actions={
                     <>
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { distinctId: person?.distinct_ids[0] },
+                                attrs: { id: person?.uuid },
                             }}
                             type="secondary"
                             size="small"
                         />
-                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -168,8 +169,9 @@ export function PersonScene(): JSX.Element | null {
                             status="danger"
                             data-attr="delete-person"
                             size="small"
+                            icon={isMobile() ? <IconTrash /> : null}
                         >
-                            Delete person
+                            {isMobile() ? null : 'Delete person'}
                         </LemonButton>
 
                         {person.distinct_ids.length > 1 && (
@@ -185,7 +187,6 @@ export function PersonScene(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
 
             <PersonCaption person={person} />
 
@@ -362,7 +363,7 @@ export function PersonScene(): JSX.Element | null {
     )
 }
 
-function OpenInAdminPanelButton(): JSX.Element {
+function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
 
@@ -371,6 +372,7 @@ function OpenInAdminPanelButton(): JSX.Element {
             type="secondary"
             onClick={() => openInAdminPanel(person?.properties.email)}
             disabledReason={disabledReason}
+            size={size}
         >
             Open in Admin Panel
         </LemonButton>

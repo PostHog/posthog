@@ -1,12 +1,9 @@
 import { OrganizationGetDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = OrganizationGetDetailsSchema
 
-type Params = z.infer<typeof schema>
-
-export const getDetailsHandler = async (context: Context, _params: Params) => {
+export const getDetailsHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const orgId = await context.stateManager.getOrgID()
 
     if (!orgId) {
@@ -21,9 +18,7 @@ export const getDetailsHandler = async (context: Context, _params: Params) => {
         throw new Error(`Failed to get organization details: ${orgResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(orgResult.data) }],
-    }
+    return orgResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

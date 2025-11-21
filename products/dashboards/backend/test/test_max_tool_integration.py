@@ -8,7 +8,7 @@ from posthog.models import Dashboard, Insight, Organization, OrganizationMembers
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 
-from ee.hogai.graph.dashboards.nodes import QueryMetadata
+from ee.hogai.chat_agent.dashboards.nodes import QueryMetadata
 from ee.hogai.utils.types.base import InsightQuery
 from ee.models.assistant import Conversation
 from ee.models.rbac.access_control import AccessControl
@@ -96,7 +96,6 @@ async def test_dashboard_metadata_update(dashboard_setup):
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
@@ -133,7 +132,6 @@ async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
@@ -155,7 +153,6 @@ async def test_dashboard_add_insights(dashboard_setup):
     tool = EditCurrentDashboardTool(
         team=dashboard.team,
         user=conversation.user,
-        tool_call_id="test-tool-call-id",
         config=RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
@@ -172,7 +169,7 @@ async def test_dashboard_add_insights(dashboard_setup):
     ]
 
     # Mock the DashboardCreationNode to simulate successful insight creation
-    with patch("ee.hogai.graph.dashboards.nodes.DashboardCreationNode._search_insights") as mock_search_insights:
+    with patch("ee.hogai.chat_agent.dashboards.nodes.DashboardCreationNode._search_insights") as mock_search_insights:
         # Create a mock insight
         mock_insight = await Insight.objects.acreate(
             name="User Activity",

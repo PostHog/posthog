@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { dayjs } from 'lib/dayjs'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
@@ -16,7 +18,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        values: [heatmapsBrowserLogic, ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride']],
+        values: [
+            heatmapsBrowserLogic,
+            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride'],
+            heatmapDataLogic({ context: 'in-app' }),
+            ['heatmapFilters', 'heatmapColorPalette', 'heatmapFixedPositionMode', 'commonFilters'],
+        ],
         actions: [
             heatmapsBrowserLogic,
             ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setIframeWidth'],
@@ -24,6 +31,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
             ['loadHeatmap', 'setWindowWidthOverride'],
+            exportsLogic,
+            ['startHeatmapExport'],
         ],
     })),
     actions({
@@ -40,6 +49,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        exportHeatmap: true,
+        setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -54,6 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
+        containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {
@@ -176,11 +188,27 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setLoading(false)
             }
         },
+        exportHeatmap: () => {
+            if ((values.type === 'screenshot' && !values.screenshotUrl) || (!values.displayUrl && !values.dataUrl)) {
+                return
+            }
+            actions.startHeatmapExport({
+                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_data_url: values.dataUrl ?? '',
+                heatmap_type: values.type,
+                width: values.widthOverride ?? 1024,
+                heatmap_color_palette: values.heatmapColorPalette,
+                heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                common_filters: values.commonFilters,
+                heatmap_filters: values.heatmapFilters,
+                filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+            })
+        },
     })),
     selectors({
         isDisplayUrlValid: [
             (s) => [s.displayUrl],
-            (displayUrl) => {
+            (displayUrl: string | null) => {
                 if (!displayUrl) {
                     // an empty dataUrl is valid
                     // since we just won't do anything with it
@@ -197,6 +225,27 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 } catch {
                     return false
                 }
+            },
+        ],
+        desiredNumericWidth: [
+            (s) => [s.widthOverride, s.containerWidth],
+            (widthOverride: number | null | undefined, containerWidth: number | null) => {
+                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
+                return requestedWidth && containerWidth
+                    ? Math.min(requestedWidth, containerWidth)
+                    : (requestedWidth ?? null)
+            },
+        ],
+        effectiveWidth: [
+            (s) => [s.desiredNumericWidth],
+            (desiredNumericWidth: number | null) => desiredNumericWidth ?? undefined,
+        ],
+        scalePercent: [
+            (s) => [s.widthOverride, s.containerWidth],
+            (widthOverride: number | null | undefined, containerWidth: number | null) => {
+                const requestedWidth = typeof widthOverride === 'number' ? widthOverride : null
+                const scale = requestedWidth && containerWidth ? Math.min(1, containerWidth / requestedWidth) : 1
+                return Math.round(scale * 100)
             },
         ],
     }),

@@ -156,7 +156,7 @@ export function VariantScreenshot({
                     <div className="flex items-center gap-2">
                         <span>Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''}</span>
                         <LemonDivider className="my-0 mx-1" vertical />
-                        <VariantTag experimentId={experiment.id} variantKey={variantKey} />
+                        <VariantTag variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
                             <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
                         )}

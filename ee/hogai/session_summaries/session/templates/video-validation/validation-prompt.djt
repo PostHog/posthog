@@ -1,0 +1,146 @@
+<validation_update_task>
+You need to update a session summary based on visual observations from screen recordings that validate or contradict the initially identified issues.
+</validation_update_task>
+
+<input_data_format>
+You will receive:
+1. Original session summary with segments, key actions, and outcomes
+2. Visual validation results from screen recordings of specific events
+3. List of fields (descriptions, labels) that could be changed based on the visual confirmation.
+</input_data_format>
+
+<original_summary_input>
+```
+{{ ORIGINAL_SUMMARY | safe }}
+```
+</original_summary_input>
+
+<visual_validation_input>
+Visual observations from actual screen recordings for the following events:
+
+```
+{{ VALIDATION_RESULTS | safe }}
+```
+</visual_validation_input>
+
+<fields_to_update>
+Decide if the event/segment/session descriptions or labels should be changed based on the new data coming from visual observations. Fill `new_value` field for the fields that require update and return them. Don't return fields that don't require any updates.
+
+```
+{{ FIELDS_TO_UPDATE | safe}}
+```
+</fields_to_update>
+
+<update_instructions>
+# Step 1: Analyze Visual Evidence
+
+For each validated event (those with moment_ids in validation results):
+
+1.1. Compare the visual observation against the original event description
+1.2. Identify clear contradictions:
+   - ✓ "Exception occurred" vs. video shows normal page load
+   - ✓ "Blocking error" vs. video shows user continuing successfully  
+   - ✓ "Failed to load" vs. video shows content appearing
+   - ✗ User found workaround (still an issue, just non-blocking)
+   - ✗ Slow loading (not an exception unless it failed completely)
+
+1.3. Determine the actual event type:
+   - If video shows normal interaction → exception: null
+   - If video shows error but user continued → exception: "non-blocking"  
+   - If video confirms blocking error → exception: "blocking" (no change)
+
+# Step 2: Update Event Descriptions
+
+For events requiring updates based on Step 1:
+
+2.1. Update exception flags:
+   - Set to null if no error occurred
+   - Change from "blocking" to "non-blocking" if user could continue
+   - Keep as "blocking" only if video confirms complete blockage
+
+2.2. Revise event descriptions:
+   - Focus on the actual user action observed
+   - If no errors occured and the current description is innacurate:
+      - Remove error language
+      - Keep descriptions concise (4-8 words)
+   - If the current description is accurate:
+      - Extend it with the additional info you got
+   
+   Inaccurate description examples - to replace:
+   - "Blocking store path exception rendered Error tracking unusable" → "Clicked into Error tracking feature"
+   - "Failed API call prevented dashboard load" → "Viewed analytics dashboard"
+   - "Error loading recommendations" → "Browsed product recommendations"
+
+   Accurate description examples - to extend:
+   - "ClickHouse timeout error during query" → "Clickhouse timeout and inspector errors; player black"
+   - "Snapshots API hit memory limit" → "Recording player failed to render due to Snapshots API memory limit",
+   - "Backend query failed due to 403 error" -> "Auth errors shown on load, caused by backend query 403 error"
+
+2.3. Update confusion/abandonment flags:
+   - Remove confusion: true if video shows intentional navigation
+   - Remove abandonment: true if user completed their goal
+   - Keep flags only if video confirms the behavior
+
+# Step 3: Cascade Updates to Segment Outcomes
+
+After updating individual events, reconsider each affected segment:
+
+3.1. Re-evaluate segment success:
+   - If all "blocking" exceptions were false positives → success: true
+   - If user completed meaningful actions despite non-blocking issues → success: true
+   - Keep success: false only if video confirms actual failure
+
+3.2. Update segment summaries:
+   - Remove references to errors that didn't occur
+   - Focus on what user actually accomplished
+   - Keep summaries concise (1-2 sentences, up to 15 words)
+   
+   Examples:
+   - "Error tracking page threw blocking exception, user abandoned" → "User explored error tracking and surveys features"
+   - "Dashboard failed to load properly" → "User successfully reviewed analytics dashboard"
+
+# Step 4: Update Overall Session Outcome
+
+Based on all event and segment updates:
+
+4.1. Re-determine session success:
+   - If primary user goals were achieved → success: true
+   - If video shows user left after completing tasks → success: true
+   - Keep success: false only if video confirms critical failures
+
+4.2. Revise session description:
+   - Emphasize actual accomplishments over false-positive errors
+   - Mention only confirmed issues that impacted the journey
+   - Keep focused (1-2 sentences, up to 30 words)
+
+   Examples:
+   - "Session failed due to blocking Error-tracking bug" → "User successfully explored multiple analytics features"
+   - "Multiple errors prevented feature usage" → "User completed analytics review despite minor issues"
+
+# Step 5: Generate Update List
+
+5.1. Include ONLY fields that need changes
+5.2. Provide current value (from) and new value (to) for each update
+5.3. Use exact field paths from the eligible_update_fields list
+5.4. Do not include fields where the value remains unchanged
+
+</update_instructions>
+
+<critical_guidelines>
+- ONLY update based on clear visual evidence - when in doubt, keep original assessment
+- User finding a workaround does NOT eliminate the issue (change to non-blocking, not null)
+- Slow performance is not an exception unless it completely failed
+- If video is ambiguous or unclear, do not update that field
+- Focus updates on validated events only - do not speculate about unvalidated events
+- Cascade updates logically: fixed events → improved segments → successful session
+</critical_guidelines>
+
+<output_format>
+Return a YAML object containing only the fields that require updates.
+
+IMPORTANT:
+- Use exact field paths from eligible_update_fields
+- Include field `path` and `new_value`, if it should be changed based on visual observations.
+- Only include fields that are actually changing
+- Ensure all string values are properly escaped
+</output_format>

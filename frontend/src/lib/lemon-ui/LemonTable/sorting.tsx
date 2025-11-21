@@ -1,6 +1,8 @@
 import { forwardRef } from 'react'
 
-import { IconArrowDown, IconArrowUp, IconSort } from 'lib/lemon-ui/icons'
+import { IconSort } from '@posthog/icons'
+
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 /** Sorting state. */
 export interface Sorting {

@@ -2,7 +2,7 @@ import { getSeriesColor } from 'lib/colors'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { BreakdownSinglePropertyStat } from './breakdownPreviewLogic'
+import { BreakdownSinglePropertyStat } from './miniBreakdownsLogic'
 
 interface BreakdownsStackedBarProps {
     properties: BreakdownSinglePropertyStat[]

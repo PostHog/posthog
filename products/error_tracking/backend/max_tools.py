@@ -1,26 +1,31 @@
 import re
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
+from posthog.schema import (
+    ErrorTrackingExplainIssueToolContext,
+    ErrorTrackingIssueFilteringToolOutput,
+    ErrorTrackingIssueImpactToolOutput,
+)
 
 from posthog.models import Team, User
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
+    ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT,
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
     ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
@@ -82,7 +87,15 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            inject_context=False,
+        )
 
     def _parse_output(self, output: str) -> ErrorTrackingIssueFilteringToolOutput:
         match = re.search(r"<output>(.*?)</output>", output, re.DOTALL)
@@ -155,11 +168,10 @@ class ErrorTrackingIssueImpactToolsNode(
 class ErrorTrackingIssueImpactGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
 ):
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=ErrorTrackingIssueImpactLoopNode,
             tools_node_class=ErrorTrackingIssueImpactToolsNode,
             toolkit_class=ErrorTrackingIssueImpactToolkit,
@@ -177,7 +189,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
-        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Goal: {instructions}",
@@ -198,3 +210,67 @@ class ErrorTrackingIssueImpactTool(MaxTool):
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
         return content, events
+
+
+class ErrorTrackingExplainIssueOutput(BaseModel):
+    """Structured output for issue explanation"""
+
+    generic_description: str = Field(description="A comprehensive technical explanation of the root cause")
+    specific_problem: str = Field(description="A detailed summary of exactly how the issue occurs")
+    possible_resolutions: list[str] = Field(
+        description="A list of potential solutions or mitigations to the issue", max_length=3
+    )
+
+
+class ErrorTrackingExplainIssueTool(MaxTool):
+    name: str = "error_tracking_explain_issue"
+    description: str = "Given the stack trace and context of an error tracking issue, provide a summary of the problem and potential resolutions."
+
+    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+        validated_context = ErrorTrackingExplainIssueToolContext(**self.context)
+
+        analyzed_issue = await self._analyze_issue(validated_context)
+        formatted_explanation = self._format_explanation_for_user(analyzed_issue, validated_context.issue_name)
+
+        user_message = f"Return this content to the user as is, following this format.\n\n{formatted_explanation}"
+
+        return user_message, {}
+
+    async def _analyze_issue(self, context: ErrorTrackingExplainIssueToolContext) -> ErrorTrackingExplainIssueOutput:
+        """Analyze an error tracking issue and generate a summary."""
+        stacktrace = self.context.get("stacktrace")
+
+        if not stacktrace:
+            raise ValueError(f"No stacktrace provided")
+
+        formatted_prompt = ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT.replace("{{{stacktrace}}}", stacktrace)
+
+        llm = MaxChatOpenAI(
+            user=self._user,
+            team=self._team,
+            model="gpt-4.1",
+            temperature=0.1,
+            inject_context=False,
+        ).with_structured_output(ErrorTrackingExplainIssueOutput)
+
+        analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
+
+        # Ensure we return the proper type
+        if isinstance(analysis_result, dict):
+            return ErrorTrackingExplainIssueOutput(**analysis_result)
+        return analysis_result
+
+    def _format_explanation_for_user(self, summary: ErrorTrackingExplainIssueOutput, issue_name: str) -> str:
+        lines = []
+        lines.append(f"### Issue: {issue_name}")
+
+        lines.append(summary.generic_description)
+
+        lines.append("\n#### What's happening?")
+        lines.append(summary.specific_problem)
+
+        lines.append("\n#### How to fix it:")
+        for i, option in enumerate(summary.possible_resolutions, 1):
+            lines.append(f"{i}. {option}")
+
+        return "\n".join(lines)

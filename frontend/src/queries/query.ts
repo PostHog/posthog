@@ -1,6 +1,5 @@
-import posthog from 'posthog-js'
-
 import api, { ApiMethodOptions } from 'lib/api'
+import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils'
 
 import {
@@ -18,6 +17,7 @@ import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
     HogQLQueryString,
+    getShowLegend,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
@@ -40,7 +40,13 @@ export function queryExportContext<N extends DataNode>(
     if (isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isInsightQueryNode(query)) {
-        return { source: query }
+        let showLegend = getShowLegend(query)
+
+        return {
+            source: query,
+            // Include show_legend for PNG exports
+            show_legend: showLegend === true,
+        }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     }

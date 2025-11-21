@@ -1,7 +1,9 @@
 from .bigquery.source import BigQuerySource
+from .bing_ads.source import BingAdsSource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
+from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
@@ -30,9 +32,11 @@ from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
 __all__ = [
+    "CustomerIOSource",
     "GithubSource",
     "SourceRegistry",
     "BigQuerySource",
+    "BingAdsSource",
     "BrazeSource",
     "ChargebeeSource",
     "DoItSource",

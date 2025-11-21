@@ -1,0 +1,105 @@
+from typing import TYPE_CHECKING, cast
+
+from django.db import models
+from django.db.models.expressions import F
+
+from posthog.schema import ProductIntentContext, ProductKey
+
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
+from posthog.products import Products
+
+if TYPE_CHECKING:
+    from posthog.models.product_intent.product_intent import ProductIntent
+
+
+class UserProductList(UUIDModel, UpdatedMetaFields):
+    """
+    Stores a user's custom list of products they care about.
+    Products are identified by their path from the static products list.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    product_path = models.CharField(max_length=200)
+
+    # Not using `CreatedMetaFields` because of the clashing `user` reference with `created_by`
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Reason(models.TextChoices):
+        # User chose this product during onboarding
+        ONBOARDING = "onboarding", "Onboarding"
+
+        # User showed intent for the product
+        PRODUCT_INTENT = "product_intent", "Product Intent"
+
+        # Colleagues on the same team have the product in their sidebar
+        USED_BY_COLLEAGUES = "used_by_colleagues", "Used by Colleagues"
+
+        # User has a similar product in their sidebar
+        USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
+
+        # We launch a new product and want to foster adoption
+        NEW_PRODUCT = "new_product", "New Product"
+
+        # Sales team can go in and automatically add a product to someone's sidebar
+        SALES_LED = "sales_led", "Sales Led"
+
+    # When the system suggests a product to the user, we store the reason why we suggested it in here
+    # And and optional freeform text field to be displayed to the user on hover
+    reason: models.CharField = models.CharField(max_length=32, choices=Reason.choices, null=True)
+    reason_text: models.TextField = models.TextField(null=True)
+
+    # There's a difference between the `UserProductList` not existing and it being disabled
+    # If it's not existing it just means the user hasn't decided whether they want that in
+    # the sidebar or not. In that case, we're free to add it to the sidebar as a suggestion
+    # when we detect they have been using a product.
+    #
+    # If the model does exist but this is set to false, we then know that we should not turn
+    # it on as a suggestion since it was an intentional change.
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = (("team", "user", "product_path"),)
+        indexes = [
+            models.Index(F("team_id"), F("user_id"), name="posthog_upl_team_user"),
+        ]
+        verbose_name = "User Product List"
+        verbose_name_plural = "User Product Lists"
+
+    def __str__(self) -> str:
+        return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
+
+    @staticmethod
+    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
+        if not products:
+            return []
+
+        onboarding_contexts = [
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
+            ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+        ]
+        has_onboarding_context = any(context in (product_intent.contexts or {}) for context in onboarding_contexts)
+        reason = UserProductList.Reason.ONBOARDING if has_onboarding_context else UserProductList.Reason.PRODUCT_INTENT
+
+        user_product_lists = []
+        for product in products:
+            item, _ = UserProductList.objects.get_or_create(
+                user=user,
+                team=product_intent.team,
+                product_path=product.path,
+                defaults={
+                    "enabled": True,
+                    "reason": reason,
+                },
+            )
+            user_product_lists.append(item)
+
+        return user_product_lists

@@ -12,6 +12,41 @@ from posthog.management.migration_analysis.utils import VolatileFunctionDetector
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
 
 
+def is_unmanaged_model(op, migration, unapplied_migrations=None) -> bool:
+    """Check if operation should be skipped due to managed=False.
+
+    Skip if:
+    1. Operation explicitly declares managed=False (e.g., AlterModelOptions, CreateModel)
+    2. Model is currently managed=False in app registry (Django won't execute DDL)
+
+    Otherwise analyze normally.
+
+    Args:
+        op: Migration operation
+        migration: Current migration object
+        unapplied_migrations: Unused, kept for signature compatibility
+    """
+    # Case 1: Operation explicitly declares managed=False
+    if hasattr(op, "options") and op.options.get("managed") is False:
+        return True
+
+    # Case 2: Check if model is currently managed=False
+    model_name = getattr(op, "model_name", None) or getattr(op, "name", None)
+    if model_name and migration:
+        try:
+            from django.apps import apps
+
+            model = apps.get_model(migration.app_label, model_name)
+            if model._meta.managed is False:
+                return True
+        except LookupError:
+            # Model not found in app registry - likely a third-party app or model no longer exists
+            # Skip the check and let the operation be analyzed normally
+            pass
+
+    return False
+
+
 class OperationAnalyzer:
     """Base class for operation-specific analyzers"""
 
@@ -45,12 +80,20 @@ class AddFieldAnalyzer(OperationAnalyzer):
         return self._analyze_not_null_with_default(op, field)
 
     def _analyze_nullable_field(self, op) -> OperationRisk:
-        """Nullable fields are always safe."""
+        """Nullable fields require brief lock but no table rewrite."""
         return OperationRisk(
             type=self.operation_type,
-            score=0,
-            reason="Adding nullable field is safe",
+            score=1,
+            reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
+            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+
+For high-traffic tables, consider:
+- Deploy during low-traffic periods
+- Monitor lock contention and query timeouts during deployment
+- Have a rollback plan ready
+
+For low-traffic tables, this operation is generally safe to deploy anytime.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:
@@ -355,8 +398,36 @@ class RunSQLAnalyzer(OperationAnalyzer):
     operation_type = "RunSQL"
     default_score = 2
 
+    def _parse_override_comment(self, op) -> str | None:
+        """
+        Parse migration-analyzer override comments from SQL.
+
+        Expected format:
+        -- migration-analyzer: safe reason=justification here
+        or
+        # migration-analyzer: safe reason=justification here
+
+        Returns the reason string if valid override found, None otherwise.
+        """
+        sql = str(op.sql)
+
+        # Look for override comment (-- or # style)
+        override_pattern = r"(?:--|#)\s*migration-analyzer:\s*safe\s+reason=(.+?)(?:\n|$)"
+        match = re.search(override_pattern, sql, re.IGNORECASE)
+
+        if match:
+            return match.group(1).strip()
+        return None
+
     def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
-        sql = str(op.sql).upper()
+        # Parse override from original SQL (before stripping comments)
+        override = self._parse_override_comment(op)
+
+        # Strip comments before detecting SQL keywords to avoid false matches
+        sql_original = str(op.sql)
+        sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
+        sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
+        sql = sql_without_comments.upper()
 
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
@@ -578,6 +649,34 @@ Safe pattern requires:
                 details={"sql": sql},
             )
         elif "UPDATE" in sql or "DELETE" in sql:
+            # Check for developer override for small tables
+            if override:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason=f"RunSQL with UPDATE/DELETE - developer override applied for small table",
+                    details={
+                        "sql": sql,
+                        "override_reason": override,
+                    },
+                    guidance=f"""✅ **Developer override applied:**
+Justification: {override}
+
+Reviewer checklist:
+- Verify table is actually small (<1000 rows typical)
+- Confirm justification is valid
+- Check no indexes will cause lock contention
+- Ensure WHERE clause limits scope appropriately
+
+If this override is incorrect, request batching:
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Use WHERE clauses to limit scope
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
+                )
+
             return OperationRisk(
                 type=self.operation_type,
                 score=4,

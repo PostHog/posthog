@@ -9,7 +9,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
@@ -84,7 +83,6 @@ export function DataPipelinesNewScene(): JSX.Element {
                     type: 'data_pipeline',
                 }}
             />
-            <SceneDivider />
 
             {kind === 'transformation' ? (
                 <HogFunctionTemplateList type="transformation" />

@@ -79,6 +79,12 @@ class AccessControlSerializer(serializers.ModelSerializer):
                     f"Access level cannot be set below the minimum '{min_level}' for {resource}."
                 )
 
+            max_level = highest_access_level(resource)
+            if levels.index(access_level) > levels.index(max_level):
+                raise serializers.ValidationError(
+                    f"Access level cannot be set above the maximum '{max_level}' for {resource}."
+                )
+
         return access_level
 
     def validate(self, data):
@@ -219,6 +225,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else ordered_access_levels(resource),
                 "default_access_level": "editor" if is_resource_level else default_access_level(resource),
                 "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
+                "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
             }

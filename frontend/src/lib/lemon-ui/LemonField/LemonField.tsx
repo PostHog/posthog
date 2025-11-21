@@ -3,6 +3,9 @@ import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/co
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+
+import { AvailableFeature } from '~/types'
 
 export type LemonPureFieldProps = {
     /** The label name to be displayed */
@@ -27,6 +30,8 @@ export type LemonPureFieldProps = {
     htmlFor?: string
     /** The class name override for the label */
     labelClassName?: string
+    /** Shows "locked" icon next to the label, opens payment on click */
+    premiumFeature?: AvailableFeature
 }
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -51,11 +56,12 @@ const LemonPureField = ({
     onClick,
     renderError,
     labelClassName,
+    premiumFeature,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
             onClick={onClick}
-            className={clsx(
+            className={cn(
                 'Field flex',
                 { 'gap-2': className ? className.indexOf('gap-') === -1 : true },
                 className,
@@ -72,6 +78,7 @@ const LemonPureField = ({
                         'cursor-pointer': !!onClick,
                     })}
                     htmlFor={htmlFor}
+                    premiumFeature={premiumFeature}
                 >
                     {label}
                 </LemonLabel>
@@ -95,6 +102,7 @@ export const LemonField = ({
     info,
     renderError,
     labelClassName,
+    premiumFeature,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
@@ -109,6 +117,7 @@ export const LemonField = ({
                 info={info}
                 renderError={renderError}
                 labelClassName={labelClassName}
+                premiumFeature={premiumFeature}
             >
                 {kids}
             </LemonPureField>

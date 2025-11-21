@@ -175,6 +175,7 @@ export function InsightVizDisplay({
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
                 )

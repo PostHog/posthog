@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
@@ -35,14 +37,13 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -80,6 +81,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
@@ -245,17 +247,32 @@ export function DashboardHeader(): JSX.Element | null {
                         </ButtonPrimitive>
                     )}
                     {dashboard && canEditDashboard && (
-                        <ButtonPrimitive
-                            onClick={() =>
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                            }
-                            menuItem
-                            active={dashboardMode === DashboardMode.Edit}
-                            data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                        <AppShortcut
+                            name="ToggleEditMode"
+                            scope={Scene.Dashboard}
+                            keybind={[keyBinds.edit]}
+                            intent="Toggle edit mode"
+                            interaction="click"
+                            asChild
                         >
-                            <IconGridMasonry />
-                            Edit layout <KeyboardShortcut e />
-                        </ButtonPrimitive>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    if (dashboardMode === DashboardMode.Edit) {
+                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                    } else {
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                    }
+                                }}
+                                menuItem
+                                active={dashboardMode === DashboardMode.Edit}
+                                data-attr={`${RESOURCE_TYPE}-edit-layout`}
+                                tooltip="Toggle edit mode"
+                                tooltipPlacement="left"
+                            >
+                                <IconGridMasonry />
+                                Edit layout
+                            </ButtonPrimitive>
+                        </AppShortcut>
                     )}
 
                     {dashboard && canEditDashboard && (
@@ -406,24 +423,33 @@ export function DashboardHeader(): JSX.Element | null {
                                 >
                                     Cancel
                                 </LemonButton>
-                                <LemonButton
-                                    data-attr="dashboard-edit-mode-save"
-                                    type="primary"
-                                    onClick={() =>
-                                        setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
-                                    }
-                                    size="small"
-                                    tabIndex={10}
-                                    disabledReason={
-                                        dashboardLoading
-                                            ? 'Wait for dashboard to finish loading'
-                                            : canEditDashboard
-                                              ? undefined
-                                              : 'Not privileged to edit this dashboard'
-                                    }
+                                <AppShortcut
+                                    name="SaveDashboard"
+                                    keybind={[keyBinds.save]}
+                                    intent="Save dashboard"
+                                    interaction="click"
+                                    scope={Scene.Dashboard}
+                                    asChild
                                 >
-                                    Save
-                                </LemonButton>
+                                    <LemonButton
+                                        data-attr="dashboard-edit-mode-save"
+                                        type="primary"
+                                        onClick={() =>
+                                            setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                                        }
+                                        size="small"
+                                        tabIndex={10}
+                                        disabledReason={
+                                            dashboardLoading
+                                                ? 'Wait for dashboard to finish loading'
+                                                : canEditDashboard
+                                                  ? undefined
+                                                  : 'Not privileged to edit this dashboard'
+                                        }
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </AppShortcut>
                             </>
                         ) : dashboardMode === DashboardMode.Fullscreen ? (
                             <LemonButton
@@ -458,16 +484,27 @@ export function DashboardHeader(): JSX.Element | null {
                                             minAccessLevel={AccessControlLevel.Editor}
                                             userAccessLevel={dashboard.user_access_level}
                                         >
-                                            <LemonButton
-                                                onClick={() => {
-                                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                }}
-                                                data-attr="add-text-tile-to-dashboard"
-                                                type="secondary"
-                                                size="small"
+                                            <AppShortcut
+                                                name="AddTextTileToDashboard"
+                                                scope={Scene.Dashboard}
+                                                keybind={[keyBinds.dashboardAddTextTile]}
+                                                intent="Add text card"
+                                                interaction="click"
+                                                asChild
                                             >
-                                                Add text card
-                                            </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                    }}
+                                                    data-attr="add-text-tile-to-dashboard"
+                                                    type="secondary"
+                                                    size="small"
+                                                    tooltip="Add text card"
+                                                    tooltipPlacement="top"
+                                                >
+                                                    Add text card
+                                                </LemonButton>
+                                            </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
                                             identifier="edit_current_dashboard"
@@ -481,6 +518,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined,
                                             }}
+                                            contextDescription={
+                                                dashboard
+                                                    ? {
+                                                          text: dashboard.name,
+                                                          icon: iconForType('dashboard'),
+                                                      }
+                                                    : undefined
+                                            }
                                             active={!!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
@@ -496,7 +541,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    Add insight
+                                                    <span className="pr-3">Add insight</span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>
@@ -507,7 +552,6 @@ export function DashboardHeader(): JSX.Element | null {
                     </>
                 }
             />
-            <SceneDivider />
         </>
     ) : null
 }

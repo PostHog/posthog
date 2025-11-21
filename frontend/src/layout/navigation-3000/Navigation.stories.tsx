@@ -90,7 +90,7 @@ const meta: Meta = {
         },
         viewMode: 'story',
         mockDate: '2023-02-01',
-        pageUrl: urls.projectHomepage(),
+        pageUrl: urls.projectRoot(),
     },
 }
 export default meta

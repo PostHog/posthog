@@ -9,7 +9,10 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import (
+    RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
+    RAW_SESSION_TABLE_BACKFILL_SQL_V3,
+)
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
@@ -313,9 +316,23 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             timestamp="2024-03-08",
         )
 
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp="2024-03-08",
+            last_timestamp="2024-03-08",
+        )
+
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            {"team_id": self.team.id},
+        )
+        sync_execute(
+            RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+            ),
             {"team_id": self.team.id},
         )
 
@@ -596,6 +613,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             session_id=session_id,
             first_timestamp="2024-03-08",
             last_timestamp="2024-03-08",
+            ensure_analytics_event_in_session=False,
         )
 
         result_2 = self.select_by_session_id(session_id)
@@ -605,3 +623,72 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
             k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
         }
+
+    def test_event_names_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
+
+    def test_flag_keys_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "value1",
+                "$feature/flag_b": "value2",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "different_value",
+                "$feature/flag_c": "value3",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # Should have all unique flag keys (not values)
+        assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}

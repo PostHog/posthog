@@ -6,6 +6,7 @@ from dagster import build_op_context
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 from dags.managed_viewset_sync import sync_managed_viewsets_job, sync_managed_viewsets_op
 
@@ -19,8 +20,8 @@ class TestSyncManagedViewsetsOp:
         team2 = Team.objects.create(organization=org, name="Test Team 2")
 
         # Create real ManagedViewsets
-        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
-        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
 
         # Mock the sync_views method to avoid actual database operations
         with patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
@@ -47,8 +48,8 @@ class TestSyncManagedViewsetsOp:
         team2 = Team.objects.create(organization=org, name="Test Team 2")
 
         # Create real ManagedViewsets
-        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
-        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
 
         # Mock the sync_views method
         with patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
@@ -75,8 +76,8 @@ class TestSyncManagedViewsetsOp:
         team2 = Team.objects.create(organization=org, name="Test Team 2")
 
         # Create real ManagedViewsets
-        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
-        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team1, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team2, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
 
         # Mock sync_views to fail for one viewset
         called = False
@@ -115,7 +116,7 @@ class TestSyncManagedViewsetsJob:
         team = Team.objects.create(organization=org, name="Test Team")
 
         # Create real ManagedViewset
-        DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
 
         # Mock the sync_views method
         with patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:

@@ -1,9 +1,10 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import type { ApiClient } from '@/api/client'
 import { StateManager } from '@/lib/utils/StateManager'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -29,9 +30,7 @@ describe('StateManager', () => {
 
     describe('getUser', () => {
         it('should fetch and cache user on first call', async () => {
-            const fetchUserSpy = vi
-                .spyOn(stateManager as any, '_fetchUser')
-                .mockResolvedValue(mockUser)
+            const fetchUserSpy = vi.spyOn(stateManager as any, '_fetchUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.getUser()
 
@@ -40,9 +39,7 @@ describe('StateManager', () => {
         })
 
         it('should return cached user on subsequent calls', async () => {
-            const fetchUserSpy = vi
-                .spyOn(stateManager as any, '_fetchUser')
-                .mockResolvedValue(mockUser)
+            const fetchUserSpy = vi.spyOn(stateManager as any, '_fetchUser').mockResolvedValue(mockUser)
 
             await stateManager.getUser()
             const result = await stateManager.getUser()
@@ -228,12 +225,10 @@ describe('StateManager', () => {
         })
 
         it('should call setDefaultOrganizationAndProject when not cached', async () => {
-            const spy = vi
-                .spyOn(stateManager, 'setDefaultOrganizationAndProject')
-                .mockResolvedValue({
-                    organizationId: 'default-org',
-                    projectId: 123,
-                })
+            const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'default-org',
+                projectId: 123,
+            })
 
             const result = await stateManager.getOrgID()
 
@@ -252,12 +247,10 @@ describe('StateManager', () => {
         })
 
         it('should call setDefaultOrganizationAndProject when not cached', async () => {
-            const spy = vi
-                .spyOn(stateManager, 'setDefaultOrganizationAndProject')
-                .mockResolvedValue({
-                    organizationId: 'default-org',
-                    projectId: 789,
-                })
+            const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'default-org',
+                projectId: 789,
+            })
 
             const result = await stateManager.getProjectId()
 

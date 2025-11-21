@@ -6,39 +6,39 @@ To do so:
 
 1. Import the necessary types and helpers:
 
-    ```typescript
-    import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
-    ```
+   ```typescript
+   import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
+   ```
 
 2. Add a `maxContext` selector that returns MaxContextInput[]:
 
-    ```typescript
-    selectors({
-        maxContext: [
-            (s) => [s.dashboard],
-            (dashboard): MaxContextInput[] => {
-                if (!dashboard) {
-                    return []
-                }
-                return [createMaxContextHelpers.dashboard(dashboard)]
-            },
-        ],
-    })
-    ```
+   ```typescript
+   selectors({
+     maxContext: [
+       (s) => [s.dashboard],
+       (dashboard): MaxContextInput[] => {
+         if (!dashboard) {
+           return []
+         }
+         return [createMaxContextHelpers.dashboard(dashboard)]
+       },
+     ],
+   })
+   ```
 
 3. For multiple context items:
 
-    ```typescript
-    maxContext: [
-        (s) => [s.insight, s.events],
-        (insight, events): MaxContextInput[] => {
-            const context = []
-            if (insight) context.push(createMaxContextHelpers.insight(insight))
-            if (events?.length) context.push(...events.map(createMaxContextHelpers.event))
-            return context
-        },
-    ]
-    ```
+   ```typescript
+   maxContext: [
+     (s) => [s.insight, s.events],
+     (insight, events): MaxContextInput[] => {
+       const context = []
+       if (insight) context.push(createMaxContextHelpers.insight(insight))
+       if (events?.length) context.push(...events.map(createMaxContextHelpers.event))
+       return context
+     },
+   ]
+   ```
 
 The maxContextLogic will automatically detect and process these context items.
 Use the helper functions to ensure type safety and consistency.

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -11,12 +12,12 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'

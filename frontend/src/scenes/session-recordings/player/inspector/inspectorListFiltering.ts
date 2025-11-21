@@ -66,7 +66,9 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
 }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity'].includes(item.type)
+    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity', 'session-change'].includes(
+        item.type
+    )
 }
 
 const eventsMatch = (

@@ -6,18 +6,22 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import {
+    ExperimentExposureCriteria,
+    ExperimentMetric,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
-import { ProductKey } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { experimentLogic } from '../experimentLogic'
+import { FORM_MODES, experimentLogic } from '../experimentLogic'
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -32,7 +36,7 @@ const validateExperiment = (
 
     const variantsValidation = validateVariants({
         flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters.feature_flag_variants,
+        variants: experiment.parameters?.feature_flag_variants ?? [],
         featureFlagKeyValidation,
         mode,
     })
@@ -87,17 +91,14 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
     return filtered as Partial<Experiment>
 }
 
-/**
- * TODO: we need to give new/linked feature flag the same treatment as shared metrics.
- * feature flag context? like metrics context?
- */
-export type CreateExperimentLogicProps = Partial<{
-    experiment: Experiment
-}>
+export interface CreateExperimentLogicProps {
+    experiment?: Experiment
+    tabId?: string
+}
 
 export const createExperimentLogic = kea<createExperimentLogicType>([
     props({} as CreateExperimentLogicProps),
-    key((props) => props.experiment?.id || 'create-experiment'),
+    key((props) => `${props.tabId ?? 'global'}-${props.experiment?.id ?? 'create-experiment'}`),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect((props: CreateExperimentLogicProps) => {
         const experiment = props.experiment || { ...NEW_EXPERIMENT }
@@ -252,7 +253,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
             // Only auto-generate flag key in create mode, not when editing
@@ -299,7 +300,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 // Show toast with what's wrong
                 const validation = validateVariants({
                     flagKey: values.experiment.feature_flag_key,
-                    variants: values.experiment.parameters.feature_flag_variants,
+                    variants: values.experiment.parameters?.feature_flag_variants ?? [],
                     featureFlagKeyValidation: values.featureFlagKeyValidation,
                     mode: values.mode,
                 })
@@ -379,11 +380,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     // This ensures we have the full experiment data including feature_flag, etc.
                     actions.setExperiment(response)
 
-                    // Update the experiment view logic with fresh data before redirecting
-                    // This prevents stale state when navigating to the experiment page
-                    const viewLogic = experimentLogic({ experimentId: response.id })
-                    viewLogic.actions.loadExperimentSuccess(response)
-
                     if (isEditMode) {
                         // Update flow
                         actions.reportExperimentUpdated(response)
@@ -401,7 +397,25 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     actions.saveExperimentSuccess()
-                    router.actions.push(urls.experiment(response.id))
+
+                    if (props.tabId) {
+                        const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
+                        sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
+                        const logicRef = sceneLogicInstance.values.experimentLogicRef
+
+                        if (logicRef) {
+                            logicRef.logic.actions.loadExperimentSuccess(response)
+                        } else {
+                            experimentLogic({
+                                experimentId: response.id,
+                                tabId: props.tabId,
+                            }).actions.loadExperimentSuccess(response)
+                        }
+                    } else {
+                        const viewLogic = experimentLogic({ experimentId: response.id })
+                        viewLogic.actions.loadExperimentSuccess(response)
+                        router.actions.push(urls.experiment(response.id))
+                    }
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save experiment')

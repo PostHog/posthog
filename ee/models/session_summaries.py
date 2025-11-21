@@ -1,5 +1,6 @@
 from dataclasses import asdict, dataclass
-from typing import Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -12,10 +13,42 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 
+if TYPE_CHECKING:
+    from ee.hogai.videos.session_moments import SessionMomentOutput
+
 
 @dataclass(frozen=True)
 class ExtraSummaryContext:
     focus_area: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionSummaryVisualConfirmationResult:
+    event_id: str  # Hex id of the event
+    event_uuid: str  # Full uuid of the event
+    asset_id: int  # Id of the generated video asset
+    timestamp_s: int  # Timestamp of starting point in the video
+    duration_s: int  # Duration of the video in seconds
+    video_description: str  # What LLM found in the video
+    created_at: str  # When the video was created, ISO format
+    expires_after: str  # When the video will expire, ISO format
+    model_id: str  # What model was used to analyze the video
+
+    @classmethod
+    def from_session_moment_output(
+        cls, session_moment_output: "SessionMomentOutput", event_uuid: str
+    ) -> "SessionSummaryVisualConfirmationResult":
+        return cls(
+            event_id=session_moment_output.moment_id,
+            event_uuid=event_uuid,
+            asset_id=session_moment_output.asset_id,
+            timestamp_s=session_moment_output.timestamp_s,
+            duration_s=session_moment_output.duration_s,
+            video_description=session_moment_output.video_description,
+            created_at=session_moment_output.created_at.isoformat(),
+            expires_after=session_moment_output.expires_after.isoformat(),
+            model_id=session_moment_output.model_id,
+        )
 
 
 @dataclass(frozen=True)
@@ -24,6 +57,7 @@ class SessionSummaryRunMeta:
 
     model_used: str
     visual_confirmation: bool
+    visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +105,9 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         *,
         extra_summary_context: ExtraSummaryContext | None = None,
         run_metadata: SessionSummaryRunMeta | None = None,
+        session_start_time: datetime | None = None,
+        session_duration: int | None = None,
+        distinct_id: str | None = None,
         created_by: User | None = None,
     ) -> None:
         """Store a new session summary"""
@@ -87,6 +124,9 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
             exception_event_ids=exception_event_ids[:100],
             extra_summary_context=extra_summary_context_dict,
             run_metadata=run_metadata_dict,
+            session_start_time=session_start_time,
+            session_duration=session_duration,
+            distinct_id=distinct_id,
             created_by=created_by,
         )
 
@@ -197,6 +237,9 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         blank=True,
         help_text="Summary run metadata (SessionSummaryRunMeta schema)",
     )
+    session_start_time = models.DateTimeField(null=True, blank=True, help_text="Session start time")
+    session_duration = models.IntegerField(null=True, blank=True, help_text="Session duration in seconds")
+    distinct_id = models.CharField(max_length=200, null=True, blank=True, help_text="Distinct ID of the session's user")
 
     # TODO: Implement background job to delete summaries older than 1 year
 
@@ -216,3 +259,51 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
         if self.extra_summary_context:
             return f"Summary for session {self.session_id} with extra context {self.extra_summary_context}"
         return f"Summary for session {self.session_id}"
+
+
+class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
+    """
+    Stores LLM-generated summaries for groups of session replays.
+    Each summary represents pattern analysis across multiple sessions.
+    """
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    # User-facing title for the summary
+    title = models.CharField(max_length=2048, help_text="Title of the group session summary", default="Group summary")
+    # List of session IDs that were analyzed together in this group
+    session_ids = ArrayField(
+        models.CharField(max_length=200),
+        help_text="List of session replay IDs included in this group summary",
+        size=1000,  # Limit to 1000 sessions per summary for the future
+    )
+    # Summary content
+    summary = models.JSONField(
+        help_text="Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema)"
+    )
+    # Context and metadata (stored for reference, not used for matching/caching)
+    extra_summary_context = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Additional context passed to the summary (ExtraSummaryContext schema)",
+    )
+    run_metadata = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Summary run metadata (SessionSummaryRunMeta schema)",
+    )
+
+    class Meta:
+        db_table = "ee_group_session_summary"
+        indexes = [
+            # List all summaries per team
+            models.Index(fields=["team", "-created_at"]),
+            # Search for str-contains in title
+            GinIndex(name="idx_group_summary_title_gin", fields=["title"], opclasses=["gin_trgm_ops"]),
+            # Not indexing session ids or extra summary context, as the input for group summaries is highly volatile
+            # (even a single session could change the meaning of the patterns).
+            # Creating Manager for rare cases of `exact 300 ids + context input match` seems excessive.
+        ]
+
+    def __str__(self):
+        session_count = len(self.session_ids) if self.session_ids else 0
+        return f"{self.title} - {session_count} sessions (team {self.team_id})"
