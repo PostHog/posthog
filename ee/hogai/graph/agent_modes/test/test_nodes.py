@@ -589,6 +589,59 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(summarized_messages), 2)
 
     @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
+    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
+    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag")
+    async def test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled(
+        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
+    ):
+        """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
+        mock_calculate_tokens.return_value = 150_000
+        mock_summarize.return_value = "Summary of conversation"
+        mock_feature_flag.return_value = True
+
+        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+        mock_model.return_value = mock_model_instance
+
+        node = _create_agent_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="First response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,
+        )
+
+        result = await node.arun(state, {})
+
+        # Verify summary and mode reminder messages were inserted
+        self.assertIsInstance(result, PartialAssistantState)
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        self.assertGreaterEqual(len(context_messages), 2, "Should have at least summary and mode reminder")
+
+        # Find summary message
+        summary_msg = next(
+            (msg for msg in context_messages if "Summary of conversation" in msg.content),
+            None,
+        )
+        self.assertIsNotNone(summary_msg, "Summary message should be present")
+        assert summary_msg is not None  # Type narrowing
+
+        # Find mode reminder message
+        mode_reminder = next(
+            (msg for msg in context_messages if "product_analytics" in msg.content),
+            None,
+        )
+        self.assertIsNotNone(mode_reminder, "Mode reminder should be present")
+        assert mode_reminder is not None  # Type narrowing
+
+        # Verify mode reminder comes after summary
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_msg.id)
+        mode_idx = next(i for i, msg in enumerate(result.messages) if msg.id == mode_reminder.id)
+        self.assertEqual(mode_idx, summary_idx + 1, "Mode reminder should be right after summary")
+
+    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
     async def test_construct_messages_empty_list(self, mock_model):
         """Test _construct_messages with empty message list"""
         node = _create_agent_node(self.team, self.user)
@@ -789,215 +842,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
         )
-
-    def test_is_mode_evident_in_window_with_switch_mode_call(self):
-        """Test that mode is considered evident when there's a switch_mode tool call in the window"""
-        from ee.hogai.graph.agent_modes.compaction_manager import AnthropicConversationCompactionManager
-
-        compaction_manager = AnthropicConversationCompactionManager()
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Switch to SQL mode", id="1"),
-            AssistantMessage(
-                content="Switching to SQL mode",
-                id="2",
-                tool_calls=[AssistantToolCall(id="t1", name="switch_mode", args={"new_mode": "sql"})],
-            ),
-            AssistantToolCallMessage(content="Switched successfully", id="3", tool_call_id="t1"),
-        ]
-        self.assertTrue(compaction_manager._is_mode_evident_in_window(messages, AgentMode.SQL))
-
-    def test_is_mode_evident_in_window_without_switch_mode_call(self):
-        """Test that mode is not evident when there's no switch_mode tool call in the window"""
-        from ee.hogai.graph.agent_modes.compaction_manager import AnthropicConversationCompactionManager
-
-        compaction_manager = AnthropicConversationCompactionManager()
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Show me some data", id="1"),
-            AssistantMessage(content="Here's the data", id="2"),
-        ]
-        self.assertFalse(compaction_manager._is_mode_evident_in_window(messages, AgentMode.SQL))
-
-    def test_is_mode_evident_in_window_with_different_mode(self):
-        """Test that mode is not evident when switch_mode call is for a different mode"""
-        from ee.hogai.graph.agent_modes.compaction_manager import AnthropicConversationCompactionManager
-
-        compaction_manager = AnthropicConversationCompactionManager()
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Switch to session replay mode", id="1"),
-            AssistantMessage(
-                content="Switching",
-                id="2",
-                tool_calls=[AssistantToolCall(id="t1", name="switch_mode", args={"new_mode": "session_replay"})],
-            ),
-        ]
-        self.assertFalse(compaction_manager._is_mode_evident_in_window(messages, AgentMode.SQL))
-
-    def test_is_mode_evident_in_window_with_no_mode_set(self):
-        """Test that when no mode is set, it returns True (nothing to remind)"""
-        from ee.hogai.graph.agent_modes.compaction_manager import AnthropicConversationCompactionManager
-
-        compaction_manager = AnthropicConversationCompactionManager()
-        messages: list[AssistantMessageUnion] = [HumanMessage(content="Hello", id="1")]
-        # _is_mode_evident_in_window still accepts None and returns True, but _should_add_mode_reminder won't call it with None
-        self.assertTrue(compaction_manager._is_mode_evident_in_window(messages, None))
-
-    def test_has_initial_mode_message(self):
-        """Test that initial mode message is correctly detected"""
-        from ee.hogai.graph.agent_modes.compaction_manager import AnthropicConversationCompactionManager
-
-        compaction_manager = AnthropicConversationCompactionManager()
-        messages: list[AssistantMessageUnion] = [
-            ContextMessage(
-                content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="1"
-            ),
-            HumanMessage(content="Hello", id="2"),
-        ]
-        self.assertTrue(compaction_manager._has_initial_mode_message(messages))
-
-        messages_without = [HumanMessage(content="Hello", id="1")]
-        self.assertFalse(compaction_manager._has_initial_mode_message(messages_without))
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag", return_value=True)
-    async def test_compaction_adds_mode_reminder_when_mode_not_evident(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
-    ):
-        """Test that mode reminder is added when compaction happens and mode is not evident in window"""
-        # Return a token count higher than CONVERSATION_WINDOW_SIZE
-        mock_calculate_tokens.return_value = 150_000
-        mock_summarize.return_value = "Summary of conversation"
-
-        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_model.return_value = mock_model_instance
-
-        node = _create_agent_node(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="First message", id="1"),
-                AssistantMessage(content="First response", id="2"),
-                HumanMessage(content="Second message", id="3"),
-            ],
-            agent_mode=AgentMode.SQL,  # Mode is set but not evident in messages
-        )
-        result = await node.arun(state, {})
-
-        # Verify mode reminder was added
-        self.assertIsInstance(result, PartialAssistantState)
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        # Should have summary message + mode reminder message
-        self.assertEqual(len(context_messages), 2)
-        mode_reminder_messages = [msg for msg in context_messages if "sql mode" in msg.content.lower()]
-        self.assertEqual(len(mode_reminder_messages), 1)
-        self.assertIn("currently in sql mode", mode_reminder_messages[0].content.lower())
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag", return_value=True)
-    async def test_compaction_does_not_add_mode_reminder_when_mode_is_evident(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
-    ):
-        """Test that mode reminder is NOT added when mode is already evident in the window"""
-        mock_calculate_tokens.return_value = 150_000
-        mock_summarize.return_value = "Summary of conversation"
-
-        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_model.return_value = mock_model_instance
-
-        node = _create_agent_node(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Switch to SQL", id="1"),
-                AssistantMessage(
-                    content="Switching",
-                    id="2",
-                    tool_calls=[AssistantToolCall(id="t1", name="switch_mode", args={"new_mode": "sql"})],
-                ),
-                AssistantToolCallMessage(content="Switched", id="3", tool_call_id="t1"),
-                HumanMessage(content="Second message", id="4"),
-            ],
-            agent_mode=AgentMode.SQL,
-        )
-        result = await node.arun(state, {})
-
-        # Verify mode reminder was NOT added
-        self.assertIsInstance(result, PartialAssistantState)
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        # Should only have summary message, no mode reminder
-        mode_reminder_messages = [msg for msg in context_messages if "currently in" in msg.content.lower()]
-        self.assertEqual(len(mode_reminder_messages), 0)
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag", return_value=True)
-    async def test_compaction_adds_mode_reminder_with_default_mode(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
-    ):
-        """Test that mode reminder IS added with the default mode when agent_mode is None"""
-        mock_calculate_tokens.return_value = 150_000
-        mock_summarize.return_value = "Summary of conversation"
-
-        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_model.return_value = mock_model_instance
-
-        node = _create_agent_node(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="First message", id="1"),
-                AssistantMessage(content="First response", id="2"),
-                HumanMessage(content="Second message", id="3"),
-            ],
-            agent_mode=None,  # No mode set - will use default PRODUCT_ANALYTICS
-        )
-        result = await node.arun(state, {})
-
-        # Verify mode reminder WAS added with default mode
-        self.assertIsInstance(result, PartialAssistantState)
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        # Should have summary message + mode reminder message for default mode
-        self.assertEqual(len(context_messages), 2)
-        mode_reminder_messages = [msg for msg in context_messages if "product_analytics mode" in msg.content.lower()]
-        self.assertEqual(len(mode_reminder_messages), 1)
-        self.assertIn("currently in product_analytics mode", mode_reminder_messages[0].content.lower())
-
-    @patch("ee.hogai.graph.agent_modes.nodes.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[]))
-    @patch("ee.hogai.graph.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.graph.conversation_summarizer.nodes.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.graph.agent_modes.nodes.has_agent_modes_feature_flag", return_value=True)
-    async def test_compaction_does_not_add_mode_reminder_when_initial_mode_message_present(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
-    ):
-        """Test that mode reminder is NOT added when initial mode message is present"""
-        mock_calculate_tokens.return_value = 150_000
-        mock_summarize.return_value = "Summary of conversation"
-
-        mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
-        mock_model.return_value = mock_model_instance
-
-        node = _create_agent_node(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                ContextMessage(content="<system_reminder>Your initial mode is sql.</system_reminder>", id="0"),
-                HumanMessage(content="First message", id="1"),
-                AssistantMessage(content="First response", id="2"),
-                HumanMessage(content="Second message", id="3"),
-            ],
-            agent_mode=AgentMode.SQL,  # Mode is set and initial message is present
-        )
-        result = await node.arun(state, {})
-
-        # Verify mode reminder was NOT added (initial mode message is sufficient)
-        self.assertIsInstance(result, PartialAssistantState)
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        # Should have summary message + initial mode message, but NO mode reminder
-        mode_reminder_messages = [msg for msg in context_messages if "currently in" in msg.content.lower()]
-        self.assertEqual(len(mode_reminder_messages), 0)
-        # Verify initial mode message is still present
-        initial_mode_messages = [msg for msg in context_messages if "Your initial mode is" in msg.content]
-        self.assertEqual(len(initial_mode_messages), 1)
 
 
 class TestRootNodeTools(BaseTest):

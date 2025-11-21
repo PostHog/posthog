@@ -10,7 +10,14 @@ from langchain_core.messages import (
 )
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    ContextMessage,
+    HumanMessage,
+)
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -355,7 +362,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary of previous conversation", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # When the window boundary is None (messages too large), we expect:
         # - Original messages preserved
@@ -393,7 +402,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary of conversation", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # The start message is in the window, so summary should be inserted before it
         # Find where the summary was inserted
@@ -430,7 +441,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # The start message should NOT be in the result (only its copy)
         start_messages = [msg for msg in result.messages if msg.id == start_id]
@@ -479,7 +492,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=str(uuid4()))
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # Count tool calls in output
         tool_call_count = 0
@@ -539,7 +554,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=str(uuid4()))
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # Count tool calls in output
         tool_call_count = 0
@@ -593,7 +610,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=str(uuid4()))
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # Count tool calls in output
         tool_call_count = 0
@@ -614,7 +633,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         # This should raise ValueError because there's no start message
         with self.assertRaises(ValueError) as context:
-            self.window_manager.update_window([], summary_message, start_id="nonexistent")
+            self.window_manager.update_window([], summary_message, AgentMode.PRODUCT_ANALYTICS, start_id="nonexistent")
 
         self.assertIn("Start message not found", str(context.exception))
 
@@ -632,7 +651,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         summary_message = ContextMessage(content="Summary", id=str(uuid4()))
 
         # When start_id doesn't exist, it falls back to the first human message
-        result = self.window_manager.update_window(messages, summary_message, start_id="nonexistent-id")
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id="nonexistent-id"
+        )
 
         # The first human message should be used as the start message
         self.assertIsNotNone(result)
@@ -652,7 +673,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # Verify all messages have IDs
         for msg in result.messages:
@@ -672,7 +695,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # When there's no window boundary, the summary and copied start message are appended
         self.assertEqual(len(result.messages), 4)  # original 2 + summary + copied start
@@ -692,9 +717,318 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         summary_message = ContextMessage(content="Summary", id=summary_id)
 
-        result = self.window_manager.update_window(messages, summary_message, start_id=start_id)
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
 
         # Should insert summary before the start message
         self.assertGreater(len(result.messages), 1)
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
         self.assertIsNotNone(summary_idx)
+
+    def test_mode_message_injection_when_feature_flag_enabled_no_boundary(self):
+        """Test that mode reminder is injected after summary when feature flag is enabled and no window boundary"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="x" * 10000),  # Large message to force no boundary
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=True,
+        )
+
+        # Verify full message list structure: original messages + summary + mode reminder + copied start
+        self.assertEqual(len(result.messages), 5)
+        self.assertIsInstance(result.messages[0], HumanMessage)
+        self.assertEqual(result.messages[0].id, start_id)
+        self.assertIsInstance(result.messages[1], AssistantMessage)
+        self.assertIsInstance(result.messages[2], ContextMessage)
+        self.assertEqual(result.messages[2].id, summary_id)
+        assert isinstance(result.messages[2], ContextMessage)
+        self.assertIn("Summary", result.messages[2].content)
+        self.assertIsInstance(result.messages[3], ContextMessage)
+        assert isinstance(result.messages[3], ContextMessage)
+        self.assertIn("product_analytics", result.messages[3].content)
+        self.assertNotEqual(result.messages[3].id, summary_id)
+        self.assertIsInstance(result.messages[4], HumanMessage)
+        self.assertNotEqual(result.messages[4].id, start_id)  # Copied start message has new ID
+
+    def test_mode_message_injection_when_feature_flag_enabled_start_in_window(self):
+        """Test that mode reminder is injected after summary when start message is in window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Old question 1", id=str(uuid4())),
+            AssistantMessage(content="Old response 1"),
+            HumanMessage(content="Recent question", id=start_id),
+            AssistantMessage(content="Recent response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.SQL,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=True,
+        )
+
+        # Find where summary and mode reminder were inserted
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        mode_idx = next(
+            i for i, msg in enumerate(result.messages) if isinstance(msg, ContextMessage) and "sql" in msg.content
+        )
+        start_idx = next(i for i, msg in enumerate(result.messages) if msg.id == start_id)
+
+        # Verify mode reminder is right after summary, and both are before start message
+        self.assertEqual(mode_idx, summary_idx + 1)
+        self.assertLess(mode_idx, start_idx)
+        summary_msg = result.messages[summary_idx]
+        self.assertIsInstance(summary_msg, ContextMessage)
+        assert isinstance(summary_msg, ContextMessage)
+        self.assertIn("Summary", summary_msg.content)
+        mode_msg = result.messages[mode_idx]
+        self.assertIsInstance(mode_msg, ContextMessage)
+        assert isinstance(mode_msg, ContextMessage)
+        self.assertIn("sql", mode_msg.content)
+
+    def test_mode_message_injection_when_feature_flag_enabled_start_outside_window(self):
+        """Test that mode reminder is injected after summary when start message is outside window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Initial question", id=start_id),
+            AssistantMessage(content="Initial response"),
+        ]
+
+        # Add enough messages to push start_id out of the window
+        for i in range(20):
+            messages.append(HumanMessage(content=f"Question {i}", id=str(uuid4())))
+            messages.append(AssistantMessage(content=f"Response {i}" * 50))
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.SESSION_REPLAY,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=True,
+        )
+
+        # Verify structure: summary at start, then mode reminder, then copied start, then window messages
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        mode_idx = next(
+            i
+            for i, msg in enumerate(result.messages)
+            if isinstance(msg, ContextMessage) and "session_replay" in msg.content
+        )
+        copied_start = next(
+            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
+            None,
+        )
+        self.assertIsNotNone(copied_start)
+        assert copied_start is not None
+        copied_start_idx = next(i for i, msg in enumerate(result.messages) if msg.id == copied_start.id)
+
+        # Mode reminder right after summary, copied start right after mode reminder
+        self.assertEqual(mode_idx, summary_idx + 1, "Mode reminder should be right after summary")
+        self.assertEqual(copied_start_idx, mode_idx + 1, "Copied start should be right after mode reminder")
+        summary_msg = result.messages[summary_idx]
+        self.assertIsInstance(summary_msg, ContextMessage)
+        assert isinstance(summary_msg, ContextMessage)
+        self.assertIn("Summary", summary_msg.content)
+        mode_msg = result.messages[mode_idx]
+        self.assertIsInstance(mode_msg, ContextMessage)
+        assert isinstance(mode_msg, ContextMessage)
+        self.assertIn("session_replay", mode_msg.content)
+        self.assertIsInstance(result.messages[copied_start_idx], HumanMessage)
+        self.assertNotEqual(copied_start.id, start_id)
+
+    def test_no_mode_message_injection_when_feature_flag_disabled(self):
+        """Test that mode reminder is not injected when feature flag is disabled"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=False,
+        )
+
+        # Should only have summary, not mode reminder
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        self.assertEqual(len(context_messages), 1, "Should only have summary context message")
+        summary_ctx_msg = context_messages[0]
+        self.assertEqual(summary_ctx_msg.id, summary_id)
+        assert isinstance(summary_ctx_msg, ContextMessage)
+        self.assertIn("Summary", summary_ctx_msg.content)
+        # Verify no mode reminder
+        mode_reminder = next(
+            (msg for msg in result.messages if isinstance(msg, ContextMessage) and "product_analytics" in msg.content),
+            None,
+        )
+        self.assertIsNone(mode_reminder, "Mode reminder should not be present when feature flag is disabled")
+
+    def test_no_mode_message_injection_when_mode_evident_in_window(self):
+        """Test that mode reminder is not injected when mode is already evident from switch_mode tool call"""
+        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
+
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Switching mode",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="switch-1",
+                        name=SWITCH_MODE_TOOL_NAME,
+                        args={"mode": "product_analytics"},
+                    )
+                ],
+            ),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=True,
+        )
+
+        # Verify only summary context message exists (no mode reminder)
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        self.assertEqual(len(context_messages), 1, "Should only have summary context message")
+        summary_ctx_msg = context_messages[0]
+        self.assertEqual(summary_ctx_msg.id, summary_id)
+        assert isinstance(summary_ctx_msg, ContextMessage)
+        self.assertIn("Summary", summary_ctx_msg.content)
+        # Verify switch_mode tool call is still present
+        switch_mode_msgs = [
+            msg
+            for msg in result.messages
+            if isinstance(msg, AssistantMessage)
+            and msg.tool_calls
+            and any(tc.name == SWITCH_MODE_TOOL_NAME for tc in msg.tool_calls)
+        ]
+        self.assertEqual(len(switch_mode_msgs), 1, "Switch mode tool call should be preserved")
+
+    def test_no_mode_message_injection_when_initial_mode_message_present(self):
+        """Test that mode reminder is not injected when initial mode message is already present"""
+        from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
+
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+        initial_mode_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            ContextMessage(content=CONTEXT_INITIAL_MODE_PROMPT.format(mode="product_analytics"), id=initial_mode_id),
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=start_id,
+            is_modes_feature_flag_enabled=True,
+        )
+
+        # Should have initial mode message and summary, but no mode reminder
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        self.assertGreaterEqual(len(context_messages), 2, "Should have initial mode message and summary")
+
+        # Verify initial mode message is still present
+        initial_mode_present = any(
+            msg.id == initial_mode_id and CONTEXT_INITIAL_MODE_PROMPT.format(mode="product_analytics") in msg.content
+            for msg in context_messages
+        )
+        self.assertTrue(initial_mode_present, "Initial mode message should be preserved")
+
+        # Verify summary is present
+        summary_present = any(msg.id == summary_id for msg in context_messages)
+        self.assertTrue(summary_present, "Summary should be present")
+
+        # Verify no mode reminder was added
+        from ee.hogai.graph.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT
+
+        mode_reminders = [
+            msg
+            for msg in result.messages
+            if isinstance(msg, ContextMessage)
+            and ROOT_AGENT_MODE_REMINDER_PROMPT.format(mode="product_analytics") in msg.content
+        ]
+        self.assertEqual(len(mode_reminders), 0, "Should not add mode reminder when initial mode message is present")
+
+    def test_mode_message_content_matches_agent_mode(self):
+        """Test that mode reminder content matches the agent mode"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        test_modes = [
+            AgentMode.PRODUCT_ANALYTICS,
+            AgentMode.SQL,
+            AgentMode.SESSION_REPLAY,
+        ]
+
+        for mode in test_modes:
+            messages: list[AssistantMessageUnion] = [
+                HumanMessage(content="Question", id=start_id),
+                AssistantMessage(content="Response"),
+            ]
+
+            summary_message = ContextMessage(content="Summary", id=summary_id)
+
+            result = self.window_manager.update_window(
+                messages,
+                summary_message,
+                mode,
+                start_id=start_id,
+                is_modes_feature_flag_enabled=True,
+            )
+
+            # Verify two context messages: summary and mode reminder
+            context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+            self.assertEqual(len(context_messages), 2, f"Should have summary and mode reminder for {mode.value}")
+
+            # First should be summary
+            self.assertEqual(context_messages[0].id, summary_id)
+            assert isinstance(context_messages[0], ContextMessage)
+            self.assertIn("Summary", context_messages[0].content)
+
+            # Second should be mode reminder with correct mode
+            mode_reminder = context_messages[1]
+            self.assertIsNotNone(mode_reminder, f"Mode reminder should be present for {mode.value}")
+            assert isinstance(mode_reminder, ContextMessage)
+            self.assertIn(mode.value, mode_reminder.content, f"Mode reminder should contain {mode.value}")
+            self.assertNotEqual(mode_reminder.id, summary_id, "Mode reminder should have different ID from summary")
