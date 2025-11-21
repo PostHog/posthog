@@ -502,7 +502,9 @@ Query results: 42 events
     async def test_get_contextual_tools_prompt(self):
         """Test generation of contextual tools prompt"""
         config = RunnableConfig(
-            configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}
+            configurable={
+                "contextual_tools": {"search_session_recordings": {"current_filters": {}, "current_session_id": None}}
+            }
         )
         context_manager = AssistantContextManager(self.team, self.user, config)
 
@@ -510,6 +512,7 @@ Query results: 42 events
         assert result is not None
         self.assertIn("<search_session_recordings>", result)
         self.assertIn("Current recordings filters are", result)
+        self.assertIn("Current session ID being viewed", result)
         self.assertIn("</search_session_recordings>", result)
 
     async def test_get_contextual_tools_prompt_no_tools(self):
