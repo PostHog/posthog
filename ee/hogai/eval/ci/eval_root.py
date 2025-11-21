@@ -213,7 +213,7 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="read_taxonomy",
                     args={
-                        "kind": "events",
+                        "query": {"kind": "events"},
                     },
                     id="call_read_events",
                 ),
