@@ -12,9 +12,9 @@ from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.chat_agent.graph import AssistantGraph
+from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.agent_modes import SLASH_COMMAND_INIT
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.graph.memory.prompts import (
     ENQUIRY_INITIAL_MESSAGE,
     SCRAPING_SUCCESS_KEY_PHRASE,

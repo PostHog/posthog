@@ -145,6 +145,9 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         }
         return self.context_prompt_template.format(**formatted_context)
 
+    def set_node_path(self, node_path: tuple[NodePath, ...]):
+        self._node_path = node_path
+
     @classmethod
     async def create_tool_class(
         cls,
