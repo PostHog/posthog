@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::warn;
 
 use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValueFormat};
@@ -21,6 +22,8 @@ use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValue
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = config.build().await.unwrap();
@@ -32,6 +35,8 @@ pub struct ReadWriteClientConfig {
     pub replica_url: String,
     pub compression: CompressionConfig,
     pub format: RedisValueFormat,
+    pub response_timeout: Option<Duration>,
+    pub connection_timeout: Option<Duration>,
 }
 
 impl ReadWriteClientConfig {
@@ -42,17 +47,23 @@ impl ReadWriteClientConfig {
     /// * `replica_url` - Redis connection string for reads (replica instance)
     /// * `compression` - Compression configuration applied to both connections
     /// * `format` - Serialization format applied to both connections
+    /// * `response_timeout` - Optional timeout for Redis command responses. `None` means no timeout.
+    /// * `connection_timeout` - Optional timeout for establishing connections. `None` means no timeout.
     pub fn new(
         primary_url: String,
         replica_url: String,
         compression: CompressionConfig,
         format: RedisValueFormat,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
     ) -> Self {
         Self {
             primary_url,
             replica_url,
             compression,
             format,
+            response_timeout,
+            connection_timeout,
         }
     }
 
@@ -86,6 +97,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// );
 ///
 /// let client = ReadWriteClient::with_config(config).await.unwrap();
@@ -96,6 +109,8 @@ impl ReadWriteClientConfig {
 ///     "redis://replica:6379".to_string(),
 ///     CompressionConfig::default(),
 ///     RedisValueFormat::Pickle,
+///     None, // No response timeout
+///     None, // No connection timeout
 /// )
 /// .build()
 /// .await
@@ -150,6 +165,8 @@ impl ReadWriteClient {
     ///         "redis://replica:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -160,6 +177,8 @@ impl ReadWriteClient {
     ///         "redis://primary:6379".to_string(),
     ///         CompressionConfig::default(),
     ///         RedisValueFormat::Pickle,
+    ///         None, // No response timeout
+    ///         None, // No connection timeout
     ///     )
     ///     .await
     ///     .unwrap()
@@ -194,6 +213,8 @@ impl ReadWriteClient {
     ///     "redis://replica:6379".to_string(),
     ///     CompressionConfig::default(),
     ///     RedisValueFormat::Pickle,
+    ///     None, // No response timeout
+    ///     None, // No connection timeout
     /// );
     ///
     /// let client = ReadWriteClient::with_config(config).await.unwrap();
@@ -205,11 +226,20 @@ impl ReadWriteClient {
                 config.replica_url,
                 config.compression.clone(),
                 config.format,
+                config.response_timeout,
+                config.connection_timeout,
             )
             .await?,
         );
         let writer = Arc::new(
-            RedisClient::with_config(config.primary_url, config.compression, config.format).await?,
+            RedisClient::with_config(
+                config.primary_url,
+                config.compression,
+                config.format,
+                config.response_timeout,
+                config.connection_timeout,
+            )
+            .await?,
         );
 
         Ok(Self::new(reader, writer))
