@@ -202,12 +202,12 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 return i
         return None
 
-    def _start_backfill_workflow(self, slot: MaterializedColumnSlot) -> str | None:
+    def _start_backfill_workflow(self, slot: MaterializedColumnSlot, workflow_id_suffix: str = "") -> str | None:
         """Start the Temporal backfill workflow. Returns error message on failure, None on success."""
 
         async def _start():
             client = await async_connect()
-            workflow_id = f"backfill-mat-prop-{slot.id}"
+            workflow_id = f"backfill-mat-prop-{slot.id}{workflow_id_suffix}"
             handle = await client.start_workflow(
                 "backfill-materialized-property",
                 BackfillMaterializedPropertyInputs(
@@ -250,21 +250,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_created",
-            detail=Detail(
-                name=slot.property_definition.name,
-                changes=[
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="created",
-                        field="property",
-                        after=slot.property_definition.name,
-                    ),
-                    Change(
-                        type="MaterializedColumnSlot", action="created", field="property_type", after=slot.property_type
-                    ),
-                    Change(type="MaterializedColumnSlot", action="created", field="slot_index", after=slot.slot_index),
-                ],
-            ),
+            detail=Detail(name=slot.property_definition.name),
         )
 
     @action(methods=["POST"], detail=False)
@@ -334,9 +320,8 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 status=http_status.HTTP_400_BAD_REQUEST,
             )
 
-        property_name = slot.property_definition.name if slot.property_definition else "Unknown"
+        property_name = slot.property_definition.name
 
-        # Log activity before deletion
         log_activity(
             organization_id=slot.team.organization_id,
             team_id=slot.team_id,
@@ -345,29 +330,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             item_id=str(slot.id),
             scope="DataManagement",
             activity="materialized_column_deleted",
-            detail=Detail(
-                name=property_name,
-                changes=[
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="deleted",
-                        field="property",
-                        before=property_name,
-                    ),
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="deleted",
-                        field="property_type",
-                        before=slot.property_type,
-                    ),
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="deleted",
-                        field="slot_index",
-                        before=slot.slot_index,
-                    ),
-                ],
-            ),
+            detail=Detail(name=property_name),
         )
 
         logger.info(
@@ -393,57 +356,19 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 status=http_status.HTTP_400_BAD_REQUEST,
             )
 
-        property_name = slot.property_definition.name if slot.property_definition else "Unknown"
+        property_name = slot.property_definition.name
 
         # Update state back to BACKFILL and clear error message
         slot.state = MaterializedColumnSlotState.BACKFILL
         slot.error_message = None
         slot.save()
 
-        # Start new Temporal backfill workflow
-        async def _start_backfill():
-            client = await async_connect()
-            workflow_id = f"backfill-mat-prop-{slot.id}-retry-{slot.updated_at.timestamp()}"
-            handle = await client.start_workflow(
-                "backfill-materialized-property",
-                BackfillMaterializedPropertyInputs(
-                    team_id=slot.team_id,
-                    slot_id=str(slot.id),
-                ),
-                id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            return handle.id
-
-        try:
-            workflow_id = async_to_sync(_start_backfill)()
-            slot.backfill_temporal_workflow_id = workflow_id
-            slot.save()
-
-            logger.info(
-                "Retried backfill workflow",
-                slot_id=slot.id,
-                team_id=slot.team_id,
-                workflow_id=workflow_id,
-                property_name=property_name,
-            )
-        except Exception as e:
-            logger.exception(
-                "Failed to retry backfill workflow",
-                slot_id=slot.id,
-                team_id=slot.team_id,
-                property_name=property_name,
-                error=str(e),
-            )
+        workflow_error = self._start_backfill_workflow(slot, workflow_id_suffix=f"-retry-{slot.updated_at.timestamp()}")
+        if workflow_error:
             # Revert state back to ERROR
             slot.state = MaterializedColumnSlotState.ERROR
             slot.save()
-
-            return response.Response(
-                {"error": f"Failed to retry backfill workflow: {str(e)}"},
-                status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return response.Response({"error": workflow_error}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Log activity
         log_activity(

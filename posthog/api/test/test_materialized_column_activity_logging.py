@@ -48,15 +48,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         log = activity_logs.first()
         assert log is not None
         assert log.detail is not None
-
         assert log.detail["name"] == "test_prop"
-        assert len(log.detail["changes"]) == 3
-
-        # Verify changes include property, property_type, slot_index
-        change_fields = {change["field"] for change in log.detail["changes"]}
-        assert change_fields == {"property", "property_type", "slot_index"}
-
-        # Verify user is set
         assert log.user == self.user
 
     def test_activity_log_on_slot_deletion(self):
@@ -79,7 +71,6 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert response.status_code == 204
 
-        # Verify activity log was created
         activity_logs = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="DataManagement",
@@ -90,14 +81,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
         log = activity_logs.first()
         assert log is not None
         assert log.detail is not None
-
         assert log.detail["name"] == "test_prop"
-
-        # Verify changes show before values
-        for change in log.detail["changes"]:
-            assert "before" in change
-            assert change["after"] is None  # Deletions have after set to None
-            assert change["action"] == "deleted"
 
     def test_activity_log_on_backfill_completed(self):
         """Test activity log created when workflow completes successfully."""
