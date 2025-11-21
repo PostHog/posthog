@@ -919,10 +919,16 @@ class EnterpriseExperimentsViewSet(
         latest_completed_at = None
 
         # Create mapping from query_to to result, deriving the day in project timezone
+        # Note: query_to is the EXCLUSIVE end of the time range (midnight of the NEXT day)
+        # Example: Data for 2025-11-09 has query_to = 2025-11-10T00:00:00
+        # We need to map this back to the day it represents (2025-11-09)
         results_by_date = {}
         for result in metric_results:
-            # Convert UTC query_to to project timezone to determine which day this result belongs to
-            day_in_project_tz = result.query_to.astimezone(project_tz).date()
+            # Convert query_to to project timezone, then subtract 1 day to get the result day
+            query_to_in_project_tz = result.query_to.astimezone(project_tz)
+            # Since query_to is midnight (00:00:00), .date() gives us the next day
+            # Subtract 1 day to get the actual day this result represents
+            day_in_project_tz = query_to_in_project_tz.date() - timedelta(days=1)
             results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:
