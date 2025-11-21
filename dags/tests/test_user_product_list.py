@@ -52,14 +52,14 @@ class TestPopulateUserProductListOp:
             context = build_op_context(
                 op_config={
                     "product_paths": ["product_analytics"],
-                    "reason": "usage",
+                    "reason": "product_intent",
                 }
             )
 
             populate_user_product_list(context)
 
             entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "usage"
+            assert entry.reason == "product_intent"
 
     @pytest.mark.django_db
     def test_populate_with_reason_text(self):
@@ -72,7 +72,7 @@ class TestPopulateUserProductListOp:
             context = build_op_context(
                 op_config={
                     "product_paths": ["product_analytics"],
-                    "reason": "usage",
+                    "reason": "product_intent",
                     "reason_text": "You've been using this product frequently",
                 }
             )
@@ -80,7 +80,7 @@ class TestPopulateUserProductListOp:
             populate_user_product_list(context)
 
             entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "usage"
+            assert entry.reason == "product_intent"
             assert entry.reason_text == "You've been using this product frequently"
 
     @pytest.mark.django_db
@@ -188,7 +188,7 @@ class TestPopulateUserProductListOp:
         user.join(organization=org)
 
         UserProductList.objects.create(
-            user=user, team=team, product_path="product_analytics", enabled=True, reason="usage"
+            user=user, team=team, product_path="product_analytics", enabled=True, reason="product_intent"
         )
 
         with patch("dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}):
@@ -204,7 +204,7 @@ class TestPopulateUserProductListOp:
             entries = UserProductList.objects.filter(user=user, team=team, product_path="product_analytics")
             assert entries.count() == 1
             entry = entries.first()
-            assert entry.reason == "usage"
+            assert entry.reason == "product_intent"
 
             metadata = context.get_output_metadata("result")
             assert metadata["created"].value == 0  # type: ignore
@@ -430,7 +430,7 @@ class TestPopulateUserProductListJob:
                         "populate_user_product_list": {
                             "config": {
                                 "product_paths": ["product_analytics"],
-                                "reason": "usage",
+                                "reason": "product_intent",
                             }
                         }
                     }
@@ -440,7 +440,7 @@ class TestPopulateUserProductListJob:
             assert result.success
 
             entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "usage"
+            assert entry.reason == "product_intent"
 
     @pytest.mark.django_db
     def test_job_respects_allow_sidebar_suggestions(self):

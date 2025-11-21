@@ -1,4 +1,4 @@
-use crate::metrics::consts::{FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER, TOMBSTONE_COUNTER};
+use crate::metrics::consts::TOMBSTONE_COUNTER;
 use metrics::counter;
 use std::sync::Arc;
 use tracing;
@@ -166,13 +166,6 @@ impl FeatureFlagList {
                             row.team_id,
                             e
                         );
-                        counter!(
-                            FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER,
-                            "team_id" => row.team_id.to_string(),
-                            "flag_key" => row.key.clone(),
-                        )
-                        .increment(1);
-
                         // Also track as a tombstone - invalid data in postgres should never happen
                         counter!(
                             TOMBSTONE_COUNTER,
@@ -323,8 +316,8 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        let random_id_1 = rand::thread_rng().gen_range(0..10_000_000);
-        let random_id_2 = rand::thread_rng().gen_range(0..10_000_000);
+        let random_id_1 = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let random_id_2 = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
         let flag1 = FeatureFlagRow {
             id: random_id_1,

@@ -36,7 +36,6 @@ from posthog.models import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.session_summaries.constants import MAX_SESSIONS_TO_SUMMARIZE
@@ -352,13 +351,11 @@ class TestSessionSummarizationNode(BaseTest):
 
         async def async_gen() -> (
             AsyncGenerator[
-                tuple[
-                    SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict
-                ],
+                tuple[SessionSummaryStreamUpdate, EnrichedSessionGroupSummaryPatternsList | str | dict],
                 None,
             ]
         ):
-            yield (SessionSummaryStreamUpdate.UI_STATUS, SessionSummaryStep.WATCHING_SESSIONS, "Processing...")
+            yield (SessionSummaryStreamUpdate.UI_STATUS, "Processing...")
             # No summary yielded - simulates error condition
 
         mock_execute_group.return_value = async_gen()
@@ -366,7 +363,7 @@ class TestSessionSummarizationNode(BaseTest):
         state = self._create_test_state()
         with self.assertRaises(ValueError) as context:
             async_to_sync(self.node._session_summarizer._summarize_sessions_as_group)(
-                session_ids, state, "test summary", None
+                session_ids, state, "test summary"
             )
 
         self.assertIn("No summary was generated", str(context.exception))

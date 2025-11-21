@@ -16,19 +16,19 @@ import { urls } from 'scenes/urls'
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     ExternalDataSourceType,
+    ProductKey,
     SourceConfig,
     SourceFieldConfig,
     SourceFieldSwitchGroupConfig,
+    SuggestedTable,
     externalDataSources,
 } from '~/queries/schema/schema-general'
-import { SuggestedTable } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     IncrementalField,
     ManualLinkSourceType,
-    ProductKey,
     manualLinkSources,
 } from '~/types'
 

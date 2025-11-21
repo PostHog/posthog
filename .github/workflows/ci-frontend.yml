@@ -197,6 +197,9 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
+            - name: Check if products.tsx and products.json are up to date
+              run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
+
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 

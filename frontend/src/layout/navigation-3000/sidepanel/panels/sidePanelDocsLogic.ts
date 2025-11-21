@@ -6,7 +6,7 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
