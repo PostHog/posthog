@@ -1,9 +1,17 @@
+from typing import TYPE_CHECKING, cast
+
 from django.db import models
 from django.db.models.expressions import F
+
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
+from posthog.products import Products
+
+if TYPE_CHECKING:
+    from posthog.models.product_intent.product_intent import ProductIntent
 
 
 class UserProductList(UUIDModel, UpdatedMetaFields):
@@ -21,6 +29,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
+        # User chose this product during onboarding
+        ONBOARDING = "onboarding", "Onboarding"
+
         # User showed intent for the product
         PRODUCT_INTENT = "product_intent", "Product Intent"
 
@@ -60,3 +71,35 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
     def __str__(self) -> str:
         return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
+
+    @staticmethod
+    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
+        if not products:
+            return []
+
+        onboarding_contexts = [
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
+            ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+        ]
+        has_onboarding_context = any(context in (product_intent.contexts or {}) for context in onboarding_contexts)
+        reason = UserProductList.Reason.ONBOARDING if has_onboarding_context else UserProductList.Reason.PRODUCT_INTENT
+
+        user_product_lists = []
+        for product in products:
+            item, _ = UserProductList.objects.get_or_create(
+                user=user,
+                team=product_intent.team,
+                product_path=product.path,
+                defaults={
+                    "enabled": True,
+                    "reason": reason,
+                },
+            )
+            user_product_lists.append(item)
+
+        return user_product_lists

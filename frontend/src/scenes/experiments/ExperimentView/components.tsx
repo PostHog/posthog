@@ -28,7 +28,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -48,6 +48,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
