@@ -34,6 +34,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
+    Breakdown,
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
@@ -48,6 +49,7 @@ import {
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -64,7 +66,6 @@ import {
     FunnelExperimentVariant,
     InsightType,
     MultivariateFlagVariant,
-    ProductKey,
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
@@ -88,6 +89,7 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
@@ -476,6 +478,8 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary,
             newUuid,
         }),
+        updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
+        removeMetricBreakdown: (uuid: string, index: number) => ({ uuid, index }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
             results: (
@@ -704,6 +708,62 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                updateMetricBreakdown: (state, { uuid, breakdown }) => {
+                    const metricsKey =
+                        (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
+                            ? 'metrics'
+                            : 'metrics_secondary'
+
+                    const metrics = [...(state?.[metricsKey] || [])]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex] as ExperimentMetric
+                    const breakdownFilter = {
+                        ...metric.breakdownFilter,
+                        breakdowns: [...(metric.breakdownFilter?.breakdowns || []), breakdown],
+                    }
+
+                    metrics[targetIndex] = {
+                        ...metric,
+                        breakdownFilter,
+                    } as ExperimentMetric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                removeMetricBreakdown: (state, { uuid, index }) => {
+                    const metricsKey =
+                        (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
+                            ? 'metrics'
+                            : 'metrics_secondary'
+
+                    const metrics = [...(state?.[metricsKey] || [])]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex] as ExperimentMetric
+                    const breakdownFilter = {
+                        ...metric.breakdownFilter,
+                        breakdowns: (metric.breakdownFilter?.breakdowns || []).filter((_, i) => i !== index),
+                    }
+
+                    metrics[targetIndex] = {
+                        ...metric,
+                        breakdownFilter,
+                    } as ExperimentMetric
 
                     return {
                         ...state,
@@ -1396,6 +1456,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
+        updateMetricBreakdown: async ({ uuid }) => {
+            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.updateExperiment({
+                metrics: values.experiment.metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+            })
+
+            if (isPrimary) {
+                actions.loadPrimaryMetricsResults(true)
+            } else {
+                actions.loadSecondaryMetricsResults(true)
+            }
+        },
+        removeMetricBreakdown: async ({ uuid }) => {
+            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.updateExperiment({
+                metrics: values.experiment.metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+            })
+
+            if (isPrimary) {
+                actions.loadPrimaryMetricsResults(true)
+            } else {
+                actions.loadSecondaryMetricsResults(true)
+            }
+        },
     })),
     loaders(({ actions, values }) => ({
         experiment: {
@@ -2001,44 +2089,38 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        getOrderedMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment) =>
-                (isSecondary: boolean): ExperimentMetric[] => {
-                    if (!experiment) {
-                        return []
-                    }
-
-                    const metricType = isSecondary ? 'secondary' : 'primary'
-                    const regularMetrics = isSecondary
-                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-                        : ((experiment.metrics || []) as ExperimentMetric[])
-
-                    const sharedMetrics = (experiment.saved_metrics || [])
-                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
-                        .map((sharedMetric) => ({
-                            ...sharedMetric.query,
-                            name: sharedMetric.name,
-                            sharedMetricId: sharedMetric.saved_metric,
-                            isSharedMetric: true,
-                        })) as ExperimentMetric[]
-
-                    const allMetrics = [...regularMetrics, ...sharedMetrics]
-
-                    const metricsMap = new Map()
-                    allMetrics.forEach((metric: any) => {
-                        const uuid = metric.uuid || metric.query?.uuid
-                        if (uuid) {
-                            metricsMap.set(uuid, metric)
-                        }
-                    })
-
-                    const orderedUuids = isSecondary
-                        ? experiment.secondary_metrics_ordered_uuids || []
-                        : experiment.primary_metrics_ordered_uuids || []
-
-                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
-                },
+        getOrderedMetricsWithResults: [
+            (s) => [
+                s.experiment,
+                s.primaryMetricsResults,
+                s.primaryMetricsResultsErrors,
+                s.secondaryMetricsResults,
+                s.secondaryMetricsResultsErrors,
+            ],
+            (
+                    experiment,
+                    primaryMetricsResults,
+                    primaryMetricsResultsErrors,
+                    secondaryMetricsResults,
+                    secondaryMetricsResultsErrors
+                ) =>
+                (isSecondary: boolean) =>
+                    getOrderedMetricsWithResults(
+                        experiment,
+                        primaryMetricsResults,
+                        primaryMetricsResultsErrors,
+                        secondaryMetricsResults,
+                        secondaryMetricsResultsErrors,
+                        isSecondary
+                    ),
+        ],
+        orderedPrimaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(false),
+        ],
+        orderedSecondaryMetricsWithResults: [
+            (s) => [s.getOrderedMetricsWithResults],
+            (getOrderedMetricsWithResults) => getOrderedMetricsWithResults(true),
         ],
         statsMethod: [
             (s) => [s.experiment],

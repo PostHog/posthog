@@ -5,7 +5,7 @@ import dagster_slack
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 
-from dags.common import ClickhouseClusterResource, RedisResource
+from dags.common import ClickhouseClusterResource, PostgresResource, RedisResource
 
 # Define resources for different environments
 resources_by_env = {
@@ -18,6 +18,14 @@ resources_by_env = {
         "s3": S3Resource(),
         # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
         "slack": dagster_slack.SlackResource(token=dagster.EnvVar("SLACK_TOKEN")),
+        # Postgres resource (universal for all dags)
+        "database": PostgresResource(
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
+        ),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -29,6 +37,14 @@ resources_by_env = {
             aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         ),
         "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
+        # Postgres resource (universal for all dags) - use Django settings or env vars for local dev
+        "database": PostgresResource(
+            host=dagster.EnvVar("POSTGRES_HOST"),
+            port=dagster.EnvVar("POSTGRES_PORT"),
+            database=dagster.EnvVar("POSTGRES_DATABASE"),
+            user=dagster.EnvVar("POSTGRES_USER"),
+            password=dagster.EnvVar("POSTGRES_PASSWORD"),
+        ),
     },
 }
 

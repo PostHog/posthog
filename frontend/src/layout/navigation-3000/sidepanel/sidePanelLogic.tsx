@@ -84,6 +84,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.Status)
+                }
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
