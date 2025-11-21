@@ -3,8 +3,8 @@ import time
 from collections.abc import Callable
 from typing import Optional
 
-from django.core.cache import cache
-from django.core.cache.backends.base import BaseCache
+from django.conf import settings
+from django.core.cache import cache, caches
 
 import structlog
 from posthoganalytics import capture_exception
@@ -19,6 +19,28 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
+
+
+def get_cache_writer_url(cache_alias: str) -> str:
+    """
+    Get writer Redis URL from cache alias.
+
+    Django cache backends can have multiple URLs (writer + readers). This extracts
+    the writer URL (first URL if multiple).
+
+    Args:
+        cache_alias: Django cache alias (e.g., 'flags_cache')
+
+    Returns:
+        Redis URL string for the writer
+    """
+    location = settings.CACHES[cache_alias]["LOCATION"]
+    if isinstance(location, list):
+        return location[0]
+    elif isinstance(location, str):
+        return location
+    else:
+        raise TypeError(f"Unsupported LOCATION type for cache alias '{cache_alias}': {type(location)}")
 
 
 CACHE_SYNC_COUNTER = Counter(
@@ -66,7 +88,8 @@ class HyperCache:
         token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
-        cache_client: Optional[BaseCache] = None,
+        cache_alias: Optional[str] = None,
+        batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -74,7 +97,15 @@ class HyperCache:
         self.token_based = token_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
-        self.cache_client = cache_client or cache
+        self.batch_load_fn = batch_load_fn
+
+        # Derive cache_client and redis_url from cache_alias (single source of truth)
+        if cache_alias:
+            self.cache_client = caches[cache_alias]
+            self.redis_url = get_cache_writer_url(cache_alias)
+        else:
+            self.cache_client = cache
+            self.redis_url = settings.REDIS_URL
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:

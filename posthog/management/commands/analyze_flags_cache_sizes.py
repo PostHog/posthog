@@ -1,8 +1,5 @@
 """
-Management command to analyze actual team cache sizes for accurate memory estimation.
-
-IMPORTANT: This command requires FLAGS_REDIS_URL to be set. It will error if the
-dedicated flags cache is not configured to prevent analyzing the wrong cache.
+Management command to analyze actual flags cache sizes for accurate memory estimation.
 """
 
 import gzip
@@ -10,16 +7,20 @@ import json
 import statistics
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
+from posthog.models.feature_flag.flags_cache import (
+    FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+    _get_feature_flags_for_service,
+    _get_feature_flags_for_teams_batch,
+)
 from posthog.models.team import Team
-from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG, _load_team_metadata
 
 
 class Command(BaseHyperCacheCommand):
-    help = "Analyze actual team metadata cache sizes to estimate memory usage"
+    help = "Analyze actual flags cache sizes to estimate memory usage"
 
     def get_hypercache_config(self):
         """Return the HyperCache management configuration."""
-        return TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+        return FLAGS_HYPERCACHE_MANAGEMENT_CONFIG
 
     def add_arguments(self, parser):
         self.add_analyze_arguments(parser)
@@ -32,11 +33,11 @@ class Command(BaseHyperCacheCommand):
         if not self.validate_sample_size(sample_size):
             return
 
-        # Check if dedicated cache is configured
+        # Check if dedicated flags cache is configured
         if not self.check_dedicated_cache_configured():
             return
 
-        self.stdout.write("Analyzing team cache sizes...")
+        self.stdout.write("Analyzing flags cache sizes...")
 
         # Get a representative sample of teams
         total_teams = Team.objects.count()
@@ -45,21 +46,34 @@ class Command(BaseHyperCacheCommand):
             return
 
         # Random sample of teams for unbiased statistics
-        teams = list(Team.objects.order_by("?")[:sample_size])
+        teams = list(Team.objects.select_related("organization", "project").order_by("?")[:sample_size])
 
         self.stdout.write(f"\nAnalyzing {len(teams)} teams (out of {total_teams} total)...")
 
         sizes = []
-        field_usage: dict[str, int] = {}
+        flag_counts = []
         field_sizes: dict[str, list[float]] = {}
 
-        for team in teams:
-            # Load the metadata as it would be cached
-            metadata = _load_team_metadata(team)
+        # Batch-load flags for all teams at once to avoid N+1 queries
+        try:
+            batch_data = _get_feature_flags_for_teams_batch(teams)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Batch load failed, falling back to individual loads: {e}"))
+            batch_data = None
 
-            if isinstance(metadata, dict):
+        for team in teams:
+            # Use pre-loaded data if available, otherwise load individually
+            if batch_data and team.id in batch_data:
+                flags_data = batch_data[team.id]
+            else:
+                flags_data = _get_feature_flags_for_service(team)
+
+            if isinstance(flags_data, dict) and "flags" in flags_data:
+                flags = flags_data["flags"]
+                flag_counts.append(len(flags))
+
                 # Convert to JSON
-                json_str = json.dumps(metadata, separators=(",", ":"))
+                json_str = json.dumps(flags_data, separators=(",", ":"))
                 json_bytes = json_str.encode("utf-8")
 
                 # Compress as would be stored
@@ -68,24 +82,25 @@ class Command(BaseHyperCacheCommand):
                 sizes.append(
                     {
                         "team_id": team.id,
+                        "flag_count": len(flags),
                         "raw_json": len(json_bytes),
                         "compressed": len(compressed),
                         "compression_ratio": len(json_bytes) / len(compressed) if compressed else 0,
-                        "populated_fields": sum(1 for v in metadata.values() if v is not None),
                     }
                 )
 
-                # Track field usage and sizes
-                for field, value in metadata.items():
-                    if value is not None:
-                        field_usage[field] = field_usage.get(field, 0) + 1
-                        if field not in field_sizes:
-                            field_sizes[field] = []
-                        field_size = len(json.dumps(value, separators=(",", ":")))
-                        field_sizes[field].append(field_size)
+                # Track field sizes across all flags
+                if detailed:
+                    for flag in flags:
+                        for field, value in flag.items():
+                            if value is not None:
+                                if field not in field_sizes:
+                                    field_sizes[field] = []
+                                field_size = len(json.dumps(value, separators=(",", ":")))
+                                field_sizes[field].append(field_size)
 
         if not sizes:
-            self.stdout.write(self.style.ERROR("No valid team data found"))
+            self.stdout.write(self.style.ERROR("No valid flags data found"))
             return
 
         # Calculate statistics
@@ -94,11 +109,20 @@ class Command(BaseHyperCacheCommand):
         compression_ratios = [s["compression_ratio"] for s in sizes]
 
         self.stdout.write("\n" + "=" * 60)
-        self.stdout.write(self.style.SUCCESS("CACHE SIZE ANALYSIS RESULTS"))
+        self.stdout.write(self.style.SUCCESS("FLAGS CACHE SIZE ANALYSIS RESULTS"))
         self.stdout.write("=" * 60)
 
         self.stdout.write(f"\nSample size: {len(sizes)} teams")
         self.stdout.write(f"Total teams in database: {total_teams}")
+
+        self.stdout.write("\n" + "-" * 40)
+        self.stdout.write("Flag counts per team:")
+        self.stdout.write(f"  Mean:   {statistics.mean(flag_counts):.1f}")
+        self.stdout.write(f"  Median: {statistics.median(flag_counts):.0f}")
+        self.stdout.write(f"  Min:    {min(flag_counts)}")
+        self.stdout.write(f"  Max:    {max(flag_counts)}")
+        self.stdout.write(f"  P95:    {self.calculate_percentile(flag_counts, 95):.0f}")
+        self.stdout.write(f"  P99:    {self.calculate_percentile(flag_counts, 99):.0f}")
 
         self.stdout.write("\n" + "-" * 40)
         self.stdout.write("Uncompressed JSON sizes:")
@@ -140,25 +164,18 @@ class Command(BaseHyperCacheCommand):
 
         if detailed:
             self.stdout.write("\n" + "=" * 60)
-            self.stdout.write("FIELD USAGE ANALYSIS")
+            self.stdout.write("FLAG FIELD SIZE ANALYSIS")
             self.stdout.write("=" * 60)
 
-            # Sort fields by usage frequency
-            sorted_fields = sorted(field_usage.items(), key=lambda x: x[1], reverse=True)
+            # Find the largest fields by average size
+            if field_sizes:
+                field_avg_sizes = [(field, statistics.mean(sizes)) for field, sizes in field_sizes.items() if sizes]
+                field_avg_sizes.sort(key=lambda x: x[1], reverse=True)
 
-            self.stdout.write("\nMost commonly populated fields:")
-            for field, count in sorted_fields[:20]:
-                percentage = (count / len(teams)) * 100
-                avg_size = statistics.mean(field_sizes[field]) if field_sizes[field] else 0
-                self.stdout.write(f"  {field:40} {percentage:5.1f}% ({self.format_bytes(avg_size)} avg)")
-
-            # Find the largest fields
-            self.stdout.write("\nLargest fields by average size:")
-            field_avg_sizes = [(field, statistics.mean(sizes)) for field, sizes in field_sizes.items() if sizes]
-            field_avg_sizes.sort(key=lambda x: x[1], reverse=True)
-            for field, avg_size in field_avg_sizes[:10]:
-                percentage = (field_usage[field] / len(teams)) * 100
-                self.stdout.write(f"  {field:40} {self.format_bytes(avg_size)} ({percentage:.1f}% of teams)")
+                self.stdout.write("\nLargest flag fields by average size:")
+                for field, avg_size in field_avg_sizes[:15]:
+                    count = len(field_sizes[field])
+                    self.stdout.write(f"  {field:40} {self.format_bytes(avg_size)} ({count} occurrences)")
 
         self.stdout.write("\n" + "=" * 60)
         self.stdout.write(
