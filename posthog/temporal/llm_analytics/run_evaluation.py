@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -37,51 +36,7 @@ class BooleanEvalResult(BaseModel):
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
-    event_data: dict[str, Any] | None = None
-    # Legacy fields for backward compatibility during deployment
-    target_event_id: str | None = None
-    timestamp: str | None = None
-
-
-@temporalio.activity.defn
-async def fetch_legacy_event_activity(target_event_id: str, team_id: int, timestamp: str) -> dict[str, Any]:
-    """Fetch target event from ClickHouse - kept for backward compatibility with pending workflows"""
-    query = """
-        SELECT
-            uuid,
-            event,
-            properties,
-            timestamp,
-            team_id,
-            distinct_id,
-            person_id
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND toDate(timestamp) = toDate(parseDateTimeBestEffort(%(target_timestamp)s))
-            AND event = '$ai_generation'
-            AND uuid = %(event_id)s
-        LIMIT 1
-    """
-
-    result = await database_sync_to_async(sync_execute, thread_sensitive=False)(
-        query, {"event_id": target_event_id, "team_id": team_id, "target_timestamp": timestamp}
-    )
-
-    if not result:
-        logger.exception("Event not found", target_event_id=target_event_id, team_id=team_id)
-        raise ValueError(f"Event {target_event_id} not found for team {team_id}")
-
-    row = result[0]
-    event_data = {
-        "uuid": str(row[0]),
-        "event": row[1],
-        "properties": json.loads(row[2]) if isinstance(row[2], str) else row[2],
-        "timestamp": row[3],
-        "team_id": row[4],
-        "distinct_id": row[5],
-        "person_id": str(row[6]) if row[6] is not None else None,
-    }
-    return event_data
+    event_data: dict[str, Any]
 
 
 @temporalio.activity.defn
@@ -170,7 +125,6 @@ Output: {output_data}"""
     response = client.beta.chat.completions.parse(
         model=DEFAULT_JUDGE_MODEL,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        max_completion_tokens=500,
         response_format=BooleanEvalResult,
     )
 
@@ -235,26 +189,10 @@ async def emit_evaluation_event_activity(
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunEvaluationInputs:
-        # Support both old and new input formats for backward compatibility
-        if len(inputs) == 3:
-            # Legacy format: [evaluation_id, target_event_id, timestamp]
-            logger.warning(
-                "Workflow started with legacy input format",
-                evaluation_id=inputs[0],
-                target_event_id=inputs[1],
-            )
-            return RunEvaluationInputs(
-                evaluation_id=inputs[0],
-                event_data=None,
-                target_event_id=inputs[1],
-                timestamp=inputs[2],
-            )
-        else:
-            # New format: [evaluation_id, event_data_json]
-            return RunEvaluationInputs(
-                evaluation_id=inputs[0],
-                event_data=json.loads(inputs[1]),
-            )
+        return RunEvaluationInputs(
+            evaluation_id=inputs[0],
+            event_data=json.loads(inputs[1]),
+        )
 
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> dict[str, Any]:
@@ -266,31 +204,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Handle backward compatibility: fetch event if using legacy format
-        if inputs.event_data is None and inputs.target_event_id and inputs.timestamp:
-            logger.warning(
-                "Fetching event from ClickHouse for legacy workflow",
-                evaluation_id=inputs.evaluation_id,
-                target_event_id=inputs.target_event_id,
-            )
-            event_data = await temporalio.workflow.execute_activity(
-                fetch_legacy_event_activity,
-                args=[inputs.target_event_id, evaluation["team_id"], inputs.timestamp],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=1),
-                    maximum_interval=timedelta(seconds=10),
-                    maximum_attempts=10,
-                    backoff_coefficient=2.0,
-                ),
-            )
-        else:
-            # New format: event_data provided directly
-            assert inputs.event_data is not None, "event_data must be provided when not using legacy format"
-            event_data = inputs.event_data.copy()
-            # Normalize: ensure properties is a dict, not a string
-            if isinstance(event_data.get("properties"), str):
-                event_data["properties"] = json.loads(event_data["properties"])
+        # Normalize event_data: ensure properties is a dict, not a string
+        event_data = inputs.event_data.copy()
+        if isinstance(event_data.get("properties"), str):
+            event_data["properties"] = json.loads(event_data["properties"])
 
         # Activity 2: Execute LLM judge
         result = await temporalio.workflow.execute_activity(
