@@ -28,6 +28,7 @@ import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
+import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import {
@@ -54,67 +55,71 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [issueId])
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton />
-                    {hasIssueSplitting && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <ButtonPrimitive iconOnly>
-                                    <IconEllipsis />
-                                </ButtonPrimitive>
-                            </DropdownMenuTrigger>
+        <StyleVariables>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    <div className="flex justify-between mb-2 -ml-[var(--button-padding-x-lg)]">
+                        <SceneBreadcrumbBackButton />
+                        {hasIssueSplitting && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <ButtonPrimitive iconOnly>
+                                        <IconEllipsis />
+                                    </ButtonPrimitive>
+                                </DropdownMenuTrigger>
 
-                            <DropdownMenuContent loop align="end">
-                                <DropdownMenuGroup>
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive
-                                            size="base"
-                                            menuItem
-                                            onClick={() =>
-                                                router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
-                                            }
-                                        >
-                                            Split issue
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </DropdownMenuGroup>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
-                </div>
-
-                <PostHogSDKIssueBanner event={selectedEvent} />
-
-                <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-                    <div className="space-y-2 col-span-3">
-                        <ExceptionCard
-                            issue={issue ?? undefined}
-                            issueLoading={issueLoading}
-                            event={selectedEvent ?? undefined}
-                            eventLoading={initialEventLoading}
-                            label={tagRenderer(selectedEvent)}
-                        />
-                        <ErrorFilters.Root>
-                            <div className="flex gap-2 justify-between">
-                                <ErrorFilters.DateRange />
-                                <ErrorFilters.InternalAccounts />
-                            </div>
-                            <ErrorFilters.FilterGroup />
-                        </ErrorFilters.Root>
-                        <Metadata>
-                            <EventsTable
-                                query={eventsQuery}
-                                queryKey={eventsQueryKey}
-                                selectedEvent={selectedEvent}
-                                onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
-                            />
-                        </Metadata>
+                                <DropdownMenuContent loop align="end">
+                                    <DropdownMenuGroup>
+                                        <DropdownMenuItem asChild>
+                                            <ButtonPrimitive
+                                                size="base"
+                                                menuItem
+                                                onClick={() =>
+                                                    router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
+                                                }
+                                            >
+                                                Split issue
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
-                    <ErrorTrackingIssueScenePanel />
-                </div>
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+
+                    <PostHogSDKIssueBanner event={selectedEvent} />
+
+                    <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
+                        <div className="space-y-2 col-span-3">
+                            <ExceptionCard
+                                issue={issue ?? undefined}
+                                issueLoading={issueLoading}
+                                event={selectedEvent ?? undefined}
+                                eventLoading={initialEventLoading}
+                                label={tagRenderer(selectedEvent)}
+                            />
+                            <ErrorFilters.Root>
+                                <div className="flex gap-2 justify-between">
+                                    <ErrorFilters.DateRange />
+                                    <ErrorFilters.InternalAccounts />
+                                </div>
+                                <ErrorFilters.FilterGroup />
+                            </ErrorFilters.Root>
+                            <Metadata>
+                                <EventsTable
+                                    query={eventsQuery}
+                                    queryKey={eventsQueryKey}
+                                    selectedEvent={selectedEvent}
+                                    onEventSelect={(selectedEvent) =>
+                                        selectedEvent ? selectEvent(selectedEvent) : null
+                                    }
+                                />
+                            </Metadata>
+                        </div>
+                        <ErrorTrackingIssueScenePanel />
+                    </div>
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        </StyleVariables>
     )
 }

@@ -4,6 +4,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
+import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
 
 const meta: Meta = {
@@ -18,6 +19,12 @@ const meta: Meta = {
                 'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../__mocks__/stack_frames/batch_get'),
             },
         }),
+        (Story) => (
+            <StyleVariables>
+                {/* 👇 Decorators in Storybook also accept a function. Replace <Story/> with Story() to enable it  */}
+                <Story />
+            </StyleVariables>
+        ),
     ],
 }
 
