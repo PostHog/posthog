@@ -100,6 +100,28 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
         )
         return ast.Call(name="toFloat", args=[sum])
 
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+
+        # Check if total_complete_payment_value column exists
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "total_complete_payment_value" in columns:
+                sum = ast.Call(
+                    name="SUM",
+                    args=[
+                        ast.Call(
+                            name="toFloatOrZero",
+                            args=[ast.Field(chain=[stats_table_name, "total_complete_payment_value"])],
+                        )
+                    ],
+                )
+                return ast.Call(name="toFloat", args=[sum])
+        except (TypeError, AttributeError, KeyError):
+            pass
+        # Column doesn't exist or can't be checked, return 0
+        return ast.Constant(value=0)
+
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
         campaign_table_name = self.config.campaign_table.name

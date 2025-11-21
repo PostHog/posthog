@@ -4,6 +4,9 @@ from posthog.hogql import ast
 
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
+# Purchase action types to extract from Meta's actions/action_values arrays
+META_PURCHASE_ACTION_TYPES = ["omni_purchase", "purchase"]
+
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     """
@@ -103,6 +106,21 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
+    def _build_action_type_filter(self) -> ast.Expr:
+        """Build filter condition for purchase action types"""
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Call(
+                        name="JSONExtractString", args=[ast.Field(chain=["x"]), ast.Constant(value="action_type")]
+                    ),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=action_type),
+                )
+                for action_type in META_PURCHASE_ACTION_TYPES
+            ]
+        )
+
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
 
@@ -112,14 +130,68 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         try:
             # Try to check if conversions column exists
             columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "conversions" in columns:
-                sum = ast.Call(
-                    name="SUM",
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversions"])])],
+            if columns and hasattr(columns, "__contains__") and "actions" in columns:
+                actions_field = ast.Field(chain=[stats_table_name, "actions"])
+
+                array_sum = ast.Call(
+                    name="arraySum",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.Call(
+                                name="JSONExtractFloat",
+                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
+                            ),
+                        ),
+                        ast.Call(
+                            name="arrayFilter",
+                            args=[
+                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
+                                ast.Call(name="JSONExtractArrayRaw", args=[actions_field]),
+                            ],
+                        ),
+                    ],
                 )
-                return ast.Call(name="toFloat", args=[sum])
+                sum_result = ast.Call(name="SUM", args=[array_sum])
+                return ast.Call(name="toFloat", args=[sum_result])
         except (TypeError, AttributeError, KeyError):
             # If columns is not iterable, doesn't exist, or has unexpected structure, fall back to 0
+            pass
+        # Column doesn't exist or can't be checked, return 0
+        return ast.Constant(value=0)
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+
+        # Check if conversion_values column exists in the table schema. Similar to conversions,
+        # this field may not exist if no conversion values were tracked.
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "action_values" in columns:
+                action_values_field = ast.Field(chain=[stats_table_name, "action_values"])
+
+                array_sum = ast.Call(
+                    name="arraySum",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.Call(
+                                name="JSONExtractFloat",
+                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
+                            ),
+                        ),
+                        ast.Call(
+                            name="arrayFilter",
+                            args=[
+                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
+                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_field]),
+                            ],
+                        ),
+                    ],
+                )
+                sum_result = ast.Call(name="SUM", args=[array_sum])
+                return ast.Call(name="toFloat", args=[sum_result])
+        except (TypeError, AttributeError, KeyError):
             pass
         # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)

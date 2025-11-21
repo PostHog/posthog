@@ -110,6 +110,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
+    reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
 
     @classmethod
     @abstractmethod
@@ -191,7 +192,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @abstractmethod
     def _get_reported_conversion_field(self) -> ast.Expr:
-        """Get the reported conversion field expression"""
+        """Get the reported conversion count field expression"""
+        pass
+
+    @abstractmethod
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get the reported conversion value (monetary) field expression"""
         pass
 
     @abstractmethod
@@ -243,6 +249,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
                 ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
                 ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
             ]
 
             # Build query components

@@ -46,8 +46,16 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 6
-EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost", "reported_conversion"]
+EXPECTED_COLUMN_COUNT = 7
+EXPECTED_COLUMN_ALIASES = [
+    "campaign",
+    "source",
+    "impressions",
+    "clicks",
+    "cost",
+    "reported_conversion",
+    "reported_conversion_value",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +160,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "metrics_conversions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "metrics_conversions_value": {
                         "hogql": "FloatDatabaseField",
                         "clickhouse": "Float64",
                         "schema_valid": True,

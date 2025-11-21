@@ -17612,11 +17612,31 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": [
+                "Campaign",
+                "Source",
+                "Cost",
+                "Clicks",
+                "Impressions",
+                "CPC",
+                "CTR",
+                "Reported Conversion",
+                "Reported Conversion Value"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
+            "enum": [
+                "campaign",
+                "clicks",
+                "cost",
+                "currency",
+                "date",
+                "impressions",
+                "source",
+                "reported_conversion",
+                "reported_conversion_value"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -26792,6 +26812,9 @@
                     "type": "string"
                 },
                 "reported_conversion": {
+                    "type": "string"
+                },
+                "reported_conversion_value": {
                     "type": "string"
                 },
                 "source": {

@@ -90,12 +90,21 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         return ast.Call(name="SUM", args=[cost_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
+        """Get conversion count (number of conversions)"""
         stats_table_name = self.config.stats_table.name
-        sum_signup = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])])
+        # Use key_conversion_total_count for total conversion count
+        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "key_conversion_total_count"])])
+        return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        """Get conversion value (monetary value of conversions)"""
+        stats_table_name = self.config.stats_table.name
+        # Sum purchase value and signup value for total conversion value
         sum_purchase = ast.Call(
-            name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_items"])]
+            name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])]
         )
-        sum = ast.ArithmeticOperation(left=sum_signup, op=ast.ArithmeticOperationOp.Add, right=sum_purchase)
+        sum_signup = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])])
+        sum = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_from(self) -> ast.JoinExpr:
