@@ -46,7 +46,7 @@ pub async fn record_usage(
 
     if has_billable_flags {
         if let Err(e) = increment_request_count(
-            context.state.redis_writer.clone(),
+            context.state.redis_client.clone(),
             team_id,
             1,
             FlagRequestType::Decide,

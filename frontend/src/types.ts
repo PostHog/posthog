@@ -3217,6 +3217,7 @@ export interface Survey extends WithAccessControl {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
+    linked_insight_id?: number | null
     conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -4487,7 +4488,6 @@ export type OnlineExportContext = {
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    show_legend?: boolean
 }
 
 export interface ReplayExportContext {
@@ -6024,6 +6024,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    AI_CONSENT = 'ai_consent',
 }
 
 export interface Dataset {

@@ -273,7 +273,7 @@ export const maxLogic = kea<maxLogicType>([
                     {
                         key: Scene.Max,
                         name: 'AI',
-                        path: urls.max(),
+                        path: urls.ai(),
                         iconType: 'chat',
                     },
                     ...(conversationHistoryVisible || searchParams.from === 'history'
@@ -281,7 +281,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: 'Chat history',
-                                  path: urls.maxHistory(),
+                                  path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -291,7 +291,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
-                                  path: urls.max(conversationId),
+                                  path: urls.ai(conversationId),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -442,12 +442,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.maxHistory()]: () => {
+        [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
             }
         },
-        [urls.max()]: (_, search) => {
+        [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
@@ -469,19 +469,19 @@ export const maxLogic = kea<maxLogicType>([
     tabAwareActionToUrl(({ values }) => ({
         toggleConversationHistory: () => {
             if (values.conversationHistoryVisible) {
-                return [urls.maxHistory(), {}, router.values.location.hash]
+                return [urls.aiHistory(), {}, router.values.location.hash]
             } else if (values.conversationId) {
-                return [urls.max(values.conversationId), {}, router.values.location.hash]
+                return [urls.ai(values.conversationId), {}, router.values.location.hash]
             }
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         startNewConversation: () => {
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
-                return [urls.max(conversationId), {}, router.values.location.hash, { replace: true }]
+                return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
             }
             // Return undefined to not update URL for existing conversations
             return undefined

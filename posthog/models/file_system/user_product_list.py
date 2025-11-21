@@ -1,9 +1,21 @@
-from django.db import models
+from typing import TYPE_CHECKING, cast
+
+from django.conf import settings
+from django.db import models, transaction
+from django.db.models import Count
 from django.db.models.expressions import F
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
+from posthog.products import Products
+
+if TYPE_CHECKING:
+    from posthog.models.product_intent.product_intent import ProductIntent
 
 
 class UserProductList(UUIDModel, UpdatedMetaFields):
@@ -21,6 +33,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Reason(models.TextChoices):
+        # User chose this product during onboarding
+        ONBOARDING = "onboarding", "Onboarding"
+
         # User showed intent for the product
         PRODUCT_INTENT = "product_intent", "Product Intent"
 
@@ -29,6 +44,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
         # User has a similar product in their sidebar
         USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
+
+        # User has this product on another team they belong to
+        USED_ON_SEPARATE_TEAM = "used_on_separate_team", "Used on Separate Team"
 
         # We launch a new product and want to foster adoption
         NEW_PRODUCT = "new_product", "New Product"
@@ -60,3 +78,154 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
     def __str__(self) -> str:
         return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
+
+    @staticmethod
+    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
+        if not products:
+            return []
+
+        onboarding_contexts = [
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___PRIMARY,
+            ProductIntentContext.ONBOARDING_PRODUCT_SELECTED___SECONDARY,
+            ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+        ]
+        has_onboarding_context = any(context in (product_intent.contexts or {}) for context in onboarding_contexts)
+        reason = UserProductList.Reason.ONBOARDING if has_onboarding_context else UserProductList.Reason.PRODUCT_INTENT
+
+        user_product_lists = []
+        for product in products:
+            item, _ = UserProductList.objects.get_or_create(
+                user=user,
+                team=product_intent.team,
+                product_path=product.path,
+                defaults={
+                    "enabled": True,
+                    "reason": reason,
+                },
+            )
+            user_product_lists.append(item)
+
+        return user_product_lists
+
+    @staticmethod
+    def sync_from_team_colleagues(user: User, team: Team, count: int = 1) -> "list[UserProductList]":
+        """
+        Create UserProductList entries for a user based on what their team colleagues have.
+        Products are ranked by how many colleagues have them enabled, and only the top `count`
+        items that the user doesn't already have enabled are included.
+        """
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        # Get products the user already has (enabled or disabled - we'll exclude these)
+        user_existing_products = set(
+            UserProductList.objects.filter(user=user, team=team).values_list("product_path", flat=True)
+        )
+
+        # Count how many colleagues have each product_path enabled
+        colleague_product_counts = (
+            UserProductList.objects.filter(team=team, enabled=True)
+            .exclude(user=user)
+            .values("product_path")
+            .annotate(colleague_count=Count("user", distinct=True))
+            .order_by("-colleague_count")
+        )
+
+        # Filter out products user already has and take top `count` items
+        top_products = [
+            item["product_path"]
+            for item in colleague_product_counts
+            if item["product_path"] not in user_existing_products
+        ][:count]
+
+        # Create UserProductList entries for the top products
+        created_items = []
+        for product_path in top_products:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_BY_COLLEAGUES,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
+
+    @staticmethod
+    def backfill_from_other_teams(user: User, team: Team) -> "list[UserProductList]":
+        """
+        Backfill UserProductList entries for a user in a new team based on what
+        they have enabled in other teams they belong to.
+        """
+        # We IGNORE the user's suggestion config because we want them to have
+        # at least some products in their sidebar to start with when backfilling from
+        # their own teams.
+        #
+        # if user.allow_sidebar_suggestions is False:
+        #     return []
+
+        # If the user already has products in this team, we don't need to backfill
+        # from other teams since the reasoning behind the backfill is to get them
+        # started with some products in their sidebar.
+        if UserProductList.objects.filter(user=user, team=team).exists():
+            return []
+
+        # Get all other teams the user belongs to (through organization membership)
+        user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
+        other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)
+
+        # Get all product paths the user has enabled in other teams
+        user_product_paths = set(
+            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True).values_list(
+                "product_path", flat=True
+            )
+        )
+
+        # Create UserProductList entries for the missing products
+        created_items = []
+        for product_path in user_product_paths:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_ON_SEPARATE_TEAM,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
+
+
+@receiver(post_save, sender="ee.AccessControl")
+def access_control_created(sender, instance, created, **kwargs):
+    """
+    Handle AccessControl creation to backfill UserProductList for users gaining access to a team.
+
+    When a user is granted access to a team via AccessControl, we backfill their UserProductList
+    based on what they have enabled in other teams they belong to.
+    """
+    if created and instance.organization_member and instance.resource == "project":
+        user = instance.organization_member.user
+        team = instance.team
+
+        def create_user_product_lists():
+            UserProductList.backfill_from_other_teams(user, team)
+            UserProductList.sync_from_team_colleagues(user, team, count=3)
+
+        if settings.TEST:
+            create_user_product_lists()
+        else:
+            transaction.on_commit(lambda: create_user_product_lists())

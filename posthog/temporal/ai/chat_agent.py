@@ -14,8 +14,8 @@ from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
-from ee.hogai.agent.redis_stream import ConversationRedisStream, get_conversation_stream_key
-from ee.hogai.assistant import Assistant
+from ee.hogai.chat_agent.runner import ChatAgentRunner
+from ee.hogai.stream.redis_stream import ConversationRedisStream, get_conversation_stream_key
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 
@@ -88,7 +88,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
 
-    assistant = Assistant.create(
+    assistant = ChatAgentRunner(
         team,
         conversation,
         new_message=human_message,
@@ -97,7 +97,6 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         is_new_conversation=inputs.is_new_conversation,
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
-        mode=inputs.mode,
         billing_context=inputs.billing_context,
     )
 

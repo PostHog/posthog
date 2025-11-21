@@ -460,6 +460,10 @@ tools:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
         hidden: true
+    tool:check_ducklake_up:
+        bin_script: check_ducklake_up
+        description: Healthcheck for Ducklake with self-healing
+        hidden: true
 utilities:
     utilities:posthog-worktree:
         bin_script: posthog-worktree
