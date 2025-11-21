@@ -250,13 +250,12 @@ class TestScanDeleteChunkForPdwp:
         )
         chunk = (1, 100)  # Single batch covers entire chunk
 
-        # Create 50 IDs to delete
-        ids_to_delete = [{"id": i} for i in range(1, 51)]
+        # Create 50 IDs to delete (returned from DELETE...RETURNING)
+        ids_deleted = [{"id": i} for i in range(1, 51)]
 
-        # Mock: fetchall returns the IDs, DELETE returns rowcount of 50
+        # Mock: fetchall returns the deleted IDs from DELETE...RETURNING
         mock_db = create_mock_database_resource(
-            rowcount_values=50,
-            fetchall_results=[ids_to_delete],
+            fetchall_results=[ids_deleted],
         )
         mock_cluster = create_mock_cluster_resource()
 
@@ -294,26 +293,19 @@ class TestScanDeleteChunkForPdwp:
         for stmt in set_statements:
             assert any(stmt in call for call in execute_calls), f"SET statement not found: {stmt}"
 
-        # Verify BEGIN, SELECT scan, COMMIT called
-        # Should have: 1 BEGIN for scan, 1 COMMIT after scan, 1 BEGIN for delete, 1 COMMIT after delete
-        assert execute_calls.count("BEGIN") >= 2  # At least BEGIN for scan and delete
-        assert execute_calls.count("COMMIT") >= 2  # At least COMMIT after scan and delete
+        # Verify BEGIN and COMMIT called (single transaction with DELETE...RETURNING)
+        assert execute_calls.count("BEGIN") >= 1
+        assert execute_calls.count("COMMIT") >= 1
 
-        # Verify SELECT scan query format
-        scan_calls = [
-            call for call in execute_calls if "SELECT pd.id" in call or "FROM posthog_persondistinctid AS pd" in call
-        ]
-        assert len(scan_calls) == 1
-        scan_query = scan_calls[0]
-        assert "SELECT pd.id" in scan_query
-        assert "FROM posthog_persondistinctid AS pd" in scan_query
-        assert "WHERE pd.id >=" in scan_query
-        assert "AND pd.id <=" in scan_query
-        assert "NOT EXISTS" in scan_query
-
-        # Verify DELETE query was called
+        # Verify DELETE...RETURNING query format
         delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
         assert len(delete_calls) == 1
+        delete_query = delete_calls[0]
+        assert "DELETE FROM posthog_persondistinctid" in delete_query
+        assert "WHERE pd.id >=" in delete_query
+        assert "AND pd.id <=" in delete_query
+        assert "NOT EXISTS" in delete_query
+        assert "RETURNING pd.id" in delete_query
 
     def test_scan_delete_chunk_multiple_batches(self):
         """Test scan and delete with multiple batches in a chunk."""
@@ -321,44 +313,20 @@ class TestScanDeleteChunkForPdwp:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 250)  # 3 scan batches: (1,101), (102,202), (203,250)
+        chunk = (1, 250)  # 3 batches: (1,100), (101,200), (201,250)
 
-        # Create IDs to delete for each scan batch
-        # Batch 1: 50 IDs (1-50), Batch 2: 75 IDs (101-175), Batch 3: 25 IDs (201-225)
+        # Create IDs deleted for each batch (returned from DELETE...RETURNING)
+        # Batch 1: 50 IDs, Batch 2: 75 IDs, Batch 3: 25 IDs
         fetchall_results = [
-            [{"id": i} for i in range(1, 51)],  # 50 IDs from first scan batch
-            [{"id": i} for i in range(101, 176)],  # 75 IDs from second scan batch
-            [{"id": i} for i in range(201, 226)],  # 25 IDs from third scan batch
+            [{"id": i} for i in range(1, 51)],  # 50 IDs from first batch
+            [{"id": i} for i in range(101, 176)],  # 75 IDs from second batch
+            [{"id": i} for i in range(201, 226)],  # 25 IDs from third batch
         ]
-
-        # Track DELETE rowcounts per scan batch
-        # Each scan batch results in one DELETE statement
-        # Batch 1: 50 IDs -> rowcount 50
-        # Batch 2: 75 IDs -> rowcount 75
-        # Batch 3: 25 IDs -> rowcount 25
-        delete_rowcounts = [50, 75, 25]
-        delete_call_count = [0]
 
         mock_db = create_mock_database_resource(
             fetchall_results=fetchall_results,
         )
         mock_cluster = create_mock_cluster_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-
-        # Track DELETE calls and set rowcount accordingly
-        def execute_with_rowcount(query, *args):
-            # For DELETE queries, set rowcount
-            if "DELETE FROM posthog_persondistinctid" in query:
-                if delete_call_count[0] < len(delete_rowcounts):
-                    cursor.rowcount = delete_rowcounts[delete_call_count[0]]
-                    delete_call_count[0] += 1
-                else:
-                    cursor.rowcount = 0
-            # MagicMock will automatically record the call via side_effect
-            # No need to call anything - just return None
-
-        cursor.execute.side_effect = execute_with_rowcount
 
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
@@ -378,18 +346,11 @@ class TestScanDeleteChunkForPdwp:
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Verify BEGIN/COMMIT called multiple times:
-        # 3 scan batches: 3 BEGIN + 3 COMMIT for scans
-        # 3 delete batches: 3 BEGIN + 3 COMMIT for deletes
-        # Total: 6 BEGIN, 6 COMMIT
-        assert execute_calls.count("BEGIN") >= 6  # At least 3 scans + 3 deletes
-        assert execute_calls.count("COMMIT") >= 6  # At least 3 scans + 3 deletes
+        # Verify BEGIN/COMMIT called 3 times (one per batch with DELETE...RETURNING)
+        assert execute_calls.count("BEGIN") >= 3
+        assert execute_calls.count("COMMIT") >= 3
 
-        # Verify SELECT scan called 3 times (one per scan batch)
-        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
-        assert len(scan_calls) == 3
-
-        # Verify DELETE called 3 times (one per scan batch)
+        # Verify DELETE...RETURNING called 3 times (one per batch)
         delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
         assert len(delete_calls) == 3
 
@@ -402,29 +363,24 @@ class TestScanDeleteChunkForPdwp:
         chunk = (1, 100)
 
         # Create IDs to delete
-        ids_to_delete = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track scan query attempts
-        scan_attempts = [0]
+        # Track DELETE query attempts
+        delete_attempts = [0]
 
-        # First SELECT scan query raises SerializationFailure, second succeeds
+        # First DELETE query raises SerializationFailure, second succeeds
         def execute_side_effect(query, *args):
-            if "SELECT pd.id" in query:
-                scan_attempts[0] += 1
-                if scan_attempts[0] == 1:
-                    # First scan attempt raises error
-                    # Create a mock error with pgcode 40001 for serialization failure
+            if "DELETE FROM posthog_persondistinctid" in query:
+                delete_attempts[0] += 1
+                if delete_attempts[0] == 1:
+                    # First attempt raises error
                     error = create_mock_psycopg2_error("could not serialize access due to concurrent update", "40001")
                     raise error
-                # Subsequent calls succeed - fetchall will return the IDs
-            elif "DELETE FROM posthog_persondistinctid" in query:
-                # DELETE succeeds
-                cursor.rowcount = 50
-            # MagicMock will automatically record the call via side_effect
+                # Second attempt succeeds - fetchall will return the IDs
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -445,9 +401,9 @@ class TestScanDeleteChunkForPdwp:
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
-        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
-        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
+        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
 
     def test_scan_delete_chunk_deadlock_retry(self):
         """Test that deadlock triggers retry."""
@@ -458,29 +414,24 @@ class TestScanDeleteChunkForPdwp:
         chunk = (1, 100)
 
         # Create IDs to delete
-        ids_to_delete = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track scan query attempts
-        scan_attempts = [0]
+        # Track DELETE query attempts
+        delete_attempts = [0]
 
-        # First SELECT scan query raises deadlock, second succeeds
+        # First DELETE query raises deadlock, second succeeds
         def execute_side_effect(query, *args):
-            if "SELECT pd.id" in query:
-                scan_attempts[0] += 1
-                if scan_attempts[0] == 1:
-                    # First scan attempt raises error
-                    # Create a mock error with pgcode 40P01 for deadlock
+            if "DELETE FROM posthog_persondistinctid" in query:
+                delete_attempts[0] += 1
+                if delete_attempts[0] == 1:
+                    # First attempt raises error
                     error = create_mock_psycopg2_error("deadlock detected", "40P01")
                     raise error
-                # Subsequent calls succeed - fetchall will return the IDs
-            elif "DELETE FROM posthog_persondistinctid" in query:
-                # DELETE succeeds
-                cursor.rowcount = 50
-            # MagicMock will automatically record the call via side_effect
+                # Second attempt succeeds - fetchall will return the IDs
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -501,9 +452,9 @@ class TestScanDeleteChunkForPdwp:
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
         assert "ROLLBACK" in execute_calls
 
-        # Verify retry succeeded (should have SELECT called twice - once failed, once succeeded)
-        scan_calls = [call for call in execute_calls if "SELECT pd.id" in call]
-        assert len(scan_calls) >= 2  # At least one failed attempt and one successful scan
+        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
+        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
+        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
 
     def test_scan_delete_chunk_error_handling_and_rollback(self):
         """Test error handling and rollback on non-retryable errors."""
@@ -514,17 +465,16 @@ class TestScanDeleteChunkForPdwp:
         chunk = (1, 100)
 
         # Create IDs to delete
-        ids_to_delete = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_to_delete])
+        ids_deleted = [{"id": i} for i in range(1, 51)]
+        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
         mock_cluster = create_mock_cluster_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Raise generic error on scan query (non-retryable error)
+        # Raise generic error on DELETE query (non-retryable error)
         def execute_side_effect(query, *args):
-            if "SELECT pd.id" in query:
+            if "DELETE FROM posthog_persondistinctid" in query:
                 raise Exception("Connection lost")
-            # MagicMock will automatically record the call via side_effect
 
         cursor.execute.side_effect = execute_side_effect
 
@@ -552,18 +502,17 @@ class TestScanDeleteChunkForPdwp:
                 assert "ROLLBACK" in execute_calls
 
     def test_scan_delete_chunk_query_format(self):
-        """Test that DELETE query has correct format."""
+        """Test that DELETE...RETURNING query has correct format."""
         config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
             batch_size=100,
         )
         chunk = (1, 100)
 
-        # Create IDs to delete
-        ids_to_delete = [{"id": i} for i in range(1, 11)]  # 10 IDs
+        # Create IDs deleted (returned from DELETE...RETURNING)
+        ids_deleted = [{"id": i} for i in range(1, 11)]  # 10 IDs
         mock_db = create_mock_database_resource(
-            rowcount_values=10,
-            fetchall_results=[ids_to_delete],
+            fetchall_results=[ids_deleted],
         )
         mock_cluster = create_mock_cluster_resource()
 
@@ -579,26 +528,16 @@ class TestScanDeleteChunkForPdwp:
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
 
-        # Find DELETE query
+        # Find DELETE...RETURNING query
         delete_query = next((call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call), None)
         assert delete_query is not None
 
-        # Verify DELETE query components
-        assert "DELETE FROM posthog_persondistinctid" in delete_query
-        assert "WHERE id IN" in delete_query
-
-        # Find SELECT query (scan query)
-        scan_query = next(
-            (call for call in execute_calls if "SELECT pd.id" in call or "FROM posthog_persondistinctid AS pd" in call),
-            None,
-        )
-        assert scan_query is not None
-
-        # Verify SELECT query components
-        assert "FROM posthog_persondistinctid AS pd" in scan_query
-        assert "WHERE pd.id >=" in scan_query
-        assert "AND pd.id <=" in scan_query
-        assert "NOT EXISTS" in scan_query
+        # Verify DELETE...RETURNING query components
+        assert "DELETE FROM posthog_persondistinctid pd" in delete_query
+        assert "WHERE pd.id >=" in delete_query
+        assert "AND pd.id <=" in delete_query
+        assert "NOT EXISTS" in delete_query
+        assert "RETURNING pd.id" in delete_query
 
     def test_scan_delete_chunk_session_settings_applied_once(self):
         """Test that SET statements are applied once at session level before batch loop."""

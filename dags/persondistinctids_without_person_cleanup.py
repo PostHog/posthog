@@ -22,7 +22,7 @@ class PersonsDistinctIdsNoPersonCleanupConfig(dagster.Config):
 
     chunk_size: int = 10_000_000  # persondistinctid rows per chunk worker to scan across
     batch_size: int = (
-        1000  # persondistinctid rows to scan for missing parent person row & deletein a single transaction
+        5000  # persondistinctid rows to scan for missing parent person row & delete in a single transaction
     )
     persons_table: str = "posthog_person_new"  # set safe default we can override after name swap!
     max_id: int | None = None  # Optional override for max ID to resume from partial state
@@ -191,44 +191,26 @@ def scan_delete_chunk_for_pdwp(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Query to find posthog_persondistinctid rows without a parent posthog_person_new row
-                    scan_query = f"""
-SELECT pd.id
-FROM posthog_persondistinctid AS pd
+                    # Delete orphaned posthog_persondistinctid rows and return their IDs
+                    # Using DELETE...RETURNING for efficiency (single query instead of scan + delete)
+                    delete_query = f"""
+DELETE FROM posthog_persondistinctid pd
 WHERE pd.id >= %s AND pd.id <= %s
   AND NOT EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
-    WHERE pd.person_id = p.id
-      AND pd.team_id = p.team_id
+    WHERE p.team_id = pd.team_id
+      AND p.id = pd.person_id
   )
-ORDER BY pd.id
+RETURNING pd.id
 """
-                    cursor.execute(scan_query, (batch_start_id, batch_end_id))
-                    rows = cursor.fetchall()
-                    ids_to_delete = list[int]({int(row["id"]) for row in rows})
-                    records_found = len(ids_to_delete)
+                    cursor.execute(delete_query, (batch_start_id, batch_end_id))
+                    deleted_rows = cursor.fetchall()
+                    records_deleted = len(deleted_rows)
+                    records_found = records_deleted  # With DELETE...RETURNING, found == deleted
 
                     # Commit the transaction
                     cursor.execute("COMMIT")
-
-                    records_deleted = 0
-                    try:
-                        cursor.execute("BEGIN")
-                        placeholders = ",".join(["%s"] * len(ids_to_delete))
-                        cursor.execute(
-                            f"DELETE FROM posthog_persondistinctid WHERE id IN ({placeholders})",
-                            tuple(ids_to_delete),
-                        )
-                        records_deleted += cursor.rowcount
-                        cursor.execute("COMMIT")
-                    except Exception as delete_error:
-                        # bubble up errors to be retried on deadlock etc. or fail the job
-                        context.log.exception(
-                            f"Failed to delete batch of size {len(ids_to_delete)} "
-                            f"(min={min(ids_to_delete)}, max={max(ids_to_delete)}): {delete_error}"
-                        )
-                        raise
 
                     try:
                         metrics_client.increment(
