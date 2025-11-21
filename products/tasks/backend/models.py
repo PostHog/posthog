@@ -269,6 +269,13 @@ class TaskRun(models.Model):
         help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
     )
 
+    # Artifact manifest describing files uploaded to S3 for this run.
+    artifacts = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="List of artifacts uploaded to S3 for this run.",
+    )
+
     # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
     state = models.JSONField(
         default=dict,
@@ -296,6 +303,11 @@ class TaskRun(models.Model):
         """Generate S3 path for this run's logs"""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
+
+    def get_artifact_s3_prefix(self) -> str:
+        """Base prefix for storing artifacts in S3"""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""

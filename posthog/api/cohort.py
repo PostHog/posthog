@@ -767,6 +767,10 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
 
+        create_in_folder = validated_data.pop("_create_in_folder", None)
+        if create_in_folder is not None:
+            cohort._create_in_folder = create_in_folder or None
+
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
@@ -1298,6 +1302,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
 
         changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
+        activity = "updated"
+        deleted_change = next((change for change in changes if change.field == "deleted"), None)
+        if deleted_change:
+            if bool(deleted_change.after):
+                activity = "deleted"
+            elif bool(deleted_change.before):
+                activity = "restored"
 
         log_activity(
             organization_id=self.organization.id,
@@ -1306,7 +1317,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="Cohort",
-            activity="updated",
+            activity=activity,
             detail=Detail(changes=changes, name=instance.name),
         )
 

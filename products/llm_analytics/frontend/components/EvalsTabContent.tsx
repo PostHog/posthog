@@ -11,13 +11,22 @@ import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 export function EvalsTabContent({
     generationEventId,
     timestamp,
+    event,
+    distinctId,
 }: {
     generationEventId: string
     timestamp: string
+    event: string
+    distinctId?: string
 }): JSX.Element {
     return (
         <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <EvalsTabContentInner generationEventId={generationEventId} timestamp={timestamp} />
+            <EvalsTabContentInner
+                generationEventId={generationEventId}
+                timestamp={timestamp}
+                event={event}
+                distinctId={distinctId}
+            />
         </BindLogic>
     )
 }
@@ -25,9 +34,13 @@ export function EvalsTabContent({
 function EvalsTabContentInner({
     generationEventId,
     timestamp,
+    event,
+    distinctId,
 }: {
     generationEventId: string
     timestamp: string
+    event: string
+    distinctId?: string
 }): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
@@ -64,7 +77,7 @@ function EvalsTabContentInner({
                         icon={<IconCheckCircle />}
                         onClick={() => {
                             if (selectedEvaluationId) {
-                                runEvaluation(selectedEvaluationId, generationEventId, timestamp)
+                                runEvaluation(selectedEvaluationId, generationEventId, timestamp, event, distinctId)
                             }
                         }}
                         loading={evaluationRunLoading}

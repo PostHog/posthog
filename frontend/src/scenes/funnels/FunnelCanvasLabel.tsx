@@ -14,7 +14,8 @@ import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPick
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { FunnelVizType, ProductKey, type QueryBasedInsightModel } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)

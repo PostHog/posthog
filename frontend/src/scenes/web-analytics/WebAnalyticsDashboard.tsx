@@ -42,8 +42,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps, ProductKey } from '~/types'
+import { ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'

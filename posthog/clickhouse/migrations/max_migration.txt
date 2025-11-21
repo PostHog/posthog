@@ -1,1 +1,1 @@
-0178_sessions_v3_insert_delay_settings_and_drop_mvs
+0179_add_materialize_column_slots

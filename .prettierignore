@@ -24,6 +24,7 @@ livestream/
 cli/target/
 cli/tests/_cases/**/*
 frontend/src/products.tsx
+frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
 products/mcp/schema/**/*
