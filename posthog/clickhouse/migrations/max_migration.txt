@@ -1,1 +1,1 @@
-0179_add_materialize_column_slots
+0180_add_metadata_column_to_document_embeddings.

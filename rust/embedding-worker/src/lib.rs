@@ -75,7 +75,7 @@ pub async fn handle_single(
     let metadata = request
         .metadata
         .as_ref()
-        .map(|value| serde_json::to_string(value))
+        .map(serde_json::to_string)
         .transpose()?;
 
     Ok(EmbeddingRecord {
