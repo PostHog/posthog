@@ -6,7 +6,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { ProfessorHog } from 'lib/components/hedgehogs'
+import { RobotHog } from 'lib/components/hedgehogs'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -47,7 +47,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                         onClick={() => setShowFlappyHog(true)}
                         title="Click me!"
                     >
-                        <ProfessorHog className="w-full h-auto" />
+                        <RobotHog className="w-full h-auto" />
                     </div>
                     <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
                     <div className="flex-1">

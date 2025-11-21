@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import professorHogSrc from 'public/hedgehog/professor-hog.png'
+import robotHogSrc from 'public/hedgehog/robot-hog.png'
 
 interface GameState {
     hogY: number
@@ -21,13 +21,41 @@ const HOG_SIZE = 50
 const PIPE_WIDTH = 50
 const PIPE_GAP = 180
 const GRAVITY = 0.4
-const FLAP_STRENGTH = -6
+const FLAP_STRENGTH = -5
 const PIPE_SPEED = 3
+const HIGH_SCORE_KEY = 'flappyHogHighScore'
+
+function getHighScore(): number {
+    try {
+        return parseInt(localStorage.getItem(HIGH_SCORE_KEY) || '0', 10)
+    } catch {
+        return 0
+    }
+}
+
+function saveHighScore(score: number): void {
+    try {
+        localStorage.setItem(HIGH_SCORE_KEY, String(score))
+    } catch {
+        // ignore
+    }
+}
+
+function clearHighScore(): void {
+    try {
+        localStorage.removeItem(HIGH_SCORE_KEY)
+    } catch {
+        // ignore
+    }
+}
 
 export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const gameLoopRef = useRef<number | null>(null)
     const hogImageRef = useRef<HTMLImageElement | null>(null)
+    const [highScore, setHighScoreState] = useState(getHighScore)
+    const highScoreRef = useRef(highScore)
+    highScoreRef.current = highScore
     const [gameState, setGameState] = useState<GameState>({
         hogY: GAME_HEIGHT / 2,
         hogVelocity: 0,
@@ -38,6 +66,11 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     })
     const gameStateRef = useRef(gameState)
     gameStateRef.current = gameState
+
+    const handleClearHighScore = useCallback(() => {
+        clearHighScore()
+        setHighScoreState(0)
+    }, [])
 
     const resetGame = useCallback(() => {
         setGameState({
@@ -64,7 +97,7 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
 
     useEffect(() => {
         const img = new Image()
-        img.src = professorHogSrc
+        img.src = robotHogSrc
         hogImageRef.current = img
     }, [])
 
@@ -132,6 +165,14 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                         }
                     }
 
+                    if (gameOver) {
+                        const finalScore = Math.floor(newDistance / 10)
+                        if (finalScore > highScoreRef.current) {
+                            saveHighScore(finalScore)
+                            setHighScoreState(finalScore)
+                        }
+                    }
+
                     setGameState({
                         hogY: newHogY,
                         hogVelocity: newVelocity,
@@ -153,7 +194,7 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     currentCtx.fillRect(pipe.x, pipe.gapY + PIPE_GAP, PIPE_WIDTH, GAME_HEIGHT - pipe.gapY - PIPE_GAP)
                 }
 
-                // Draw professor hog
+                // Draw robot hog
                 const hogX = GAME_WIDTH / 4
                 const hogY = gameStateRef.current.hogY
                 if (hogImageRef.current && hogImageRef.current.complete) {
@@ -171,12 +212,18 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     currentCtx.fill()
                 }
 
-                // Draw distance score
+                // Draw distance score and high score
                 const displayScore = Math.floor(gameStateRef.current.distance / 10)
                 currentCtx.fillStyle = '#ffffff'
                 currentCtx.font = 'bold 24px sans-serif'
                 currentCtx.textAlign = 'center'
                 currentCtx.fillText(String(displayScore), GAME_WIDTH / 2, 40)
+
+                if (highScoreRef.current > 0) {
+                    currentCtx.font = '14px sans-serif'
+                    currentCtx.fillStyle = '#cccccc'
+                    currentCtx.fillText(`Best: ${highScoreRef.current}`, GAME_WIDTH / 2, 60)
+                }
 
                 // Draw instructions or game over
                 if (!gameStateRef.current.started) {
@@ -190,10 +237,13 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
                     currentCtx.fillStyle = '#ffffff'
                     currentCtx.font = 'bold 24px sans-serif'
-                    currentCtx.fillText('Game Over!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20)
+                    if (displayScore >= highScoreRef.current && displayScore > 0) {
+                        currentCtx.fillText('New High Score!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40)
+                    }
+                    currentCtx.fillText('Game Over!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10)
                     currentCtx.font = '18px sans-serif'
-                    currentCtx.fillText(`Score: ${displayScore}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10)
-                    currentCtx.fillText('Click to play again', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 40)
+                    currentCtx.fillText(`Score: ${displayScore}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20)
+                    currentCtx.fillText('Click to play again', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 50)
                 }
 
                 gameLoopRef.current = requestAnimationFrame(gameLoop)
@@ -234,9 +284,14 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                 <p className="text-muted text-sm mt-2">
                     Click or press Space to fly towards business-critical insights
                 </p>
-                <LemonButton onClick={onClose} className="mt-4">
-                    Close
-                </LemonButton>
+                <div className="flex gap-2 mt-4">
+                    <LemonButton onClick={onClose}>Close</LemonButton>
+                    {highScore > 0 && (
+                        <LemonButton type="tertiary" size="small" onClick={handleClearHighScore}>
+                            Clear high score
+                        </LemonButton>
+                    )}
+                </div>
             </div>
         </LemonModal>
     )
