@@ -24,6 +24,7 @@ import {
     PatternAssignedEventSegmentContext,
     SeverityLevel,
 } from './types'
+import { getIssueTags } from './utils'
 
 export const scene: SceneExport<SessionGroupSummarySceneLogicProps> = {
     component: SessionGroupSummary,
@@ -70,9 +71,11 @@ function SessionExampleCard({
 }): JSX.Element {
     const { target_event, segment_outcome } = event
 
+    const issueTags = getIssueTags(target_event)
+
     return (
         <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2">
                 <Tooltip title="View details" placement="right">
                     <h4 className="mb-0 text-link hover:underline cursor-pointer" onClick={onViewDetails}>
                         {target_event.description}
@@ -81,6 +84,7 @@ function SessionExampleCard({
                         </span>
                     </h4>
                 </Tooltip>
+                {issueTags.length > 0 && <div className="flex items-center gap-1">{issueTags}</div>}
             </div>
             <div className="mb-2">
                 <SessionGroupSummaryDetailsMetadata event={event} />
