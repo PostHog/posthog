@@ -495,8 +495,11 @@ class FeatureFlagHashKeyOverride(models.Model):
     # A standard id foreign key leads to INNER JOINs every time we want to get the key
     # and we only ever want to get the key.
     feature_flag_key = models.CharField(max_length=400)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
     hash_key = models.CharField(max_length=400)
 
     class Meta:
