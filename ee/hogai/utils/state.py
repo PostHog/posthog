@@ -4,7 +4,6 @@ from langchain_core.messages import AIMessageChunk
 from structlog import get_logger
 
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
-from ee.hogai.research_agent.types import DeepResearchNodeName, PartialDeepResearchState
 from ee.hogai.utils.types.base import PartialAssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
@@ -34,8 +33,6 @@ def validate_value_update(
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):
                 validated_update[node_name] = TaxonomyAgentState.model_validate(value)
-            elif isinstance(node_name, DeepResearchNodeName):
-                validated_update[node_name] = PartialDeepResearchState.model_validate(value)
             else:
                 validated_update[node_name] = PartialAssistantState.model_validate(value)
         else:
