@@ -8,7 +8,7 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
@@ -25,8 +25,8 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOG_LIMIT = 100
-const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 3000
-const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 10000
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 3000
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -107,6 +107,8 @@ export const logsLogic = kea<logsLogicType>([
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
+        setLiveLogsCheckpoint: (liveLogsCheckpoint: string) => ({ liveLogsCheckpoint }),
+        setLastSparklineUpdate: (lastSparklineUpdate: Dayjs) => ({ lastSparklineUpdate }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -124,10 +126,14 @@ export const logsLogic = kea<logsLogicType>([
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
-        setLiveTailEnabled: (enabled: boolean) => ({ enabled }),
+        setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         pollForNewLogs: true,
         setLogs: (logs: LogMessage[]) => ({ logs }),
+        setSparkline: (sparkline: any[]) => ({ sparkline }),
+        expireLiveTail: () => true,
+        setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
+        addLogsToSparkline: (logs: LogMessage[]) => logs,
     }),
 
     reducers({
@@ -177,6 +183,21 @@ export const logsLogic = kea<logsLogicType>([
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        liveLogsCheckpoint: [
+            null as string | null,
+            { persist: false },
+            {
+                setLiveLogsCheckpoint: (_, { liveLogsCheckpoint }) => liveLogsCheckpoint,
+            },
+        ],
+        liveTailExpired: [
+            true as boolean,
+            { persist: false },
+            {
+                setLiveTailExpired: (_, { liveTailExpired }) => liveTailExpired,
+                fetchLogsSuccess: () => false,
             },
         ],
         prettifyJson: [
@@ -254,23 +275,28 @@ export const logsLogic = kea<logsLogicType>([
               unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
-        liveTailEnabled: [
+        liveTailRunning: [
             false as boolean,
             {
-                setLiveTailEnabled: (_, { enabled }) => enabled,
+                setLiveTailRunning: (_, { enabled }) => enabled,
                 setDateRange: () => false,
                 setFilterGroup: () => false,
                 setSearchTerm: () => false,
                 setSeverityLevels: () => false,
                 setServiceNames: () => false,
                 setOrderBy: () => false,
-                runQuery: () => false,
             },
         ],
         liveTailPollInterval: [
             DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS as number,
             {
                 setLiveTailInterval: (_, { interval }) => interval,
+            },
+        ],
+        sparkline: [
+            [] as any[],
+            {
+                setSparkline: (_, { sparkline }) => sparkline,
             },
         ],
     }),
@@ -297,6 +323,13 @@ export const logsLogic = kea<logsLogicType>([
                     signal,
                 })
                 actions.setLogsAbortController(null)
+                // expire live tail has a 30 second delay
+                actions.expireLiveTail()
+                if (response.results.length > 0) {
+                    // the live_logs_checkpoint is the latest known timestamp for which we know we have all logs up to that point
+                    // it's returned from clickhouse as a value on every log row - but the value is fixed per query
+                    actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint)
+                }
                 response.results.forEach((row) => {
                     Object.keys(row.attributes).forEach((key) => {
                         const value = row.attributes[key]
@@ -329,20 +362,34 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setSparklineAbortController(null)
                     return response
                 },
+                setSparkline: ({ sparkline }) => sparkline,
             },
         ],
     })),
 
     selectors(() => ({
         liveTailDisabledReason: [
-            (s) => [s.orderBy, s.dateRange],
-            (orderBy: LogsQuery['orderBy'], dateRange: DateRange): string | undefined => {
+            (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
+            (
+                orderBy: LogsQuery['orderBy'],
+                dateRange: DateRange,
+                logsLoading: boolean,
+                liveTailExpired: boolean
+            ): string | undefined => {
                 if (orderBy !== 'latest') {
                     return 'Live tail only works with "Latest" ordering'
                 }
 
                 if (dateRange.date_to) {
                     return 'Live tail requires an open-ended time range'
+                }
+
+                if (logsLoading) {
+                    return 'Wait for query to finish'
+                }
+
+                if (liveTailExpired) {
+                    return 'Live tail has expired, run search again to live tail'
                 }
 
                 return undefined
@@ -396,7 +443,7 @@ export const logsLogic = kea<logsLogicType>([
         ],
         sparklineData: [
             (s) => [s.sparkline],
-            (sparkline) => {
+            (sparkline: any[]) => {
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
@@ -404,16 +451,20 @@ export const logsLogic = kea<logsLogicType>([
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    showNow: false,
+                                })
+                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
                         }
                         const key = currentItem.level
                         if (!accumulator[key]) {
-                            accumulator[key] = Array(sparkline.length)
+                            accumulator[key] = [...Array(sparkline.length)].map(() => 0)
                         }
-                        accumulator[key][i] = currentItem.count
+                        accumulator[key][i] += currentItem.count
                         return accumulator
                     }, {})
                 )
@@ -490,6 +541,13 @@ export const logsLogic = kea<logsLogicType>([
             }
             actions.setDateRange(newDateRange)
         },
+        expireLiveTail: async ({}, breakpoint) => {
+            await breakpoint(30000)
+            if (values.liveTailRunning) {
+                return
+            }
+            actions.setLiveTailExpired(true)
+        },
         addFilter: ({ key, value, operator }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
 
@@ -519,41 +577,46 @@ export const logsLogic = kea<logsLogicType>([
                 }
             }
         },
-        setLiveTailEnabled: ({ enabled }) => {
+        setLiveTailRunning: async ({ enabled }) => {
             if (enabled) {
                 actions.pollForNewLogs()
             } else {
                 actions.cancelInProgressLiveTail(null)
+                actions.expireLiveTail()
             }
         },
         pollForNewLogs: async () => {
-            if (!values.liveTailEnabled || values.orderBy !== 'latest') {
+            if (!values.liveTailRunning || values.orderBy !== 'latest' || document.hidden) {
                 return
             }
 
             const liveTailController = new AbortController()
             const signal = liveTailController.signal
             actions.cancelInProgressLiveTail(liveTailController)
-
-            const mostRecentLog = values.logs[0]
-            const dateFrom = mostRecentLog?.timestamp ?? values.utcDateRange.date_from
+            let duration = 0
 
             try {
+                const start = Date.now()
                 const response = await api.logs.query({
                     query: {
                         limit: DEFAULT_LOG_LIMIT,
                         orderBy: values.orderBy,
-                        dateRange: {
-                            date_from: dateFrom,
-                            date_to: null,
-                        },
+                        dateRange: values.utcDateRange,
                         searchTerm: values.searchTerm,
                         filterGroup: values.filterGroup as PropertyGroupFilter,
                         severityLevels: values.severityLevels,
                         serviceNames: values.serviceNames,
+                        liveLogsCheckpoint: values.liveLogsCheckpoint,
                     },
                     signal,
                 })
+                duration = Date.now() - start
+
+                if (response.results.length > 0) {
+                    // the live_logs_checkpoint is the latest known timestamp for which we know we have all logs up to that point
+                    // it's returned from clickhouse as a value on every log row - but the value is fixed per query
+                    actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint)
+                }
 
                 response.results.forEach((row) => {
                     Object.keys(row.attributes).forEach((key) => {
@@ -567,7 +630,15 @@ export const logsLogic = kea<logsLogicType>([
 
                 if (newLogs.length > 0) {
                     actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
-                    actions.setLogs([...newLogs, ...values.logs].slice(0, DEFAULT_LOG_LIMIT))
+                    actions.setLogs(
+                        [
+                            ...newLogs.map((log) => ({ ...log, new: true })),
+                            ...values.logs.map((log) => ({ ...log, new: false })),
+                        ]
+                            .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+                            .slice(0, DEFAULT_LOG_LIMIT)
+                    )
+                    actions.addLogsToSparkline(newLogs)
                 } else {
                     const newInterval = Math.min(
                         values.liveTailPollInterval * 1.5,
@@ -580,24 +651,71 @@ export const logsLogic = kea<logsLogicType>([
                     return
                 }
                 console.error('Live tail polling error:', error)
-                actions.setLiveTailEnabled(false)
+                actions.setLiveTailRunning(false)
             } finally {
                 actions.setLiveTailAbortController(null)
-                if (values.liveTailEnabled) {
+                if (values.liveTailRunning) {
                     cache.disposables.add(() => {
-                        const timerId = setTimeout(() => {
-                            actions.pollForNewLogs()
-                        }, values.liveTailPollInterval)
+                        const timerId = setTimeout(
+                            () => {
+                                actions.pollForNewLogs()
+                            },
+                            Math.min(duration, values.liveTailPollInterval)
+                        )
                         return () => clearTimeout(timerId)
                     }, 'liveTailTimer')
                 }
             }
         },
+        // insert logs into the sparkline data
+        addLogsToSparkline: (logs: LogMessage[]) => {
+            // if the sparkline hasn't loaded do nothing.
+            if (!values.sparkline || values.sparkline.length < 2) {
+                return
+            }
+
+            const first_bucket = values.sparklineData.dates[0]
+            const last_bucket = values.sparklineData.dates[values.sparklineData.dates.length - 1]
+            const duration = dayjs(last_bucket).diff(first_bucket, 'seconds')
+            const interval = dayjs(values.sparklineData.dates[1]).diff(first_bucket, 'seconds')
+            let latest_time_bucket = dayjs(last_bucket)
+            for (const log of logs) {
+                const time_bucket = dayjs.unix(Math.floor(dayjs(log.timestamp).unix() / interval) * interval)
+                if (time_bucket.isAfter(latest_time_bucket)) {
+                    latest_time_bucket = time_bucket
+                }
+                // insert all new logs into the sparkline data as their own bucket - we'll later aggregate them
+                values.sparkline.push({ time: time_bucket.toISOString(), level: log.level, count: 1 })
+            }
+            actions.setSparkline(
+                values.sparkline
+                    .sort(
+                        // sort buckets by time, then level
+                        (a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.level.localeCompare(b.level)
+                    )
+                    .reduce((acc, curr) => {
+                        // aggregate buckets by time and level
+                        const index = acc.findIndex(
+                            (item) => dayjs(item.time).isSame(dayjs(curr.time)) && item.level === curr.level
+                        )
+                        if (index === -1) {
+                            // haven't seen this time/level combo before, add it to the accumulator
+                            acc.push(curr)
+                        } else {
+                            // increase existing bucket
+                            acc[index].count += curr.count
+                        }
+                        return acc
+                        // Keep the overall sparkline time range the same by dropping older buckets
+                    }, [])
+                    .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= duration)
+            )
+        },
     })),
 
     events(({ values, actions }) => ({
         beforeUnmount: () => {
-            actions.setLiveTailEnabled(false)
+            actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
             if (values.logsAbortController) {
                 values.logsAbortController.abort('unmounting component')

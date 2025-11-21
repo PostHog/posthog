@@ -78,7 +78,7 @@ export function LogsScene(): JSX.Element {
         timestampFormat === 'absolute'
             ? {
                   formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
+                  formatTime: 'HH:mm:ss.SSS',
               }
             : {}
 
@@ -195,6 +195,8 @@ function LogsTable({
             loading={loading}
             size="small"
             embedded
+            rowKey={(record) => record.uuid}
+            rowStatus={(record) => (record.new ? 'highlight-new' : undefined)}
             rowClassName={(record) =>
                 isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
             }
@@ -356,8 +358,8 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { logsLoading, liveTailEnabled, liveTailDisabledReason } = useValues(logsLogic)
-    const { runQuery, zoomDateRange, setLiveTailEnabled } = useActions(logsLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -385,19 +387,19 @@ const Filters = (): JSX.Element => {
                         icon={<IconRefresh />}
                         type="secondary"
                         onClick={() => runQuery()}
-                        loading={logsLoading}
-                        disabledReason={liveTailEnabled ? 'Disable live tail to manually refresh' : undefined}
+                        loading={logsLoading || liveTailRunning}
+                        disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
                     </LemonButton>
                     <LemonButton
                         size="small"
-                        type={liveTailEnabled ? 'primary' : 'secondary'}
-                        icon={liveTailEnabled ? <IconPauseCircle /> : <IconPlayCircle />}
-                        onClick={() => setLiveTailEnabled(!liveTailEnabled)}
-                        disabledReason={liveTailEnabled ? undefined : liveTailDisabledReason}
+                        type={liveTailRunning ? 'primary' : 'secondary'}
+                        icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                        onClick={() => setLiveTailRunning(!liveTailRunning)}
+                        disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
                     >
-                        {liveTailEnabled ? 'Live tail' : 'Live tail'}
+                        Live tail
                     </LemonButton>
                 </div>
             </div>
