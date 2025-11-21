@@ -159,10 +159,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
 
-        # check if all saved metrics exist
-        saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
+        # check if all saved metrics exist and belong to the same team
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
+        )
         if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist")
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
 
         return value
 
