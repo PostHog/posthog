@@ -129,6 +129,96 @@ def test_user_and_assistant_messages_accumulate():
         assert props["$ai_output_choices"][0]["content"] == "Why did the chicken cross the road?"
 
 
+def test_tool_messages_accumulate():
+    """Test that tool messages are properly handled and accumulate in conversation history."""
+    parsed_request = {
+        "logs": [
+            {
+                "trace_id": "trace999",
+                "span_id": "span888",
+                "attributes": {"event.name": "gen_ai.user.message"},
+                "body": {"content": "What's the weather in Paris?"},
+                "time_unix_nano": 1000000000,
+            },
+            {
+                "trace_id": "trace999",
+                "span_id": "span888",
+                "attributes": {"event.name": "gen_ai.assistant.message"},
+                "body": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_123",
+                            "type": "function",
+                            "function": {"name": "get_weather", "arguments": '{"location":"Paris"}'},
+                        }
+                    ],
+                },
+                "time_unix_nano": 2000000000,
+            },
+            {
+                "trace_id": "trace999",
+                "span_id": "span888",
+                "attributes": {"event.name": "gen_ai.tool.message"},
+                "body": {"content": "Sunny, 18°C", "id": "call_123"},
+                "time_unix_nano": 3000000000,
+            },
+            {
+                "trace_id": "trace999",
+                "span_id": "span888",
+                "attributes": {"event.name": "gen_ai.choice"},
+                "body": {
+                    "message": {"role": "assistant", "content": "The weather in Paris is sunny with 18°C."},
+                    "finish_reason": "stop",
+                },
+                "time_unix_nano": 4000000000,
+            },
+        ],
+        "resource": {"service.name": "test-service"},
+        "scope": {"name": "test-scope"},
+    }
+
+    with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
+
+        def merger_side_effect(trace_id, span_id, props, is_trace):
+            # Return accumulated properties once we have all messages
+            if "$ai_input" in props and "$ai_output_choices" in props and len(props["$ai_input"]) >= 3:
+                return props
+            return None
+
+        mock_merger.side_effect = merger_side_effect
+
+        _events = transform_logs_to_ai_events(parsed_request)
+
+        # Verify tool message was properly accumulated
+        assert mock_merger.call_count == 1
+        call_args = mock_merger.call_args
+        props = call_args[0][2]
+
+        # $ai_input should have: user, assistant (with tool_calls), tool
+        assert "$ai_input" in props
+        assert len(props["$ai_input"]) == 3
+
+        # Verify user message
+        assert props["$ai_input"][0]["role"] == "user"
+        assert props["$ai_input"][0]["content"] == "What's the weather in Paris?"
+
+        # Verify assistant message with tool_calls
+        assert props["$ai_input"][1]["role"] == "assistant"
+        assert "tool_calls" in props["$ai_input"][1]
+        assert props["$ai_input"][1]["tool_calls"][0]["id"] == "call_123"
+
+        # Verify tool message with tool_call_id
+        assert props["$ai_input"][2]["role"] == "tool"
+        assert props["$ai_input"][2]["content"] == "Sunny, 18°C"
+        assert props["$ai_input"][2]["tool_call_id"] == "call_123"
+
+        # Verify final response in output
+        assert "$ai_output_choices" in props
+        assert len(props["$ai_output_choices"]) == 1
+        assert props["$ai_output_choices"][0]["content"] == "The weather in Paris is sunny with 18°C."
+
+
 def test_non_array_properties_are_overwritten():
     """Test that non-array properties use last-value-wins behavior."""
     parsed_request = {
