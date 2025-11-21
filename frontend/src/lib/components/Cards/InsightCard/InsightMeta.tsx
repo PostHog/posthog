@@ -28,6 +28,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
+import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -67,6 +68,7 @@ interface InsightMetaProps
         | 'filtersOverride'
         | 'variablesOverride'
         | 'placement'
+        | 'surveyOpportunity'
     > {
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
@@ -98,6 +100,7 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
     placement,
+    surveyOpportunity,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
@@ -153,6 +156,13 @@ export function InsightMeta({
                     tooltip="Dislike this insight"
                     disabledReason={insightFeedback === 'disliked' ? 'Already disliked' : ''}
                 />
+            </div>
+        ) : null
+
+    const surveyOpportunityButton =
+        surveyOpportunity && featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] ? (
+            <div className="flex">
+                <SurveyOpportunityButton insight={insight} />
             </div>
         ) : null
 
@@ -415,7 +425,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
-            extraControls={feedbackButtons}
+            extraControls={surveyOpportunityButton ?? feedbackButtons}
         />
     )
 }
