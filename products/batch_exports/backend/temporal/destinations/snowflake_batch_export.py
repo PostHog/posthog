@@ -727,11 +727,23 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         col_names = [field[0] for field in table_fields]
+        final_table_column_names = await self.aget_table_columns(table_name)
+
+        aliases = {}
+        for column in col_names:
+            if column not in final_table_column_names and column.upper() in final_table_column_names:
+                aliases[column] = column.upper()
+            else:
+                aliases[column] = column
+
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+            f'PARSE_JSON($1:"{col_name}") AS "{alias}"'
+            if col_name in known_json_columns
+            else f'$1:"{col_name}" AS "{alias}"'
+            for col_name, alias in aliases.items()
         )
         query = f"""
-        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in col_names)})
+        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in final_table_column_names)})
         FROM (
             SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
