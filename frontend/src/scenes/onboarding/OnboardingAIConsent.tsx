@@ -14,9 +14,10 @@ import { OnboardingStepKey } from '~/types'
 import { OnboardingStep } from './OnboardingStep'
 
 const EXAMPLE_PROMPTS = [
-    "What's my churn rate?",
-    "What's our most popular feature?",
-    'Why are people dropping off before conversion?',
+    'Show me recordings of users rage-clicking the paywall',
+    'What does LTV mean?',
+    'Build me a conversion funnel',
+    'How many people actually use the dashboard?',
 ]
 
 export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
@@ -48,11 +49,13 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                             <Link to="https://posthog.com/docs/posthog-ai" target="_blank" disableDocsPanel>
                                 PostHog AI
                             </Link>{' '}
-                            can answer product questions, build filters and queries, and teach you everything you need
-                            to know about PostHog.
+                            can answer product questions, build filters and queries, and won't judge you for asking
+                            "what's a funnel?" for the third time.
                         </p>
                         <div>
-                            <p className="text-muted text-sm mb-2">Try asking things like:</p>
+                            <p className="text-muted text-sm mb-2">
+                                Ask it things you'd be too embarrassed to ask a coworker:
+                            </p>
                             <div className="flex flex-wrap gap-2">
                                 {EXAMPLE_PROMPTS.map((prompt) => (
                                     <div
