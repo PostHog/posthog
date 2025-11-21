@@ -24,9 +24,7 @@
         "build:products": "DEBUG=0 node build-products.mjs",
         "build:tailwind": "pnpm --filter=@posthog/tailwind build",
         "watch:tailwind": "pnpm --filter=@posthog/tailwind start",
-        "start": "if [ -n \"$SKIP_TYPEGEN\" ]; then pnpm start-no-typegen; else pnpm start-all; fi",
-        "start-all": "concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\"",
-        "start-no-typegen": "concurrently -n ESBUILD,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
+        "start": "concurrently -n ESBUILD,TAILWIND -c yellow,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "typegen:check": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen check",
@@ -46,7 +44,7 @@
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
-        "start-vite": "pnpm build:products && concurrently -n VITE,TYPEGEN,TAILWIND -c green,blue,yellow  \"vite --host 0.0.0.0\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\""
+        "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND -c green,yellow \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\""
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
@@ -88,6 +86,7 @@
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",
+        "@posthog/products-session-summaries": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",
@@ -193,7 +192,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.296.1",
+        "posthog-js": "1.297.0",
         "posthog-js-lite": "4.1.0",
         "prettier": "^3.6.2",
         "prop-types": "^15.7.2",

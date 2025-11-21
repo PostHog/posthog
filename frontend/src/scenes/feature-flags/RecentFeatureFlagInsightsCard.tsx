@@ -6,8 +6,8 @@ import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ProductKey, QueryBasedInsightModel } from '~/types'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { BaseMathType, QueryBasedInsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 

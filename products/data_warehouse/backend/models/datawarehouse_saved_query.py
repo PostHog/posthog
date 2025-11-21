@@ -129,7 +129,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def enable_materialization(self, unpause: bool = False):
+    def schedule_materialization(self, unpause: bool = False):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.

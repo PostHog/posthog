@@ -44,6 +44,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize all sessions from yesterday",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="All sessions from yesterday",
                     session_summarization_limit=-1,
                 )
@@ -61,6 +62,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         async def mock_ainvoke(state):
             self.assertEqual(state.session_summarization_query, "analyze mobile user sessions")
             self.assertEqual(state.should_use_current_filters, True)
+            self.assertEqual(state.specific_session_ids_to_summarize, [])
             self.assertEqual(state.summary_title, "Mobile user sessions")
             self.assertEqual(state.root_tool_call_id, self.tool_call_id)
             return mock_result
@@ -73,6 +75,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await self.tool._arun_impl(
                     session_summarization_query="analyze mobile user sessions",
                     should_use_current_filters=True,
+                    specific_session_ids_to_summarize=[],
                     summary_title="Mobile user sessions",
                     session_summarization_limit=-1,
                 )
@@ -82,6 +85,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         async def mock_ainvoke(state):
             self.assertEqual(state.should_use_current_filters, False)
+            self.assertEqual(state.specific_session_ids_to_summarize, [])
             self.assertEqual(state.session_summarization_query, "watch last 300 session recordings")
             self.assertEqual(state.summary_title, "Last 300 sessions")
             return mock_result
@@ -94,6 +98,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await self.tool._arun_impl(
                     session_summarization_query="watch last 300 session recordings",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="Last 300 sessions",
                     session_summarization_limit=300,
                 )
@@ -111,6 +116,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     await self.tool._arun_impl(
                         session_summarization_query="test query",
                         should_use_current_filters=False,
+                        specific_session_ids_to_summarize=[],
                         summary_title="Test",
                         session_summarization_limit=-1,
                     )
@@ -133,6 +139,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     await self.tool._arun_impl(
                         session_summarization_query="test query",
                         should_use_current_filters=False,
+                        specific_session_ids_to_summarize=[],
                         summary_title="Test",
                         session_summarization_limit=-1,
                     )
@@ -155,6 +162,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize sessions",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="",
                     session_summarization_limit=-1,
                 )
@@ -194,6 +202,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await tool._arun_impl(
                     session_summarization_query="new query",
                     should_use_current_filters=True,
+                    specific_session_ids_to_summarize=[],
                     summary_title="New Summary",
                     session_summarization_limit=-1,
                 )

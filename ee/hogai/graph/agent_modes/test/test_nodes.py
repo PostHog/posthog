@@ -16,6 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AgentMode,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -379,7 +380,14 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Test with contextual tools
             config = RunnableConfig(
-                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
+                configurable={
+                    "contextual_tools": {
+                        "search_session_recordings": {
+                            "current_filters": {"duration": ">"},
+                            "current_session_id": "00000000-0000-0000-0000-000000000001",
+                        }
+                    }
+                }
             )
             # Set config before calling arun
             node._config = config
@@ -775,8 +783,16 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
 
+    def test_get_updated_agent_mode(self):
+        node = _create_agent_node(self.team, self.user)
+        message = AssistantMessage(content="test")
+        self.assertEqual(
+            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
+        )
+        self.assertIsNone(node._get_updated_agent_mode(message, None))
 
-class TestAgentToolsNode(BaseTest):
+
+class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
         node = _create_agent_tools_node(self.team, self.user)
 
@@ -992,6 +1008,53 @@ class TestAgentToolsNode(BaseTest):
         self.assertIn("INKEEP_API_KEY", result.messages[0].content)
         self.assertNotIn("retry", result.messages[0].content.lower())
 
+    @patch("ee.hogai.graph.agent_modes.nodes.posthoganalytics.capture")
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_fatal_error_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
+        """Test that MaxToolFatalError emits a PostHog analytics event."""
+        error_message = "Configuration error: INKEEP_API_KEY environment variable is not set"
+        read_taxonomy_mock.side_effect = MaxToolFatalError(error_message)
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that will fail",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        # Provide a config with distinct_id so the capture is triggered
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        await node.arun(state, config)
+
+        # Verify posthoganalytics.capture was called
+        capture_mock.assert_called_once()
+        call_args = capture_mock.call_args
+
+        # Verify event name
+        self.assertEqual(call_args.kwargs["event"], "max_tool_error")
+
+        # Verify distinct_id is set
+        self.assertEqual(call_args.kwargs["distinct_id"], "test-user-123")
+
+        # Verify properties
+        properties = call_args.kwargs["properties"]
+        self.assertEqual(properties["tool_name"], "read_taxonomy")
+        self.assertEqual(properties["error_type"], "MaxToolFatalError")
+        self.assertEqual(properties["retry_strategy"], "never")
+        self.assertEqual(properties["error_message"], error_message)
+
+        # Verify groups are set
+        groups = call_args.kwargs["groups"]
+        self.assertIn("organization", groups)
+        self.assertIn("project", groups)
+
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolRetryableError includes retry hint for adjusted inputs."""
@@ -1119,3 +1182,51 @@ class TestAgentToolsNode(BaseTest):
             self.assertIsInstance(captured_error, MaxToolError)
             self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
             self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
+        """Test that pydantic ValidationError is caught and converted to tool message."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        read_taxonomy_mock.side_effect = PydanticValidationError.from_exception_data(
+            "ValidationError",
+            [
+                {
+                    "type": "missing",
+                    "loc": ("query", "kind"),
+                    "input": {},
+                }
+            ],
+        )
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool with invalid args",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        with patch("ee.hogai.graph.agent_modes.nodes.capture_exception") as mock_capture:
+            result = await node.arun(state, {})
+
+            self.assertIsInstance(result, PartialAssistantState)
+            assert result is not None
+            self.assertEqual(len(result.messages), 1)
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
+            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
+            self.assertIn("validation error", result.messages[0].content.lower())
+            self.assertIn("field required", result.messages[0].content.lower())
+
+            # Verify exception was captured
+            mock_capture.assert_called_once()
+            captured_error = mock_capture.call_args.args[0]
+            from pydantic import ValidationError as PydanticValidationError
+
+            self.assertIsInstance(captured_error, PydanticValidationError)

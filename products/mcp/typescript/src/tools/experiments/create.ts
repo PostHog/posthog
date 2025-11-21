@@ -26,14 +26,7 @@ export const createExperimentHandler: ToolBase<typeof schema>['handler'] = async
         url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${experiment.id}`,
     }
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: JSON.stringify(experimentWithUrl, null, 2),
-            },
-        ],
-    }
+    return experimentWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({

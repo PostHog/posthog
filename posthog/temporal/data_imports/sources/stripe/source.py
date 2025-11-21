@@ -5,6 +5,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SuggestedTable,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -13,6 +14,13 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
@@ -70,6 +78,28 @@ You can also simplify the setup by selecting **read** for the **entire resource*
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table=CUSTOMER_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=CHARGE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=INVOICE_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=SUBSCRIPTION_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+                SuggestedTable(
+                    table=PRODUCT_RESOURCE_NAME,
+                    tooltip="Enable for the best Revenue analytics experience.",
+                ),
+            ],
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

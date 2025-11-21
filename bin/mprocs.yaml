@@ -15,6 +15,9 @@ procs:
         shell: './bin/start-frontend'
         autorestart: true
 
+    typegen:
+        shell: 'if [ -n "$SKIP_TYPEGEN" ]; then exit 0; fi && cd frontend && pnpm run typegen:watch'
+
     temporal-worker:
         shell: |-
             bin/check_kafka_clickhouse_up && \
@@ -96,13 +99,18 @@ procs:
     migrate-behavioral-cohorts:
         shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts'
 
-    # This will automatically skip if we've already seeded the DB with demo data
     generate-demo-data:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/check_dagster_graphql_up && \
             ./manage.py generate_demo_data
+        autostart: false
+
+    sync-feature-flags:
+        shell: |-
+            bin/check_postgres_up && \
+            ./manage.py sync_feature_flags
         autostart: false
 
     storybook:

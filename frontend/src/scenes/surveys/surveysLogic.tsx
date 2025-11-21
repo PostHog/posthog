@@ -19,7 +19,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
