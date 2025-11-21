@@ -87,11 +87,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                             <p className="text-muted text-sm mb-0">
                                 PostHog AI uses third-party LLM providers (OpenAI and Anthropic) for data analysis. Your
                                 data will not be used for training models.{' '}
-                                <Link
-                                    to="https://posthog.com/docs/posthog-ai#is-my-data-shared-with-third-parties"
-                                    target="_blank"
-                                    disableDocsPanel
-                                >
+                                <Link to="https://posthog.com/docs/posthog-ai/faq" target="_blank" disableDocsPanel>
                                     Learn more
                                 </Link>
                             </p>
