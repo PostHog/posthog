@@ -500,11 +500,8 @@ ssh_authorized_keys:
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
 
-        # Export SSH private key as multiline env var with masking to prevent accidental exposure in logs
+        # Export SSH private key as multiline env var (do not print - would expose in logs)
         if self.ssh_private_key:
-            # Mask the private key in GitHub Actions logs
-            print(f"::add-mask::{self.ssh_private_key}", flush=True)
-
             with open(env_file_name, "a") as env_file:
                 env_file.write("HOBBY_SSH_PRIVATE_KEY<<EOFKEY\n")
                 env_file.write(self.ssh_private_key)
