@@ -214,7 +214,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 }
 
                 const timeseriesData = timeseries.timeseries || {}
-                const computedDays = Object.values(timeseriesData).filter(value => value !== null).length
+                const computedDays = Object.values(timeseriesData).filter((value) => value !== null).length
                 const totalDays = Object.keys(timeseriesData).length
 
                 if (totalDays === 0) {
