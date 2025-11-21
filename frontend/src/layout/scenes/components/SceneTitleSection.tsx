@@ -375,6 +375,7 @@ function SceneName({
                         fullWidth
                         truncate
                         inert={readOnly}
+                        role="heading"
                     >
                         <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
                         {canEdit && !forceEdit && <IconPencil />}
