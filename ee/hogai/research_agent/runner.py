@@ -8,8 +8,8 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.research_agent.graph import DeepResearchAssistantGraph
+from ee.hogai.research_agent.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.utils.types import AssistantMode, AssistantOutput
 from ee.models import Conversation
 

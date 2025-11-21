@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field, create_model
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.helpers import format_events_yaml

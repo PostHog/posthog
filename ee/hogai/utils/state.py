@@ -3,8 +3,8 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union
 from langchain_core.messages import AIMessageChunk
 from structlog import get_logger
 
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, PartialDeepResearchState
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.research_agent.types import DeepResearchNodeName, PartialDeepResearchState
 from ee.hogai.utils.types.base import PartialAssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
