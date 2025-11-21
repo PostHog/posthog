@@ -158,15 +158,27 @@ def build_event_properties(
                 properties["$ai_input"] = [{"role": role, "content": body["content"]}]
 
         # Assistant messages: {"content": "..."} or {"tool_calls": [...]}
+        # These are previous messages in conversation history, so they go into $ai_input
         elif "gen_ai.assistant.message" in event_name:
             message = {"role": "assistant"}
             if "content" in body:
                 message["content"] = body["content"]
             if "tool_calls" in body:
                 message["tool_calls"] = body["tool_calls"]
-            properties["$ai_output_choices"] = [message]
+            properties["$ai_input"] = [message]
+
+        # Tool messages: {"content": "...", "id": "tool_call_id"}
+        # These are tool execution results in conversation history, so they go into $ai_input
+        elif "gen_ai.tool.message" in event_name:
+            message = {"role": "tool"}
+            if "content" in body:
+                message["content"] = body["content"]
+            if "id" in body:
+                message["tool_call_id"] = body["id"]
+            properties["$ai_input"] = [message]
 
         # Choice events: {"index": 0, "finish_reason": "stop", "message": {...}}
+        # This is the CURRENT response, so it goes into $ai_output_choices
         elif "gen_ai.choice" in event_name and "message" in body:
             message_obj = body["message"]
             choice = {"role": message_obj.get("role", "assistant")}

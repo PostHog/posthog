@@ -728,8 +728,17 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
             accumulated_props = {}
             for log_record in span_logs:
                 props = build_event_properties(log_record, log_record.get("attributes", {}), resource, scope)
-                # Merge properties (later logs override earlier ones)
-                accumulated_props = {**accumulated_props, **props}
+                # Merge properties with special handling for arrays
+                for key, value in props.items():
+                    if key in ("$ai_input", "$ai_output_choices"):
+                        # Concatenate message arrays instead of overwriting
+                        if key in accumulated_props and isinstance(accumulated_props[key], list):
+                            accumulated_props[key] = accumulated_props[key] + value
+                        else:
+                            accumulated_props[key] = value
+                    else:
+                        # For non-array fields, later values override earlier ones
+                        accumulated_props[key] = value
 
             # Now call event merger once with all accumulated properties
             from .event_merger import cache_and_merge_properties
